@@ -18,18 +18,20 @@ After tests pass, also verify:
 
 ## Milestone Overview
 
-| #   | Name                       | Gate tests                                  | Depends on |
-| --- | -------------------------- | ------------------------------------------- | ---------- |
-| M1  | DSL Parser                 | `test_parse.py`                             | —          |
-| M2  | Graph Builder              | `test_graph.py`                             | M1         |
-| M3  | PathModel + Design Matrices| `test_compile.py::TestDesignMatrix`         | M1, M2     |
-| M4  | Gaussian Compiler          | `test_compile.py` (all)                     | M3         |
-| M5  | Introspection              | `test_introspection.py`                     | M4         |
-| M6  | do() Cross-sectional       | `test_do.py`                                | M4         |
-| M7  | Residual Covariance (~~)   | `test_residual_cov.py`                      | M4         |
-| M8  | Effects + Defined Params   | `test_effects.py`                           | M4         |
-| M9  | Integration Smoke Tests    | `test_smoke.py`                             | M1–M8      |
-| M10 | Documentation              | `cd docs && quarto render` exits 0          | M9         |
+| #   | Name                       | Gate tests                                  | Depends on | Status |
+| --- | -------------------------- | ------------------------------------------- | ---------- | ------ |
+| M1  | DSL Parser                 | `test_parse.py`                             | —          | ✓      |
+| M2  | Graph Builder              | `test_graph.py`                             | M1         | ✓      |
+| M3  | PathModel + Design Matrices| `test_compile.py::TestDesignMatrix`         | M1, M2     | ✓      |
+| M4  | Gaussian Compiler          | `test_compile.py` (all)                     | M3         | ✓      |
+| M5  | Introspection              | `test_introspection.py`                     | M4         | ✓      |
+| M6  | do() Cross-sectional       | `test_do.py`                                | M4         | ✓      |
+| M7  | Residual Covariance (~~)   | `test_residual_cov.py`                      | M4         | ✓      |
+| M8  | Effects + Defined Params   | `test_effects.py`                           | M4         | ✓      |
+| M9  | Integration Smoke Tests    | `test_smoke.py`                             | M1–M8      | ✓      |
+| M10 | Documentation              | `cd docs && quarto render` exits 0          | M9         | ✓      |
+| M11 | Bernoulli-logit Family     | `test_bernoulli.py`                         | M4         |        |
+| M12 | Predictive do()            | `test_do_predictive.py`                     | M6, M11    |        |
 
 ## Required Module Structure
 
@@ -215,7 +217,7 @@ Key verifications:
 - `do()` ATE has correct sign for a known DGP (positive X→Y effect in simulated data)
 - Correlated residuals model fits and produces summaries
 
-### M10: Documentation
+### M10: Documentation ✓
 
 **Goal**: Quarto site builds cleanly.
 
@@ -227,3 +229,28 @@ Required pages:
   - Correlated residuals (`~~`)
   - Simple `do()` queries
   - (Optional) One applied example demonstrating the full workflow
+
+### M11: Bernoulli-logit Family
+
+**Goal**: Support binary outcomes via `families={"Y": "bernoulli"}`.
+
+**What to handle**:
+- Bernoulli likelihood with logit link (`pm.Bernoulli(logit_p=...)`)
+- No sigma parameter for Bernoulli variables
+- `~~` guard already rejects non-Gaussian variables
+- `do(kind="mean")` applies inverse-logit for Bernoulli outcomes (returns probabilities in (0, 1))
+- Introspection: `priors()` omits sigma for Bernoulli; `equations()` notes logit link
+
+**Implementation notes**:
+- The `families` dict is resolved at compile time; defaults to `"gaussian"`.
+- The resolved families must be stored on `PathModel` and passed to `run_do()`.
+
+### M12: Predictive do()
+
+**Goal**: Implement `do(kind="predictive")` which adds residual noise at each propagation step.
+
+**What to handle**:
+- Gaussian: after computing `mu`, draw `mu + Normal(0, sigma)` using posterior sigma draws
+- Bernoulli: draw binary `Bernoulli(expit(linear_predictor))` values
+- `DoResult` interface unchanged; HDIs will be wider than mean propagation
+- Contrast arithmetic still works

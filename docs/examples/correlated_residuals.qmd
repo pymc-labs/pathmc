@@ -18,6 +18,20 @@ The mediators share an unobserved common cause, inducing residual correlation.
 - `T → Y` (direct effect `c`)
 - `M1 ~~ M2` (correlated residuals)
 
+```{dot}
+//| fig-cap: "Parallel mediators DAG with correlated residuals (dashed bidirected edge)."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  T -> M1 [label="a1"]
+  T -> M2 [label="a2"]
+  M1 -> Y [label="b1"]
+  M2 -> Y [label="b2"]
+  T -> Y  [label="c"]
+  M1 -> M2 [dir=both, style=dashed, label="~~"]
+}
+```
+
 ## Simulate data
 
 ```{python}

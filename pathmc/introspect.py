@@ -115,21 +115,28 @@ def build_equations(spec: Spec) -> EquationList:
     return EquationList(lines)
 
 
-def build_priors(spec: Spec) -> PriorTable:
+def build_priors(spec: Spec, families: dict[str, str] | None = None) -> PriorTable:
     """Build a prior summary table from the model specification.
 
     Parameters
     ----------
     spec : Spec
         Parsed specification.
+    families : dict[str, str] | None
+        Per-variable distribution families.
 
     Returns
     -------
     PriorTable
         Printable summary of all parameter priors.
     """
+    if families is None:
+        families = {}
+
     entries: dict[str, str] = {}
     for reg in spec.regressions:
         entries[f"beta_{reg.lhs}"] = "Normal(0, 10)"
-        entries[f"sigma_{reg.lhs}"] = "HalfNormal(1)"
+        family = families.get(reg.lhs, "gaussian")
+        if family != "bernoulli":
+            entries[f"sigma_{reg.lhs}"] = "HalfNormal(1)"
     return PriorTable(entries)

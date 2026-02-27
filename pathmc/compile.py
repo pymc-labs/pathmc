@@ -1,8 +1,8 @@
-"""Gaussian compiler: Spec + data -> pm.Model.
+"""Structural equation compiler: Spec + data -> pm.Model.
 
-Builds a PyMC model with Normal likelihoods for independent equations
-and MvNormal likelihoods (with LKJ-correlated residuals) for variables
-connected by ``~~``.
+Builds a PyMC model with Normal or Bernoulli likelihoods for independent
+equations and MvNormal likelihoods (with LKJ-correlated residuals) for
+Gaussian variables connected by ``~~``.
 """
 
 from __future__ import annotations
@@ -90,6 +90,7 @@ def compile_to_pymc(
             if reg.lhs in block_vars:
                 continue
 
+            family = families.get(reg.lhs, "gaussian")
             dm = design_matrices[reg.lhs]
             X = dm.values
             y = data[reg.lhs].values
@@ -100,9 +101,13 @@ def compile_to_pymc(
                 sigma=10,
                 dims=f"{reg.lhs}_predictors",
             )
-            sigma = pm.HalfNormal(f"sigma_{reg.lhs}", sigma=1)
             mu = pm.math.dot(X, beta)
-            pm.Normal(f"{reg.lhs}_obs", mu=mu, sigma=sigma, observed=y)
+
+            if family == "bernoulli":
+                pm.Bernoulli(f"{reg.lhs}_obs", logit_p=mu, observed=y)
+            else:
+                sigma = pm.HalfNormal(f"sigma_{reg.lhs}", sigma=1)
+                pm.Normal(f"{reg.lhs}_obs", mu=mu, sigma=sigma, observed=y)
 
         for block in blocks:
             _compile_residual_block(block, spec, data, design_matrices, pymc_model)

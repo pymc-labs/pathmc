@@ -15,6 +15,17 @@ We assume the following DAG:
 
 The **indirect effect** is the product `a × b`, and the **total effect** is `c + a × b`.
 
+```{dot}
+//| fig-cap: "Mediation DAG: X affects Y directly (c) and indirectly through M (a × b)."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  X -> M [label="a"]
+  M -> Y [label="b"]
+  X -> Y [label="c"]
+}
+```
+
 ## Simulate data
 
 We generate data from a known DGP so we can verify that pathmc recovers the true parameters.
@@ -62,6 +73,22 @@ model.graph()
 
 ```{python}
 model.equations()
+```
+
+The design matrix for each equation shows which predictors (including the intercept) are included:
+
+```{python}
+model.design("M")
+```
+
+```{python}
+model.design("Y")
+```
+
+The prior table summarizes the default priors assigned to all parameters:
+
+```{python}
+model.priors()
 ```
 
 ## Sample from the posterior

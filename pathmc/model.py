@@ -54,6 +54,7 @@ class PathModel:
         for reg in spec.regressions:
             self._design_matrices[reg.lhs] = build_design_matrix(reg, data)
 
+        self._families: dict[str, str] = families if families is not None else {}
         self._pymc_model: pm.Model = compile_to_pymc(
             spec, data, self._design_matrices, families=families
         )
@@ -109,7 +110,7 @@ class PathModel:
 
         Works before sampling.
         """
-        return build_priors(self._spec)
+        return build_priors(self._spec, families=self._families)
 
     def summary(self) -> pd.DataFrame:
         """Return a posterior summary table.
@@ -215,7 +216,8 @@ class PathModel:
         shift : dict[str, float] | None
             Reserved for soft interventions (not yet implemented).
         kind : str
-            Propagation mode. Currently only ``"mean"`` is supported.
+            ``"mean"`` for deterministic propagation, ``"predictive"``
+            to add residual noise at each step.
 
         Returns
         -------
@@ -245,6 +247,8 @@ class PathModel:
             data_means=data_means,
             design_columns=design_columns,
             set=set,
+            families=self._families,
+            kind=kind,
         )
 
 

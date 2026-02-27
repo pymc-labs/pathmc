@@ -54,6 +54,11 @@ class DoResult:
         return DoResult(values=new_values)
 
 
+def _expit(x: np.ndarray) -> np.ndarray:
+    """Numerically stable inverse-logit (sigmoid)."""
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -500, 500)))
+
+
 def run_do(
     spec: Spec,
     graph_info: GraphInfo,
@@ -61,6 +66,9 @@ def run_do(
     data_means: dict[str, float],
     design_columns: dict[str, list[str]],
     set: dict[str, float] | None = None,
+    families: dict[str, str] | None = None,
+    kind: str = "mean",
+    rng: np.random.Generator | None = None,
 ) -> DoResult:
     """Propagate posterior draws through the DAG under an intervention.
 
@@ -79,6 +87,13 @@ def run_do(
         Column names of each design matrix, keyed by endogenous variable.
     set : dict[str, float] | None
         Variables to intervene on, with their fixed values.
+    families : dict[str, str] | None
+        Per-variable distribution families (default ``"gaussian"``).
+    kind : str
+        ``"mean"`` for deterministic propagation, ``"predictive"`` to add
+        residual noise at each step.
+    rng : np.random.Generator | None
+        Random number generator for predictive sampling.
 
     Returns
     -------
@@ -87,6 +102,10 @@ def run_do(
     """
     if set is None:
         set = {}
+    if families is None:
+        families = {}
+    if rng is None:
+        rng = np.random.default_rng()
 
     stacked = idata.posterior.stack(sample=("chain", "draw"))
     n_samples = stacked.sizes["sample"]
@@ -101,15 +120,41 @@ def run_do(
         else:
             beta_arr = stacked[f"beta_{var}"]
             cols = design_columns[var]
-            result = np.zeros(n_samples)
+            linear = np.zeros(n_samples)
 
             for col in cols:
                 coef = beta_arr.sel({f"{var}_predictors": col}).values
                 if col == "Intercept":
-                    result = result + coef
+                    linear = linear + coef
                 else:
-                    result = result + coef * values[col]
+                    linear = linear + coef * values[col]
 
-            values[var] = result
+            family = families.get(var, "gaussian")
+
+            if kind == "predictive":
+                values[var] = _add_residual_noise(
+                    linear, var, family, stacked, n_samples, rng
+                )
+            elif family == "bernoulli":
+                values[var] = _expit(linear)
+            else:
+                values[var] = linear
 
     return DoResult(values=values)
+
+
+def _add_residual_noise(
+    linear: np.ndarray,
+    var: str,
+    family: str,
+    stacked: object,
+    n_samples: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Draw from the residual distribution for predictive propagation."""
+    if family == "bernoulli":
+        probs = _expit(linear)
+        return rng.binomial(1, probs).astype(float)
+
+    sigma_arr = stacked[f"sigma_{var}"].values
+    return linear + rng.normal(0, sigma_arr)

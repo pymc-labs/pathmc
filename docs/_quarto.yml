@@ -22,6 +22,8 @@ website:
             text: Correlated Residuals
           - href: examples/do_queries.qmd
             text: do() Queries
+          - href: examples/binary_outcomes.qmd
+            text: Binary Outcomes
 
 format:
   html:
