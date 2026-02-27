@@ -1,0 +1,14 @@
+name: pathmc
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - arviz
+  - graphviz
+  - numpy
+  - pandas
+  - patsy
+  - pymc
+  - pip
+  - pip:
+      - -e ".[dev]"

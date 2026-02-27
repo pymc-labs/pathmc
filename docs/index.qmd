@@ -1,0 +1,7 @@
+---
+title: "pathmc"
+---
+
+![](assets/logo.png){width=200 fig-align="center"}
+
+Welcome to pathmc.

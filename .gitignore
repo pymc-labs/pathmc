@@ -1,0 +1,2 @@
+*.DS_Store
+/tests/__pycache__

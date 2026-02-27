@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "pathmc"
+version = "0.1.0"
+description = "Path Monte Carlo"
+requires-python = ">=3.11"
+dependencies = [
+    "arviz",
+    "numpy",
+    "pandas",
+    "patsy",
+    "pymc",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+include = ["pathmc*"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests that require MCMC sampling (deselect with '-m \"not slow\"')",
+]
