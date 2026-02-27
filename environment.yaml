@@ -10,6 +10,7 @@ dependencies:
   - pandas
   - patsy
   - pymc
+  - pymc-marketing
   - pyyaml
   - pip
   - pip:

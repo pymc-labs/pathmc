@@ -14,6 +14,7 @@ dependencies = [
     "pandas",
     "patsy",
     "pymc",
+    "pymc-marketing",
 ]
 
 [project.optional-dependencies]

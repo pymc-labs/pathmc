@@ -30,6 +30,8 @@ website:
             text: Difference-in-Differences
           - href: examples/mmm_basic.qmd
             text: Basic MMM
+          - href: examples/mmm_mediation.qmd
+            text: MMM with Mediation
 
 format:
   html:

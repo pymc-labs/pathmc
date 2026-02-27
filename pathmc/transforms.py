@@ -2,6 +2,9 @@
 
 Each transform is a callable that can produce both PyMC tensor operations
 (for model compilation) and numpy array operations (for do() simulation).
+
+PyMC graph operations delegate to ``pymc_marketing.mmm.transformers`` for
+optimised convolution-based adstock and vectorised saturation.
 """
 
 from __future__ import annotations
@@ -12,7 +15,10 @@ from typing import Any
 import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
-from pytensor import scan as pt_scan
+from pymc_marketing.mmm.transformers import (
+    geometric_adstock as _pmm_geometric_adstock,
+    logistic_saturation as _pmm_logistic_saturation,
+)
 
 
 @dataclass
@@ -107,9 +113,15 @@ class Adstock(Transform):
 
     Applied along the time axis within each panel unit.
     For cross-sectional data, applied along the row axis.
+
+    The PyMC graph uses the convolution-based implementation from
+    ``pymc_marketing.mmm.transformers.geometric_adstock``, which is
+    significantly faster than ``pytensor.scan`` and produces cleaner
+    gradients for NUTS sampling.
     """
 
     name = "adstock"
+    l_max: int = 12
     param_specs = {
         "decay": ParamSpec(constraint="unit_interval", default_prior="Beta(2, 2)"),
     }
@@ -126,55 +138,30 @@ class Adstock(Transform):
 
         if panel_info is not None and data is not None:
             return self._apply_pymc_panel(x, decay, panel_info, data)
-        return self._apply_pymc_scan(x, decay)
+        return _pmm_geometric_adstock(x, alpha=decay, l_max=self.l_max, axis=0)
 
-    def _apply_pymc_scan(self, x: Any, decay: Any) -> Any:
-        """Apply geometric adstock using pytensor scan."""
-
-        def step(x_t: Any, y_prev: Any, d: Any) -> Any:
-            return x_t + d * y_prev
-
-        result, _ = pt_scan(
-            fn=step,
-            sequences=[x],
-            outputs_info=[pt.zeros(())],
-            non_sequences=[decay],
-        )
-        return result
-
-    def _apply_pymc_panel(self, x: Any, decay: Any, panel_info: Any, data: Any) -> Any:
-        """Apply adstock within each unit, concatenate back."""
+    def _apply_pymc_panel(
+        self, x: Any, decay: Any, panel_info: Any, data: Any
+    ) -> Any:
+        """Apply adstock per unit via matrix reshaping, not per-unit scans."""
         unit_col = panel_info.unit
         time_col = panel_info.time
+        units = panel_info.unit_labels
+        n_units = len(units)
+        n_time = len(data) // n_units
 
         sorted_idx = np.array(data.sort_values([unit_col, time_col]).index)
         reverse_idx = np.argsort(sorted_idx)
 
         x_sorted = x[sorted_idx]
+        x_matrix = x_sorted.reshape((n_units, n_time)).T  # (time, units)
 
-        units = panel_info.unit_labels
-        unit_sizes = data.groupby(unit_col).size()
+        adstocked = _pmm_geometric_adstock(
+            x_matrix, alpha=decay, l_max=self.l_max, axis=0
+        )
 
-        chunks = []
-        offset = 0
-        for unit in units:
-            n = int(unit_sizes[unit])
-            chunk = x_sorted[offset : offset + n]
-
-            def step(x_t: Any, y_prev: Any, d: Any) -> Any:
-                return x_t + d * y_prev
-
-            result, _ = pt_scan(
-                fn=step,
-                sequences=[chunk],
-                outputs_info=[pt.zeros(())],
-                non_sequences=[decay],
-            )
-            chunks.append(result)
-            offset += n
-
-        concatenated = pt.concatenate(chunks)
-        return concatenated[reverse_idx]
+        result_flat = adstocked.T.flatten()  # back to unit-major order
+        return result_flat[reverse_idx]
 
     def apply_numpy(
         self,
@@ -204,6 +191,9 @@ class LogisticSaturation(Transform):
     """Logistic saturation: ``y = 1 - exp(-lam * x)``.
 
     Pointwise — no temporal dependence.
+
+    The PyMC graph uses ``pymc_marketing.mmm.transformers.logistic_saturation``
+    for consistency with the adstock implementation.
     """
 
     name = "logistic_saturation"
@@ -220,7 +210,7 @@ class LogisticSaturation(Transform):
         data: Any | None = None,
     ) -> Any:
         lam = params["lam"]
-        return 1.0 - pt.exp(-lam * x)
+        return _pmm_logistic_saturation(x, lam=lam)
 
     def apply_numpy(
         self,
