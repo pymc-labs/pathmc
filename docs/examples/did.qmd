@@ -8,11 +8,13 @@ pathmc's panel mode fits this naturally: the structural model captures group and
 
 ## The causal structure
 
-We model an outcome `Y` as a function of treatment status (`treated`), a time indicator (`post`), and their interaction (`treat_post`).
+We model an outcome `Y` as a function of treatment group membership (`treated`), a continuous time trend (`time`), and a treatment activation indicator (`treat_post`).
 
 - `treated`: 1 for the treatment group, 0 for control
-- `post`: 1 for the post-treatment period, 0 for pre-treatment
+- `time`: the time period (continuous), capturing the underlying trend shared by both groups
 - `treat_post`: the DiD interaction term (1 only for treated units after treatment)
+
+Including `time` as a continuous predictor lets the model capture the underlying trend, so the treatment effect is identified as a *level shift* relative to that trend — the standard DiD design.
 
 ```{dot}
 //| fig-cap: "DiD DAG: treatment effect identified by the interaction term."
@@ -20,7 +22,7 @@ We model an outcome `Y` as a function of treatment status (`treated`), a time in
 digraph {
   rankdir=LR
   treated -> Y
-  post -> Y
+  time -> Y
   treat_post -> Y [label="ATT"]
 }
 ```
@@ -103,7 +105,7 @@ We use panel mode with partial pooling (random intercepts per unit) to account f
 ```{python}
 import pathmc
 
-spec = "Y ~ treated + post + treat_post"
+spec = "Y ~ treated + time + treat_post"
 
 model = pathmc.fit(
     spec,
@@ -132,16 +134,108 @@ The coefficient on `treat_post` is our estimate of the ATT.
 model.summary()
 ```
 
+## Posterior distribution of the ATT
+
+The coefficient on `treat_post` *is* the ATT. We can visualise its full posterior distribution and compare it to the true value used in the simulation.
+
+```{python}
+#| fig-cap: "Posterior distribution of the ATT. The dashed line marks the true value (2.0)."
+#| fig-width: 8
+
+import arviz as az
+
+az.plot_posterior(
+    model._idata,
+    var_names=["beta_Y"],
+    coords={"Y_predictors": ["treat_post"]},
+    ref_val=true_att,
+    figsize=(8, 3),
+)
+plt.tight_layout()
+plt.show()
+```
+
 ## Causal effect via do()
 
 We can also estimate the ATT using the `do()` operator by comparing outcomes with and without treatment.
 
 ```{python}
-r_treated = model.do(set={"treat_post": 1.0, "treated": 1.0, "post": 1.0})
-r_control = model.do(set={"treat_post": 0.0, "treated": 1.0, "post": 1.0})
+r_treated = model.do(set={"treat_post": 1.0, "treated": 1.0, "time": 15.0})
+r_control = model.do(set={"treat_post": 0.0, "treated": 1.0, "time": 15.0})
 
 att = r_treated - r_control
 print(f"ATT estimate: {att.mean('Y'):.3f}")
 print(f"True ATT:     {true_att}")
 print(f"94% HDI:      {att.hdi('Y', prob=0.94)}")
 ```
+
+## Model predictions and counterfactual
+
+With `time` as a continuous predictor, the model fits trend lines through each group.
+The **counterfactual** extrapolates the treated group's pre-treatment trend forward — the gap between the counterfactual and the actual treated fit is the ATT.
+
+```{python}
+#| fig-cap: "DiD results: observed group means, model trend lines, and counterfactual for the treated group."
+#| fig-width: 9
+
+stacked = model._idata.posterior.stack(sample=("chain", "draw"))
+beta = stacked["beta_Y"]
+alpha_draws = stacked["alpha_Y"]
+
+b0 = beta.sel(Y_predictors="Intercept").values
+b_treated = beta.sel(Y_predictors="treated").values
+b_time = beta.sel(Y_predictors="time").values
+b_tp = beta.sel(Y_predictors="treat_post").values
+
+def group_mu(units, t, treat_post_val):
+    """Posterior draws of group-averaged mu at a single time point."""
+    preds = []
+    for u in units:
+        alpha_u = alpha_draws.sel(unit=u).values
+        is_treated = 1.0 if u in units_treated else 0.0
+        mu = b0 + alpha_u + b_treated * is_treated + b_time * t + b_tp * treat_post_val
+        preds.append(mu)
+    return np.mean(preds, axis=0)
+
+times = np.arange(1, n_periods + 1, dtype=float)
+
+treated_fit = np.array([group_mu(units_treated, t, 1.0 if t >= treatment_start else 0.0).mean() for t in times])
+treated_cf  = np.array([group_mu(units_treated, t, 0.0).mean() for t in times])
+control_fit = np.array([group_mu(units_control, t, 0.0).mean() for t in times])
+
+fig, ax = plt.subplots(figsize=(9, 5))
+
+treated_obs = df[df["treated"] == 1].groupby("time")["Y"].mean()
+control_obs = df[df["treated"] == 0].groupby("time")["Y"].mean()
+ax.scatter(treated_obs.index, treated_obs.values, color="steelblue",
+           alpha=0.4, s=25, zorder=5, label="Treated (observed)")
+ax.scatter(control_obs.index, control_obs.values, color="coral",
+           alpha=0.4, s=25, zorder=5, label="Control (observed)")
+
+ax.plot(times, treated_fit, color="steelblue", lw=2.5, label="Treated (fitted)")
+ax.plot(times, control_fit, color="coral", lw=2.5, label="Control (fitted)")
+ax.plot(times, treated_cf, color="steelblue", ls="--", lw=2,
+        label="Treated (counterfactual)")
+
+post_mask = times >= treatment_start
+ax.fill_between(
+    times[post_mask], treated_cf[post_mask], treated_fit[post_mask],
+    color="steelblue", alpha=0.15, label="Causal effect (ATT)",
+)
+
+ax.axvline(treatment_start - 0.5, ls=":", color="gray", alpha=0.7)
+ax.annotate("Treatment onset", xy=(treatment_start - 0.5, ax.get_ylim()[1]),
+            fontsize=9, color="gray", ha="right",
+            xytext=(treatment_start - 1, ax.get_ylim()[1] - 0.3))
+
+ax.set_xlabel("Time")
+ax.set_ylabel("Y")
+ax.set_title("Difference-in-Differences: observed, fitted, and counterfactual")
+ax.legend(loc="upper left", fontsize=8, framealpha=0.9)
+plt.tight_layout()
+plt.show()
+```
+
+The solid lines show the model's fitted trends for each group.
+Pre-treatment, the treated fit and counterfactual overlap — confirming parallel trends.
+Post-treatment, the dashed line continues the treated group's trend *without* treatment, and the shaded gap is the estimated ATT ($\approx 2.0$).
