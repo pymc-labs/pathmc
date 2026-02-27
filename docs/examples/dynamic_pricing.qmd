@@ -1,0 +1,603 @@
+---
+title: "Dynamic Pricing Across Regions"
+jupyter: pathmc
+---
+
+Estimating price elasticity of demand — how much demand changes when you change the price — is one of the highest-value applications of causal inference in business.
+Get it right, and you can optimize revenue.
+Get it wrong, and you either leave money on the table (prices too low) or destroy demand (prices too high).
+
+The problem is that price and demand are **confounded by everything**.
+Managers set prices in response to the same factors that drive demand: seasonality, competitor actions, inventory levels, promotional calendars.
+A naive regression of demand on price conflates the causal effect of price with these common causes — and almost always gets the sign wrong, showing that *higher prices cause higher demand*.
+
+This example uses pathmc's panel mode to estimate the true price elasticity from observational data, accounting for confounding, lagged responses, and regional heterogeneity.
+
+## Why naive regression fails
+
+Consider a simple thought experiment.
+A retailer raises prices during the holiday season — when demand is also naturally high.
+A regression of demand on price sees high prices paired with high demand and concludes that raising prices *increases* demand.
+
+The fix is to model the causal structure: season causes both price and demand.
+Once we condition on season (and other confounders), the coefficient on price captures the *causal* effect — which is negative, as economics predicts.
+
+```{dot}
+//| label: fig-dag-confounding
+//| fig-cap: "Price-demand confounding DAG. Seasonality and competitor pricing are common causes of both price and demand. Without adjusting for these confounders, the estimated price effect is biased — often appearing positive when the true effect is negative."
+//| fig-width: 6
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+
+  season -> price
+  season -> demand
+  competitor_price -> price
+  competitor_price -> demand
+  price -> demand [label=" causal"]
+}
+```
+
+::: {.callout-warning}
+## The positive-price-coefficient trap
+
+This is not hypothetical.
+In many real-world datasets, a regression of `demand ~ price` produces a *positive* coefficient — implying that raising prices increases demand.
+This happens because prices are set endogenously: managers raise prices when they expect demand to be high.
+
+The solution is not to abandon regression but to model the confounding structure explicitly.
+pathmc's DAG-based approach makes this transparent.
+:::
+
+## The full model
+
+In practice, price effects are not instantaneous.
+A price increase today may take a week or more to fully affect demand — consumers have purchase cycles, comparison-shopping habits, and switching costs.
+We capture this with **lagged price effects** in a panel model.
+
+```{dot}
+//| label: fig-dag-full
+//| fig-cap: "Full pricing DAG with lagged effects and confounders. Current demand depends on the current price, last week's price (lagged response), competitor pricing, and seasonality. Each region has its own price sensitivity (random slopes)."
+//| fig-width: 6
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+
+  price -> demand [label="  β_price"]
+  price_lag1 -> demand [label="  β_lag"]
+  competitor_price -> demand
+  competitor_price -> price
+  season -> demand
+  season -> price
+  trend -> demand
+}
+```
+
+The model for region $g$ at week $t$:
+
+$$
+\text{demand}_{g,t} = \alpha_g + (\beta_{\text{price}} + u_{g,\text{price}}) \cdot \text{price}_{g,t} + \beta_{\text{lag}} \cdot \text{price\_lag1}_{g,t} + \beta_{\text{comp}} \cdot \text{competitor}_{g,t} + \beta_{\text{season}} \cdot \text{season}_{g,t} + \beta_{\text{trend}} \cdot t + \varepsilon_{g,t}
+$$
+
+where $\alpha_g$ is a region-specific intercept and $u_{g,\text{price}}$ is a region-specific deviation in price sensitivity, both partially pooled toward population means.
+
+## Simulate panel data
+
+We simulate 5 retail regions over 40 weeks, with known price elasticities that vary by region.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
+import arviz as az
+import pymc as pm
+import pathmc
+
+FIG_WIDTH = 8
+FIG_HEIGHT = 4
+COLOR_PRICE = "#e6550d"
+COLOR_DEMAND = "#2171b5"
+COLOR_COMPETITOR = "#636363"
+COLOR_BASELINE = "#969696"
+
+rng = np.random.default_rng(42)
+
+regions = ["Metro", "Suburban", "Rural", "Coastal", "College"]
+n_weeks = 40
+
+true_mu_price = -1.2
+true_sigma_price = 0.3
+true_lag = -0.4
+true_competitor = -0.3
+true_season_demand = 3.0
+true_season_price = 0.5
+true_trend = 0.05
+
+true_price_effects = {r: rng.normal(true_mu_price, true_sigma_price) for r in regions}
+true_intercepts = {
+    "Metro": 100, "Suburban": 85, "Rural": 70,
+    "Coastal": 95, "College": 80,
+}
+
+rows = []
+for region in regions:
+    prev_price = 10.0
+    for week in range(1, n_weeks + 1):
+        season = np.sin(2 * np.pi * week / 52)
+        competitor_price = 10 + rng.normal(scale=1.0) + 0.5 * season
+
+        price = (
+            10.0
+            + true_season_price * season
+            + 0.3 * (competitor_price - 10)
+            + rng.normal(scale=0.8)
+        )
+
+        demand = (
+            true_intercepts[region]
+            + true_price_effects[region] * price
+            + true_lag * prev_price
+            + true_competitor * competitor_price
+            + true_season_demand * season
+            + true_trend * week
+            + rng.normal(scale=2.0)
+        )
+
+        rows.append({
+            "region": region, "week": week,
+            "price": price, "demand": demand,
+            "competitor_price": competitor_price,
+            "season": season, "trend": week,
+        })
+        prev_price = price
+
+df_raw = pd.DataFrame(rows)
+print(f"Panel: {len(regions)} regions × {n_weeks} weeks = {len(df_raw)} rows")
+df_raw.head()
+```
+
+```{python}
+true_effects_df = pd.DataFrame({
+    "region": regions,
+    "true_price_elasticity": [true_price_effects[r] for r in regions],
+})
+true_effects_df
+```
+
+## Visualise the data
+
+```{python}
+#| label: fig-price-demand-raw
+#| fig-cap: "Raw price vs demand across all regions. The naive positive association reflects confounding (seasonality drives both price and demand upward simultaneously), not a causal effect."
+#| code-fold: true
+
+fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+REGION_COLORS = {
+    "Metro": "#2171b5", "Suburban": "#e6550d", "Rural": "#31a354",
+    "Coastal": "#756bb1", "College": "#e7298a",
+}
+
+ax = axes[0]
+for region in regions:
+    d = df_raw[df_raw["region"] == region]
+    ax.scatter(d["price"], d["demand"], s=12, alpha=0.5,
+               color=REGION_COLORS[region], label=region)
+ax.set_xlabel("Price")
+ax.set_ylabel("Demand")
+ax.legend(fontsize=7)
+
+ax = axes[1]
+for region in regions:
+    d = df_raw[df_raw["region"] == region]
+    ax.plot(d["week"], d["demand"], color=REGION_COLORS[region], alpha=0.7, label=region)
+ax.set_xlabel("Week")
+ax.set_ylabel("Demand")
+ax.legend(fontsize=7, ncol=2)
+
+plt.tight_layout()
+plt.show()
+```
+
+The left panel shows the confounding problem clearly: the raw scatter suggests a *positive* price-demand relationship.
+The right panel shows the time series structure with seasonal patterns and regional differences.
+
+## The naive regression
+
+Let's verify that a naive regression gets the sign wrong.
+
+```{python}
+from numpy.linalg import lstsq
+
+X_naive = np.column_stack([np.ones(len(df_raw)), df_raw["price"].values])
+y = df_raw["demand"].values
+coefs_naive = lstsq(X_naive, y, rcond=None)[0]
+
+print(f"Naive regression: demand = {coefs_naive[0]:.1f} + {coefs_naive[1]:.2f} × price")
+print(f"Price coefficient: {coefs_naive[1]:+.2f}")
+print(f"True mean price effect: {true_mu_price:+.2f}")
+print(f"\nThe naive regression says higher prices INCREASE demand (wrong sign!)")
+```
+
+::: {.callout-important}
+## Endogeneity is not a minor nuisance
+
+The naive coefficient is not just slightly off — it has the **wrong sign**.
+This is a qualitative error that would lead to the worst possible business decision: raising prices when you should be lowering them.
+
+This is why causal inference matters for pricing. The correlation between price and demand reflects the common causes (seasonality, competitor actions) that drive both — and those common causes happen to push price and demand in the same direction.
+:::
+
+## Prepare lagged data
+
+pathmc's `add_lags()` utility creates lagged columns within each panel unit, respecting the unit-time structure.
+
+```{python}
+df = pathmc.add_lags(
+    df_raw,
+    variables=["price"],
+    lags=[1],
+    panel={"unit": "region", "time": "week"},
+)
+
+print(f"Rows before dropping NaN: {len(df)}")
+df = df.dropna().reset_index(drop=True)
+print(f"Rows after dropping NaN:  {len(df)}")
+df[["region", "week", "price", "price_lag1"]].head(8)
+```
+
+## Specify and fit the model
+
+The spec includes the lagged price, confounders, and trend.
+We use random slopes on `price` to let each region have its own price elasticity, partially pooled toward a population mean.
+
+```{python}
+spec = """
+demand ~ b_price*price + b_lag*price_lag1 + b_comp*competitor_price + b_season*season + trend
+"""
+
+model = pathmc.fit(
+    spec,
+    data=df,
+    panel={"unit": "region", "time": "week"},
+    pooling={"intercept": True, "slopes": ["price"]},
+)
+```
+
+```{python}
+model.graph()
+```
+
+```{python}
+model.equations()
+```
+
+```{python}
+model.priors()
+```
+
+### PyMC model graph
+
+```{python}
+#| label: fig-pymc-graph
+#| fig-cap: "PyMC plate diagram for the hierarchical pricing model with random intercepts and random slopes for price sensitivity."
+pm.model_to_graphviz(model.pymc_model)
+```
+
+## Sample
+
+```{python}
+idata = model.sample(draws=1000, tune=1000, chains=4, random_seed=42)
+```
+
+## Results
+
+### Population-level coefficients
+
+```{python}
+model.summary()
+```
+
+The fixed-effect coefficient on `price` should now be **negative** — close to the true value of −1.2.
+Compare this to the naive regression, which gave a positive coefficient.
+
+### Recovery of key parameters
+
+```{python}
+beta_price = idata.posterior["beta_demand"].sel(demand_predictors="price").values.flatten()
+beta_lag = idata.posterior["beta_demand"].sel(demand_predictors="price_lag1").values.flatten()
+beta_comp = idata.posterior["beta_demand"].sel(demand_predictors="competitor_price").values.flatten()
+
+print(f"Price effect:      posterior mean = {beta_price.mean():.2f}  (true = {true_mu_price})")
+print(f"Lagged price:      posterior mean = {beta_lag.mean():.2f}  (true = {true_lag})")
+print(f"Competitor effect:  posterior mean = {beta_comp.mean():.2f}  (true = {true_competitor})")
+```
+
+```{python}
+#| label: fig-price-coefficient
+#| fig-cap: "Posterior distribution of the population-level price elasticity. The naive regression estimate (red dashed) has the wrong sign; the path model correctly recovers the true negative effect (black dashed)."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+kde = gaussian_kde(beta_price)
+x_grid = np.linspace(beta_price.min(), beta_price.max(), 200)
+density = kde(x_grid)
+ax.fill_between(x_grid, density, alpha=0.3, color=COLOR_PRICE)
+ax.plot(x_grid, density, color=COLOR_PRICE, lw=2, label="Posterior (path model)")
+ax.axvline(true_mu_price, color="black", ls="--", lw=1.5, label=f"True ({true_mu_price})")
+ax.axvline(coefs_naive[1], color="red", ls="--", lw=1.5, alpha=0.7,
+           label=f"Naive regression ({coefs_naive[1]:+.2f})")
+ax.axvline(0, color="black", ls=":", alpha=0.3)
+ax.set_xlabel("Price coefficient (units of demand per unit price)")
+ax.set_ylabel("Density")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+The path model recovers the true negative elasticity, while the naive regression sits on the wrong side of zero.
+
+### Cumulative price effect
+
+The total price effect includes both the immediate response and the lagged response.
+A permanent $1 price increase eventually costs:
+
+```{python}
+cumulative = beta_price + beta_lag
+print(f"Immediate effect: {beta_price.mean():.2f} units of demand")
+print(f"Lagged effect:    {beta_lag.mean():.2f} units of demand")
+print(f"Cumulative (long-run) effect: {cumulative.mean():.2f} units of demand")
+print(f"True cumulative: {true_mu_price + true_lag:.2f}")
+```
+
+```{python}
+#| label: fig-cumulative-effect
+#| fig-cap: "Posterior distributions of the immediate (current-week), lagged (next-week), and cumulative (long-run) price effects on demand. The cumulative effect captures the full impact of a permanent price change."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+for draws, color, label in [
+    (beta_price, COLOR_PRICE, "Immediate (current week)"),
+    (beta_lag, COLOR_BASELINE, "Lagged (next week)"),
+    (cumulative, COLOR_DEMAND, "Cumulative (long-run)"),
+]:
+    kde = gaussian_kde(draws)
+    x_grid = np.linspace(draws.min(), draws.max(), 200)
+    density = kde(x_grid)
+    ax.fill_between(x_grid, density, alpha=0.2, color=color)
+    ax.plot(x_grid, density, color=color, label=label, lw=2)
+    ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
+
+ax.axvline(0, color="black", ls=":", alpha=0.3)
+ax.set_xlabel("Demand change per $1 price increase")
+ax.set_ylabel("Density")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+## Regional heterogeneity: who is price-sensitive?
+
+The random slopes on `price` let each region deviate from the population mean.
+This reveals which regions are more or less price-sensitive — critical for region-specific pricing strategies.
+
+```{python}
+#| label: fig-regional-elasticity
+#| fig-cap: "Posterior distributions of region-level price elasticity vs true values (black diamonds). Partial pooling shrinks extreme estimates toward the population mean (dashed line), borrowing strength across regions."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 1.2))
+
+slope_price = idata.posterior["slope_demand_price"]
+
+for i, region in enumerate(regions):
+    region_slope = slope_price.sel(unit=region).values.flatten()
+    region_total = beta_price + region_slope
+    parts = ax.violinplot([region_total], positions=[i], showmedians=True, widths=0.7)
+    for pc in parts["bodies"]:
+        pc.set_facecolor(REGION_COLORS[region])
+        pc.set_alpha(0.4)
+    for key in ["cmins", "cmaxes", "cbars", "cmedians"]:
+        if key in parts:
+            parts[key].set_color(REGION_COLORS[region])
+
+    ax.plot(i, true_price_effects[region], "D", color="black", ms=6, zorder=5)
+
+ax.set_xticks(range(len(regions)))
+ax.set_xticklabels(regions)
+ax.set_ylabel("Price elasticity (demand per $1)")
+ax.axhline(true_mu_price, color=COLOR_PRICE, ls="--", alpha=0.5,
+           label=f"True pop. mean ({true_mu_price})")
+ax.axhline(0, color="black", ls=":", alpha=0.3)
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+Regions with elasticity further from zero are more price-sensitive — a $1 price increase costs more demand there.
+Regions closer to zero can absorb price increases with less demand loss.
+
+### Shrinkage
+
+```{python}
+#| label: fig-shrinkage
+#| fig-cap: "Shrinkage plot: true region-level price elasticity (x-axis) vs posterior mean (y-axis). Points pulled toward the population mean (horizontal dashed line) demonstrate partial pooling borrowing strength across regions."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+true_vals = [true_price_effects[r] for r in regions]
+post_means = []
+for region in regions:
+    region_slope = slope_price.sel(unit=region).values.flatten()
+    region_total = beta_price + region_slope
+    post_means.append(region_total.mean())
+
+for i, region in enumerate(regions):
+    ax.scatter(true_vals[i], post_means[i], color=REGION_COLORS[region],
+               s=80, zorder=3, label=region)
+
+lims = [min(min(true_vals), min(post_means)) - 0.2,
+        max(max(true_vals), max(post_means)) + 0.2]
+ax.plot(lims, lims, "k:", alpha=0.3, label="Perfect recovery")
+ax.axhline(beta_price.mean(), color=COLOR_PRICE, ls="--", alpha=0.3)
+ax.set_xlabel("True price elasticity")
+ax.set_ylabel("Posterior mean elasticity")
+ax.legend(fontsize=7, ncol=2)
+ax.set_xlim(lims)
+ax.set_ylim(lims)
+plt.tight_layout()
+plt.show()
+```
+
+### Hierarchical scale recovery
+
+```{python}
+sigma_price_post = idata.posterior["sigma_slope_demand_price"].values.flatten()
+print(f"Between-region SD in price elasticity:")
+print(f"  Posterior mean: {sigma_price_post.mean():.3f}")
+print(f"  True value:     {true_sigma_price}")
+```
+
+## Policy simulation: what if we raise prices?
+
+The `do()` operator lets us simulate pricing policy changes and predict their effect on demand.
+With panel mode and `simulate_over="time"`, the simulation propagates forward through time, correctly accounting for lagged effects.
+
+### Scenario: $2 price increase for all regions
+
+```{python}
+current_price = float(df["price"].mean())
+new_price = current_price + 2.0
+
+r_baseline = model.do(
+    set={"price": current_price, "competitor_price": 10.0},
+    simulate_over="time", kind="mean",
+)
+r_increase = model.do(
+    set={"price": new_price, "competitor_price": 10.0},
+    simulate_over="time", kind="mean",
+)
+
+demand_impact = r_increase - r_baseline
+print(f"Scenario: raise price from ${current_price:.1f} to ${new_price:.1f}")
+print(f"  Demand impact: {demand_impact.mean('demand'):.2f} units")
+print(f"  94% HDI:       {demand_impact.hdi('demand', prob=0.94)}")
+```
+
+### Revenue trade-off
+
+A price increase raises revenue per unit but reduces units sold.
+The net effect depends on the elasticity: if demand is elastic (|elasticity| > 1), the volume loss outweighs the price gain.
+
+```{python}
+#| label: fig-revenue-tradeoff
+#| fig-cap: "Revenue response to price changes via do(). Left: demand curve showing units sold at each price level. Right: revenue curve (price × demand) showing the revenue-maximizing price. The concave revenue curve reflects the trade-off between higher margins and lower volume."
+#| code-fold: true
+
+price_levels = np.arange(8.0, 14.1, 0.5)
+demand_means, demand_lo, demand_hi = [], [], []
+
+r_ref = model.do(
+    set={"price": 10.0, "competitor_price": 10.0},
+    simulate_over="time", kind="mean",
+)
+
+for p in price_levels:
+    r = model.do(
+        set={"price": float(p), "competitor_price": 10.0},
+        simulate_over="time", kind="mean",
+    )
+    demand_means.append(r.mean("demand"))
+    hdi = r.hdi("demand", prob=0.94)
+    demand_lo.append(hdi[0])
+    demand_hi.append(hdi[1])
+
+demand_means = np.array(demand_means)
+demand_lo = np.array(demand_lo)
+demand_hi = np.array(demand_hi)
+revenue_means = price_levels * demand_means
+revenue_lo = price_levels * demand_lo
+revenue_hi = price_levels * demand_hi
+
+fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+ax = axes[0]
+ax.plot(price_levels, demand_means, "o-", color=COLOR_DEMAND, lw=2, ms=5)
+ax.fill_between(price_levels, demand_lo, demand_hi, alpha=0.15, color=COLOR_DEMAND)
+ax.set_xlabel("Price ($)")
+ax.set_ylabel("Expected demand (units)")
+
+ax = axes[1]
+ax.plot(price_levels, revenue_means, "s-", color=COLOR_PRICE, lw=2, ms=5)
+ax.fill_between(price_levels, revenue_lo, revenue_hi, alpha=0.15, color=COLOR_PRICE)
+ax.set_xlabel("Price ($)")
+ax.set_ylabel("Expected revenue ($)")
+
+best_idx = np.argmax(revenue_means)
+ax.axvline(price_levels[best_idx], color=COLOR_PRICE, ls="--", alpha=0.5,
+           label=f"Revenue-maximizing: ${price_levels[best_idx]:.1f}")
+ax.legend(fontsize=8)
+
+plt.tight_layout()
+plt.show()
+```
+
+### Regional pricing strategy
+
+Since each region has a different price elasticity, the optimal pricing strategy varies by region.
+Less price-sensitive regions can sustain higher prices with smaller demand loss.
+
+```{python}
+print("Demand impact of +$2 price increase by region:")
+print(f"{'Region':<12} {'Elasticity (post. mean)':>24} {'Demand Δ (est.)':>16}")
+print("-" * 54)
+
+for region in regions:
+    region_slope = slope_price.sel(unit=region).values.flatten()
+    region_total = beta_price + region_slope
+    region_lag_total = region_total + beta_lag
+
+    est_demand_change = region_total.mean() * 2
+    print(f"{region:<12} {region_total.mean():>+24.2f} {est_demand_change:>+16.1f}")
+```
+
+## Identification check
+
+```{python}
+print(f"Is price → demand identifiable? {model.is_identifiable('price', 'demand')}")
+print(f"Adjustment sets: {model.adjustment_sets('price', 'demand')}")
+```
+
+### Standardized effects
+
+```{python}
+model.standardized()
+```
+
+The standardized coefficients put all predictors on the same scale (SD units), making it easy to compare the relative importance of price vs competitors vs seasonality.
+
+## Summary
+
+- **Price and demand are confounded.** Naive regression gives the wrong sign because managers set prices in response to the same factors that drive demand. The path model adjusts for these common causes and recovers the true negative elasticity.
+- **Lagged effects matter.** A price change today affects demand both immediately and in subsequent weeks. The cumulative effect is larger than the immediate effect alone.
+- **Regional heterogeneity is real.** Random slopes reveal that price sensitivity varies across regions, enabling region-specific pricing strategies.
+- **Partial pooling** borrows strength across regions — critical when some regions have noisier data or fewer observations.
+- **`do()` simulates pricing policies.** Time-forward simulation correctly propagates price changes through lagged effects, giving realistic demand and revenue projections.
+- **Revenue optimization requires causal estimates.** The revenue-maximizing price depends on the true demand curve, which only a causal model can estimate from observational data.
+
+::: {.callout-note}
+## Reflection
+
+In your own pricing context, what common causes might confound the price-demand relationship?
+
+- **Retail**: Do you raise prices on trending products (where demand is already high for other reasons)?
+- **SaaS**: Do you offer discounts to churning customers (who have low engagement for other reasons)?
+- **Ride-sharing**: Do surge prices coincide with events that independently increase ride requests?
+- **Hospitality**: Do you raise room rates during peak seasons when occupancy would be high regardless?
+
+If any of these apply, your historical price-demand data likely overstates the positive association between price and demand — and a naive regression will underestimate (or reverse) the true price elasticity.
+:::

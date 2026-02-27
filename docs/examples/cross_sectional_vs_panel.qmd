@@ -1,0 +1,697 @@
+---
+title: "Cross-Sectional vs Panel DAGs"
+jupyter: pathmc
+---
+
+You want to know if promotional spending causes higher store revenue.
+You collect data.
+But whether your data is a **snapshot** of many stores at one point in time or **the same stores tracked over many weeks** fundamentally changes the DAG you draw — and the causal story you can tell.
+
+Cross-sectional data captures associations at a single moment.
+Panel data adds temporal ordering, which introduces new causal paths (carry-over effects, lagged dependencies) and new tools for identification.
+The same business question leads to different DAGs, different models, and often different conclusions.
+
+This example walks through both approaches on the same type of causal question, shows how the DAG structure changes when time enters the picture, and demonstrates the pathmc features designed for each setting.
+
+## What this example covers
+
+1. **Cross-sectional analysis**: a snapshot of 500 stores, a confounded DAG, and the `do()` operator
+2. **Panel analysis**: 8 stores over 30 weeks, a temporal DAG with lagged effects, `add_lags()`, and time-forward `do()`
+3. **Head-to-head comparison**: what each approach captures and what it misses
+
+## Setup
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
+import arviz as az
+import pymc as pm
+import pathmc
+
+FIG_WIDTH = 8
+FIG_HEIGHT = 4
+COLOR_PROMO = "#2171b5"
+COLOR_REVENUE = "#31a354"
+COLOR_TRAFFIC = "#e6550d"
+COLOR_CONTEMP = "#756bb1"
+COLOR_LAG = "#e7298a"
+
+rng = np.random.default_rng(42)
+```
+
+---
+
+## Part 1: The snapshot — a cross-sectional DAG
+
+### The scenario
+
+A retail chain wants to know: **does promotional spending increase store revenue?**
+
+They have data from 500 stores collected during a single week.
+Each store reported its promotional budget, foot traffic count, and total revenue.
+
+But here's the catch: stores with higher foot traffic tend to spend more on promotions *and* generate more revenue — not because promotions cause traffic, but because busy stores have bigger budgets and more customers.
+If we don't account for foot traffic, we'll confuse the effect of promotions with the effect of being a high-traffic store.
+
+### The causal graph
+
+```{dot}
+//| label: fig-dag-cross-sectional
+//| fig-cap: "Cross-sectional DAG: foot_traffic confounds the promo → revenue relationship. All edges represent contemporaneous associations at a single point in time."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+
+  foot_traffic [label="foot\ntraffic", style="filled,rounded", fillcolor="lightyellow"]
+  promo [label="promo", style="filled,rounded", fillcolor="lightgreen"]
+  revenue [label="revenue", style="filled,rounded", fillcolor="lightcoral"]
+
+  foot_traffic -> promo [label=" +"]
+  foot_traffic -> revenue [label=" +"]
+  promo -> revenue [label=" +"]
+}
+```
+
+Three things to read from this DAG:
+
+1. **foot_traffic → promo**: stores with more foot traffic invest more in promotions (confounding path)
+2. **foot_traffic → revenue**: more traffic means more sales regardless of promotions (confounding path)
+3. **promo → revenue**: the causal path we want to isolate
+
+Without adjusting for foot_traffic, the observed correlation between promo and revenue conflates the causal effect with the confounding path.
+
+::: {.callout-note}
+## What a cross-sectional DAG assumes about time
+
+Cross-sectional DAGs treat all relationships as happening simultaneously.
+The arrow promo → revenue doesn't say "promo at time *t* causes revenue at time *t*" — it says "differences in promo *correspond to* differences in revenue, and we assume the causal direction runs from promo to revenue."
+
+This is a reasonable model when effects are near-instantaneous relative to the measurement interval.
+But it cannot represent carry-over, delay, or accumulation — effects that unfold over time.
+:::
+
+### Simulate cross-sectional data
+
+We generate data from a known DGP so we can verify that pathmc recovers the true causal effect.
+
+```{python}
+n_cs = 500
+
+TRUE_CONFOUND = 0.6
+TRUE_B_PROMO = 0.5
+TRUE_B_TRAFFIC_CS = 0.8
+
+foot_traffic = rng.normal(0, 1, size=n_cs)
+promo = 2 + TRUE_CONFOUND * foot_traffic + rng.normal(0, 0.5, size=n_cs)
+revenue = 5 + TRUE_B_PROMO * promo + TRUE_B_TRAFFIC_CS * foot_traffic + rng.normal(0, 1, size=n_cs)
+
+df_cs = pd.DataFrame({
+    "foot_traffic": foot_traffic,
+    "promo": promo,
+    "revenue": revenue,
+})
+
+print(f"N = {n_cs}")
+print(f"True causal effect of promo on revenue: {TRUE_B_PROMO}")
+df_cs.describe().round(2)
+```
+
+### Visualise the confounding
+
+```{python}
+#| label: fig-cs-scatter
+#| fig-cap: "Scatter plots showing the confounding structure. Left: foot traffic predicts promo spending (confounding path). Right: promo and revenue are positively associated, but part of this association is driven by foot traffic."
+#| code-fold: true
+
+fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+axes[0].scatter(df_cs["foot_traffic"], df_cs["promo"],
+                alpha=0.3, s=10, color=COLOR_TRAFFIC)
+axes[0].set_xlabel("Foot traffic")
+axes[0].set_ylabel("Promo spend")
+
+axes[1].scatter(df_cs["promo"], df_cs["revenue"],
+                alpha=0.3, s=10, color=COLOR_PROMO)
+axes[1].set_xlabel("Promo spend")
+axes[1].set_ylabel("Revenue")
+
+plt.tight_layout()
+plt.show()
+```
+
+The right panel shows a strong positive association between promo and revenue.
+But how much of that is causal (promotions *cause* revenue) versus confounding (high-traffic stores *both* promote more *and* earn more)?
+
+### Fit the cross-sectional model
+
+The spec encodes the full confounded DAG.
+The equation `promo ~ foot_traffic` tells pathmc that promo is endogenous — it has a structural cause.
+The equation for revenue includes both promo and foot_traffic, adjusting for the confounder.
+
+```{python}
+spec_cs = """
+promo ~ foot_traffic
+revenue ~ b_promo*promo + foot_traffic
+"""
+
+model_cs = pathmc.fit(spec_cs, data=df_cs)
+```
+
+```{python}
+model_cs.graph()
+```
+
+```{python}
+model_cs.equations()
+```
+
+### Identification check
+
+Before sampling, we can verify that the causal effect is identifiable from the DAG.
+
+```{python}
+print(f"Identifiable?    {model_cs.is_identifiable('promo', 'revenue')}")
+print(f"Adjustment sets: {model_cs.adjustment_sets('promo', 'revenue')}")
+```
+
+The empty set `{}` is a valid adjustment set — but only because the model explicitly includes both equations.
+Inside the `revenue` equation, `foot_traffic` is already a predictor, blocking the backdoor path.
+
+### Sample
+
+```{python}
+idata_cs = model_cs.sample(draws=500, tune=500, chains=2, random_seed=42)
+```
+
+### Results
+
+```{python}
+model_cs.effects_summary()
+```
+
+The labeled coefficient `b_promo` should be close to the true value of 0.5.
+
+```{python}
+#| label: fig-cs-posterior
+#| fig-cap: "Posterior distribution of the causal effect of promo on revenue (cross-sectional model). Black dashed line marks the true DGP value (0.5)."
+#| code-fold: true
+
+b_promo_draws = idata_cs.posterior["beta_revenue"].sel(
+    revenue_predictors="promo"
+).values.flatten()
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.8))
+kde = gaussian_kde(b_promo_draws)
+x_grid = np.linspace(b_promo_draws.min(), b_promo_draws.max(), 200)
+density = kde(x_grid)
+ax.fill_between(x_grid, density, alpha=0.3, color=COLOR_PROMO)
+ax.plot(x_grid, density, color=COLOR_PROMO, lw=2)
+ax.axvline(b_promo_draws.mean(), color=COLOR_PROMO, ls="--", lw=1.5, alpha=0.7)
+ax.axvline(TRUE_B_PROMO, color="black", ls="--", lw=1.5, alpha=0.5,
+           label=f"True value ({TRUE_B_PROMO})")
+ax.set_xlabel("Promo → Revenue coefficient")
+ax.set_ylabel("Density")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+### Causal effect via do()
+
+The `do()` operator answers: **what happens to revenue if we set promo to a specific value, regardless of foot traffic?**
+
+```{python}
+ate_cs = model_cs.ate("revenue", "promo", values=(1.0, 3.0))
+
+print("Cross-sectional ATE (promo: 1 → 3):")
+print(f"  Mean:     {ate_cs.mean('revenue'):.3f}")
+print(f"  94% HDI:  {ate_cs.hdi('revenue', prob=0.94)}")
+print(f"  Expected: {TRUE_B_PROMO * 2:.3f}")
+```
+
+The estimated ATE is close to the true value of 1.0 (= 0.5 × 2 units of promo change).
+
+### What cross-sectional analysis gives us
+
+The cross-sectional model correctly identifies the causal effect when we adjust for the confounder.
+But notice what it *assumes*:
+
+- The effect of promo on revenue is **instantaneous** — it happens within the same measurement period.
+- There is no carry-over — this week's promotion doesn't affect next week's revenue.
+- There is no temporal dynamics — revenue doesn't depend on its own past.
+
+These assumptions are encoded in the DAG by the absence of temporal edges.
+If they're wrong — if promotions take time to affect revenue — the cross-sectional estimate captures only part of the story.
+
+---
+
+## Part 2: Adding time — the panel DAG
+
+### Why time matters
+
+Suppose the retail chain's internal research reveals that promotions have two effects:
+
+1. An **immediate effect**: some customers respond to the promotion this week
+2. A **carry-over effect**: some customers see the promotion this week but buy next week
+
+The cross-sectional model cannot distinguish these.
+It lumps everything into a single coefficient, and if the measurement period doesn't align with the full response window, it may underestimate the total effect.
+
+Panel data — the same stores observed over many weeks — lets us model both effects explicitly by introducing **lagged variables** into the DAG.
+
+### The temporal DAG
+
+When we observe units over time, the DAG gains a new dimension.
+Variables are no longer "at a single point" — they exist at specific time steps, and causal effects can cross time boundaries.
+
+```{dot}
+//| label: fig-dag-panel
+//| fig-cap: "Panel DAG showing two time slices. The contemporaneous edge (promo_t → revenue_t) captures the immediate effect. The lagged edge (promo_{t−1} → revenue_t, dashed) captures carry-over from the previous week. Both are causal paths from promo to revenue."
+//| fig-width: 6.5
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+  compound=true
+
+  subgraph cluster_prev {
+    label="Week t − 1"
+    style=dashed
+    color=gray
+    fontcolor=gray
+    promo_prev [label="promo", style="filled,rounded", fillcolor="lightgreen"]
+  }
+
+  subgraph cluster_curr {
+    label="Week t"
+    style=dashed
+    color=gray
+    fontcolor=gray
+    foot_traffic [label="foot\ntraffic", style="filled,rounded", fillcolor="lightyellow"]
+    promo_curr [label="promo", style="filled,rounded", fillcolor="lightgreen"]
+    revenue [label="revenue", style="filled,rounded", fillcolor="lightcoral"]
+  }
+
+  foot_traffic -> promo_curr [label=" +"]
+  foot_traffic -> revenue [label=" +"]
+  promo_curr -> revenue [label=" contemp."]
+  promo_prev -> revenue [label=" carry-over", style=dashed]
+}
+```
+
+Compare this to the cross-sectional DAG in @fig-dag-cross-sectional.
+Two critical differences:
+
+1. **A new edge appears**: `promo_{t-1} → revenue_t`.
+   This carry-over path doesn't exist in the cross-sectional DAG because there's no "previous week" in a snapshot.
+
+2. **Temporal ordering aids identification**: because causes must precede effects, the direction of the lagged edge is unambiguous — last week's promo *cannot* be caused by this week's revenue.
+
+::: {.callout-important}
+## New edges from temporal ordering
+
+Panel DAGs can have edges that are impossible in a cross-sectional DAG.
+Any lagged relationship — `X_{t-k} → Y_t` — represents a causal mechanism that unfolds over time.
+These edges expand the set of causal paths and change the total effect of an intervention.
+:::
+
+### Simulate panel data
+
+We generate data for 8 stores over 30 weeks, with both a contemporaneous and a lagged promotional effect.
+
+```{python}
+n_stores = 8
+n_weeks = 30
+store_names = [f"S{i+1}" for i in range(n_stores)]
+
+TRUE_CONTEMP = 0.30
+TRUE_LAG = 0.25
+TRUE_B_TRAFFIC_PANEL = 0.6
+
+store_ft_bases = {s: rng.normal(0, 0.5) for s in store_names}
+store_rev_bases = {s: rng.normal(5, 1.0) for s in store_names}
+
+rows = []
+for store in store_names:
+    prev_promo = 2.0
+    for week in range(1, n_weeks + 1):
+        ft = store_ft_bases[store] + rng.normal(0, 0.3)
+        p = 2 + TRUE_CONFOUND * ft + rng.normal(0, 0.5)
+        r = (
+            store_rev_bases[store]
+            + TRUE_CONTEMP * p
+            + TRUE_LAG * prev_promo
+            + TRUE_B_TRAFFIC_PANEL * ft
+            + rng.normal(0, 1)
+        )
+        rows.append({
+            "store": store, "week": week,
+            "foot_traffic": ft, "promo": p, "revenue": r,
+        })
+        prev_promo = p
+
+df_raw = pd.DataFrame(rows)
+print(f"Panel: {n_stores} stores × {n_weeks} weeks = {len(df_raw)} rows")
+print(f"True contemporaneous effect: {TRUE_CONTEMP}")
+print(f"True lagged effect:          {TRUE_LAG}")
+print(f"True total effect:           {TRUE_CONTEMP + TRUE_LAG}")
+df_raw.head()
+```
+
+### Visualise the panel
+
+```{python}
+#| label: fig-panel-timeseries
+#| fig-cap: "Weekly revenue for each store over 30 weeks. Differences in level reflect store-specific baselines (random intercepts). The temporal variation within each store reflects changing promotional activity and foot traffic."
+#| code-fold: true
+
+palette = ["#2171b5", "#e6550d", "#31a354", "#756bb1",
+           "#e7298a", "#636363", "#d95f02", "#1b9e77"]
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+for store, color in zip(store_names, palette):
+    d = df_raw[df_raw["store"] == store]
+    ax.plot(d["week"], d["revenue"], label=store, color=color, alpha=0.7)
+ax.set_xlabel("Week")
+ax.set_ylabel("Revenue")
+ax.legend(ncol=4, fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+### Prepare lag columns
+
+pathmc's `add_lags()` function creates lagged versions of variables within each panel unit.
+This respects the panel structure — it never leaks data across stores.
+
+```{python}
+df_panel = pathmc.add_lags(
+    df_raw,
+    variables=["promo"],
+    lags=1,
+    panel={"unit": "store", "time": "week"},
+)
+df_panel = df_panel.dropna().reset_index(drop=True)
+
+print(f"After dropping first week per store: {len(df_panel)} rows")
+df_panel[["store", "week", "promo", "promo_lag1", "revenue"]].head(8)
+```
+
+The `promo_lag1` column contains last week's promo value for the same store.
+The first week of each store is dropped because its lag is undefined.
+
+### Fit the panel model
+
+The spec now includes `promo_lag1` as a predictor of revenue.
+The `panel` argument tells pathmc which columns identify units and time.
+`pooling="partial"` adds random intercepts per store, accounting for baseline differences.
+
+```{python}
+spec_panel = """
+promo ~ foot_traffic
+revenue ~ b_contemp*promo + b_lag*promo_lag1 + foot_traffic
+"""
+
+model_panel = pathmc.fit(
+    spec_panel,
+    data=df_panel,
+    panel={"unit": "store", "time": "week"},
+    pooling="partial",
+)
+```
+
+```{python}
+model_panel.graph()
+```
+
+Notice how the pathmc-generated DAG now shows `promo_lag1` as an additional exogenous node feeding into revenue.
+This is the temporal edge that the cross-sectional model lacks.
+
+```{python}
+model_panel.equations()
+```
+
+```{python}
+model_panel.priors()
+```
+
+### Sample
+
+```{python}
+idata_panel = model_panel.sample(draws=500, tune=500, chains=2, random_seed=42)
+```
+
+### Results
+
+```{python}
+model_panel.effects_summary()
+```
+
+::: {.callout-tip}
+## Reading the decomposed effect
+
+The panel model recovers two separate coefficients:
+
+- **b_contemp** ≈ 0.30: the immediate effect of this week's promo on this week's revenue
+- **b_lag** ≈ 0.25: the carry-over effect of last week's promo on this week's revenue
+- **Total** ≈ 0.55: the full short-run impact of a sustained promotion
+
+A cross-sectional analysis of the same reality would estimate a single blended number — unable to distinguish the immediate response from the carry-over.
+:::
+
+```{python}
+#| label: fig-panel-posteriors
+#| fig-cap: "Posterior distributions of the contemporaneous and lagged promo effects from the panel model. Black dashed lines mark the true DGP values. The temporal decomposition reveals that nearly half the total effect comes from carry-over."
+#| code-fold: true
+
+contemp_draws = idata_panel.posterior["beta_revenue"].sel(
+    revenue_predictors="promo"
+).values.flatten()
+lag_draws = idata_panel.posterior["beta_revenue"].sel(
+    revenue_predictors="promo_lag1"
+).values.flatten()
+total_draws = contemp_draws + lag_draws
+
+fig, axes = plt.subplots(1, 3, figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+for ax, draws, color, label, true_val in [
+    (axes[0], contemp_draws, COLOR_CONTEMP,
+     "Contemporaneous\n(b_contemp)", TRUE_CONTEMP),
+    (axes[1], lag_draws, COLOR_LAG,
+     "Carry-over\n(b_lag)", TRUE_LAG),
+    (axes[2], total_draws, COLOR_PROMO,
+     "Total\n(b_contemp + b_lag)", TRUE_CONTEMP + TRUE_LAG),
+]:
+    kde = gaussian_kde(draws)
+    x_grid = np.linspace(draws.min(), draws.max(), 200)
+    density = kde(x_grid)
+    ax.fill_between(x_grid, density, alpha=0.3, color=color)
+    ax.plot(x_grid, density, color=color, lw=2)
+    ax.axvline(draws.mean(), color=color, ls="--", lw=1.5, alpha=0.7)
+    ax.axvline(true_val, color="black", ls="--", lw=1.5, alpha=0.5)
+    ax.set_xlabel(label)
+    ax.set_ylabel("Density" if ax == axes[0] else "")
+
+plt.tight_layout()
+plt.show()
+```
+
+### Time-forward do()
+
+In cross-sectional mode, `do()` propagates through the DAG in a single step.
+In panel mode with `simulate_over="time"`, the intervention is applied at every time step, and lagged variables are resolved from the simulated values of previous steps.
+
+This means: when you set `promo=10`, the first time step uses the observed `promo_lag1`.
+From the second step onward, `promo_lag1` picks up the *intervened* promo value from the previous step — so the full temporal effect accumulates.
+
+```{python}
+ate_panel = model_panel.ate(
+    "revenue", "promo",
+    values=(1.0, 3.0),
+    simulate_over="time",
+)
+
+print("Panel ATE (promo: 1 → 3, time-forward):")
+print(f"  Mean:     {ate_panel.mean('revenue'):.3f}")
+print(f"  94% HDI:  {ate_panel.hdi('revenue', prob=0.94)}")
+print(f"  Expected: {(TRUE_CONTEMP + TRUE_LAG) * 2:.3f}  (steady-state)")
+```
+
+The panel ATE captures both the contemporaneous and carry-over effects of a sustained promotion change.
+
+::: {.callout-warning}
+## Why the panel ATE differs from the cross-sectional ATE
+
+These two ATEs come from different DGPs, so a direct numerical comparison isn't meaningful.
+But the *structural* difference is important: the panel `do()` with `simulate_over="time"` resolves lagged dependencies dynamically, capturing temporal effects that a single-step `do()` cannot represent.
+
+In real analyses where the true DGP has temporal dynamics, a cross-sectional snapshot would typically *underestimate* the total causal effect by missing the carry-over.
+:::
+
+### What happens if you ignore the lags?
+
+To make the comparison concrete, let's fit the panel data *without* the lag term — pretending we have a cross-sectional structure.
+
+```{python}
+spec_no_lag = """
+promo ~ foot_traffic
+revenue ~ b_naive*promo + foot_traffic
+"""
+
+model_no_lag = pathmc.fit(
+    spec_no_lag,
+    data=df_panel,
+    panel={"unit": "store", "time": "week"},
+    pooling="partial",
+)
+idata_no_lag = model_no_lag.sample(draws=500, tune=500, chains=2, random_seed=42)
+```
+
+```{python}
+model_no_lag.effects_summary()
+```
+
+```{python}
+#| label: fig-naive-vs-panel
+#| fig-cap: "Posterior comparison: the naive model (no lag term, purple) vs the panel model's total effect (contemporaneous + carry-over, blue). The naive model underestimates the total effect because it cannot capture the carry-over path. Black dashed line shows the true total effect."
+#| code-fold: true
+
+naive_draws = idata_no_lag.posterior["beta_revenue"].sel(
+    revenue_predictors="promo"
+).values.flatten()
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.8))
+
+for draws, color, label in [
+    (naive_draws, COLOR_CONTEMP, "Naive (no lag)"),
+    (total_draws, COLOR_PROMO, "Panel (contemp + lag)"),
+]:
+    kde = gaussian_kde(draws)
+    x_grid = np.linspace(draws.min(), draws.max(), 200)
+    density = kde(x_grid)
+    ax.fill_between(x_grid, density, alpha=0.25, color=color)
+    ax.plot(x_grid, density, color=color, label=label, lw=2)
+    ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
+
+ax.axvline(TRUE_CONTEMP + TRUE_LAG, color="black", ls="--", lw=1.5,
+           alpha=0.5, label=f"True total ({TRUE_CONTEMP + TRUE_LAG})")
+ax.set_xlabel("Effect of promo on revenue")
+ax.set_ylabel("Density")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+The naive model — which treats the panel data as if it were cross-sectional — estimates only the contemporaneous effect.
+The carry-over path `promo_{t-1} → revenue_t` is invisible to it, so roughly half the total effect is missed.
+
+---
+
+## Comparing the two approaches
+
+### A comparison table
+
+| Feature | Cross-Sectional | Panel |
+|---------|----------------|-------|
+| **Data structure** | *N* units × 1 time point | *N* units × *T* time points |
+| **DAG edges** | All contemporaneous | Contemporaneous + lagged |
+| **Temporal effects** | Cannot decompose | Separate contemporaneous vs carry-over |
+| **Identification** | Adjust via observed confounders | + temporal ordering provides natural causal direction |
+| **Pooling** | Not applicable | Partial pooling borrows strength across units |
+| **`do()` operator** | Single-step propagation | Time-forward simulation resolves lags dynamically |
+| **Carry-over / adstock** | Cannot model | Naturally represented via lag columns or transforms |
+| **Sample size** | *N* | *N* × *T* (minus lag rows) |
+
+### Visual comparison of the DAGs
+
+```{dot}
+//| label: fig-dag-comparison
+//| fig-cap: "Side-by-side comparison: the cross-sectional DAG (left) has only contemporaneous edges; the panel DAG (right) adds a temporal carry-over edge from the previous time step (dashed). This additional path changes the total causal effect of promo on revenue."
+//| fig-width: 6.5
+digraph {
+  rankdir=TB
+  compound=true
+  newrank=true
+  node [shape=box, style=rounded]
+
+  subgraph cluster_cs {
+    label="Cross-Sectional"
+    style=rounded
+    fontsize=14
+    fontname="Helvetica-Bold"
+    color="#756bb1"
+
+    cs_ft [label="foot\ntraffic", style="filled,rounded", fillcolor="lightyellow"]
+    cs_promo [label="promo", style="filled,rounded", fillcolor="lightgreen"]
+    cs_rev [label="revenue", style="filled,rounded", fillcolor="lightcoral"]
+
+    cs_ft -> cs_promo
+    cs_ft -> cs_rev
+    cs_promo -> cs_rev
+  }
+
+  subgraph cluster_panel {
+    label="Panel"
+    style=rounded
+    fontsize=14
+    fontname="Helvetica-Bold"
+    color="#2171b5"
+
+    p_ft [label="foot\ntraffic (t)", style="filled,rounded", fillcolor="lightyellow"]
+    p_promo [label="promo (t)", style="filled,rounded", fillcolor="lightgreen"]
+    p_lag [label="promo (t−1)", style="filled,rounded", fillcolor="#c6dbef"]
+    p_rev [label="revenue (t)", style="filled,rounded", fillcolor="lightcoral"]
+
+    p_ft -> p_promo
+    p_ft -> p_rev
+    p_promo -> p_rev
+    p_lag -> p_rev [style=dashed, label=" carry-over"]
+  }
+}
+```
+
+### When does panel data change the answer?
+
+Panel data matters most when:
+
+1. **Effects take time to materialize.** Advertising carry-over, training uptake, policy implementation — if the mechanism has a delay, a snapshot misses part of the effect.
+
+2. **You need to decompose temporal mechanisms.** "How much of the effect is immediate vs delayed?" is a question only panel data can answer.
+
+3. **Within-unit variation is informative.** Panel data lets you compare each store *to itself* over time, eliminating time-invariant confounders (like location quality) even if you can't measure them directly.
+
+4. **The treatment varies over time.** If promo spend changes week to week within each store, you can leverage that variation for identification in ways a single snapshot cannot.
+
+::: {.callout-tip}
+## Choosing between cross-sectional and panel analysis
+
+- **Use cross-sectional** when you have many units at one time, effects are plausibly instantaneous, and confounders are observed.
+- **Use panel** when you observe units over time, expect carry-over or delayed effects, or want to exploit within-unit variation for identification.
+- **Don't force cross-sectional methods on panel data.** As @fig-naive-vs-panel shows, ignoring the temporal structure underestimates effects by missing carry-over paths.
+:::
+
+---
+
+## Summary
+
+- **The DAG encodes temporal assumptions.** Cross-sectional DAGs have only contemporaneous edges; panel DAGs add lagged edges that represent carry-over and delayed effects.
+- **Lagged edges create new causal paths.** The total effect of a treatment can be larger than the contemporaneous effect alone, because carry-over paths contribute additional impact.
+- **`add_lags()`** creates lagged columns within each panel unit, respecting panel boundaries — no data leaks across stores.
+- **`simulate_over="time"`** activates time-forward `do()` propagation, where lagged variables are dynamically resolved from simulated values at previous time steps.
+- **Ignoring temporal structure underestimates effects.** A model without lag terms captures only the contemporaneous effect, missing carry-over contributions (see @fig-naive-vs-panel).
+- **Partial pooling** in panel models borrows strength across units, improving estimates for stores with less data.
+- **Temporal ordering aids identification.** The direction of a lagged edge (last week's promo → this week's revenue) is unambiguous — the past cannot be caused by the future.
+
+::: {.callout-note}
+## Reflection
+
+Think about the causal questions in your own domain:
+
+- **Marketing**: does your advertising effect play out over one week or several? If you're evaluating campaigns with a cross-sectional snapshot, could you be underestimating ROI by missing carry-over?
+- **HR/People analytics**: when a team completes a training program, does performance improve immediately, or does skill development take months? A single performance review might miss the delayed effect.
+- **Product**: when you launch a new feature, does engagement spike immediately, or does adoption build as users discover it through word-of-mouth?
+
+If the answer is "the effect takes time," your DAG needs temporal edges — and that means panel data and the tools that come with it.
+:::

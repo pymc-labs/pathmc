@@ -1,0 +1,477 @@
+---
+title: "SaaS Conversion Funnel"
+jupyter: pathmc
+---
+
+Every SaaS company tracks a funnel: visitors sign up, some engage deeply, a fraction activate the product's core features, and a smaller fraction convert to paid.
+The standard analytics dashboard shows conversion rates at each stage — but it cannot answer the question that matters for investment decisions: **which stage of the funnel has the highest causal leverage on paid conversion?**
+
+The problem is that funnel stages are causally linked.
+Improving onboarding lifts engagement, which lifts activation, which lifts conversion.
+A naive regression of conversion on all funnel metrics simultaneously blocks the very causal paths you want to measure — the same attribution trap that plagues media mix models (see [MMM with marketing funnel](mmm_mediation.qmd)).
+
+Path analysis lets us model the funnel as a causal chain, estimate the effect that propagates through each stage, and simulate "what if we improve onboarding?" scenarios that respect the full causal structure.
+
+## The causal structure
+
+Consider a B2B SaaS product with five key variables:
+
+- **channel_quality**: a score capturing how well the acquisition source matches the product's ideal customer profile (exogenous, continuous)
+- **onboarding_score**: quality of the onboarding experience — tutorial completion, setup wizard progress (exogenous, continuous, 1–10 scale)
+- **engagement**: first-week activity level — sessions, feature usage, API calls (endogenous, Gaussian)
+- **activated**: whether the user completed the product's "aha moment" action (endogenous, Bernoulli)
+- **converted**: whether the user became a paid subscriber within 30 days (endogenous, Bernoulli)
+
+```{dot}
+//| label: fig-dag
+//| fig-cap: "SaaS conversion funnel DAG. Onboarding and channel quality drive engagement (continuous), which feeds into activation and conversion (both binary). Activation also directly affects conversion. Channel quality has a direct path to activation, representing users from high-quality channels who activate regardless of engagement level."
+//| fig-width: 6
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+
+  onboarding_score -> engagement [label="  "]
+  channel_quality -> engagement [label="  "]
+  channel_quality -> activated [label="  "]
+  engagement -> activated [label="  "]
+  engagement -> converted [label="  "]
+  activated -> converted [label="  "]
+}
+```
+
+This DAG encodes several substantive claims:
+
+| Path | Interpretation |
+|------|----------------|
+| onboarding → engagement → activated → converted | Full funnel: better onboarding propagates through every stage |
+| onboarding → engagement → converted | Bypass path: engagement drives conversion even without formal activation |
+| channel_quality → activated → converted | High-quality leads activate and convert directly |
+| channel_quality → engagement → ... | Channel quality also affects engagement, creating an indirect path |
+
+::: {.callout-important}
+## Mixed families in a single DAG
+
+This model combines **Gaussian** and **Bernoulli** likelihoods in the same structural equation system.
+`engagement` is continuous (modeled with a Gaussian likelihood), while `activated` and `converted` are binary (modeled with Bernoulli-logit likelihoods).
+pathmc handles this automatically — each variable gets the appropriate likelihood based on the `families` argument, and `do()` applies the correct link function at each step.
+:::
+
+## Simulate data
+
+We generate data from a known DGP so we can verify that pathmc recovers the true causal effects.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
+from scipy.special import expit
+import arviz as az
+import pymc as pm
+import pathmc
+
+FIG_WIDTH = 8
+FIG_HEIGHT = 4
+COLOR_ONBOARDING = "#2171b5"
+COLOR_CHANNEL = "#e6550d"
+COLOR_ENGAGEMENT = "#31a354"
+COLOR_ACTIVATION = "#756bb1"
+COLOR_CONVERSION = "#e7298a"
+
+rng = np.random.default_rng(42)
+n = 800
+
+channel_quality = rng.normal(0, 1, size=n)
+onboarding_score = rng.uniform(2, 9, size=n)
+
+true_eng_intercept = 3.0
+true_eng_channel = 0.6
+true_eng_onboarding = 0.5
+
+engagement = (
+    true_eng_intercept
+    + true_eng_channel * channel_quality
+    + true_eng_onboarding * onboarding_score
+    + rng.normal(scale=1.0, size=n)
+)
+
+true_act_intercept = -3.0
+true_act_engagement = 0.4
+true_act_channel = 0.5
+
+logit_activated = (
+    true_act_intercept
+    + true_act_engagement * engagement
+    + true_act_channel * channel_quality
+)
+p_activated = expit(logit_activated)
+activated = rng.binomial(1, p_activated).astype(float)
+
+true_conv_intercept = -3.5
+true_conv_activated = 1.2
+true_conv_engagement = 0.2
+
+logit_converted = (
+    true_conv_intercept
+    + true_conv_activated * activated
+    + true_conv_engagement * engagement
+)
+p_converted = expit(logit_converted)
+converted = rng.binomial(1, p_converted).astype(float)
+
+df = pd.DataFrame({
+    "channel_quality": channel_quality,
+    "onboarding_score": onboarding_score,
+    "engagement": engagement,
+    "activated": activated,
+    "converted": converted,
+})
+
+print(f"N = {n}")
+print(f"Activation rate:  {activated.mean():.1%}")
+print(f"Conversion rate:  {converted.mean():.1%}")
+print(f"Conv | activated: {converted[activated == 1].mean():.1%}")
+print(f"Conv | not act:   {converted[activated == 0].mean():.1%}")
+df.head()
+```
+
+The conversion rate among activated users is much higher than among non-activated users — but how much of that is causal (activation *causes* conversion) versus selection (engaged users both activate *and* convert)?
+
+## Visualise the funnel
+
+```{python}
+#| label: fig-funnel-rates
+#| fig-cap: "Conversion rates by activation status and engagement quartile. Higher engagement is associated with both higher activation and higher conversion, but the gap between activated and non-activated users persists across engagement levels."
+#| code-fold: true
+
+eng_quartiles = pd.qcut(df["engagement"], 4, labels=["Q1", "Q2", "Q3", "Q4"])
+summary = df.assign(eng_q=eng_quartiles).groupby("eng_q").agg(
+    activation_rate=("activated", "mean"),
+    conversion_rate=("converted", "mean"),
+    n=("converted", "size"),
+).reset_index()
+
+fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+axes[0].bar(summary["eng_q"], summary["activation_rate"], color=COLOR_ACTIVATION, alpha=0.7)
+axes[0].set_xlabel("Engagement quartile")
+axes[0].set_ylabel("Activation rate")
+axes[0].set_ylim(0, 1)
+
+axes[1].bar(summary["eng_q"], summary["conversion_rate"], color=COLOR_CONVERSION, alpha=0.7)
+axes[1].set_xlabel("Engagement quartile")
+axes[1].set_ylabel("Conversion rate")
+axes[1].set_ylim(0, 1)
+
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+#| label: fig-engagement-by-onboarding
+#| fig-cap: "Engagement as a function of onboarding score, colored by activation status. Higher onboarding scores shift the engagement distribution upward, and activated users cluster at higher engagement levels."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+mask_act = df["activated"] == 1
+mask_not = df["activated"] == 0
+ax.scatter(df.loc[mask_not, "onboarding_score"], df.loc[mask_not, "engagement"],
+           alpha=0.3, s=10, color=COLOR_ENGAGEMENT, label="Not activated")
+ax.scatter(df.loc[mask_act, "onboarding_score"], df.loc[mask_act, "engagement"],
+           alpha=0.3, s=10, color=COLOR_ACTIVATION, label="Activated")
+ax.set_xlabel("Onboarding score")
+ax.set_ylabel("Engagement (first week)")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+## The attribution trap
+
+Before fitting the path model, consider what a product analyst might do: regress `converted` on all available features simultaneously.
+
+::: {.callout-warning}
+## Conditioning on the mediator underestimates upstream effects
+
+A logistic regression `converted ~ onboarding_score + engagement + activated + channel_quality` estimates the *direct* effect of onboarding on conversion — which is essentially zero, because onboarding affects conversion only *through* engagement and activation.
+
+This leads to the conclusion "onboarding doesn't matter for conversion" — a dangerous mistake if onboarding is actually the most effective lever in the entire funnel.
+
+The same logic applies to any flat regression that includes all funnel stages as predictors: upstream variables appear irrelevant because their effects are "absorbed" by the downstream variables they cause.
+:::
+
+## Specify and fit the path model
+
+The spec encodes the full causal chain, with each equation representing one structural relationship.
+
+```{python}
+spec = """
+engagement ~ e_ch*channel_quality + e_on*onboarding_score
+activated  ~ a_eng*engagement + a_ch*channel_quality
+converted  ~ c_act*activated + c_eng*engagement
+"""
+
+model = pathmc.fit(
+    spec,
+    data=df,
+    families={"activated": "bernoulli", "converted": "bernoulli"},
+)
+```
+
+```{python}
+model.graph()
+```
+
+```{python}
+model.equations()
+```
+
+The priors table shows the different treatment by family: `engagement` gets a sigma parameter (Gaussian residual scale), while `activated` and `converted` do not (Bernoulli has no residual scale — the variance is determined by the probability).
+
+```{python}
+model.priors()
+```
+
+### PyMC model graph
+
+```{python}
+#| label: fig-pymc-graph
+#| fig-cap: "PyMC plate diagram for the mixed-family funnel model. Note the Gaussian likelihood for engagement (with sigma) and Bernoulli likelihoods for activation and conversion (no sigma)."
+pm.model_to_graphviz(model.pymc_model)
+```
+
+## Sample
+
+```{python}
+idata = model.sample(draws=1000, tune=1000, chains=4, random_seed=42)
+```
+
+## Results
+
+### Coefficient recovery
+
+```{python}
+model.summary()
+```
+
+```{python}
+model.effects_summary()
+```
+
+::: {.callout-tip}
+## Reading the coefficients
+
+The coefficients live on different scales depending on the family:
+
+- **`e_ch`, `e_on`**: identity scale (Gaussian). A one-unit increase in onboarding score increases engagement by `e_on` ≈ 0.5 units.
+- **`a_eng`, `a_ch`**: log-odds scale (Bernoulli-logit). A one-unit increase in engagement increases the *log-odds* of activation by `a_eng` ≈ 0.4.
+- **`c_act`, `c_eng`**: log-odds scale. Activation increases the *log-odds* of conversion by `c_act` ≈ 1.2.
+
+To get effects on the **probability scale**, use `do()` — it applies the inverse-logit transform automatically.
+:::
+
+### Identification check
+
+```{python}
+print(f"Is onboarding → converted identifiable? {model.is_identifiable('onboarding_score', 'converted')}")
+print(f"Adjustment sets: {model.adjustment_sets('onboarding_score', 'converted')}")
+```
+
+## Causal effects via do()
+
+The key business question: **how much does improving onboarding increase paid conversion?**
+
+A naive regression can't answer this because onboarding affects conversion *only through* engagement and activation.
+The `do()` operator propagates the intervention through the entire funnel, correctly accounting for the causal chain and the nonlinear link functions.
+
+### Total effect of onboarding on conversion
+
+```{python}
+ate_onboarding = model.ate("converted", "onboarding_score", values=(3.0, 8.0))
+
+print("Effect of improving onboarding from 3 → 8:")
+print(f"  ΔP(converted): {ate_onboarding.mean('converted'):.3f}")
+print(f"  94% HDI:        {ate_onboarding.hdi('converted', prob=0.94)}")
+```
+
+This is the total causal effect on the probability scale — it includes the full chain: onboarding → engagement → activation → conversion, plus the bypass onboarding → engagement → conversion.
+
+### Propagation through the funnel
+
+Because the model represents the full DAG, `do()` gives us the effect on *every* downstream variable — not just the final outcome.
+
+```{python}
+r_low = model.do(set={"onboarding_score": 3.0}, kind="mean")
+r_high = model.do(set={"onboarding_score": 8.0}, kind="mean")
+
+print("do(onboarding=3) vs do(onboarding=8):")
+print(f"  Engagement:    {r_low.mean('engagement'):.2f} → {r_high.mean('engagement'):.2f}")
+print(f"  P(activated):  {r_low.mean('activated'):.3f} → {r_high.mean('activated'):.3f}")
+print(f"  P(converted):  {r_low.mean('converted'):.3f} → {r_high.mean('converted'):.3f}")
+```
+
+```{python}
+#| label: fig-funnel-propagation
+#| fig-cap: "Effect of improving onboarding score from 3 to 8 on each funnel stage. The do() operator propagates the intervention through the full causal chain, showing how an upstream change cascades through engagement (identity scale), activation (probability scale), and conversion (probability scale)."
+#| code-fold: true
+
+contrast = r_high - r_low
+
+stages = ["engagement", "activated", "converted"]
+stage_labels = ["Engagement\n(Δ units)", "P(Activated)\n(Δ probability)", "P(Converted)\n(Δ probability)"]
+colors = [COLOR_ENGAGEMENT, COLOR_ACTIVATION, COLOR_CONVERSION]
+
+fig, axes = plt.subplots(1, 3, figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+for ax, var, label, color in zip(axes, stages, stage_labels, colors):
+    draws = contrast._values[var]
+    kde = gaussian_kde(draws)
+    x_grid = np.linspace(draws.min(), draws.max(), 200)
+    density = kde(x_grid)
+    ax.fill_between(x_grid, density, alpha=0.3, color=color)
+    ax.plot(x_grid, density, color=color, lw=2)
+    ax.axvline(draws.mean(), color=color, ls="--", lw=1.5, alpha=0.7)
+    ax.axvline(0, color="black", ls=":", alpha=0.3)
+    ax.set_xlabel(label)
+    ax.set_ylabel("Density" if ax == axes[0] else "")
+
+plt.tight_layout()
+plt.show()
+```
+
+The causal cascade is visible: a 5-point improvement in onboarding lifts engagement by ~2.5 units, which increases activation probability and, in turn, conversion probability.
+
+## Which lever has the most impact?
+
+Product teams often need to decide where to invest: improving the acquisition funnel (channel quality), the onboarding experience, or the product itself (engagement features).
+We can compare these by simulating comparable interventions on each lever.
+
+```{python}
+r_base = model.do(set={"channel_quality": 0.0, "onboarding_score": 5.0}, kind="mean")
+
+r_better_channel = model.do(set={"channel_quality": 1.0, "onboarding_score": 5.0}, kind="mean")
+r_better_onboarding = model.do(set={"channel_quality": 0.0, "onboarding_score": 7.0}, kind="mean")
+
+lift_channel = r_better_channel - r_base
+lift_onboarding = r_better_onboarding - r_base
+
+print("Conversion lift from 1-SD improvement in channel quality:")
+print(f"  ΔP(converted): {lift_channel.mean('converted'):.4f}  (HDI: {lift_channel.hdi('converted', prob=0.94)})")
+print(f"\nConversion lift from +2 onboarding score:")
+print(f"  ΔP(converted): {lift_onboarding.mean('converted'):.4f}  (HDI: {lift_onboarding.hdi('converted', prob=0.94)})")
+```
+
+```{python}
+#| label: fig-lever-comparison
+#| fig-cap: "Posterior distributions of conversion probability lift from two interventions: +1 SD channel quality (orange) vs +2 onboarding score (blue). Both are computed via do() and propagated through the full funnel."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+for lift_obj, color, label in [
+    (lift_channel, COLOR_CHANNEL, "+1 SD channel quality"),
+    (lift_onboarding, COLOR_ONBOARDING, "+2 onboarding score"),
+]:
+    draws = lift_obj._values["converted"]
+    kde = gaussian_kde(draws)
+    x_grid = np.linspace(draws.min(), draws.max(), 200)
+    density = kde(x_grid)
+    ax.fill_between(x_grid, density, alpha=0.25, color=color)
+    ax.plot(x_grid, density, color=color, label=label, lw=2)
+    ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
+
+ax.axvline(0, color="black", ls=":", alpha=0.3)
+ax.set_xlabel("ΔP(converted)")
+ax.set_ylabel("Density")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+## The activation question: gate or signal?
+
+A common product debate: is activation a *gate* (you must activate to convert) or just a *signal* (engaged users both activate and convert, but activation itself doesn't cause conversion)?
+
+The path model can address this directly. The coefficient `c_act` captures the effect of activation on conversion *holding engagement constant*. If activation is purely a signal, this coefficient would be near zero.
+
+```{python}
+#| label: fig-activation-effect
+#| fig-cap: "Posterior distribution of the activation → conversion coefficient (log-odds scale). A value clearly above zero indicates that activation has a causal effect on conversion beyond what engagement alone predicts."
+#| code-fold: true
+
+c_act_draws = idata.posterior["beta_converted"].sel(
+    converted_predictors="activated"
+).values.flatten()
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.8))
+kde = gaussian_kde(c_act_draws)
+x_grid = np.linspace(c_act_draws.min(), c_act_draws.max(), 200)
+density = kde(x_grid)
+ax.fill_between(x_grid, density, alpha=0.3, color=COLOR_ACTIVATION)
+ax.plot(x_grid, density, color=COLOR_ACTIVATION, lw=2)
+ax.axvline(c_act_draws.mean(), color=COLOR_ACTIVATION, ls="--", lw=1.5, alpha=0.7)
+ax.axvline(true_conv_activated, color="black", ls="--", lw=1.5, alpha=0.5, label=f"True value ({true_conv_activated})")
+ax.axvline(0, color="black", ls=":", alpha=0.3)
+ax.set_xlabel("Activation → Conversion (log-odds)")
+ax.set_ylabel("Density")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+The posterior is well above zero (true value = 1.2), confirming that activation has a genuine causal effect — it's a gate, not just a signal.
+This means investing in features that help users reach the "aha moment" will causally increase conversion, even holding engagement constant.
+
+## Predictive vs mean propagation
+
+With `kind="mean"`, the `do()` operator propagates expected values through the DAG.
+For Bernoulli variables, the "expected value" at each stage is the *probability*, which flows forward as a continuous number between 0 and 1.
+
+With `kind="predictive"`, each Bernoulli variable is sampled as an actual 0 or 1, which then flows forward as a discrete input to the next stage.
+This gives the full posterior predictive distribution — wider intervals, but a more faithful representation of the stochastic funnel.
+
+```{python}
+r_mean = model.do(set={"onboarding_score": 8.0}, kind="mean")
+r_pred = model.do(set={"onboarding_score": 8.0}, kind="predictive")
+
+print("do(onboarding=8):")
+print(f"  Mean propagation  — P(converted): {r_mean.mean('converted'):.3f}  "
+      f"HDI: {r_mean.hdi('converted', prob=0.94)}")
+print(f"  Predictive draws  — P(converted): {r_pred.mean('converted'):.3f}  "
+      f"HDI: {r_pred.hdi('converted', prob=0.94)}")
+```
+
+::: {.callout-tip}
+## When to use each mode
+
+- **`kind="mean"`**: best for estimating causal effects and comparing scenarios. The narrower intervals isolate parameter uncertainty.
+- **`kind="predictive"`**: best for predicting what will actually happen to individual users. The wider intervals include the randomness inherent in binary outcomes.
+:::
+
+## Probability query
+
+What fraction of users convert if we set onboarding to its maximum?
+
+```{python}
+p = model.prob("converted > 0.5", set={"onboarding_score": 9.0}, kind="predictive")
+print(f"P(converted | do(onboarding=9)): {p:.2f}")
+```
+
+## Summary
+
+- **Funnel stages are causally linked.** A flat regression including all stages as predictors blocks the causal paths from upstream variables, making them appear irrelevant.
+- **Mixed-family models** handle continuous and binary variables in the same DAG. pathmc applies the correct likelihood (Gaussian or Bernoulli-logit) to each variable automatically.
+- **`do()` propagates through the full chain.** When you intervene on onboarding, the effect cascades through engagement → activation → conversion, with the logistic transform applied at each binary stage.
+- **Activation is a gate, not just a signal.** The structural coefficient from activation to conversion is positive even after controlling for engagement, confirming a causal (not merely correlational) relationship.
+- **Upstream levers have larger total effects than they appear.** Onboarding's total causal effect on conversion is substantial, but invisible to a regression that conditions on the mediators.
+- **Mean vs predictive propagation** serve different purposes: mean propagation isolates causal effects; predictive propagation gives realistic outcome distributions.
+
+::: {.callout-note}
+## Reflection
+
+In your own product or service, which metrics sit *upstream* in the funnel but are evaluated only by their *partial* correlation with the final outcome?
+
+- Could "time to first value" be mediating the effect of onboarding investment on retention?
+- Is "feature adoption" a gate to expansion revenue, or just a signal of engaged customers who would expand anyway?
+- If you run an A/B test on the signup flow, does your analysis include downstream engagement metrics as covariates — accidentally blocking the very effect you're trying to measure?
+:::

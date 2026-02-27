@@ -1,0 +1,136 @@
+---
+title: "Comparison with Other Packages"
+subtitle: "Where pathmc fits in the Python causal inference ecosystem"
+---
+
+The Python ecosystem has several excellent packages for causal inference, each built around different design philosophies and targeting different workflows.
+This page maps out where pathmc sits relative to five widely used alternatives, so you can pick the right tool for the job.
+
+## Philosophy
+
+pathmc occupies a specific niche: **structural causal models with Bayesian estimation and interventional simulation via a concise DSL**.
+It combines three things that are usually separate:
+
+1. A lavaan-style formula language for specifying systems of equations
+2. Full Bayesian inference via PyMC
+3. A built-in `do()` operator that propagates posterior uncertainty through the DAG
+
+Other packages emphasize different parts of the causal workflow — discovery, identification, estimation of treatment effects, or quasi-experimental designs.
+The right choice depends on what stage of the analysis you're in and what assumptions you're willing to encode.
+
+## Feature comparison
+
+The table below compares pathmc against five packages that Python practitioners commonly reach for when doing causal inference.
+
+| Feature | pathmc | DoWhy | CausalPy | semopy | EconML | Bambi |
+|---------|--------|-------|----------|--------|--------|-------|
+| **Approach** | Structural causal model (path analysis) | Identification + estimation framework | Quasi-experimental designs | Frequentist SEM | ML-based treatment effects | Bayesian regression |
+| **Inference** | Bayesian (PyMC) | Frequentist or Bayesian (pluggable) | Bayesian (PyMC) | Frequentist (ML) | Frequentist (ML) | Bayesian (PyMC) |
+| **DAG specification** | Formula DSL (`~`, `~~`, `:=`) | NetworkX / GML graph | Not required | lavaan-style syntax | Not required | R-style formula |
+| **Multi-equation systems** | Yes (core feature) | No | No | Yes | No | No |
+| **Residual covariance (`~~`)** | Yes (LKJ + MvNormal) | No | No | Yes | No | No |
+| **do() operator** | Yes (posterior propagation) | Yes (estimation-based) | No | No | No | No |
+| **Time-forward simulation** | Yes (panel `do()`) | No | No | No | No | No |
+| **Transforms with estimable params** | Yes (adstock, saturation) | No | No | No | No | No |
+| **Panel / longitudinal data** | Yes (random intercepts + slopes) | Limited | Yes (time series focus) | No | No | Yes (via groups) |
+| **Causal identification checks** | Yes (backdoor, collider warnings) | Yes (comprehensive) | No | No | No | No |
+| **Heterogeneous treatment effects** | Via `cate()` + conditioning | Via refuters | No | No | Yes (core strength) | Via interactions |
+| **Quasi-experimental designs** | DiD via panel `do()` | DiD via estimators | DiD, Synthetic Control, RDD | No | DML, IV | DiD via manual setup |
+| **Latent variables** | No (observed-variable only) | No | No | Yes (CFA/SEM) | No | No |
+| **Causal discovery** | No | Yes (via plugins) | No | No | No | No |
+| **Posterior predictive checks** | Yes | No | Yes | No | No | Yes |
+| **Standardized effects** | Yes (stdyx) | No | No | Yes | No | No |
+
+## Package-by-package comparison
+
+### DoWhy
+
+[DoWhy](https://www.pywhy.org/dowhy/) is the most comprehensive causal inference framework in Python.
+It follows a four-step workflow — model, identify, estimate, refute — that cleanly separates the causal reasoning from the statistical estimation.
+DoWhy's identification engine is more complete than pathmc's: it implements the full do-calculus, instrumental variables, front-door criterion, and more.
+
+**Choose DoWhy when** you need rigorous identification beyond the backdoor criterion, want access to many estimators (IPW, matching, IV, etc.), or need refutation tests to stress-test your estimates.
+
+**Choose pathmc when** you want to specify a full system of structural equations (not just one treatment-outcome pair), need Bayesian uncertainty quantification throughout, or want to simulate counterfactual scenarios by propagating posterior draws through the DAG.
+DoWhy estimates a single treatment effect; pathmc models the entire system and lets you query any variable under any intervention.
+
+### CausalPy
+
+[CausalPy](https://causalpy.readthedocs.io/) is PyMC Labs' package for quasi-experimental causal inference.
+It provides Bayesian implementations of difference-in-differences, synthetic control, regression discontinuity, and interrupted time series designs.
+CausalPy is excellent when you have a natural experiment and want to estimate its effect with full posterior uncertainty.
+
+**Choose CausalPy when** your identification strategy is a quasi-experimental design (a policy change, a natural experiment, a geographic discontinuity) and you want a purpose-built tool for that specific estimand.
+
+**Choose pathmc when** you want to model the causal mechanism itself — the system of equations connecting variables — rather than estimating a single treatment effect from a quasi-experiment.
+pathmc's `do()` operator answers *"what would happen if I intervened?"* by simulating through the structural model, while CausalPy answers *"what was the effect of this past intervention?"* using pre/post comparisons.
+
+### semopy
+
+[semopy](https://semopy.com/) is the closest methodological relative to pathmc — it implements structural equation modeling in Python with a lavaan-inspired syntax.
+If you're coming from R's lavaan, semopy will feel immediately familiar.
+It supports latent variables (CFA), full SEM, and fit indices (CFI, RMSEA, SRMR) that pathmc does not.
+
+**Choose semopy when** you need latent variable models (factor analysis, measurement models), frequentist estimation with ML or DWLS, or classical SEM fit indices.
+
+**Choose pathmc when** you want Bayesian inference (full posteriors, priors, posterior predictive checks), a `do()` operator for interventional queries, panel data with hierarchical structure, or transforms with estimable parameters.
+semopy gives you the SEM toolkit; pathmc gives you Bayesian path analysis with a causal simulation engine.
+
+### EconML
+
+[EconML](https://econml.azurewebsites.net/) (Microsoft) specializes in **heterogeneous treatment effect estimation** using machine learning.
+Its core strength is estimating how treatment effects vary across subpopulations — CATE estimation via methods like double machine learning, causal forests, and orthogonal random forests.
+EconML scales to high-dimensional settings where traditional regression would struggle.
+
+**Choose EconML when** you have high-dimensional covariates, want nonparametric CATE estimates, or need treatment effect estimation that is robust to model misspecification via double/debiased ML.
+
+**Choose pathmc when** you want to model the causal mechanism structurally (not just estimate a single treatment effect), need Bayesian uncertainty quantification, or want to simulate counterfactual scenarios through a system of equations.
+EconML is agnostic about mechanism — it estimates effects without specifying *how* the treatment operates.
+pathmc requires you to specify the mechanism but rewards you with richer queries.
+
+### Bambi
+
+[Bambi](https://bambinos.github.io/bambi/) is a high-level Bayesian regression interface built on PyMC.
+It shares pathmc's Bayesian foundation and formula-based model specification, and it is excellent for building individual regression models with complex random-effects structures.
+Using Bambi's `interpret` module, you can compute predictions, comparisons, and slopes that approximate causal quantities when identification assumptions hold.
+
+**Choose Bambi when** you need flexible single-equation Bayesian regression with sophisticated random effects (crossed, nested), GAMs, or distributional models.
+
+**Choose pathmc when** you need to model a *system* of equations simultaneously, want residual covariance across equations, need a `do()` operator that propagates through the full causal graph, or want built-in identification checks.
+Bambi excels at one equation at a time; pathmc models the whole DAG.
+
+## When to use what
+
+| Scenario | Recommended tool |
+|----------|-----------------|
+| You have a DAG and want to estimate all paths simultaneously | **pathmc** |
+| You need to simulate counterfactual interventions through a system | **pathmc** |
+| You need rigorous identification beyond the backdoor criterion | **DoWhy** |
+| You have a natural experiment (DiD, RDD, synthetic control) | **CausalPy** |
+| You need latent variable SEM with fit indices | **semopy** |
+| You have high-dimensional data and want nonparametric CATE | **EconML** |
+| You need a flexible single-equation Bayesian model | **Bambi** |
+| You want an MMM with adstock/saturation and counterfactual simulation | **pathmc** |
+| You want to combine multiple tools in a workflow | Use **DoWhy** for identification, then **pathmc** or **Bambi** for estimation |
+
+## What pathmc does not do
+
+Being clear about limitations is as important as highlighting strengths:
+
+- **No latent variables.** pathmc is observed-variable path analysis. If you need measurement models or factor analysis, use semopy or lavaan (R).
+- **No causal discovery.** pathmc takes a DAG as input; it does not learn structure from data. For discovery, see [causal-learn](https://causal-learn.readthedocs.io/) or DoWhy's discovery plugins.
+- **No nonparametric estimation.** pathmc assumes parametric structural equations (linear + transforms). For flexible nonparametric effects, use EconML or BART-based approaches.
+- **No instrumental variables or front-door criterion.** Identification is currently limited to the backdoor criterion.
+- **Linear structural equations.** While transforms (adstock, saturation) add nonlinearity in predictors, the structural equations remain linear in coefficients. For fully nonlinear structural models, you would need to write custom PyMC code.
+
+## Complementary workflows
+
+These packages are not mutually exclusive. A mature causal analysis might combine several:
+
+1. **Specify the DAG** from domain knowledge
+2. **Check identification** with DoWhy's do-calculus or pathmc's `adjustment_sets()`
+3. **Estimate the structural model** with pathmc (Bayesian, full system) or Bambi (single equation, rich random effects)
+4. **Validate with quasi-experiments** using CausalPy when natural experiments are available
+5. **Explore heterogeneity** with EconML for subgroup-level treatment effects
+
+pathmc's sweet spot is step 3 — fitting and querying a complete structural causal model with full Bayesian uncertainty — especially when you want to ask *"what if?"* questions via `do()`.

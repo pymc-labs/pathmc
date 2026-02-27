@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import warnings
 from typing import Any
 
 import arviz as az
@@ -13,6 +14,7 @@ import pymc as pm
 from pathmc.compile import build_design_matrix, compile_to_pymc
 from pathmc.effects import (
     EffectResult,
+    _has_labeled_terms,
     build_effects_summary,
     build_standardized_effects,
     compute_path_effect,
@@ -177,6 +179,15 @@ class PathModel:
                 "No posterior samples available. "
                 "Call .sample() before .effects_summary()."
             )
+        if not _has_labeled_terms(self._spec) and not self._spec.defined_params:
+            warnings.warn(
+                "No labeled coefficients or defined parameters (:=) in the spec. "
+                "effects_summary() only reports labeled terms. "
+                "Use labels like 'Y ~ a*X' or add ':= ' definitions to see results here. "
+                "For all coefficients, use .summary() instead.",
+                UserWarning,
+                stacklevel=2,
+            )
         return build_effects_summary(self._spec, self._idata)
 
     def standardized(self) -> pd.DataFrame:
@@ -198,6 +209,15 @@ class PathModel:
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .sample() before .standardized()."
+            )
+        if not _has_labeled_terms(self._spec):
+            warnings.warn(
+                "No labeled coefficients in the spec. "
+                "standardized() only reports labeled terms. "
+                "Use labels like 'Y ~ a*X + b*Z' to get standardized effects. "
+                "For raw coefficients, use .summary() instead.",
+                UserWarning,
+                stacklevel=2,
             )
         return build_standardized_effects(self._spec, self._idata, self._data)
 

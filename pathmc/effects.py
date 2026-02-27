@@ -15,6 +15,13 @@ import pandas as pd
 from pathmc.parse import Spec
 
 
+def _has_labeled_terms(spec: Spec) -> bool:
+    """Check whether any regression term has a user-supplied label."""
+    return any(
+        term.label is not None for reg in spec.regressions for term in reg.terms
+    )
+
+
 @dataclass
 class EffectResult:
     """Posterior draws for a labeled or path-based effect."""
@@ -148,6 +155,10 @@ def build_effects_summary(
             }
         )
 
+    if not rows:
+        return pd.DataFrame(
+            columns=["mean", "sd", "hdi_3%", "hdi_97%"]
+        ).rename_axis("name")
     return pd.DataFrame(rows).set_index("name")
 
 
@@ -214,6 +225,10 @@ def build_standardized_effects(
                 }
             )
 
+    if not rows:
+        return pd.DataFrame(
+            columns=["predictor", "outcome", "mean", "sd", "hdi_3%", "hdi_97%"]
+        ).rename_axis("name")
     return pd.DataFrame(rows).set_index("name")
 
 

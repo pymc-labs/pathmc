@@ -401,6 +401,15 @@ This workflow exercises most of pathmc's core features and serves as a flagship 
 
 See [roadmap_post_v1.md](roadmap_post_v1.md) for planned future features and their architectural implications.
 
+### Feature ideas surfaced by applied examples
+
+The following patterns emerged from the SaaS funnel, vaccine surrogates, and dynamic pricing examples and could become future convenience features:
+
+- **Controlled direct effect helper**: `model.cde(outcome, treatment, mediator, mediator_value=None)` — fix the mediator at its mean (or a given value) while varying the treatment. This automates the two-`do()` pattern for mediation decomposition in models with nonlinear link functions, where `indirect := a*b` is only approximate.
+- **Proportion mediated helper**: `model.proportion_mediated(outcome, treatment, mediator)` — compute `(total - CDE) / total` on the probability (or identity) scale. Requires the CDE helper above.
+- **Multi-family mediator chains**: Models with multiple Bernoulli variables in a causal chain (e.g., engagement → activation → conversion) work today but are untested by dedicated gate tests. When `kind="mean"`, probabilities flow forward as continuous values; when `kind="predictive"`, binary 0/1 draws propagate. Both are correct but the semantics should be documented clearly.
+- **Revenue / policy optimization**: `model.optimize_policy(outcome, treatment_range, objective)` — find the treatment value that maximizes an objective (revenue = price × demand, or similar). Currently the user must loop over `do()` calls manually (see dynamic pricing example).
+
 ## 13. Contract Scenarios (Acceptance)
 
 `pathmc` must satisfy a small suite of contract scenarios:
