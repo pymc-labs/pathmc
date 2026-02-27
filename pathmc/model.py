@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 import arviz as az
@@ -209,6 +210,8 @@ class PathModel:
         az.InferenceData
             Posterior samples.
         """
+        if sys.platform == "darwin" and "mp_ctx" not in kwargs:
+            kwargs.setdefault("mp_ctx", "forkserver")
         with self._pymc_model:
             self._idata = pm.sample(**kwargs)
         return self._idata

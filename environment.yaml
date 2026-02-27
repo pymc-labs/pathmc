@@ -2,7 +2,7 @@ name: pathmc
 channels:
   - conda-forge
 dependencies:
-  - python=3.11
+  - python=3.13
   - arviz
   - graphviz
   - jupyter
