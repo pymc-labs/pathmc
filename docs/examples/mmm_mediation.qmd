@@ -1,5 +1,5 @@
 ---
-title: "MMM with Mediation: The Marketing Funnel"
+title: "MMM with marketing funnel"
 jupyter: pathmc
 ---
 

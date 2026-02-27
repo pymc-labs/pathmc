@@ -33,7 +33,7 @@ website:
           - href: examples/mmm_basic.qmd
             text: Basic MMM
           - href: examples/mmm_mediation.qmd
-            text: MMM with Mediation
+            text: MMM with causal funnel
           - href: examples/mmm_geo.qmd
             text: MMM with Geo-Varying Effects
           - href: examples/causal_identification.qmd
