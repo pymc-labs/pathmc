@@ -1,0 +1,526 @@
+---
+title: "How pathmc Works"
+subtitle: "Architecture walkthrough for developers and contributors"
+---
+
+This page walks through the internals of pathmc — from the high-level API down to the implementation choices that make it work. It is aimed at developers who want to understand the design, extend the package, or simply satisfy their curiosity about what happens when you call `pathmc.fit()`.
+
+## The ten-second version
+
+```{mermaid}
+flowchart LR
+    A["spec string"] --> B["parse_spec()"]
+    B --> C["Spec AST"]
+    C --> D["build_graph()"]
+    D --> E["GraphInfo"]
+    C --> F["compile_to_pymc()"]
+    E --> F
+    F --> G["pm.Model"]
+    G --> H["PathModel"]
+    H --> I[".sample()"]
+    I --> J[".do() / .effects_summary() / ..."]
+```
+
+1. **Spec string → `parse_spec()`**: The user's lavaan-style formula (e.g., `Y ~ a*X + b*M`) is parsed into a typed AST of dataclasses. Parsing is pure — no data, no PyMC — so structural errors like duplicate equations or malformed syntax are caught immediately and cheaply.
+
+2. **Spec → `build_graph()`**: The AST is converted into a NetworkX DAG. This gives us topological ordering (the sequence in which variables can be computed respecting parent→child dependencies), exogenous/endogenous classification, cycle detection, and residual covariance blocks — all before touching any data.
+
+3. **Spec + GraphInfo + data → `compile_to_pymc()`**: The AST and graph, combined with the user's data, are compiled into a full `pm.Model`. Design matrices are built via patsy, coefficient priors are emitted, transform parameters are constrained, and likelihoods are wired up. The graph's topological order determines compilation sequence, ensuring parents are defined before children.
+
+4. **`pm.Model` → `PathModel`**: Everything is wrapped in a single user-facing object. Compilation happens at `fit()` time so that structural problems surface immediately — not minutes later when MCMC starts.
+
+5. **`.sample()`**: Standard PyMC MCMC sampling. The resulting `InferenceData` is stored on the model, unlocking all post-sampling methods.
+
+6. **Post-sampling analysis and causal queries**: Posterior draws drive everything that follows — interventional simulation (`do()`, `ate()`, `cate()`, `prob()`), effect summaries and standardized coefficients, and identification checks (`adjustment_sets()`, `is_identifiable()`, `collider_warnings()`). The same topological order that structured compilation now structures simulation.
+
+## Public API surface
+
+The public API is deliberately tiny — two functions:
+
+```python
+import pathmc
+
+model = pathmc.fit(spec_string, data=df, ...)   # parse → graph → compile → PathModel
+df = pathmc.add_lags(df, variables, lags, panel) # panel data preprocessing
+```
+
+Everything else lives on the `PathModel` object returned by `fit()`. This keeps the import namespace clean and makes discovery easy: users explore the model, not the module.
+
+
+## Module map
+
+```
+pathmc/
+├── __init__.py      # Exports fit() and add_lags() — nothing else
+├── parse.py         # DSL → typed AST (Spec)
+├── graph.py         # Spec → DAG (GraphInfo via NetworkX)
+├── compile.py       # Spec + data → pm.Model (patsy + PyMC)
+├── model.py         # PathModel class — the user-facing object
+├── simulate.py      # do() operator — cross-sectional and panel
+├── effects.py       # Labeled coefficients, defined params, stdyx
+├── introspect.py    # graph(), equations(), priors() — pre-sampling views
+├── transforms.py    # Transform registry (adstock, logistic_saturation)
+├── identify.py      # Backdoor criterion, adjustment sets, collider warnings
+├── panel.py         # PanelInfo, add_lags(), panel validation
+└── exceptions.py    # ParseError, DuplicateEquationError, CycleError
+```
+
+The dependency flow is strictly downward — `model.py` orchestrates everything, and the lower modules know nothing about each other except through their immediate dependencies:
+
+```{mermaid}
+flowchart TD
+    mod_model["model.py<br/>(PathModel, fit)"]
+    mod_parse["parse.py<br/>(Spec AST)"]
+    mod_graph["graph.py<br/>(GraphInfo)"]
+    mod_compile["compile.py<br/>(pm.Model)"]
+    mod_simulate["simulate.py<br/>(do operator)"]
+    mod_effects["effects.py<br/>(labeled coeffs)"]
+    mod_introspect["introspect.py<br/>(DAG viz, equations)"]
+    mod_transforms["transforms.py<br/>(registry)"]
+    mod_identify["identify.py<br/>(backdoor sets)"]
+    mod_panel["panel.py<br/>(PanelInfo)"]
+    mod_exceptions["exceptions.py"]
+
+    mod_model --> mod_parse
+    mod_model --> mod_graph
+    mod_model --> mod_compile
+    mod_model --> mod_simulate
+    mod_model --> mod_effects
+    mod_model --> mod_introspect
+    mod_model --> mod_identify
+    mod_model --> mod_panel
+
+    mod_graph --> mod_parse
+    mod_graph --> mod_exceptions
+    mod_compile --> mod_parse
+    mod_compile --> mod_transforms
+    mod_compile --> mod_panel
+    mod_simulate --> mod_parse
+    mod_simulate --> mod_graph
+    mod_simulate --> mod_transforms
+    mod_simulate --> mod_panel
+    mod_effects --> mod_parse
+    mod_introspect --> mod_parse
+    mod_introspect --> mod_graph
+    mod_introspect --> mod_transforms
+    mod_identify --> mod_graph
+    mod_parse --> mod_exceptions
+```
+
+This layering is intentional. The parser is pure (no data, no PyMC). The graph layer works from the AST alone. The compiler brings in data and PyMC but doesn't know about simulation. This separation means each layer can be tested independently, and the graph structure can be inspected without ever compiling a model.
+
+
+## Layer 1: The parser (`parse.py`)
+
+### What it does
+
+`parse_spec(spec_string)` takes a multi-line lavaan-style string and returns a `Spec` — a container of typed dataclass AST nodes. It handles three statement types:
+
+| Syntax | AST node | Example |
+|--------|----------|---------|
+| `~`  | `Regression` | `Y ~ a*X + b*M` |
+| `~~` | `ResidualCov` | `M1 ~~ M2` |
+| `:=` | `DefinedParam` | `indirect := a*b` |
+
+### AST nodes
+
+Every parsed element is a dataclass, not a dict or raw string. This matters: downstream code gets autocomplete, type checking, and pattern matching instead of string parsing.
+
+```python
+@dataclass
+class Term:
+    variable: str
+    label: str | None = None
+    transform: TransformCall | None = None
+
+@dataclass
+class Regression:
+    lhs: str
+    terms: list[Term]
+    has_intercept: bool = True
+
+@dataclass
+class TransformCall:
+    name: str
+    input_expr: str | TransformCall  # supports nesting
+    params: dict[str, str]
+```
+
+The `TransformCall` node supports arbitrary nesting — `logistic_saturation(adstock(x, decay=theta), lam=lam)` produces a `TransformCall` whose `input_expr` is itself a `TransformCall`. The parser handles this with a recursive descent approach.
+
+### Design choices
+
+**Hand-written parser, not a parser generator.** The DSL grammar is small and stable enough that a regex-based parser with recursive helpers is simpler to maintain, debug, and extend than a grammar file + generated parser. Statements are split by `;` or `\n`, then routed by operator detection (`~`, `~~`, `:=`).
+
+**Continuation lines.** Lines starting with `+` are merged with the previous line, so users can break long equations across lines naturally.
+
+**Error messages name the problem and suggest a fix.** For example, `DuplicateEquationError` says *"Duplicate equation for 'Y'. Each variable can appear as LHS in at most one regression."* — not just "parse error at line 3".
+
+
+## Layer 2: The graph (`graph.py`)
+
+### What it does
+
+`build_graph(spec)` takes a `Spec` and returns a `GraphInfo` — a DAG representation using NetworkX.
+
+### GraphInfo
+
+```python
+@dataclass
+class GraphInfo:
+    topological_order: list[str]    # valid topological sort
+    exogenous: set[str]             # no parents → not modeled
+    endogenous: set[str]            # has parents → gets a structural equation
+    residual_blocks: list[set[str]] # connected components of ~~ edges
+    _dag: nx.DiGraph                # internal, used by has_edge() and identify.py
+```
+
+### Why NetworkX?
+
+The graph layer needs topological sorting, cycle detection, ancestor/descendant queries (for the `identify.py` module), and connected components (for residual covariance blocks). NetworkX provides all of these as tested, correct primitives. Writing them from scratch would be both slower to develop and more error-prone.
+
+The internal `_dag` is a `nx.DiGraph`. It is exposed to `identify.py` for backdoor criterion computation but is not part of the public API — users interact with the graph through `has_edge()` and `model.graph()` (which returns a graphviz rendering, not the NetworkX object).
+
+### Residual blocks
+
+The `~~` operator declares correlated residuals. The graph layer finds connected components of the undirected `~~` graph to determine which variables should share a multivariate normal likelihood. For example, if the spec contains `M1 ~~ M2` and `M2 ~~ M3`, the three variables form a single residual block `{M1, M2, M3}` compiled as one `MvNormal`.
+
+### Cycle detection
+
+Cycles are caught early — before any PyMC compilation — with a clear error message that names the cycle:
+
+```
+CycleError: Cycle detected: X -> Y -> X. The structural model must be a
+directed acyclic graph (DAG). Remove or reverse an edge to break the cycle.
+```
+
+
+## Layer 3: The compiler (`compile.py`)
+
+### What it does
+
+`compile_to_pymc()` takes a `Spec`, data, design matrices, and optional configuration (families, panel info, pooling) and emits a `pm.Model`.
+
+### Design matrices via patsy
+
+Each regression equation gets its own design matrix, built by `build_design_matrix()` using patsy. Patsy handles intercept inclusion/suppression (`1` vs `0 +`) and produces a named DataFrame whose column names become ArviZ coordinates. This is important: the column names like `["Intercept", "X", "M"]` become the coordinate values for the `beta_{var}_predictors` dimension, so downstream code can select coefficients by name.
+
+### Compilation flow
+
+The compiler walks the endogenous variables and emits PyMC random variables:
+
+1. **Validate** residual covariance families — `~~` is only allowed between Gaussian outcomes.
+2. **Emit transform priors** — if any terms use transforms, their constrained parameters are created first (e.g., `pm.Beta("theta_tv", 2, 2)` for adstock decay).
+3. **For each regression**:
+   - Create `beta_{var} ~ Normal(0, 10)` with shape matching the design matrix columns.
+   - Compute `mu = X @ beta`, applying transforms to the relevant columns.
+   - Add random intercepts / slopes if panel mode is active.
+   - Emit the likelihood: `Normal`, `Bernoulli(logit_p=...)`, `Poisson(mu=exp(...))`, etc.
+4. **Residual blocks**: variables connected by `~~` are compiled as `MvNormal` blocks with LKJ Cholesky priors on their residual correlation matrix, replacing their individual likelihoods.
+
+### Family support
+
+Families control the likelihood and link function:
+
+| Family | Likelihood | Link | Extra params |
+|--------|-----------|------|-------------|
+| `gaussian` (default) | `Normal` | identity | `sigma` |
+| `bernoulli` | `Bernoulli` | logit | — |
+| `poisson` | `Poisson` | log | — |
+| `negbinomial` | `NegativeBinomial` | log | `alpha_disp` |
+| `studentt` | `StudentT` | identity | `sigma`, `nu` |
+
+The family is resolved per variable at compile time. The resolved families dict is stored on `PathModel` and passed through to `do()` so that the inverse link function is applied correctly during simulation.
+
+### Panel compilation
+
+When `panel=` is provided, the compiler adds hierarchical structure:
+
+- **Random intercepts** (`pooling="partial"`): for each endogenous variable, emit `mu_alpha ~ Normal(0, 10)`, `sigma_alpha ~ HalfNormal(1)`, and `alpha[unit] ~ Normal(mu_alpha, sigma_alpha)`. The unit-level intercept is added to the linear predictor.
+- **Random slopes** (`pooling={"intercept": True, "slopes": ["var"]}`): same pattern but for regression coefficients on specified predictors — each unit gets its own slope drawn from a shared distribution.
+
+### Parameter naming
+
+Parameter names follow a predictable convention documented in the priors table:
+
+| Parameter | Pattern | Example |
+|-----------|---------|---------|
+| Regression coefficients | `beta_{lhs}` | `beta_Y` |
+| Residual scale | `sigma_{lhs}` | `sigma_Y` |
+| Group intercept mean | `mu_alpha_{lhs}` | `mu_alpha_sales` |
+| Group intercept sd | `sigma_alpha_{lhs}` | `sigma_alpha_sales` |
+| Unit intercepts | `alpha_{lhs}` | `alpha_sales` |
+| Random slope | `slope_{lhs}_{predictor}` | `slope_sales_spend` |
+| Transform params | user-chosen name | `theta_tv`, `lam_tv` |
+
+This naming is stable across runs and makes it possible to select specific parameters from the ArviZ `InferenceData` by name.
+
+
+## Layer 4: The model (`model.py`)
+
+### PathModel
+
+`PathModel` is the user-facing object. It holds everything:
+
+- The parsed `Spec` and `GraphInfo`
+- The original data
+- The design matrices (built at init)
+- The compiled `pm.Model` (built at init)
+- The `InferenceData` (populated after `.sample()`)
+
+This means introspection methods (`graph()`, `equations()`, `priors()`, `design()`) work **before** sampling — they describe model structure, not results.
+
+### The `fit()` function
+
+`fit()` is the main entry point. It orchestrates the pipeline:
+
+```python
+def fit(spec_string, data, families=None, panel=None, pooling=None):
+    spec = parse_spec(spec_string)          # Layer 1
+    graph_info = build_graph(spec)          # Layer 2
+    panel_info = build_panel_info(data, panel) if panel else None
+    return PathModel(spec, graph_info, data, families, panel_info, pooling)
+    # PathModel.__init__ calls compile_to_pymc()  # Layer 3
+```
+
+The `PathModel` constructor builds design matrices and compiles the PyMC model immediately. This is a deliberate choice: compilation errors (missing columns, family mismatches, cycle errors) surface at `fit()` time, not at `sample()` time. Users get fast feedback about structural problems before committing to MCMC.
+
+### Method groups
+
+The `PathModel` methods fall into natural groups:
+
+**Pre-sampling introspection:**
+
+- `graph()` → graphviz Digraph (exogenous as boxes, endogenous as ellipses, labeled edges)
+- `equations()` → `EquationList` with plain text and LaTeX rendering
+- `priors()` → `PriorTable` with plain text and LaTeX rendering
+- `design(var)` → DataFrame of the design matrix for a specific equation
+
+**Sampling:**
+
+- `sample(**kwargs)` → wraps `pm.sample()`, stores `InferenceData`
+- `predict(**kwargs)` → wraps `pm.sample_posterior_predictive()`
+
+**Post-sampling analysis:**
+
+- `summary()` → `az.summary(idata)` — full ArviZ posterior summary
+- `effects_summary()` → labeled coefficients + `:=` defined parameters
+- `standardized()` → stdyx-style standardized coefficients
+- `effect("X -> M -> Y")` → path-specific effect from posterior draws
+
+**Causal queries:**
+
+- `do(set=..., kind=..., simulate_over=...)` → `DoResult`
+- `ate(outcome, treatment, values)` → convenience wrapper around two `do()` calls
+- `cate(outcome, treatment, values, condition)` → conditional ATE
+- `prob(expr, set=...)` → P(expr | do(set)) from predictive draws
+
+**Identification:**
+
+- `adjustment_sets(treatment, outcome)` → valid backdoor sets
+- `is_identifiable(treatment, outcome)` → boolean check
+- `collider_warnings(adjustment_vars, treatment, outcome)` → bias warnings
+
+
+## Layer 5: The do() operator (`simulate.py`)
+
+The `do()` operator is the core of pathmc's causal reasoning capability. It implements Pearl's do-operator by propagating posterior coefficient draws through the DAG, skipping the structural equation for any intervened variable.
+
+### Cross-sectional do()
+
+`run_do()` works as follows:
+
+1. **Stack** posterior samples across chains into a single `(chain × draw)` dimension.
+2. **Iterate** through the topological order. For each variable:
+   - If **intervened** (`set={"X": 1.0}`): fill with the fixed value. The structural equation is skipped entirely — this is what "do" means.
+   - If **exogenous**: fill with the observed data mean (a sensible default for non-intervened root causes).
+   - If **endogenous**: compute the linear predictor from parent values and posterior coefficient draws, applying transforms where needed.
+3. **Apply the link function** or add residual noise depending on `kind`:
+   - `kind="mean"`: deterministic propagation (inverse link only). Gives the expected value.
+   - `kind="predictive"`: adds a draw from the residual distribution at each step. HDIs are wider but reflect genuine predictive uncertainty.
+
+The result is a `DoResult` — a dict of `{variable: np.ndarray}` where each array has shape `(n_samples,)`. This supports `.mean(var)`, `.hdi(var)`, and contrast arithmetic via `__sub__`.
+
+### Panel do()
+
+`run_panel_do()` extends this to time-forward simulation:
+
+1. **Iterate** over units, then time steps within each unit.
+2. At each time step, resolve **lagged variables** from previously simulated values (e.g., `sales_lag1` at time *t* comes from `sales` at time *t - 1*).
+3. Track **adstock state** across time steps — the geometric carry-over from previous periods.
+4. Use **unit-specific** random intercepts and slopes (not averaged).
+5. Average results over units and time at the end.
+
+This design lets pathmc answer counterfactual questions like *"What would sales have been if we doubled ad spend in weeks 20–30?"* — the intervention propagates through lagged effects and adstock accumulation realistically.
+
+### Transform handling in do()
+
+Transforms need dual implementations:
+
+- **PyMC graph** (at compile time): tensor operations that participate in the computation graph for gradient-based sampling.
+- **NumPy** (at do() time): array operations over posterior draws for simulation outside the PyMC graph.
+
+The `Transform` base class enforces this with `apply_pymc()` and `apply_numpy()` methods. For cross-sectional `do()`, adstock degenerates to identity (there's no time axis to accumulate over). For panel `do()`, adstock tracks state via a mutable dict that persists across time steps within each unit.
+
+
+## The transform registry (`transforms.py`)
+
+### Design
+
+Transforms are a registration-based system. Each transform is a class with:
+
+- `name`: registry key
+- `param_specs`: dict of `ParamSpec(constraint, default_prior)` — defines what priors the compiler should emit
+- `emit_prior()`: creates the PyMC random variable for a parameter
+- `apply_pymc()`: tensor computation for the PyMC graph
+- `apply_numpy()`: array computation for `do()` simulation
+
+### Built-in transforms
+
+**Adstock** (`y_t = x_t + decay * y_{t-1}`): geometric carry-over. The decay parameter gets a `Beta(2, 2)` prior, constraining it to (0, 1). The PyMC implementation delegates to `pymc_marketing.mmm.transformers.geometric_adstock`, which uses a convolution-based approach that is significantly faster than `pytensor.scan` and produces cleaner gradients for NUTS. For panel data, adstock reshapes the flat data vector into a (time × units) matrix, applies the convolution per-unit simultaneously, then flattens back.
+
+**Logistic saturation** (`y = 1 - exp(-lam * x)`): diminishing returns. The steepness parameter `lam` gets a `HalfNormal(1)` prior. The PyMC implementation uses `pymc_marketing.mmm.transformers.logistic_saturation`.
+
+### Extensibility
+
+Custom transforms can be registered:
+
+```python
+from pathmc.transforms import Transform, ParamSpec, register_transform
+
+class MyTransform(Transform):
+    name = "my_transform"
+    param_specs = {"rate": ParamSpec("positive", "HalfNormal(1)")}
+
+    def apply_pymc(self, x, params, **kwargs):
+        return x ** params["rate"]
+
+    def apply_numpy(self, x, params):
+        return x ** params["rate"]
+
+register_transform(MyTransform())
+```
+
+
+## Effects and defined parameters (`effects.py`)
+
+### Labeled coefficients
+
+When users write `Y ~ a*X + b*M`, the labels `a` and `b` become coordinate values in the `beta_Y` posterior variable. `extract_labeled_draws()` uses ArviZ's xarray coordinates to select these draws:
+
+```python
+draws = idata.posterior["beta_Y"].sel({"Y_predictors": "X"}).values.flatten()
+```
+
+This is possible because the design matrix column names (set by patsy) become the coordinate labels (set by the compiler). The naming pipeline is: patsy column names → ArviZ coords → labeled draw extraction.
+
+### Defined parameters
+
+`:=` expressions like `indirect := a*b` are evaluated over posterior draws using Python's `eval()` with a restricted namespace containing only the labeled draws. This gives a full posterior distribution for any derived quantity — no delta method needed.
+
+### Path effects
+
+`compute_path_effect("X -> M -> Y")` multiplies the posterior draws of each edge coefficient along the path. For a linear-Gaussian model, this gives the exact path-specific effect. It works for any acyclic path through the DAG.
+
+### Standardized effects
+
+`build_standardized_effects()` computes stdyx-standardized coefficients: `coef * sd(X) / sd(Y)`. This rescales each coefficient to "SD units of Y per SD change in X", making effects comparable across variables with different scales.
+
+
+## Introspection (`introspect.py`)
+
+The introspection module provides human-readable views of model structure that work **before** sampling:
+
+- `build_dag_viz()` creates a graphviz `Digraph` with exogenous nodes as boxes, endogenous as ellipses, labeled edges, and dashed bidirectional edges for `~~`.
+- `build_equations()` returns an `EquationList` that renders as plain text (`__str__`) or LaTeX (`_repr_latex_`). Greek letter names like `theta_tv` are automatically converted to $\theta_{tv}$.
+- `build_priors()` returns a `PriorTable` with the same dual rendering.
+
+The LaTeX rendering enables rich display in Jupyter notebooks and Quarto documents — equations display as proper mathematical notation without any user effort.
+
+
+## Causal identification (`identify.py`)
+
+This module implements the backdoor criterion over the DAG stored in `GraphInfo`:
+
+- **`adjustment_sets()`**: finds all valid minimal backdoor adjustment sets by enumerating candidate subsets (non-descendants of treatment), checking d-separation on the mutilated graph, and filtering to minimal sets.
+- **`is_identifiable()`**: returns `True` if at least one valid adjustment set exists.
+- **`collider_warnings()`**: checks if any variable in a proposed adjustment set is a collider on a path between treatment and outcome — conditioning on a collider opens a spurious path.
+
+These helpers don't perform inference. They use the DAG structure alone to reason about what can and cannot be identified from observational data.
+
+
+## Panel data (`panel.py`)
+
+### PanelInfo
+
+A simple dataclass holding the unit column name, time column name, and sorted unique unit labels. Built once at `fit()` time and threaded through to the compiler and simulator.
+
+### add_lags()
+
+A preprocessing utility that creates lag columns within each unit via `groupby().shift()`. It sorts by unit then time, validates that all required columns exist, and returns a copy with the new columns. The first *k* rows per unit contain `NaN` for lag-*k* columns — users are expected to drop these before fitting.
+
+
+## Putting it all together
+
+Here is what happens end-to-end when a user runs a typical workflow:
+
+```python
+import pathmc
+
+# 1. fit() — parse, graph, compile
+model = pathmc.fit("M ~ a*X; Y ~ b*M + c*X; indirect := a*b", data=df)
+
+# 2. Inspect before sampling
+model.graph()       # graphviz DAG
+model.equations()   # M ~ 1 + a*X, Y ~ 1 + b*M + c*X, indirect := a*b
+model.priors()      # beta_M ~ Normal(0, 10), sigma_M ~ HalfNormal(1), ...
+
+# 3. Check identification
+model.is_identifiable("X", "Y")   # True
+model.adjustment_sets("X", "Y")   # [set()] — no confounders
+
+# 4. Sample
+model.sample(draws=1000, chains=2)
+
+# 5. Summarise
+model.summary()           # full ArviZ posterior table
+model.effects_summary()   # a, b, c, indirect with mean/sd/HDI
+model.standardized()      # stdyx-standardized coefficients
+
+# 6. Causal queries
+ate = model.ate("Y", "X")        # do(X=1) - do(X=0)
+ate.mean("Y")                    # posterior mean of the ATE
+model.prob("Y > 0", set={"X": 1})  # P(Y > 0 | do(X=1))
+```
+
+Each step involves a clean handoff between layers:
+
+| Step | Module(s) | Input | Output |
+|------|-----------|-------|--------|
+| Parse | `parse.py` | spec string | `Spec` |
+| Graph | `graph.py` | `Spec` | `GraphInfo` |
+| Design | `compile.py` | `Regression` + data | `pd.DataFrame` per equation |
+| Compile | `compile.py` | `Spec` + data + design matrices | `pm.Model` |
+| Identify | `identify.py` | `GraphInfo` | adjustment sets, warnings |
+| Sample | `model.py` | `pm.Model` | `az.InferenceData` |
+| do() / ate() | `simulate.py` | `Spec` + `GraphInfo` + `InferenceData` | `DoResult` |
+| Effects | `effects.py` | `Spec` + `InferenceData` + data | `pd.DataFrame` |
+
+No layer reaches into another's internals. The `Spec` AST and `GraphInfo` are the shared data structures that flow through the system.
+
+
+## Key design principles
+
+**Typed AST, not strings.** The parser returns dataclasses, not dicts or formatted strings. Every downstream module works with structured data that has clear attribute access and can be type-checked.
+
+**Graph layer independent of PyMC.** `build_graph()` needs only a `Spec` — no data, no PyMC imports. This means graph validation, topological ordering, and identification queries all work without compiling a model.
+
+**Compilation errors surface at `fit()` time.** Design matrices, family validation, and cycle detection all happen during initialization. Users don't wait until `sample()` to discover structural problems.
+
+**do() planner is separate from the do() executor.** The topological order (plan) comes from the graph layer. The propagation logic (execution) lives in `simulate.py`. This separation means the planning logic is tested independently of posterior arithmetic.
+
+**Dual transform implementations.** Transforms must work in two contexts: the PyMC computation graph (for MCMC) and numpy arrays (for `do()` simulation). The `Transform` base class enforces this contract.
+
+**Predictable parameter naming.** Names like `beta_Y`, `sigma_M`, `alpha_sales` follow documented patterns that are stable across runs. This matters for ArviZ coordinate-based selection and for users who want to set custom priors or inspect specific parameters.
+
+**No global mutable state.** The transform registry is the only module-level mutable structure, and it is populated at import time with the built-in transforms. Everything else flows through function arguments and return values.
