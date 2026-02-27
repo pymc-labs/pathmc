@@ -5,10 +5,12 @@ dependencies:
   - python=3.11
   - arviz
   - graphviz
-  - numpy
+  - jupyter
+  - numpy<2.4
   - pandas
   - patsy
   - pymc
+  - pyyaml
   - pip
   - pip:
       - -e ".[dev]"

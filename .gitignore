@@ -2,3 +2,5 @@
 __pycache__/
 *.egg-info/
 .pytest_cache/
+docs/_site/
+/docs/site_libs

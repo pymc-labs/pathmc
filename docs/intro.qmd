@@ -1,0 +1,125 @@
+---
+title: "Concepts"
+execute:
+  eval: false
+---
+
+pathmc is a Python package for **Bayesian path analysis** — a form of observed-variable structural equation modeling (SEM) — built on [PyMC](https://www.pymc.io).
+It lets you specify a system of structural equations using a concise, [lavaan](https://lavaan.ugent.be/)-inspired DSL, compiles them into a PyMC model, and provides tools for causal reasoning via the **do-operator**.
+
+## The DSL
+
+A pathmc specification is a multi-line string describing the structural relationships among observed variables.
+Three operators are supported:
+
+| Syntax | Meaning | Example |
+|--------|---------|---------|
+| `~`  | Regression (directed edge) | `Y ~ X1 + X2` |
+| `~~` | Residual covariance | `M1 ~~ M2` |
+| `:=` | Defined parameter | `indirect := a*b` |
+
+Statements are separated by newlines or semicolons.
+
+### Regression equations
+
+Each `lhs ~ rhs` statement declares that the left-hand variable is caused by the right-hand variables:
+
+```python
+spec = """
+M ~ a*X
+Y ~ b*M + c*X
+"""
+```
+
+- **Labeled coefficients** like `a*X` give names to regression weights, making them available for downstream calculations.
+- **Intercepts** are included by default. Suppress them with `0 +` on the right-hand side: `Y ~ 0 + X1 + X2`.
+
+### Defined parameters
+
+The `:=` operator creates derived quantities evaluated over posterior draws:
+
+```python
+spec = """
+M ~ a*X
+Y ~ b*M + c*X
+indirect := a*b
+"""
+```
+
+Here `indirect` is computed element-wise as the product of the posterior draws for `a` and `b`, giving a full posterior distribution for the indirect effect.
+
+### Residual covariance
+
+The `~~` operator declares correlated residuals between two endogenous variables:
+
+```python
+spec = """
+M1 ~ a1*T
+M2 ~ a2*T
+Y  ~ b1*M1 + b2*M2 + c*T
+M1 ~~ M2
+"""
+```
+
+Under the hood, pathmc groups `~~`-connected variables into multivariate normal blocks with an LKJ prior on the residual correlation matrix.
+
+## Directed acyclic graphs
+
+Every pathmc model defines a **DAG** (directed acyclic graph).
+Each regression `Y ~ X1 + X2` creates directed edges X1 → Y and X2 → Y.
+pathmc validates that the graph is acyclic — cyclic specifications raise an error.
+
+The DAG determines:
+
+- **Topological order**: the sequence in which variables can be computed, respecting parent → child dependencies.
+- **Exogenous vs endogenous**: variables with no parents in the DAG are exogenous (not modeled); variables with parents are endogenous (each gets a structural equation).
+
+Inspect the graph after fitting:
+
+```python
+model = pathmc.fit(spec, data=df)
+model.graph()  # Returns a graphviz Digraph
+```
+
+## The do-operator
+
+The `do()` method implements Pearl's do-operator for **interventional reasoning**.
+Rather than conditioning on observed data, `do(set={"X": value})` simulates what would happen if we *intervened* to fix `X` at a specific value, severing all incoming edges to `X` in the DAG.
+
+```python
+model.sample(draws=1000, chains=2)
+
+baseline = model.do(set={"X": 0.0})
+treatment = model.do(set={"X": 1.0})
+
+ate = treatment - baseline        # contrast arithmetic
+ate.mean("Y")                     # posterior mean of the ATE
+ate.hdi("Y", prob=0.94)           # 94% highest density interval
+```
+
+Propagation proceeds in topological order using posterior coefficient draws, so the result is a full posterior distribution over the causal effect.
+
+## Causal assumptions and limitations
+
+pathmc makes causal reasoning *possible* but not *automatic*.
+The validity of any causal claim depends on assumptions that pathmc cannot verify from data alone:
+
+1. **Correct DAG structure.** The user must specify the right causal graph. A misspecified DAG (e.g., omitting a confounder) produces biased effect estimates regardless of the statistical method.
+
+2. **No unmeasured confounders.** The do-operator assumes that all common causes of the treatment and outcome are observed and included in the model.
+If there are unobserved confounders, the `do()` results are biased.
+
+3. **No model misspecification.** pathmc v0.1 uses linear-Gaussian structural equations. If the true data-generating process involves nonlinearities or non-Gaussian noise, the model may be a poor approximation.
+
+4. **Positivity.** Interventional queries at values far outside the observed data range are extrapolations and should be interpreted with caution.
+
+pathmc does *not* perform automatic causal identification.
+It is the analyst's responsibility to ensure that the adjustment set implied by the DAG satisfies the backdoor criterion (or other identification strategy) for the target causal effect.
+
+::: {.callout-important}
+## pathmc computes; you identify
+
+The `do()` operator computes the mechanical consequence of an intervention *given* the model.
+Whether that computation has a valid causal interpretation depends entirely on the assumptions encoded in the DAG.
+Always state and defend your causal assumptions before interpreting `do()` results as causal effects.
+:::

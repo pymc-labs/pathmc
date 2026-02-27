@@ -9,6 +9,16 @@ website:
     left:
       - href: index.qmd
         text: Home
+      - href: intro.qmd
+        text: Concepts
+      - text: Examples
+        menu:
+          - href: examples/mediation.qmd
+            text: Mediation Analysis
+          - href: examples/correlated_residuals.qmd
+            text: Correlated Residuals
+          - href: examples/do_queries.qmd
+            text: do() Queries
 
 format:
   html:

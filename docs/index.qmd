@@ -4,4 +4,41 @@ title: "pathmc"
 
 ![](assets/logo.png){width=200 fig-align="center"}
 
-Welcome to pathmc.
+**Bayesian path analysis via PyMC.**
+
+pathmc compiles a concise, lavaan-inspired formula DSL into PyMC models for observed-variable structural equation modeling.
+Specify a system of structural equations, fit with MCMC, and reason about causal effects using the do-operator.
+
+```python
+import pathmc
+
+spec = """
+M ~ a*X
+Y ~ b*M + c*X
+indirect := a*b
+"""
+
+model = pathmc.fit(spec, data=df)
+model.sample(draws=1000, chains=2)
+
+model.effects_summary()          # labeled coefficients + defined params
+
+r0 = model.do(set={"X": 0})
+r1 = model.do(set={"X": 1})
+ate = (r1 - r0).mean("Y")       # average treatment effect
+```
+
+## Features
+
+- **Formula DSL** with regression (`~`), residual covariance (`~~`), labeled coefficients, and defined parameters (`:=`)
+- **Automatic compilation** to PyMC models with sensible default priors
+- **Introspection** before sampling: `graph()`, `equations()`, `design()`, `priors()`
+- **do-operator** for interventional simulation with full posterior uncertainty
+- **Effects API** for labeled coefficients, defined parameters, and path-specific effects
+
+## Getting started
+
+- [Concepts](intro.qmd) — DSL syntax, DAGs, the do-operator, and causal assumptions
+- [Mediation analysis](examples/mediation.qmd) — labels, defined parameters, and indirect effects
+- [Correlated residuals](examples/correlated_residuals.qmd) — the `~~` operator for shared unobserved causes
+- [do() queries](examples/do_queries.qmd) — interventional reasoning and contrast arithmetic
