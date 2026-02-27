@@ -3,5 +3,6 @@
 from __future__ import annotations
 
 from pathmc.model import fit
+from pathmc.panel import add_lags
 
-__all__ = ["fit"]
+__all__ = ["add_lags", "fit"]

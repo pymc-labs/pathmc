@@ -1,0 +1,147 @@
+---
+title: "Difference-in-Differences"
+jupyter: pathmc
+---
+
+Difference-in-differences (DiD) estimates a treatment effect by comparing changes over time between a treated group and a control group.
+pathmc's panel mode fits this naturally: the structural model captures group and time effects, and the `do()` operator estimates the average treatment effect on the treated (ATT).
+
+## The causal structure
+
+We model an outcome `Y` as a function of treatment status (`treated`), a time indicator (`post`), and their interaction (`treat_post`).
+
+- `treated`: 1 for the treatment group, 0 for control
+- `post`: 1 for the post-treatment period, 0 for pre-treatment
+- `treat_post`: the DiD interaction term (1 only for treated units after treatment)
+
+```{dot}
+//| fig-cap: "DiD DAG: treatment effect identified by the interaction term."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  treated -> Y
+  post -> Y
+  treat_post -> Y [label="ATT"]
+}
+```
+
+## Simulate panel data
+
+We generate data for 6 units (3 treated, 3 control) observed over 20 time periods.
+Treatment starts at period 11, with a true ATT of 2.0.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(42)
+
+units_treated = ["T1", "T2", "T3"]
+units_control = ["C1", "C2", "C3"]
+all_units = units_treated + units_control
+n_periods = 20
+treatment_start = 11
+true_att = 2.0
+
+true_unit_effects = {
+    "T1": 3.0, "T2": 4.0, "T3": 5.0,
+    "C1": 2.0, "C2": 3.5, "C3": 4.5,
+}
+
+rows = []
+for unit in all_units:
+    is_treated = 1 if unit in units_treated else 0
+    for t in range(1, n_periods + 1):
+        post = 1 if t >= treatment_start else 0
+        treat_post = is_treated * post
+        y = (
+            true_unit_effects[unit]
+            + 0.3 * t
+            + true_att * treat_post
+            + rng.normal(scale=0.5)
+        )
+        rows.append({
+            "unit": unit, "time": t,
+            "treated": is_treated, "post": post,
+            "treat_post": treat_post, "Y": y,
+        })
+
+df = pd.DataFrame(rows)
+df.head(10)
+```
+
+## Visualise the raw data
+
+```{python}
+#| fig-cap: "Outcome by group over time. Dashed line marks treatment onset."
+#| fig-width: 8
+
+fig, ax = plt.subplots(figsize=(8, 4))
+for unit in units_treated:
+    d = df[df["unit"] == unit]
+    ax.plot(d["time"], d["Y"], color="steelblue", alpha=0.6)
+for unit in units_control:
+    d = df[df["unit"] == unit]
+    ax.plot(d["time"], d["Y"], color="coral", alpha=0.6)
+
+ax.axvline(treatment_start - 0.5, ls="--", color="gray", label="Treatment onset")
+ax.plot([], [], color="steelblue", label="Treated")
+ax.plot([], [], color="coral", label="Control")
+ax.set_xlabel("Time")
+ax.set_ylabel("Y")
+ax.legend()
+ax.set_title("Raw outcome trajectories")
+plt.tight_layout()
+plt.show()
+```
+
+## Specify and fit the model
+
+We use panel mode with partial pooling (random intercepts per unit) to account for baseline differences.
+
+```{python}
+import pathmc
+
+spec = "Y ~ treated + post + treat_post"
+
+model = pathmc.fit(
+    spec,
+    data=df,
+    panel={"unit": "unit", "time": "time"},
+    pooling="partial",
+)
+model.graph()
+```
+
+```{python}
+model.priors()
+```
+
+## Sample
+
+```{python}
+model.sample(draws=1000, tune=1000, chains=2, cores=1, random_seed=42)
+```
+
+## Results
+
+The coefficient on `treat_post` is our estimate of the ATT.
+
+```{python}
+model.summary()
+```
+
+## Causal effect via do()
+
+We can also estimate the ATT using the `do()` operator by comparing outcomes with and without treatment.
+
+```{python}
+r_treated = model.do(set={"treat_post": 1.0, "treated": 1.0, "post": 1.0})
+r_control = model.do(set={"treat_post": 0.0, "treated": 1.0, "post": 1.0})
+
+att = r_treated - r_control
+print(f"ATT estimate: {att.mean('Y'):.3f}")
+print(f"True ATT:     {true_att}")
+print(f"94% HDI:      {att.hdi('Y', prob=0.94)}")
+```

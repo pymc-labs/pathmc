@@ -1,6 +1,6 @@
-# Milestones — pathmc v0.1
+# Milestones — pathmc
 
-These milestones cover the v0.1 (MVP) scope defined in `prd_v1.md`. Post-v0.1 scope (panel mode, transforms, causal workbench) is tracked separately.
+These milestones cover the v0.1 (MVP) and v0.2 (Panel mode) scope defined in `prd_v1.md`.
 
 ## How Milestones Work
 
@@ -30,8 +30,14 @@ After tests pass, also verify:
 | M8  | Effects + Defined Params   | `test_effects.py`                           | M4         | ✓      |
 | M9  | Integration Smoke Tests    | `test_smoke.py`                             | M1–M8      | ✓      |
 | M10 | Documentation              | `cd docs && quarto render` exits 0          | M9         | ✓      |
-| M11 | Bernoulli-logit Family     | `test_bernoulli.py`                         | M4         |        |
-| M12 | Predictive do()            | `test_do_predictive.py`                     | M6, M11    |        |
+| M11 | Bernoulli-logit Family     | `test_bernoulli.py`                         | M4         | ✓      |
+| M12 | Predictive do()            | `test_do_predictive.py`                     | M6, M11    | ✓      |
+| M13 | `add_lags()` utility       | `test_add_lags.py`                          | —          |        |
+| M14 | Panel fit + random intercepts | `test_panel.py`                          | M13        |        |
+| M15 | Random slopes              | `test_random_slopes.py`                     | M14        |        |
+| M16 | Time-forward do()          | `test_panel_do.py`                          | M13, M14   |        |
+| M17 | Panel smoke tests          | `test_panel_smoke.py`                       | M13–M16    |        |
+| M18 | Panel documentation        | `cd docs && quarto render` exits 0          | M17        |        |
 
 ## Required Module Structure
 
@@ -245,7 +251,7 @@ Required pages:
 - The `families` dict is resolved at compile time; defaults to `"gaussian"`.
 - The resolved families must be stored on `PathModel` and passed to `run_do()`.
 
-### M12: Predictive do()
+### M12: Predictive do() ✓
 
 **Goal**: Implement `do(kind="predictive")` which adds residual noise at each propagation step.
 
@@ -254,3 +260,75 @@ Required pages:
 - Bernoulli: draw binary `Bernoulli(expit(linear_predictor))` values
 - `DoResult` interface unchanged; HDIs will be wider than mean propagation
 - Contrast arithmetic still works
+
+---
+
+## v0.2 Milestones — Panel Mode
+
+### M13: `add_lags()` utility
+
+**Goal**: Standalone data-preprocessing helper that creates lag columns within each panel unit.
+
+**Public API**: `pathmc.add_lags(df, variables, lags, panel={"unit": ..., "time": ...})`
+
+**What to handle**:
+- Sort within unit by time
+- Create `{var}_lag{k}` columns via `groupby(unit).shift(k)`
+- First `k` rows per unit get `NaN` for lag-k columns
+- Validate: `unit` and `time` columns exist; `variables` exist in df
+
+### M14: Panel-aware `fit()` + random intercepts
+
+**Goal**: Accept `panel=` and `pooling=` on `fit()`, compile hierarchical intercepts per unit.
+
+**What to handle**:
+- `panel={"unit": "region", "time": "week"}` parameter on `fit()`
+- `pooling="partial"`: random intercepts per unit for each endogenous variable
+- `pooling=None` (default): cross-sectional behavior unchanged
+- Compiler emits group-level intercepts (`mu_alpha`, `sigma_alpha`, `alpha` per variable)
+- `priors()` includes group-level parameters
+- `summary()` includes group-level parameters
+- `do()` uses mean of group intercepts for propagation
+
+### M15: Random slopes
+
+**Goal**: Optional per-unit slopes for specified predictors.
+
+**What to handle**:
+- `pooling={"intercept": True, "slopes": ["var1"]}` syntax
+- Partially pooled slopes: `beta_j ~ Normal(mu_beta, sigma_beta)` per unit
+- Fixed coefficients still work for non-slope variables
+- Start with independent random slopes (correlated random effects are a stretch goal)
+
+### M16: Time-forward `do(simulate_over="time")`
+
+**Goal**: Panel `do()` that propagates interventions forward through time.
+
+**What to handle**:
+- `simulate_over="time"`: activates temporal propagation
+- `init_from="observed"`: use observed data for initial conditions
+- For each unit, iterate through time steps, computing lagged values from previously simulated values
+- Intervened variables use the fixed value; endogenous variables propagate using coefficients
+- `kind="predictive"` adds residual noise at each step
+- Error if `simulate_over="time"` used without `panel=`
+
+### M17: Panel smoke tests
+
+**Goal**: End-to-end integration tests for the full panel pipeline.
+
+**What to handle**:
+- `add_lags()` → `fit(panel=..., pooling="partial")` → `sample()` → `summary()` completes
+- `do(simulate_over="time")` produces sensible ATE (correct sign for known DGP)
+- Random intercepts produce per-unit variation
+- Panel model with Bernoulli outcomes works
+- `model.graph()` works for panel models
+
+### M18: Panel documentation
+
+**Goal**: Two new example pages with rendered outputs and visualizations.
+
+**Required pages**:
+- `docs/examples/did.qmd`: Difference-in-Differences with panel data
+- `docs/examples/mmm_basic.qmd`: Basic Media Mix Model with lags and panel structure
+
+Both pages include DOT diagrams, `model.graph()`, matplotlib visualizations, and rendered cell outputs. Add a "Panel mode" section to `intro.qmd`.

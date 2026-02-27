@@ -24,6 +24,10 @@ website:
             text: do() Queries
           - href: examples/binary_outcomes.qmd
             text: Binary Outcomes
+          - href: examples/did.qmd
+            text: Difference-in-Differences
+          - href: examples/mmm_basic.qmd
+            text: Basic MMM
 
 format:
   html:

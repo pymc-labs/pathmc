@@ -6,7 +6,6 @@ with a logit link, and that do() returns probabilities in (0, 1).
 
 import numpy as np
 import pandas as pd
-import pymc as pm
 import pytest
 
 import pathmc

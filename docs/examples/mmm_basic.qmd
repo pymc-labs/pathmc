@@ -1,0 +1,191 @@
+---
+title: "Basic Media Mix Model"
+jupyter: pathmc
+---
+
+This example demonstrates a basic media mix model (MMM) using pathmc's panel mode.
+We model sales as a function of lagged advertising spend across multiple regions and weeks, with random intercepts to capture baseline differences between regions.
+
+This is a **linear** MMM — no adstock or saturation transforms yet (those are planned for v0.3).
+Even so, it demonstrates the core panel workflow: lag creation, hierarchical modeling, and counterfactual simulation via `do()`.
+
+## The causal structure
+
+Two advertising channels (`tv` and `digital`) drive sales, each with a one-week lag.
+A `trend` term captures secular growth.
+
+```{dot}
+//| fig-cap: "MMM DAG: lagged spend channels drive sales."
+//| fig-width: 5
+digraph {
+  rankdir=LR
+  tv_lag1 -> sales [label="b_tv"]
+  digital_lag1 -> sales [label="b_dig"]
+  trend -> sales
+}
+```
+
+## Simulate panel data
+
+We simulate data for 4 regions over 30 weeks with known coefficients.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+rng = np.random.default_rng(42)
+
+regions = ["North", "South", "East", "West"]
+n_weeks = 30
+true_intercepts = {"North": 50, "South": 60, "East": 45, "West": 55}
+true_b_tv = 0.4
+true_b_digital = 0.6
+
+rows = []
+for region in regions:
+    for week in range(1, n_weeks + 1):
+        tv = rng.uniform(10, 50)
+        digital = rng.uniform(5, 30)
+        rows.append({
+            "region": region, "week": week,
+            "tv": tv, "digital": digital, "trend": week,
+        })
+
+df_raw = pd.DataFrame(rows)
+```
+
+Create lag columns and generate the outcome.
+
+```{python}
+import pathmc
+
+df_lagged = pathmc.add_lags(
+    df_raw,
+    variables=["tv", "digital"],
+    lags=[1],
+    panel={"unit": "region", "time": "week"},
+)
+
+df_lagged["sales"] = np.nan
+for region in regions:
+    mask = df_lagged["region"] == region
+    n = mask.sum()
+    tv_lag = df_lagged.loc[mask, "tv_lag1"].values
+    dig_lag = df_lagged.loc[mask, "digital_lag1"].values
+    trend = df_lagged.loc[mask, "trend"].values
+    noise = rng.normal(scale=2, size=n)
+    df_lagged.loc[mask, "sales"] = (
+        true_intercepts[region]
+        + true_b_tv * np.nan_to_num(tv_lag)
+        + true_b_digital * np.nan_to_num(dig_lag)
+        + 0.1 * trend
+        + noise
+    )
+
+df = df_lagged.dropna(subset=["tv_lag1"]).reset_index(drop=True)
+print(f"Panel: {len(regions)} regions × {df.groupby('region').size().iloc[0]} weeks = {len(df)} rows")
+df.head()
+```
+
+## Visualise sales by region
+
+```{python}
+#| fig-cap: "Weekly sales by region."
+#| fig-width: 8
+
+fig, ax = plt.subplots(figsize=(8, 4))
+colors = {"North": "steelblue", "South": "coral", "East": "seagreen", "West": "orchid"}
+for region in regions:
+    d = df[df["region"] == region]
+    ax.plot(d["week"], d["sales"], label=region, color=colors[region], alpha=0.8)
+ax.set_xlabel("Week")
+ax.set_ylabel("Sales")
+ax.legend()
+ax.set_title("Sales by region")
+plt.tight_layout()
+plt.show()
+```
+
+## Specify and fit the model
+
+```{python}
+spec = """
+sales ~ b_tv*tv_lag1 + b_dig*digital_lag1 + trend
+"""
+
+model = pathmc.fit(
+    spec,
+    data=df,
+    panel={"unit": "region", "time": "week"},
+    pooling="partial",
+)
+model.graph()
+```
+
+```{python}
+model.equations()
+```
+
+```{python}
+model.priors()
+```
+
+## Sample
+
+```{python}
+model.sample(draws=1000, tune=1000, chains=2, cores=1, random_seed=42)
+```
+
+## Results
+
+```{python}
+model.summary()
+```
+
+```{python}
+model.effects_summary()
+```
+
+The recovered coefficients should be close to the true values: `b_tv` = 0.4, `b_dig` = 0.6.
+
+## Counterfactual: what if we doubled TV spend?
+
+Using time-forward `do()`, we simulate what sales would have been under a different spend scenario.
+
+```{python}
+r_actual = model.do(
+    set={"tv": 30.0, "digital": 15.0},
+    simulate_over="time",
+    kind="mean",
+)
+r_double_tv = model.do(
+    set={"tv": 60.0, "digital": 15.0},
+    simulate_over="time",
+    kind="mean",
+)
+
+contrast = r_double_tv - r_actual
+print(f"Baseline sales (tv=30, digital=15):  {r_actual.mean('sales'):.1f}")
+print(f"Double TV (tv=60, digital=15):       {r_double_tv.mean('sales'):.1f}")
+print(f"Incremental sales:                   {contrast.mean('sales'):.1f}")
+print(f"94% HDI:                             {contrast.hdi('sales', prob=0.94)}")
+```
+
+The incremental sales from doubling TV spend should be approximately `0.4 × 30 = 12` units.
+
+## Channel comparison
+
+```{python}
+r_base = model.do(set={"tv": 0.0, "digital": 0.0}, simulate_over="time", kind="mean")
+r_tv_only = model.do(set={"tv": 30.0, "digital": 0.0}, simulate_over="time", kind="mean")
+r_dig_only = model.do(set={"tv": 0.0, "digital": 30.0}, simulate_over="time", kind="mean")
+
+tv_effect = r_tv_only - r_base
+dig_effect = r_dig_only - r_base
+
+print(f"TV-only lift (spend=30):      {tv_effect.mean('sales'):.1f}")
+print(f"Digital-only lift (spend=30): {dig_effect.mean('sales'):.1f}")
+```
+
+Digital has a higher coefficient (`b_dig` = 0.6 vs `b_tv` = 0.4), so the same spend on digital produces a larger sales lift — roughly `0.6 × 30 = 18` vs `0.4 × 30 = 12`.

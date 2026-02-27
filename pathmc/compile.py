@@ -15,6 +15,7 @@ import pandas as pd
 import patsy
 import pymc as pm
 
+from pathmc.panel import PanelInfo
 from pathmc.parse import Regression, Spec
 
 
@@ -48,6 +49,8 @@ def compile_to_pymc(
     data: pd.DataFrame,
     design_matrices: dict[str, pd.DataFrame],
     families: dict[str, str] | None = None,
+    panel_info: PanelInfo | None = None,
+    pooling: str | dict | None = None,
 ) -> pm.Model:
     """Compile a structural specification into a PyMC model.
 
@@ -61,7 +64,11 @@ def compile_to_pymc(
         Pre-built design matrices keyed by endogenous variable name.
     families : dict[str, str] | None
         Per-variable distribution families. Defaults to ``"gaussian"``
-        for all variables. Currently only ``"gaussian"`` is supported.
+        for all variables.
+    panel_info : PanelInfo | None
+        Panel metadata for hierarchical models.
+    pooling : str | dict | None
+        ``"partial"`` for random intercepts. Dict for random slopes.
 
     Returns
     -------
@@ -80,10 +87,19 @@ def compile_to_pymc(
 
     block_vars, blocks = _identify_residual_blocks(spec)
 
+    has_random_intercepts = _has_random_intercepts(pooling)
+    slope_vars = _get_slope_vars(pooling)
+
+    unit_idx: np.ndarray | None = None
+
     coords: dict[str, Any] = {}
     for reg in spec.regressions:
         dm = design_matrices[reg.lhs]
         coords[f"{reg.lhs}_predictors"] = list(dm.columns)
+
+    if has_random_intercepts and panel_info is not None:
+        coords["unit"] = panel_info.unit_labels
+        unit_idx = _build_unit_index(data, panel_info)
 
     with pm.Model(coords=coords) as pymc_model:
         for reg in spec.regressions:
@@ -103,6 +119,16 @@ def compile_to_pymc(
             )
             mu = pm.math.dot(X, beta)
 
+            if (
+                has_random_intercepts
+                and panel_info is not None
+                and unit_idx is not None
+            ):
+                mu = mu + _compile_random_intercept(reg.lhs, unit_idx)
+
+            if slope_vars and panel_info is not None and unit_idx is not None:
+                mu = mu + _compile_random_slopes(reg, slope_vars, data, unit_idx)
+
             if family == "bernoulli":
                 pm.Bernoulli(f"{reg.lhs}_obs", logit_p=mu, observed=y)
             else:
@@ -113,6 +139,63 @@ def compile_to_pymc(
             _compile_residual_block(block, spec, data, design_matrices, pymc_model)
 
     return pymc_model
+
+
+def _has_random_intercepts(pooling: str | dict | None) -> bool:
+    """Whether pooling spec requests random intercepts."""
+    if pooling == "partial":
+        return True
+    if isinstance(pooling, dict):
+        return pooling.get("intercept", False)
+    return False
+
+
+def _get_slope_vars(pooling: str | dict | None) -> list[str]:
+    """Extract variables that should get random slopes."""
+    if isinstance(pooling, dict):
+        return list(pooling.get("slopes", []))
+    return []
+
+
+def _build_unit_index(data: pd.DataFrame, panel_info: PanelInfo) -> np.ndarray:
+    """Map each row to an integer unit index."""
+    label_to_idx = {label: i for i, label in enumerate(panel_info.unit_labels)}
+    return data[panel_info.unit].map(label_to_idx).values
+
+
+def _compile_random_intercept(var: str, unit_idx: np.ndarray) -> Any:
+    """Emit hierarchical random intercept for *var*, return alpha[unit_idx]."""
+    mu_alpha = pm.Normal(f"mu_alpha_{var}", mu=0, sigma=10)
+    sigma_alpha = pm.HalfNormal(f"sigma_alpha_{var}", sigma=1)
+    alpha = pm.Normal(f"alpha_{var}", mu=mu_alpha, sigma=sigma_alpha, dims="unit")
+    return alpha[unit_idx]
+
+
+def _compile_random_slopes(
+    reg: Regression,
+    slope_vars: list[str],
+    data: pd.DataFrame,
+    unit_idx: np.ndarray,
+) -> Any:
+    """Emit hierarchical random slopes for specified predictors."""
+    import pymc as pm
+
+    contribution = 0
+    term_variables = {t.variable for t in reg.terms}
+    for svar in slope_vars:
+        if svar not in term_variables:
+            continue
+        mu_slope = pm.Normal(f"mu_slope_{reg.lhs}_{svar}", mu=0, sigma=10)
+        sigma_slope = pm.HalfNormal(f"sigma_slope_{reg.lhs}_{svar}", sigma=1)
+        slope = pm.Normal(
+            f"slope_{reg.lhs}_{svar}",
+            mu=mu_slope,
+            sigma=sigma_slope,
+            dims="unit",
+        )
+        x_vals = data[svar].values
+        contribution = contribution + slope[unit_idx] * x_vals
+    return contribution
 
 
 def _compile_residual_block(

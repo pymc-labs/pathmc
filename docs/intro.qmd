@@ -97,6 +97,70 @@ ate.hdi("Y", prob=0.94)           # 94% highest density interval
 
 Propagation proceeds in topological order using posterior coefficient draws, so the result is a full posterior distribution over the causal effect.
 
+## Panel mode
+
+pathmc supports **panel (longitudinal) data** — repeated observations of multiple units over time.
+Activate panel mode by passing `panel=` and `pooling=` to `fit()`.
+
+### Preparing panel data
+
+Use `add_lags()` to create lag columns within each unit:
+
+```python
+df = pathmc.add_lags(
+    df,
+    variables=["sales", "spend"],
+    lags=[1],
+    panel={"unit": "region", "time": "week"},
+)
+```
+
+This creates `sales_lag1` and `spend_lag1` columns, correctly respecting unit boundaries (no leakage across regions).
+
+### Fitting with random intercepts
+
+Partial pooling adds a hierarchical intercept per unit, borrowing strength across units:
+
+```python
+model = pathmc.fit(
+    "sales ~ spend_lag1 + trend",
+    data=df,
+    panel={"unit": "region", "time": "week"},
+    pooling="partial",
+)
+```
+
+Each region gets its own intercept, drawn from a shared distribution: `alpha_region ~ Normal(mu_alpha, sigma_alpha)`.
+
+### Random slopes
+
+For varying effects across units, specify which predictors get random slopes:
+
+```python
+model = pathmc.fit(
+    "sales ~ spend_lag1",
+    data=df,
+    panel={"unit": "region", "time": "week"},
+    pooling={"intercept": True, "slopes": ["spend_lag1"]},
+)
+```
+
+### Time-forward simulation
+
+Use `simulate_over="time"` to propagate interventions forward through time, using simulated values for lagged dependencies at each step:
+
+```python
+scenario = model.do(
+    set={"spend": 120},
+    simulate_over="time",
+    kind="mean",
+)
+```
+
+This is especially useful for counterfactual analysis: *"What would sales have been if we had doubled ad spend?"*
+
+See the [Difference-in-Differences](examples/did.qmd) and [Basic MMM](examples/mmm_basic.qmd) examples for panel mode in action.
+
 ## Causal assumptions and limitations
 
 pathmc makes causal reasoning *possible* but not *automatic*.

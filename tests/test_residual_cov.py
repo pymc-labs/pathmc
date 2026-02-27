@@ -29,8 +29,7 @@ class TestResidualCovCompilation:
             for keyword in ("chol", "corr", "lkj", "rho")
         )
         assert has_corr_param, (
-            f"No correlation parameter found in model. "
-            f"Free RV names: {rv_names}"
+            f"No correlation parameter found in model. Free RV names: {rv_names}"
         )
 
     def test_residual_cov_model_has_observed(self, parallel_mediators_data):

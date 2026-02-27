@@ -115,7 +115,11 @@ def build_equations(spec: Spec) -> EquationList:
     return EquationList(lines)
 
 
-def build_priors(spec: Spec, families: dict[str, str] | None = None) -> PriorTable:
+def build_priors(
+    spec: Spec,
+    families: dict[str, str] | None = None,
+    pooling: str | dict | None = None,
+) -> PriorTable:
     """Build a prior summary table from the model specification.
 
     Parameters
@@ -124,6 +128,8 @@ def build_priors(spec: Spec, families: dict[str, str] | None = None) -> PriorTab
         Parsed specification.
     families : dict[str, str] | None
         Per-variable distribution families.
+    pooling : str | dict | None
+        Pooling specification for panel models.
 
     Returns
     -------
@@ -133,10 +139,27 @@ def build_priors(spec: Spec, families: dict[str, str] | None = None) -> PriorTab
     if families is None:
         families = {}
 
+    has_intercepts = pooling == "partial" or (
+        isinstance(pooling, dict) and pooling.get("intercept", False)
+    )
+    slope_vars: list[str] = []
+    if isinstance(pooling, dict):
+        slope_vars = list(pooling.get("slopes", []))
+
     entries: dict[str, str] = {}
     for reg in spec.regressions:
         entries[f"beta_{reg.lhs}"] = "Normal(0, 10)"
         family = families.get(reg.lhs, "gaussian")
         if family != "bernoulli":
             entries[f"sigma_{reg.lhs}"] = "HalfNormal(1)"
+        if has_intercepts:
+            entries[f"mu_alpha_{reg.lhs}"] = "Normal(0, 10)"
+            entries[f"sigma_alpha_{reg.lhs}"] = "HalfNormal(1)"
+            entries[f"alpha_{reg.lhs}"] = "Normal(mu_alpha, sigma_alpha)"
+        for svar in slope_vars:
+            term_variables = {t.variable for t in reg.terms}
+            if svar in term_variables:
+                entries[f"mu_slope_{reg.lhs}_{svar}"] = "Normal(0, 10)"
+                entries[f"sigma_slope_{reg.lhs}_{svar}"] = "HalfNormal(1)"
+                entries[f"slope_{reg.lhs}_{svar}"] = "Normal(mu_slope, sigma_slope)"
     return PriorTable(entries)

@@ -19,8 +19,9 @@ from pathmc.introspect import (
     build_equations,
     build_priors,
 )
+from pathmc.panel import PanelInfo, build_panel_info
 from pathmc.parse import Spec, parse_spec
-from pathmc.simulate import DoResult, run_do
+from pathmc.simulate import DoResult, run_do, run_panel_do
 
 
 class PathModel:
@@ -37,6 +38,12 @@ class PathModel:
         DAG with topological order and node classification.
     data : pd.DataFrame
         Observed data used to build design matrices.
+    families : dict[str, str] | None
+        Per-variable distribution families.
+    panel_info : PanelInfo | None
+        Panel metadata (unit/time structure).
+    pooling : str | dict | None
+        Pooling specification for hierarchical panel models.
     """
 
     def __init__(
@@ -45,10 +52,14 @@ class PathModel:
         graph_info: GraphInfo,
         data: pd.DataFrame,
         families: dict[str, str] | None = None,
+        panel_info: PanelInfo | None = None,
+        pooling: str | dict | None = None,
     ) -> None:
         self._spec = spec
         self._graph_info = graph_info
         self._data = data
+        self._panel_info = panel_info
+        self._pooling = pooling
 
         self._design_matrices: dict[str, pd.DataFrame] = {}
         for reg in spec.regressions:
@@ -56,7 +67,12 @@ class PathModel:
 
         self._families: dict[str, str] = families if families is not None else {}
         self._pymc_model: pm.Model = compile_to_pymc(
-            spec, data, self._design_matrices, families=families
+            spec,
+            data,
+            self._design_matrices,
+            families=families,
+            panel_info=panel_info,
+            pooling=pooling,
         )
         self._idata: az.InferenceData | None = None
 
@@ -110,7 +126,7 @@ class PathModel:
 
         Works before sampling.
         """
-        return build_priors(self._spec, families=self._families)
+        return build_priors(self._spec, families=self._families, pooling=self._pooling)
 
     def summary(self) -> pd.DataFrame:
         """Return a posterior summary table.
@@ -202,6 +218,8 @@ class PathModel:
         set: dict[str, float] | None = None,
         shift: dict[str, float] | None = None,
         kind: str = "mean",
+        simulate_over: str | None = None,
+        init_from: str = "observed",
     ) -> DoResult:
         """Simulate an intervention using the do-operator.
 
@@ -218,6 +236,11 @@ class PathModel:
         kind : str
             ``"mean"`` for deterministic propagation, ``"predictive"``
             to add residual noise at each step.
+        simulate_over : str | None
+            ``"time"`` to activate time-forward panel simulation.
+            Requires the model to have been fitted with ``panel=``.
+        init_from : str
+            ``"observed"`` to initialise from observed data (default).
 
         Returns
         -------
@@ -229,13 +252,37 @@ class PathModel:
         ------
         RuntimeError
             If called before ``.sample()``.
+        ValueError
+            If ``simulate_over="time"`` without panel.
         """
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .sample() before .do()."
             )
 
-        data_means = {col: float(self._data[col].mean()) for col in self._data.columns}
+        if simulate_over == "time":
+            if self._panel_info is None:
+                raise ValueError(
+                    "simulate_over='time' requires a panel model. "
+                    "Pass panel={...} to fit()."
+                )
+            return run_panel_do(
+                spec=self._spec,
+                graph_info=self._graph_info,
+                idata=self._idata,
+                data=self._data,
+                design_columns={
+                    var: list(dm.columns) for var, dm in self._design_matrices.items()
+                },
+                panel_info=self._panel_info,
+                set=set,
+                families=self._families,
+                kind=kind,
+                init_from=init_from,
+            )
+
+        numeric_cols = self._data.select_dtypes(include="number").columns
+        data_means = {col: float(self._data[col].mean()) for col in numeric_cols}
         design_columns = {
             var: list(dm.columns) for var, dm in self._design_matrices.items()
         }
@@ -249,6 +296,7 @@ class PathModel:
             set=set,
             families=self._families,
             kind=kind,
+            panel_info=self._panel_info,
         )
 
 
@@ -256,6 +304,8 @@ def fit(
     spec_string: str,
     data: pd.DataFrame,
     families: dict[str, str] | None = None,
+    panel: dict[str, str] | None = None,
+    pooling: str | dict | None = None,
     **kwargs: Any,
 ) -> PathModel:
     """Parse a specification and compile a Bayesian path model.
@@ -268,6 +318,13 @@ def fit(
         Observed data.
     families : dict[str, str] | None
         Per-variable distribution families (default ``"gaussian"``).
+    panel : dict[str, str] | None
+        Panel structure with ``"unit"`` and ``"time"`` keys mapping to
+        column names. Activates panel mode.
+    pooling : str | dict | None
+        ``"partial"`` for random intercepts per unit. A dict like
+        ``{"intercept": True, "slopes": ["var"]}`` enables random slopes.
+        ``None`` (default) means complete pooling (cross-sectional).
     **kwargs
         Reserved for future options.
 
@@ -278,4 +335,16 @@ def fit(
     """
     spec = parse_spec(spec_string)
     graph_info = build_graph(spec)
-    return PathModel(spec=spec, graph_info=graph_info, data=data, families=families)
+
+    panel_info: PanelInfo | None = None
+    if panel is not None:
+        panel_info = build_panel_info(data, panel)
+
+    return PathModel(
+        spec=spec,
+        graph_info=graph_info,
+        data=data,
+        families=families,
+        panel_info=panel_info,
+        pooling=pooling,
+    )
