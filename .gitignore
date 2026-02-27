@@ -1,2 +1,3 @@
 *.DS_Store
 /tests/__pycache__
+/pathmc/__pycache__

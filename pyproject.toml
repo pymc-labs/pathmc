@@ -9,6 +9,7 @@ description = "Path Monte Carlo"
 requires-python = ">=3.11"
 dependencies = [
     "arviz",
+    "networkx",
     "numpy",
     "pandas",
     "patsy",
