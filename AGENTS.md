@@ -8,6 +8,10 @@ Developer and agent related notes are in `./docs/dev/`. Product specifications, 
 
 See `docs/dev/prd_v1.md` for the full product requirements document and `docs/dev/milestones.md` for the implementation plan.
 
+## Status
+
+All v1 milestones (M1–M31) are complete. See `docs/dev/roadmap_post_v1.md` for planned future work.
+
 ## How to Work
 
 1. Read `docs/dev/milestones.md` to identify the current milestone.
@@ -23,13 +27,16 @@ The test files import from specific modules. These paths are **fixed**:
 
 ```
 pathmc/
-  __init__.py       # Public API exports: fit()
+  __init__.py       # Public API exports: fit(), add_lags()
   parse.py          # parse_spec(spec_string) -> Spec
   graph.py          # build_graph(spec) -> GraphInfo
-  compile.py        # Gaussian compiler -> pm.Model
-  simulate.py       # do() operator logic
-  effects.py        # Labeled coefficients + defined params
+  compile.py        # Compiler -> pm.Model (Gaussian, Bernoulli, Poisson, etc.)
+  simulate.py       # do() operator logic (cross-sectional + panel)
+  effects.py        # Labeled coefficients, defined params, stdyx standardized
   introspect.py     # graph(), equations(), design(), priors()
+  transforms.py     # Transform registry (adstock, logistic_saturation)
+  identify.py       # Backdoor criterion, adjustment sets, collider warnings
+  panel.py          # PanelInfo, add_lags(), panel validation
   exceptions.py     # CycleError, DuplicateEquationError, etc.
   model.py          # PathModel class (returned by fit())
 ```
@@ -68,13 +75,12 @@ pytest tests/test_compile.py::TestDesignMatrix -x -v
 - **do() planner** is logically separate from the do() executor — plan determines propagation order; execute applies posterior draws.
 - **Residual covariance** uses an abstraction layer, not hardcoded LKJ. The roadmap calls for alternative residual structures (low-rank, group shocks); the design should accommodate this without major refactors.
 - **Parameter naming** must be predictable, documented, and stable across runs. Use ArviZ/xarray coords for equations, coefficients, and multivariate blocks.
-- **Dependencies**: add `networkx` when implementing M2 (graph). Add `graphviz` (Python wrapper) if implementing DAG rendering.
+- **Dependencies**: `networkx` (graph/identification), `graphviz` (DAG rendering), `pymc-marketing` (adstock/saturation transform backends) are already in `pyproject.toml`.
 
 ## Do NOT
 
 - Modify test files. If a test seems wrong, flag it for human review.
 - Add dependencies without documenting why in a commit message.
-- Implement v0.2+ features (panel mode, transforms) during v0.1 milestones.
 - Use global state or module-level mutable variables.
 - Suppress warnings without documenting the reason.
 - Write "clever" code — prefer clear, boring implementations.

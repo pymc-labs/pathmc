@@ -1,6 +1,6 @@
 # Milestones — pathmc
 
-These milestones cover the v0.1 (MVP) and v0.2 (Panel mode) scope defined in `prd_v1.md`.
+These milestones cover the full v1 scope defined in `prd_v1.md`: v0.1 (MVP), v0.2 (Panel mode), v0.3 (Transforms & families), and v0.4 (Causal workbench). All milestones are complete.
 
 ## How Milestones Work
 
@@ -38,6 +38,19 @@ After tests pass, also verify:
 | M16 | Time-forward do()          | `test_panel_do.py`                          | M13, M14   | ✓      |
 | M17 | Panel smoke tests          | `test_panel_smoke.py`                       | M13–M16    | ✓      |
 | M18 | Panel documentation        | `cd docs && quarto render` exits 0          | M17        | ✓      |
+| M19 | Transform parser           | `test_transforms_parse.py`                  | M1         | ✓      |
+| M20 | Transform registry + compiler | `test_transforms_compile.py`             | M19, M4    | ✓      |
+| M21 | Transforms under do()      | `test_transforms_do.py`                     | M20, M6, M16 | ✓    |
+| M22 | Additional families        | `test_families.py`                          | M4         | ✓      |
+| M23 | Posterior predictive       | `test_ppc.py`                               | M4         | ✓      |
+| M24 | v0.3 smoke tests           | `test_v03_smoke.py`                         | M19–M23    | ✓      |
+| M25 | v0.3 documentation         | `quarto render` exits 0                     | M24        | ✓      |
+| M26 | Fix do() random slopes     | `test_do_slopes.py`                         | M15, M16   | ✓      |
+| M27 | Identification helpers     | `test_identification.py`                    | M2         | ✓      |
+| M28 | Causal query sugar         | `test_causal_queries.py`                    | M6, M26    | ✓      |
+| M29 | Standardized effects       | `test_standardized.py`                      | M8         | ✓      |
+| M30 | v0.4 smoke tests           | `test_v04_smoke.py`                         | M26–M29    | ✓      |
+| M31 | v0.4 documentation         | `quarto render` exits 0                     | M30        | ✓      |
 
 ## Required Module Structure
 

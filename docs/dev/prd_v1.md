@@ -1,5 +1,7 @@
 # Product Requirements Document (PRD): `pathmc`
 
+> **Status: v1 complete.** All milestones (M1–M31) pass. All Definition of Done criteria met. See [milestones.md](milestones.md) for details and [roadmap_post_v1.md](roadmap_post_v1.md) for planned future work.
+
 ## 1. Purpose
 
 `pathmc` is a Python package for **Bayesian path analysis** (observed-variable SEM) designed for **rapid, iterative exploration of causal DAGs**. It compiles a concise, lavaan-inspired **formula-string DSL** into **PyMC** models, provides rich **model introspection**, and supports a first-class **do() operator** for **g-computation / interventional simulation**.
@@ -256,7 +258,7 @@ contrast.hdi("y", 0.95)
 
 ```python
 scenario = fit.do(
-  policy={"spend": lambda row: row["spend"] * 1.2 if 20 <= row["week"] <= 30 else row["spend"]},
+  set={"spend": 120},
   simulate_over="time",
   init_from="observed",
   kind="mean",
@@ -268,7 +270,7 @@ scenario = fit.do(
 ```python
 fit.effect("x -> y")
 fit.effect("x -> m -> y")
-fit.define("ind", "a*b")
+fit.effects_summary()    # includes := defined params like indirect := a*b
 ```
 
 ### Causal queries (v0.4)
@@ -331,7 +333,7 @@ fit.standardized()  # stdyx-standardized coefficients
 ### `do()` semantics
 
 - `do(set={...})` overrides the intervened variable(s) and ignores their structural equations.
-- `do(shift={...})` adds a shift to the observed/intermediate values.
+- `do(shift={...})` is reserved for soft interventions (not yet implemented).
 - In panel/time-forward mode:
   - simulation proceeds in time order and uses simulated values for lagged dependencies
   - `init_from` controls initial state (observed vs user-specified)

@@ -41,7 +41,7 @@ See [prd_v1.md](prd_v1.md) for the v1 scope and requirements.
 
 These roadmap items suggest the following design-time considerations:
 
-- The **graph layer** should expose d-separation queries, adjustment set computation, and topological utilities — not just compilation.
+- The **graph layer** already exposes d-separation queries, adjustment set computation (`identify.py`), and topological utilities. DAG compatibility checks and sensitivity analysis can build on this foundation.
 - The **prior system** should accept per-edge or per-group prior specs, making graph-aware priors a configuration change rather than a refactor.
-- The **`do()` simulator** should be modular enough to serve as the engine for optimization and counterfactual queries.
+- The **`do()` simulator** is already modular (separate planner via topological order, separate executor in `simulate.py`). Policy optimization and counterfactual queries can layer on top.
 - The **residual covariance** implementation should use an abstraction (e.g., a residual structure object) rather than hardcoding LKJ, so low-rank and group-shock variants can slot in later.
