@@ -32,12 +32,12 @@ After tests pass, also verify:
 | M10 | Documentation              | `cd docs && quarto render` exits 0          | M9         | ✓      |
 | M11 | Bernoulli-logit Family     | `test_bernoulli.py`                         | M4         | ✓      |
 | M12 | Predictive do()            | `test_do_predictive.py`                     | M6, M11    | ✓      |
-| M13 | `add_lags()` utility       | `test_add_lags.py`                          | —          |        |
-| M14 | Panel fit + random intercepts | `test_panel.py`                          | M13        |        |
-| M15 | Random slopes              | `test_random_slopes.py`                     | M14        |        |
-| M16 | Time-forward do()          | `test_panel_do.py`                          | M13, M14   |        |
-| M17 | Panel smoke tests          | `test_panel_smoke.py`                       | M13–M16    |        |
-| M18 | Panel documentation        | `cd docs && quarto render` exits 0          | M17        |        |
+| M13 | `add_lags()` utility       | `test_add_lags.py`                          | —          | ✓      |
+| M14 | Panel fit + random intercepts | `test_panel.py`                          | M13        | ✓      |
+| M15 | Random slopes              | `test_random_slopes.py`                     | M14        | ✓      |
+| M16 | Time-forward do()          | `test_panel_do.py`                          | M13, M14   | ✓      |
+| M17 | Panel smoke tests          | `test_panel_smoke.py`                       | M13–M16    | ✓      |
+| M18 | Panel documentation        | `cd docs && quarto render` exits 0          | M17        | ✓      |
 
 ## Required Module Structure
 
@@ -403,3 +403,67 @@ Returns InferenceData with `posterior_predictive` group. Works for all families 
 ### M25: v0.3 Documentation
 
 **Goal**: Update MMM example with adstock + saturation transforms and PPC. Add transforms section to intro.qmd. Append v0.3 milestones.
+
+---
+
+## v0.4 Milestones — Causal Workbench
+
+| #   | Name                       | Gate tests                  | Depends on | Status |
+| --- | -------------------------- | --------------------------- | ---------- | ------ |
+| M26 | Fix do() random slopes     | `test_do_slopes.py`         | M15, M16   | ✓      |
+| M27 | Identification helpers     | `test_identification.py`    | M2         | ✓      |
+| M28 | Causal query sugar         | `test_causal_queries.py`    | M6, M26    | ✓      |
+| M29 | Standardized effects       | `test_standardized.py`      | M8         | ✓      |
+| M30 | v0.4 smoke tests           | `test_v04_smoke.py`         | M26–M29    | ✓      |
+| M31 | v0.4 documentation         | `quarto render` exits 0     | M30        | ✓      |
+
+### M26: Fix do() random slopes
+
+**Goal**: Make `do()` propagate random slopes, not just random intercepts.
+
+**What to handle**:
+- In `run_do` (cross-sectional): detect `slope_{var}_{predictor}` in posterior, average over units, add `slope_mean * values[predictor]` to linear predictor
+- In `run_panel_do` (panel): select unit-specific slope `slope_arr.sel(unit=unit)`, add `slope_unit * parent_val` to linear predictor
+- Result: `do()` queries on models with random slopes now reflect geo/unit-varying effects
+
+### M27: Identification helpers
+
+**Goal**: Provide backdoor adjustment set computation, collider warnings, and identifiability checks.
+
+**New module**: `pathmc/identify.py`
+
+**Public functions**:
+- `adjustment_sets(graph_info, treatment, outcome)` → `list[set[str]]`
+- `collider_warnings(graph_info, adjustment_vars, treatment, outcome)` → `list[str]`
+- `is_identifiable(graph_info, treatment, outcome)` → `bool`
+
+**PathModel methods**: `.adjustment_sets(treatment, outcome)`, `.is_identifiable(treatment, outcome)`
+
+### M28: Causal query sugar
+
+**Goal**: Provide convenience methods for common causal queries.
+
+**PathModel methods**:
+- `.ate(outcome, treatment, values=(0.0, 1.0))` → `DoResult` (contrast)
+- `.cate(outcome, treatment, values=(0.0, 1.0), condition={...})` → `DoResult`
+- `.prob(expr, set=None, kind="predictive")` → `float`
+
+### M29: Standardized effects
+
+**Goal**: Compute `stdyx`-style standardized coefficients from posterior draws and data moments.
+
+**New function** in `pathmc/effects.py`: `build_standardized_effects(spec, idata, data)` → `pd.DataFrame`
+
+**PathModel method**: `.standardized()` → DataFrame with mean, sd, HDI of standardized coefficients.
+
+### M30: v0.4 smoke tests
+
+**Goal**: End-to-end integration tests for the full v0.4 feature set.
+
+- Full pipeline: fit → adjustment_sets → ate → standardized
+- Panel model with random slopes → do() → verify slopes affect result
+- Mediation: indirect standardized effect
+
+### M31: v0.4 documentation
+
+**Goal**: Update intro.qmd with sections on identification helpers, causal queries, and standardized effects. Verify docs build.

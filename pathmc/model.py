@@ -11,8 +11,18 @@ import pandas as pd
 import pymc as pm
 
 from pathmc.compile import build_design_matrix, compile_to_pymc
-from pathmc.effects import EffectResult, build_effects_summary, compute_path_effect
+from pathmc.effects import (
+    EffectResult,
+    build_effects_summary,
+    build_standardized_effects,
+    compute_path_effect,
+)
 from pathmc.graph import GraphInfo, build_graph
+from pathmc.identify import (
+    adjustment_sets as _adjustment_sets,
+    collider_warnings as _collider_warnings,
+    is_identifiable as _is_identifiable,
+)
 from pathmc.introspect import (
     EquationList,
     PriorTable,
@@ -169,6 +179,28 @@ class PathModel:
             )
         return build_effects_summary(self._spec, self._idata)
 
+    def standardized(self) -> pd.DataFrame:
+        """Return stdyx-standardized coefficients for labeled effects.
+
+        Each coefficient is standardized as ``coef * sd(X) / sd(Y)``,
+        giving the expected change in Y (in SD units) per SD change in X.
+
+        Returns
+        -------
+        pd.DataFrame
+            Summary with mean, sd, and HDI for each standardized coefficient.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.sample()``.
+        """
+        if self._idata is None:
+            raise RuntimeError(
+                "No posterior samples available. Call .sample() before .standardized()."
+            )
+        return build_standardized_effects(self._spec, self._idata, self._data)
+
     def effect(self, path: str) -> EffectResult:
         """Compute the effect along a causal path in the DAG.
 
@@ -245,6 +277,71 @@ class PathModel:
             pp = pm.sample_posterior_predictive(self._idata, **kwargs)
         self._idata.extend(pp)
         return self._idata
+
+    def adjustment_sets(
+        self,
+        treatment: str,
+        outcome: str,
+    ) -> list[set[str]]:
+        """Find valid backdoor adjustment sets for the causal effect
+        of *treatment* on *outcome*.
+
+        Parameters
+        ----------
+        treatment : str
+            Treatment variable name.
+        outcome : str
+            Outcome variable name.
+
+        Returns
+        -------
+        list[set[str]]
+            All valid minimal adjustment sets, sorted by size.
+        """
+        return _adjustment_sets(self._graph_info, treatment, outcome)
+
+    def is_identifiable(self, treatment: str, outcome: str) -> bool:
+        """Check if the causal effect of *treatment* on *outcome* is
+        identifiable via the backdoor criterion.
+
+        Parameters
+        ----------
+        treatment : str
+            Treatment variable name.
+        outcome : str
+            Outcome variable name.
+
+        Returns
+        -------
+        bool
+            True if at least one valid adjustment set exists.
+        """
+        return _is_identifiable(self._graph_info, treatment, outcome)
+
+    def collider_warnings(
+        self,
+        adjustment_vars: set[str],
+        treatment: str,
+        outcome: str,
+    ) -> list[str]:
+        """Check if any variable in the proposed adjustment set is a
+        collider that could introduce bias.
+
+        Parameters
+        ----------
+        adjustment_vars : set[str]
+            Proposed adjustment set.
+        treatment : str
+            Treatment variable name.
+        outcome : str
+            Outcome variable name.
+
+        Returns
+        -------
+        list[str]
+            Warning strings for problematic variables.
+        """
+        return _collider_warnings(self._graph_info, adjustment_vars, treatment, outcome)
 
     def do(
         self,
@@ -331,6 +428,116 @@ class PathModel:
             kind=kind,
             panel_info=self._panel_info,
         )
+
+    def ate(
+        self,
+        outcome: str,
+        treatment: str,
+        values: tuple[float, float] = (0.0, 1.0),
+        **do_kwargs: Any,
+    ) -> DoResult:
+        """Compute the average treatment effect of *treatment* on *outcome*.
+
+        Shorthand for ``do(set={treatment: hi}) - do(set={treatment: lo})``.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name (used only for documentation;
+            the contrast is computed over all variables).
+        treatment : str
+            Treatment variable to intervene on.
+        values : tuple[float, float]
+            ``(lo, hi)`` intervention values. Default ``(0.0, 1.0)``.
+        **do_kwargs
+            Passed to ``do()`` (e.g. ``kind``, ``simulate_over``).
+
+        Returns
+        -------
+        DoResult
+            Contrast ``do(treatment=hi) - do(treatment=lo)``.
+        """
+        lo, hi = values
+        r_lo = self.do(set={treatment: lo}, **do_kwargs)
+        r_hi = self.do(set={treatment: hi}, **do_kwargs)
+        return r_hi - r_lo
+
+    def cate(
+        self,
+        outcome: str,
+        treatment: str,
+        values: tuple[float, float] = (0.0, 1.0),
+        condition: dict[str, float] | None = None,
+        **do_kwargs: Any,
+    ) -> DoResult:
+        """Compute the conditional average treatment effect.
+
+        Like ``ate()`` but with additional variables fixed in both
+        scenarios, enabling effect modification analysis.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name.
+        treatment : str
+            Treatment variable to intervene on.
+        values : tuple[float, float]
+            ``(lo, hi)`` intervention values.
+        condition : dict[str, float] | None
+            Variables to fix at specific values in both scenarios.
+        **do_kwargs
+            Passed to ``do()``.
+
+        Returns
+        -------
+        DoResult
+            Contrast with conditioning variables held fixed.
+        """
+        if condition is None:
+            condition = {}
+        lo, hi = values
+        set_lo = {treatment: lo, **condition}
+        set_hi = {treatment: hi, **condition}
+        r_lo = self.do(set=set_lo, **do_kwargs)
+        r_hi = self.do(set=set_hi, **do_kwargs)
+        return r_hi - r_lo
+
+    def prob(
+        self,
+        expr: str,
+        set: dict[str, float] | None = None,
+        kind: str = "predictive",
+        **do_kwargs: Any,
+    ) -> float:
+        """Compute the probability of an expression under an intervention.
+
+        Evaluates ``P(expr | do(set))`` using posterior predictive draws.
+
+        Parameters
+        ----------
+        expr : str
+            Boolean expression over variable names, e.g. ``"Y > 0"``.
+        set : dict[str, float] | None
+            Intervention values for the do-operator.
+        kind : str
+            Propagation kind (default ``"predictive"`` to include
+            residual noise, which is needed for meaningful probabilities).
+        **do_kwargs
+            Passed to ``do()``.
+
+        Returns
+        -------
+        float
+            Estimated probability (fraction of draws satisfying *expr*).
+        """
+        result = self.do(set=set, kind=kind, **do_kwargs)
+        namespace = {var: draws for var, draws in result._values.items()}
+        import numpy as np
+
+        namespace["np"] = np
+        namespace["__builtins__"] = {}
+        mask = eval(expr, namespace)  # noqa: S307
+        return float(np.mean(mask))
 
 
 def fit(

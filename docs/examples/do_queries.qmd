@@ -53,18 +53,48 @@ model.sample(draws=500, tune=500, chains=4, random_seed=42)
 ## Average treatment effect
 
 The ATE of `X` on `Y` compares two interventions: setting `X = 1` versus `X = 0`.
+The `.ate()` method is shorthand for the two-`do()` contrast:
 
 ```{python}
-r0 = model.do(set={"X": 0.0})
-r1 = model.do(set={"X": 1.0})
-
-ate = r1 - r0
+ate = model.ate("Y", "X", values=(0.0, 1.0))
 print(f"ATE of X on Y: {ate.mean('Y'):.3f}")
 print(f"94% HDI:       {ate.hdi('Y', prob=0.94)}")
 ```
 
 The true causal effect of `X` on `Y` is 0.4 (the coefficient in the structural equation for `Y`).
 The ATE should be close to this value, not inflated by confounding through `Z`.
+
+This is equivalent to the manual contrast:
+
+```{python}
+r0 = model.do(set={"X": 0.0})
+r1 = model.do(set={"X": 1.0})
+manual_ate = r1 - r0
+print(f"Manual ATE:    {manual_ate.mean('Y'):.3f}")
+```
+
+## Conditional average treatment effect
+
+`.cate()` fixes additional variables at specific values in both scenarios.
+This answers: "what is the causal effect of `X` on `Y` *when `Z` is held at a particular level*?"
+
+```{python}
+cate_z_low = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": -1.0})
+cate_z_high = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": 2.0})
+
+print(f"CATE at Z = -1: {cate_z_low.mean('Y'):.3f}")
+print(f"CATE at Z =  2: {cate_z_high.mean('Y'):.3f}")
+print(f"ATE (no cond):  {ate.mean('Y'):.3f}")
+```
+
+In a linear model without interactions, the CATE equals the ATE regardless of the conditioning value — the `X → Y` coefficient does not depend on `Z`.
+The values match because Z's contribution cancels out in the contrast.
+
+::: {.callout-tip}
+## When does CATE differ from ATE?
+
+CATE becomes informative when the treatment effect varies with a moderator — for example, in models with interaction terms or nonlinear specifications. In those cases, `.cate()` lets you examine how the causal effect changes across subgroups.
+:::
 
 ## Contrast arithmetic
 

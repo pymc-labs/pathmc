@@ -1,0 +1,227 @@
+---
+title: "Causal Identification"
+jupyter: pathmc
+---
+
+Not every regression coefficient is a causal effect.
+To get from association to causation, you need to identify the right **adjustment set** — the variables to include in your model so that the coefficient on the treatment reflects only the causal path.
+
+pathmc provides tools to check this directly from the DAG, before you look at any data.
+This example walks through the three fundamental DAG structures and shows how pathmc's identification helpers guide adjustment decisions.
+
+## Setup
+
+```{python}
+import numpy as np
+import pandas as pd
+import pathmc
+
+rng = np.random.default_rng(42)
+n = 500
+```
+
+## Structure 1: The fork (confounding)
+
+When a common cause `Z` affects both treatment `X` and outcome `Y`, the association between `X` and `Y` is a mix of the causal effect and confounding.
+Adjusting for `Z` blocks the backdoor path and isolates the causal effect.
+
+```{dot}
+//| fig-cap: "Fork DAG: Z is a common cause of X and Y. Adjusting for Z is required."
+//| fig-width: 3
+digraph {
+  rankdir=LR
+  Z -> X
+  Z -> Y
+  X -> Y
+}
+```
+
+```{python}
+Z = rng.normal(size=n)
+X = 0.5 * Z + rng.normal(scale=0.5, size=n)
+Y = 0.4 * X + 0.8 * Z + rng.normal(scale=0.5, size=n)
+
+df_fork = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
+
+fork_model = pathmc.fit("X ~ Z\nY ~ X + Z", data=df_fork)
+```
+
+### Identification check
+
+```{python}
+print(f"Identifiable?    {fork_model.is_identifiable('X', 'Y')}")
+print(f"Adjustment sets: {fork_model.adjustment_sets('X', 'Y')}")
+```
+
+The model must condition on `Z` to identify the causal effect of `X` on `Y`.
+The empty set is *not* valid because `Z` confounds the treatment-outcome relationship.
+
+```{python}
+fork_model.sample(draws=500, tune=500, chains=2, random_seed=42)
+
+ate = fork_model.ate("Y", "X")
+print(f"ATE of X on Y:  {ate.mean('Y'):.3f}  (true = 0.4)")
+print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
+```
+
+## Structure 2: The chain (mediation)
+
+When `X` affects `Y` only through a mediator `M`, the total causal effect is identified *without* adjusting for `M`.
+In fact, conditioning on `M` would block the causal path and bias the total effect estimate.
+
+```{dot}
+//| fig-cap: "Chain DAG: X affects Y only through M. Do not adjust for M when estimating the total effect."
+//| fig-width: 3
+digraph {
+  rankdir=LR
+  X -> M
+  M -> Y
+}
+```
+
+```{python}
+X = rng.normal(size=n)
+M = 0.6 * X + rng.normal(scale=0.5, size=n)
+Y = 0.5 * M + rng.normal(scale=0.5, size=n)
+
+df_chain = pd.DataFrame({"X": X, "M": M, "Y": Y})
+
+chain_model = pathmc.fit("M ~ X\nY ~ M", data=df_chain)
+```
+
+```{python}
+print(f"Identifiable?    {chain_model.is_identifiable('X', 'Y')}")
+print(f"Adjustment sets: {chain_model.adjustment_sets('X', 'Y')}")
+```
+
+The empty set is valid — no adjustment needed.
+Notice that `M` does not appear in any adjustment set: it is a descendant of `X` and therefore excluded from backdoor adjustment.
+
+```{python}
+chain_model.sample(draws=500, tune=500, chains=2, random_seed=42)
+
+ate = chain_model.ate("Y", "X")
+print(f"ATE of X on Y:  {ate.mean('Y'):.3f}  (true = 0.6 × 0.5 = 0.3)")
+print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
+```
+
+## Structure 3: The collider
+
+This is the structure that trips people up.
+When `X` and `Y` both cause `C`, there is **no confounding** — the association between `X` and `Y` is already causal (or zero, if there is no direct path).
+But if you condition on `C`, you *create* a spurious association between `X` and `Y`.
+
+```{dot}
+//| fig-cap: "Collider DAG: X and Y both cause C. Do NOT adjust for C."
+//| fig-width: 3
+digraph {
+  rankdir=LR
+  X -> C
+  Y -> C
+}
+```
+
+```{python}
+X = rng.normal(size=n)
+Y = rng.normal(size=n)
+C = 0.6 * X + 0.4 * Y + rng.normal(scale=0.5, size=n)
+
+df_collider = pd.DataFrame({"X": X, "Y": Y, "C": C})
+
+collider_model = pathmc.fit("C ~ X + Y", data=df_collider)
+```
+
+### Identification check
+
+With no direct edge from `X` to `Y`, the empty set correctly identifies the (zero) causal effect:
+
+```{python}
+print(f"Identifiable?    {collider_model.is_identifiable('X', 'Y')}")
+print(f"Adjustment sets: {collider_model.adjustment_sets('X', 'Y')}")
+```
+
+### Collider warning
+
+What if an analyst mistakenly included `C` in the adjustment set?
+pathmc warns about this:
+
+```{python}
+warnings = collider_model.collider_warnings({"C"}, "X", "Y")
+for w in warnings:
+    print(w)
+```
+
+::: {.callout-warning}
+## Collider bias
+
+Conditioning on a collider opens a spurious path between its parents.
+In this example, adjusting for `C` would make `X` and `Y` appear associated even though they are causally independent.
+
+This is why "control for everything" is dangerous in causal inference.
+:::
+
+## A realistic example: confounding plus a collider
+
+In practice, DAGs contain multiple structures simultaneously.
+Consider a model where `Z` confounds `X` and `Y`, and `C` is a collider caused by both `X` and `Y`.
+
+```{dot}
+//| fig-cap: "Mixed DAG: Z is a confounder (adjust for it), C is a collider (do not adjust for it)."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  Z -> X
+  Z -> Y
+  X -> Y
+  X -> C
+  Y -> C
+}
+```
+
+```{python}
+Z = rng.normal(size=n)
+X = 0.5 * Z + rng.normal(scale=0.5, size=n)
+Y = 0.4 * X + 0.6 * Z + rng.normal(scale=0.5, size=n)
+C = 0.3 * X + 0.5 * Y + rng.normal(scale=0.5, size=n)
+
+df_mixed = pd.DataFrame({"X": X, "Y": Y, "Z": Z, "C": C})
+
+mixed_model = pathmc.fit("X ~ Z\nY ~ X + Z\nC ~ X + Y", data=df_mixed)
+```
+
+```{python}
+print(f"Identifiable?    {mixed_model.is_identifiable('X', 'Y')}")
+print(f"Adjustment sets: {mixed_model.adjustment_sets('X', 'Y')}")
+```
+
+pathmc correctly identifies `{Z}` as the required adjustment set.
+`C` is excluded because it is a descendant of `X`.
+
+```{python}
+warnings = mixed_model.collider_warnings({"Z", "C"}, "X", "Y")
+for w in warnings:
+    print(w)
+```
+
+```{python}
+mixed_model.sample(draws=500, tune=500, chains=2, random_seed=42)
+
+ate = mixed_model.ate("Y", "X")
+print(f"ATE of X on Y:  {ate.mean('Y'):.3f}  (true = 0.4)")
+print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
+```
+
+## Summary
+
+- **Confounders** (common causes) must be adjusted for. `.adjustment_sets()` identifies them.
+- **Mediators** are descendants of treatment — they are automatically excluded from backdoor sets.
+- **Colliders** must *not* be adjusted for. `.collider_warnings()` flags them.
+- **`.is_identifiable()`** tells you whether any valid adjustment set exists before you run a single MCMC sample.
+- **The DAG encodes your assumptions.** pathmc's identification helpers check the logical consequences of those assumptions, but the DAG itself must come from domain knowledge.
+
+::: {.callout-note}
+## Reflection
+
+In your own analysis, which variables might be colliders?
+A common example: "customer satisfaction" is caused by both product quality and marketing — conditioning on it when estimating the effect of marketing on retention could introduce collider bias.
+:::

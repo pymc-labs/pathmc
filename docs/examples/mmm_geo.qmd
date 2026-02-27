@@ -277,17 +277,42 @@ print(f"sigma_tv:  posterior mean = {sigma_tv_post.mean():.3f}  (true = {true_si
 print(f"sigma_dig: posterior mean = {sigma_dig_post.mean():.3f}  (true = {true_sigma_dig})")
 ```
 
-## Limitations
+## Causal queries with geo-varying effects
 
-::: {.callout-warning}
-## `do()` does not yet propagate random slopes
+The `do()` operator propagates both random intercepts and random slopes, so interventional queries reflect the full heterogeneity across geos.
 
-The current `do()` operator accounts for random intercepts but not random slopes.
-This means interventional queries reflect only the population-average media effects, not geo-specific coefficients.
+### Average treatment effect
 
-For geo-specific counterfactuals, you would need to manually extract the posterior draws for each region's total slope and propagate them yourself.
-This gap is tracked for a future release.
-:::
+`.ate()` computes the population-average causal effect by contrasting two intervention levels:
+
+```{python}
+ate_tv = model.ate("sales", "tv", values=(10.0, 30.0))
+
+print("ATE of TV spend 10 → 30 (population average):")
+print(f"  Mean:    {ate_tv.mean('sales'):.3f}")
+print(f"  94% HDI: {ate_tv.hdi('sales', prob=0.94)}")
+print(f"  Expected: {true_mu_tv * 20:.3f}")
+```
+
+### Comparing channels
+
+```{python}
+ate_dig = model.ate("sales", "digital", values=(5.0, 20.0))
+
+print("ATE of digital spend 5 → 20:")
+print(f"  Mean:    {ate_dig.mean('sales'):.3f}")
+print(f"  94% HDI: {ate_dig.hdi('sales', prob=0.94)}")
+print(f"  Expected: {true_mu_dig * 15:.3f}")
+```
+
+### Probability query
+
+What is the probability that increasing TV spend from 10 to 30 units lifts sales by more than 10 units?
+
+```{python}
+p = model.prob("sales > 10", set={"tv": 30.0}, kind="predictive")
+print(f"P(sales > 10 | do(tv=30)): {p:.2f}")
+```
 
 ## Summary
 

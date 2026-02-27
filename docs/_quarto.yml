@@ -16,6 +16,8 @@ website:
         text: Home
       - href: intro.qmd
         text: Concepts
+      - href: how-it-works.qmd
+        text: How It Works
       - text: Examples
         menu:
           - href: examples/mediation.qmd
@@ -34,6 +36,8 @@ website:
             text: MMM with Mediation
           - href: examples/mmm_geo.qmd
             text: MMM with Geo-Varying Effects
+          - href: examples/causal_identification.qmd
+            text: Causal Identification
 
 format:
   html:

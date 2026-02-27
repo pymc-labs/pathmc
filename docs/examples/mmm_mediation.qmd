@@ -267,17 +267,33 @@ plt.show()
 
 The indirect effect is comparable in magnitude to the direct effect — a naive regression that conditions on search traffic would miss roughly half of brand's total contribution.
 
-## Causal queries with do()
+## Identification check
+
+Before running interventional queries, we can verify that the causal effect of brand spend on sales is identifiable from the DAG — and see what variables we need to condition on.
+
+```{python}
+print(f"Is brand_spend → sales identifiable? {model.is_identifiable('brand_spend', 'sales')}")
+print(f"Valid adjustment sets:                {model.adjustment_sets('brand_spend', 'sales')}")
+```
+
+The empty set is a valid adjustment set because brand spend has no confounders (it is exogenous in this DAG). Seasonality is a confounder of *search traffic* and *sales*, but not of brand spend — so the total effect of brand spend is identified without adjustment.
+
+## Standardized effects
+
+To compare effect magnitudes across predictors on different scales, we compute **stdyx-standardized coefficients** — the expected change in the outcome (in SD units) per SD change in the predictor:
+
+```{python}
+model.standardized()
+```
+
+## Causal queries
 
 ### Total causal effect of brand spend
 
-The `do()` operator computes the interventional distribution $P(\text{sales} \mid do(\text{brand\_spend} = x))$.
-By contrasting two interventions, we get the total causal effect — including both the direct path and the indirect path through search traffic.
+The `.ate()` method computes the average treatment effect by contrasting two interventions — including both the direct path and the indirect path through search traffic:
 
 ```{python}
-r_low = model.do(set={"brand_spend": 2.0})
-r_high = model.do(set={"brand_spend": 8.0})
-brand_ate = r_high - r_low
+brand_ate = model.ate("sales", "brand_spend", values=(2.0, 8.0))
 
 print(f"Total effect of brand_spend 2 → 8:")
 print(f"  Mean:    {brand_ate.mean('sales'):.3f}")
@@ -285,7 +301,16 @@ print(f"  94% HDI: {brand_ate.hdi('sales', prob=0.94)}")
 print(f"  Expected (linear): {true_total_brand * 6:.3f}")
 ```
 
-The `do()` result should be close to `0.55 × 6 = 3.3` — the total effect times the intervention size.
+The ATE should be close to `0.55 × 6 = 3.3` — the total effect times the intervention size.
+
+### Probability query
+
+What is the probability that brand spend of 8 produces sales above the mean?
+
+```{python}
+p = model.prob("sales > 0", set={"brand_spend": 8.0})
+print(f"P(sales > 0 | do(brand_spend=8)): {p:.2f}")
+```
 
 ### Comparing channel effectiveness
 
@@ -337,6 +362,9 @@ plt.show()
 Because the model includes the funnel equation, `do()` also gives us the downstream effect on the mediator.
 
 ```{python}
+r_low = model.do(set={"brand_spend": 2.0})
+r_high = model.do(set={"brand_spend": 8.0})
+
 print("Search traffic under brand interventions:")
 print(f"  do(brand=2): E[search] = {r_low.mean('search_traffic'):.3f}")
 print(f"  do(brand=8): E[search] = {r_high.mean('search_traffic'):.3f}")

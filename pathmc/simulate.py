@@ -149,6 +149,15 @@ def run_do(
                 alpha_mean = alpha_arr.mean(dim="unit").values
                 linear = linear + alpha_mean
 
+            for col in cols:
+                if col == "Intercept":
+                    continue
+                slope_name = f"slope_{var}_{col}"
+                if slope_name in stacked:
+                    slope_arr = stacked[slope_name]
+                    slope_mean = slope_arr.mean(dim="unit").values
+                    linear = linear + slope_mean * values[col]
+
             family = families.get(var, "gaussian")
 
             if kind == "predictive":
@@ -396,6 +405,25 @@ def run_panel_do(
                         alpha_arr = stacked[f"alpha_{var}"]
                         alpha_unit = alpha_arr.sel(unit=unit).values
                         linear = linear + alpha_unit
+
+                    for col in cols:
+                        if col == "Intercept":
+                            continue
+                        slope_name = f"slope_{var}_{col}"
+                        if slope_name in stacked:
+                            slope_arr = stacked[slope_name]
+                            slope_unit = slope_arr.sel(unit=unit).values
+                            parent_val = _get_panel_col_value(
+                                col,
+                                u_idx,
+                                t_idx,
+                                all_values,
+                                set,
+                                unit_data,
+                                init_from,
+                                n_samples,
+                            )
+                            linear = linear + slope_unit * parent_val
 
                     family = families.get(var, "gaussian")
                     if kind == "predictive":

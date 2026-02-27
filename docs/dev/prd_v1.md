@@ -100,14 +100,17 @@ The DSL supports **user-defined transformations with estimable parameters**, ena
 
 ### v0.4 — Causal workbench
 
+- Fix `do()` random slopes propagation:
+  - `run_do` and `run_panel_do` must propagate `slope_` variables alongside `alpha_` intercepts
+  - Cross-sectional: average slopes over units; panel: use unit-specific slopes
 - Identification helpers:
   - minimal adjustment sets (backdoor criterion) for a given DAG and target effect
   - collider warnings / forbidden adjustments
   - report whether a target effect is identifiable under standard assumptions
 - Causal query language — thin sugar on `do()`:
-  - `ATE(y, x=1, x=0)`
-  - `CATE(y, x=1, x=0, moderator=value)`
-  - probability queries: `P(y > 0 | do(x=1))`
+  - `.ate(outcome, treatment, values=(lo, hi))` → `DoResult` contrast
+  - `.cate(outcome, treatment, values, condition={...})` → conditional ATE
+  - `.prob(expr, set={...})` → `P(expr | do(set))` via predictive draws
 - Standardized effects as a post-fit view (`stdyx`-style), computed from posterior draws + data moments
 
 ## 7. DSL Specification
@@ -268,6 +271,28 @@ fit.effect("x -> m -> y")
 fit.define("ind", "a*b")
 ```
 
+### Causal queries (v0.4)
+
+```python
+fit.ate("y", "x", values=(0.0, 1.0))
+fit.cate("y", "x", values=(0.0, 1.0), condition={"z": 2.0})
+fit.prob("y > 0", set={"x": 1.0})
+```
+
+### Identification (v0.4)
+
+```python
+fit.adjustment_sets("x", "y")
+fit.is_identifiable("x", "y")
+fit.collider_warnings({"c"}, "x", "y")
+```
+
+### Standardized effects (v0.4)
+
+```python
+fit.standardized()  # stdyx-standardized coefficients
+```
+
 ## 9. Modeling Semantics
 
 ### Directed edges
@@ -390,10 +415,6 @@ See [roadmap_post_v1.md](roadmap_post_v1.md) for planned future features and the
 - **Identifiability with estimable transforms** (e.g., adstock vs lag vs saturation): mitigate with strong priors, start with simple examples, provide diagnostics and warnings.
 - **Panel ordering bugs**: enforce sorting checks; provide panel report.
 - **Over-claiming causality**: docs must emphasize assumptions; provide warnings on `do()` use.
-
-### TODO
-
-- **`do()` does not propagate random slopes.** The `run_do` and `run_panel_do` functions in `simulate.py` handle random intercepts (`alpha_`) but ignore random slopes (`slope_`). When a model is fit with `pooling={"intercept": True, "slopes": [...]}`, `do()` queries reflect only the population-average fixed effects, not geo/unit-specific coefficients. Fix: mirror the random intercept logic for slopes — in cross-sectional `do()`, average over units; in panel `do()`, select the unit-specific slope.
 
 ## 15. Definition of Done (v1)
 

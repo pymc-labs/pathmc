@@ -137,6 +137,14 @@ print(f"94% HDI:  {ate.hdi('Y', prob=0.94)}")
 
 This should be close to the true total effect of 0.7.
 
+The `.ate()` convenience method does the same thing in one call:
+
+```{python}
+ate = model.ate("Y", "X", values=(0.0, 1.0))
+print(f"ATE on Y: {ate.mean('Y'):.3f}")
+print(f"94% HDI:  {ate.hdi('Y', prob=0.94)}")
+```
+
 ## Path-specific effects
 
 The `effect()` method computes path-specific effects by multiplying coefficient draws along a specified path:
@@ -148,6 +156,26 @@ print(indirect)
 direct = model.effect("X -> Y")
 print(direct)
 ```
+
+## Standardized effects
+
+When predictors are measured on different scales, raw coefficients are not directly comparable.
+`.standardized()` computes **stdyx-standardized coefficients** — the expected change in the outcome (in SD units) per SD change in the predictor:
+
+```{python}
+model.standardized()
+```
+
+## Identification
+
+Before trusting causal estimates, we can check whether the effect of `X` on `Y` is identifiable from the DAG.
+
+```{python}
+print(f"Is X → Y identifiable?  {model.is_identifiable('X', 'Y')}")
+print(f"Adjustment sets:        {model.adjustment_sets('X', 'Y')}")
+```
+
+The empty set `set()` is a valid adjustment set, meaning no additional conditioning is needed for the total effect — `X` has no confounders in this DAG (it is exogenous).
 
 ## Assumptions
 

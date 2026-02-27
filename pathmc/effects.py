@@ -151,6 +151,72 @@ def build_effects_summary(
     return pd.DataFrame(rows).set_index("name")
 
 
+def build_standardized_effects(
+    spec: Spec,
+    idata: az.InferenceData,
+    data: pd.DataFrame,
+) -> pd.DataFrame:
+    """Compute stdyx-standardized coefficients from posterior draws.
+
+    For each labeled coefficient on edge X -> Y, computes::
+
+        stdyx = coef * sd(X) / sd(Y)
+
+    This gives the expected change in Y (in SD units) per SD change in X.
+
+    Parameters
+    ----------
+    spec : Spec
+        Parsed model specification with labeled terms.
+    idata : az.InferenceData
+        Posterior samples from MCMC.
+    data : pd.DataFrame
+        Observed data used to compute variable standard deviations.
+
+    Returns
+    -------
+    pd.DataFrame
+        Summary with columns: mean, sd, hdi_3%, hdi_97% of the
+        standardized coefficient. Index is the label name.
+    """
+    labeled_draws = extract_labeled_draws(spec, idata)
+
+    rows = []
+    for reg in spec.regressions:
+        lhs = reg.lhs
+        sd_y = float(data[lhs].std())
+        if sd_y == 0:
+            continue
+
+        for term in reg.terms:
+            if term.label is None or term.label not in labeled_draws:
+                continue
+
+            var = term.variable
+            if var not in data.columns:
+                continue
+            sd_x = float(data[var].std())
+            if sd_x == 0:
+                continue
+
+            raw_draws = labeled_draws[term.label]
+            std_draws = raw_draws * sd_x / sd_y
+            hdi = az.hdi(std_draws, hdi_prob=0.94)
+            rows.append(
+                {
+                    "name": term.label,
+                    "predictor": var,
+                    "outcome": lhs,
+                    "mean": float(np.mean(std_draws)),
+                    "sd": float(np.std(std_draws)),
+                    "hdi_3%": float(hdi[0]),
+                    "hdi_97%": float(hdi[1]),
+                }
+            )
+
+    return pd.DataFrame(rows).set_index("name")
+
+
 def compute_path_effect(
     path: str,
     spec: Spec,
