@@ -1,3 +1,4 @@
 *.DS_Store
-/tests/__pycache__
-/pathmc/__pycache__
+__pycache__/
+*.egg-info/
+.pytest_cache/

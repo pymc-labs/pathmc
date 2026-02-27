@@ -10,6 +10,7 @@ import pandas as pd
 import pymc as pm
 
 from pathmc.compile import build_design_matrix, compile_to_pymc
+from pathmc.effects import EffectResult, build_effects_summary, compute_path_effect
 from pathmc.graph import GraphInfo, build_graph
 from pathmc.introspect import (
     EquationList,
@@ -128,6 +129,54 @@ class PathModel:
                 "No posterior samples available. Call .sample() before .summary()."
             )
         return az.summary(self._idata)
+
+    def effects_summary(self) -> pd.DataFrame:
+        """Return a posterior summary of labeled coefficients and defined parameters.
+
+        Returns
+        -------
+        pd.DataFrame
+            Summary with mean, sd, and HDI for each labeled coefficient
+            and ``:=`` defined parameter.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.sample()``.
+        """
+        if self._idata is None:
+            raise RuntimeError(
+                "No posterior samples available. "
+                "Call .sample() before .effects_summary()."
+            )
+        return build_effects_summary(self._spec, self._idata)
+
+    def effect(self, path: str) -> EffectResult:
+        """Compute the effect along a causal path in the DAG.
+
+        Parameters
+        ----------
+        path : str
+            A path string like ``"X -> M -> Y"`` specifying the causal
+            pathway. Each edge must correspond to a regression term.
+
+        Returns
+        -------
+        EffectResult
+            Posterior draws for the path-specific effect.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.sample()``.
+        ValueError
+            If a node is not endogenous or an edge does not exist.
+        """
+        if self._idata is None:
+            raise RuntimeError(
+                "No posterior samples available. Call .sample() before .effect()."
+            )
+        return compute_path_effect(path, self._spec, self._idata)
 
     def sample(self, **kwargs: Any) -> az.InferenceData:
         """Run MCMC sampling and store the resulting InferenceData.
