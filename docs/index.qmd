@@ -2,7 +2,7 @@
 title: "pathmc"
 ---
 
-![](assets/logo.png){width=200 fig-align="center"}
+![](assets/logo.png){width=75% fig-align="center"}
 
 **Bayesian path analysis via PyMC.**
 
