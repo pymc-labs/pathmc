@@ -13,7 +13,8 @@ import pandas as pd
 
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
-from pathmc.parse import Spec
+from pathmc.parse import Spec, TransformCall
+from pathmc.transforms import get_transform
 
 
 class DoResult:
@@ -113,6 +114,7 @@ def run_do(
     stacked = idata.posterior.stack(sample=("chain", "draw"))
     n_samples = stacked.sizes["sample"]
 
+    transform_map = _build_transform_map(spec)
     values: dict[str, np.ndarray] = {}
 
     has_panel_intercepts = (
@@ -134,6 +136,11 @@ def run_do(
                 coef = beta_arr.sel({f"{var}_predictors": col}).values
                 if col == "Intercept":
                     linear = linear + coef
+                elif col in transform_map:
+                    transformed = _apply_transform_chain_numpy(
+                        transform_map[col], values[col], stacked
+                    )
+                    linear = linear + coef * transformed
                 else:
                     linear = linear + coef * values[col]
 
@@ -148,12 +155,19 @@ def run_do(
                 values[var] = _add_residual_noise(
                     linear, var, family, stacked, n_samples, rng
                 )
-            elif family == "bernoulli":
-                values[var] = _expit(linear)
             else:
-                values[var] = linear
+                values[var] = _apply_link(linear, family)
 
     return DoResult(values=values)
+
+
+def _apply_link(linear: np.ndarray, family: str) -> np.ndarray:
+    """Apply the inverse link function for mean propagation."""
+    if family == "bernoulli":
+        return _expit(linear)
+    if family in ("poisson", "negbinomial"):
+        return np.exp(linear)
+    return linear
 
 
 def _add_residual_noise(
@@ -169,8 +183,54 @@ def _add_residual_noise(
         probs = _expit(linear)
         return rng.binomial(1, probs).astype(float)
 
+    if family == "poisson":
+        mu = np.exp(np.clip(linear, -20, 20))
+        return rng.poisson(mu).astype(float)
+
+    if family == "negbinomial":
+        mu = np.exp(np.clip(linear, -20, 20))
+        alpha = stacked[f"alpha_disp_{var}"].values
+        p = alpha / (alpha + mu)
+        return rng.negative_binomial(alpha.astype(int).clip(1), p).astype(float)
+
+    if family == "studentt":
+        sigma_arr = stacked[f"sigma_{var}"].values
+        nu_arr = stacked[f"nu_{var}"].values
+        return linear + rng.standard_t(df=np.clip(nu_arr, 2, 1000)) * sigma_arr
+
     sigma_arr = stacked[f"sigma_{var}"].values
     return linear + rng.normal(0, sigma_arr)
+
+
+def _build_transform_map(spec: Spec) -> dict[str, TransformCall]:
+    """Map variable names to their TransformCall for all transform terms."""
+    tmap: dict[str, TransformCall] = {}
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.transform is not None:
+                tmap[term.variable] = term.transform
+    return tmap
+
+
+def _apply_transform_chain_numpy(
+    tc: TransformCall,
+    input_val: np.ndarray,
+    stacked: object,
+) -> np.ndarray:
+    """Apply a (possibly nested) transform chain using numpy.
+
+    For cross-sectional do(), input_val is a constant broadcast to n_samples.
+    The transform is applied pointwise, using posterior draws of the parameters.
+    """
+    if isinstance(tc.input_expr, TransformCall):
+        input_val = _apply_transform_chain_numpy(tc.input_expr, input_val, stacked)
+
+    transform = get_transform(tc.name)
+    params = {key: stacked[name].values for key, name in tc.params.items()}
+
+    if transform.name == "adstock":
+        return input_val
+    return transform.apply_numpy(input_val, params)
 
 
 def run_panel_do(
@@ -232,6 +292,8 @@ def run_panel_do(
     stacked = idata.posterior.stack(sample=("chain", "draw"))
     n_samples = stacked.sizes["sample"]
 
+    transform_map = _build_transform_map(spec)
+
     unit_col = panel_info.unit
     time_col = panel_info.time
 
@@ -251,9 +313,14 @@ def run_panel_do(
         var: np.zeros((n_units, n_times, n_samples)) for var in all_vars
     }
 
+    adstock_state: dict[str, np.ndarray] = {}
+
     for u_idx, unit in enumerate(units):
         unit_mask = data_sorted[unit_col] == unit
         unit_data = data_sorted[unit_mask].sort_values(time_col).reset_index(drop=True)
+
+        for col_name in transform_map:
+            adstock_state[col_name] = np.zeros(n_samples)
 
         for t_idx, _time_val in enumerate(time_values):
             for intervened_var, intervened_val in set.items():
@@ -293,38 +360,41 @@ def run_panel_do(
                         coef = beta_arr.sel({f"{var}_predictors": col}).values
                         if col == "Intercept":
                             linear = linear + coef
+                        elif col in transform_map:
+                            parent_val = _get_panel_col_value(
+                                col,
+                                u_idx,
+                                t_idx,
+                                all_values,
+                                set,
+                                unit_data,
+                                init_from,
+                                n_samples,
+                            )
+                            transformed = _apply_panel_transform(
+                                transform_map[col],
+                                parent_val,
+                                adstock_state,
+                                col,
+                                stacked,
+                            )
+                            linear = linear + coef * transformed
                         else:
-                            is_lag = _parse_lag(col)
-                            if is_lag is not None:
-                                base_var, lag_k = is_lag
-                                src_t = t_idx - lag_k
-                                if src_t >= 0 and base_var in all_values:
-                                    parent_val = all_values[base_var][u_idx, src_t, :]
-                                elif init_from == "observed" and t_idx < len(unit_data):
-                                    parent_val = np.full(
-                                        n_samples,
-                                        float(unit_data.iloc[t_idx].get(col, 0.0)),
-                                    )
-                                else:
-                                    parent_val = np.zeros(n_samples)
-                                linear = linear + coef * parent_val
-                            elif col in all_values:
-                                linear = (
-                                    linear + coef * all_values[col][u_idx, t_idx, :]
-                                )
-                            elif col in set:
-                                linear = linear + coef * set[col]
-                            else:
-                                if t_idx < len(unit_data):
-                                    val = float(unit_data.iloc[t_idx].get(col, 0.0))
-                                else:
-                                    val = 0.0
-                                linear = linear + coef * val
+                            parent_val = _get_panel_col_value(
+                                col,
+                                u_idx,
+                                t_idx,
+                                all_values,
+                                set,
+                                unit_data,
+                                init_from,
+                                n_samples,
+                            )
+                            linear = linear + coef * parent_val
 
                     if has_alpha and f"alpha_{var}" in stacked:
                         alpha_arr = stacked[f"alpha_{var}"]
-                        unit_label = unit
-                        alpha_unit = alpha_arr.sel(unit=unit_label).values
+                        alpha_unit = alpha_arr.sel(unit=unit).values
                         linear = linear + alpha_unit
 
                     family = families.get(var, "gaussian")
@@ -332,16 +402,70 @@ def run_panel_do(
                         all_values[var][u_idx, t_idx, :] = _add_residual_noise(
                             linear, var, family, stacked, n_samples, rng
                         )
-                    elif family == "bernoulli":
-                        all_values[var][u_idx, t_idx, :] = _expit(linear)
                     else:
-                        all_values[var][u_idx, t_idx, :] = linear
+                        all_values[var][u_idx, t_idx, :] = _apply_link(linear, family)
 
     result_values: dict[str, np.ndarray] = {}
     for var in graph_info.topological_order:
         result_values[var] = all_values[var].mean(axis=(0, 1))
 
     return DoResult(values=result_values)
+
+
+def _get_panel_col_value(
+    col: str,
+    u_idx: int,
+    t_idx: int,
+    all_values: dict[str, np.ndarray],
+    set_dict: dict[str, float],
+    unit_data: pd.DataFrame,
+    init_from: str,
+    n_samples: int,
+) -> np.ndarray:
+    """Resolve a column value for the panel do() inner loop."""
+    is_lag = _parse_lag(col)
+    if is_lag is not None:
+        base_var, lag_k = is_lag
+        src_t = t_idx - lag_k
+        if src_t >= 0 and base_var in all_values:
+            return all_values[base_var][u_idx, src_t, :]
+        if init_from == "observed" and t_idx < len(unit_data):
+            return np.full(n_samples, float(unit_data.iloc[t_idx].get(col, 0.0)))
+        return np.zeros(n_samples)
+
+    if col in all_values:
+        return all_values[col][u_idx, t_idx, :]
+    if col in set_dict:
+        return np.full(n_samples, set_dict[col])
+    if t_idx < len(unit_data):
+        return np.full(n_samples, float(unit_data.iloc[t_idx].get(col, 0.0)))
+    return np.zeros(n_samples)
+
+
+def _apply_panel_transform(
+    tc: TransformCall,
+    input_val: np.ndarray,
+    adstock_state: dict[str, np.ndarray],
+    col_key: str,
+    stacked: object,
+) -> np.ndarray:
+    """Apply transform in panel do(), tracking adstock state across time steps."""
+    if isinstance(tc.input_expr, TransformCall):
+        input_val = _apply_panel_transform(
+            tc.input_expr, input_val, adstock_state, col_key + "_inner", stacked
+        )
+
+    transform = get_transform(tc.name)
+    params = {key: stacked[name].values for key, name in tc.params.items()}
+
+    if transform.name == "adstock":
+        decay = params["decay"]
+        prev = adstock_state.get(col_key, np.zeros_like(input_val))
+        result = input_val + decay * prev
+        adstock_state[col_key] = result
+        return result
+
+    return transform.apply_numpy(input_val, params)
 
 
 def _parse_lag(col_name: str) -> tuple[str, int] | None:

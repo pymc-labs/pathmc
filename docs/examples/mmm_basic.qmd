@@ -1,90 +1,82 @@
 ---
-title: "Basic Media Mix Model"
+title: "Media Mix Model with Transforms"
 jupyter: pathmc
 ---
 
-This example demonstrates a basic media mix model (MMM) using pathmc's panel mode.
-We model sales as a function of lagged advertising spend across multiple regions and weeks, with random intercepts to capture baseline differences between regions.
-
-This is a **linear** MMM — no adstock or saturation transforms yet (those are planned for v0.3).
-Even so, it demonstrates the core panel workflow: lag creation, hierarchical modeling, and counterfactual simulation via `do()`.
+This example demonstrates a media mix model (MMM) using pathmc's panel mode with **adstock** and **logistic saturation** transforms.
+These transforms capture how advertising effects carry over time (adstock) and diminish at high spend levels (saturation) — two empirical regularities central to marketing analytics.
 
 ## The causal structure
 
-Two advertising channels (`tv` and `digital`) drive sales, each with a one-week lag.
+Two advertising channels (`tv` and `digital`) drive sales.
+Each channel passes through a transform pipeline before entering the regression:
+
+1. **Adstock**: geometric carry-over, `y_t = x_t + decay * y_{t-1}`, captures delayed effects
+2. **Logistic saturation**: `y = 1 - exp(-lam * x)`, captures diminishing returns
+
 A `trend` term captures secular growth.
 
 ```{dot}
-//| fig-cap: "MMM DAG: lagged spend channels drive sales."
-//| fig-width: 5
+//| fig-cap: "MMM DAG: transformed spend channels drive sales."
+//| fig-width: 6
 digraph {
   rankdir=LR
-  tv_lag1 -> sales [label="b_tv"]
-  digital_lag1 -> sales [label="b_dig"]
+  tv -> "adstock(tv)" -> "saturation(tv)" -> sales [label="b_tv"]
+  digital -> "adstock(digital)" -> "saturation(digital)" -> sales [label="b_dig"]
   trend -> sales
 }
 ```
 
 ## Simulate panel data
 
-We simulate data for 4 regions over 30 weeks with known coefficients.
+We simulate data for 4 regions over 30 weeks with known transform parameters and coefficients.
 
 ```{python}
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import arviz as az
+import pymc as pm
+import pathmc
 
 rng = np.random.default_rng(42)
 
 regions = ["North", "South", "East", "West"]
 n_weeks = 30
 true_intercepts = {"North": 50, "South": 60, "East": 45, "West": 55}
-true_b_tv = 0.4
-true_b_digital = 0.6
+true_decay_tv = 0.7
+true_decay_dig = 0.5
+true_lam_tv = 0.3
+true_lam_dig = 0.4
+true_b_tv = 8.0
+true_b_dig = 6.0
 
 rows = []
 for region in regions:
+    adstocked_tv = 0.0
+    adstocked_dig = 0.0
     for week in range(1, n_weeks + 1):
         tv = rng.uniform(10, 50)
         digital = rng.uniform(5, 30)
+        adstocked_tv = tv + true_decay_tv * adstocked_tv
+        adstocked_dig = digital + true_decay_dig * adstocked_dig
+        sat_tv = 1 - np.exp(-true_lam_tv * adstocked_tv)
+        sat_dig = 1 - np.exp(-true_lam_dig * adstocked_dig)
+        sales = (
+            true_intercepts[region]
+            + true_b_tv * sat_tv
+            + true_b_dig * sat_dig
+            + 0.1 * week
+            + rng.normal(scale=1.5)
+        )
         rows.append({
             "region": region, "week": week,
-            "tv": tv, "digital": digital, "trend": week,
+            "tv": tv, "digital": digital,
+            "trend": week, "sales": sales,
         })
 
-df_raw = pd.DataFrame(rows)
-```
-
-Create lag columns and generate the outcome.
-
-```{python}
-import pathmc
-
-df_lagged = pathmc.add_lags(
-    df_raw,
-    variables=["tv", "digital"],
-    lags=[1],
-    panel={"unit": "region", "time": "week"},
-)
-
-df_lagged["sales"] = np.nan
-for region in regions:
-    mask = df_lagged["region"] == region
-    n = mask.sum()
-    tv_lag = df_lagged.loc[mask, "tv_lag1"].values
-    dig_lag = df_lagged.loc[mask, "digital_lag1"].values
-    trend = df_lagged.loc[mask, "trend"].values
-    noise = rng.normal(scale=2, size=n)
-    df_lagged.loc[mask, "sales"] = (
-        true_intercepts[region]
-        + true_b_tv * np.nan_to_num(tv_lag)
-        + true_b_digital * np.nan_to_num(dig_lag)
-        + 0.1 * trend
-        + noise
-    )
-
-df = df_lagged.dropna(subset=["tv_lag1"]).reset_index(drop=True)
-print(f"Panel: {len(regions)} regions × {df.groupby('region').size().iloc[0]} weeks = {len(df)} rows")
+df = pd.DataFrame(rows)
+print(f"Panel: {len(regions)} regions × {n_weeks} weeks = {len(df)} rows")
 df.head()
 ```
 
@@ -109,9 +101,14 @@ plt.show()
 
 ## Specify and fit the model
 
+The DSL now supports transforms directly in the formula.
+Adstock and logistic saturation compose naturally: `logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)`.
+
 ```{python}
 spec = """
-sales ~ b_tv*tv_lag1 + b_dig*digital_lag1 + trend
+sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
+      + b_dig*logistic_saturation(adstock(digital, decay=theta_dig), lam=lam_dig)
+      + trend
 """
 
 model = pathmc.fit(
@@ -131,10 +128,19 @@ model.equations()
 model.priors()
 ```
 
+### PyMC model graph
+
+`pm.model_to_graphviz` renders the compiled plate diagram, showing all random variables, deterministic nodes, and observed data.
+
+```{python}
+#| fig-cap: "PyMC plate diagram for the panel MMM with adstock and saturation transforms."
+pm.model_to_graphviz(model.pymc_model)
+```
+
 ## Sample
 
 ```{python}
-model.sample(draws=1000, tune=1000, chains=2, cores=1, random_seed=42)
+model.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ## Results
@@ -147,11 +153,46 @@ model.summary()
 model.effects_summary()
 ```
 
-The recovered coefficients should be close to the true values: `b_tv` = 0.4, `b_dig` = 0.6.
+The transform parameters should be close to the true values: `theta_tv` ≈ 0.7, `theta_dig` ≈ 0.5, `lam_tv` ≈ 0.3, `lam_dig` ≈ 0.4.
+
+## Posterior predictive check
+
+The `.predict()` method runs posterior predictive sampling — a key diagnostic to verify that the model can reproduce the observed data patterns.
+
+```{python}
+idata = model.predict()
+```
+
+```{python}
+#| fig-cap: "Posterior predictive check: observed vs predicted sales."
+#| fig-width: 8
+
+fig, axes = plt.subplots(2, 2, figsize=(10, 6), sharex=True, sharey=True)
+for ax, region in zip(axes.flat, regions):
+    mask = df["region"] == region
+    obs = df.loc[mask, "sales"].values
+    weeks = df.loc[mask, "week"].values
+
+    pp_var = "sales_obs" if "sales_obs" in idata.posterior_predictive else "sales"
+    pp = idata.posterior_predictive[pp_var]
+    pp_mean = pp.mean(dim=("chain", "draw")).values[mask] if pp.dims[-1] != "chain" else pp.mean(dim=("chain", "draw")).values[mask]
+
+    ax.plot(weeks, obs, "o", ms=4, alpha=0.6, label="Observed")
+    ax.plot(weeks, pp_mean, "-", alpha=0.8, label="Predicted mean")
+    ax.set_title(region)
+    ax.legend(fontsize=8)
+
+fig.supxlabel("Week")
+fig.supylabel("Sales")
+fig.suptitle("Posterior Predictive Check")
+plt.tight_layout()
+plt.show()
+```
 
 ## Counterfactual: what if we doubled TV spend?
 
 Using time-forward `do()`, we simulate what sales would have been under a different spend scenario.
+The transforms (adstock + saturation) are automatically recomputed under the intervention.
 
 ```{python}
 r_actual = model.do(
@@ -172,7 +213,7 @@ print(f"Incremental sales:                   {contrast.mean('sales'):.1f}")
 print(f"94% HDI:                             {contrast.hdi('sales', prob=0.94)}")
 ```
 
-The incremental sales from doubling TV spend should be approximately `0.4 × 30 = 12` units.
+Note: with saturation transforms, doubling TV spend does *not* double the effect — diminishing returns kick in.
 
 ## Channel comparison
 
@@ -187,5 +228,3 @@ dig_effect = r_dig_only - r_base
 print(f"TV-only lift (spend=30):      {tv_effect.mean('sales'):.1f}")
 print(f"Digital-only lift (spend=30): {dig_effect.mean('sales'):.1f}")
 ```
-
-Digital has a higher coefficient (`b_dig` = 0.6 vs `b_tv` = 0.4), so the same spend on digital produces a larger sales lift — roughly `0.6 × 30 = 18` vs `0.4 × 30 = 12`.

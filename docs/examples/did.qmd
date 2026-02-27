@@ -36,6 +36,8 @@ Treatment starts at period 11, with a true ATT of 2.0.
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import arviz as az
+import pathmc
 
 rng = np.random.default_rng(42)
 
@@ -103,8 +105,6 @@ plt.show()
 We use panel mode with partial pooling (random intercepts per unit) to account for baseline differences.
 
 ```{python}
-import pathmc
-
 spec = "Y ~ treated + time + treat_post"
 
 model = pathmc.fit(
@@ -123,7 +123,7 @@ model.priors()
 ## Sample
 
 ```{python}
-model.sample(draws=1000, tune=1000, chains=2, cores=1, random_seed=42)
+model.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ## Results
@@ -141,8 +141,6 @@ The coefficient on `treat_post` *is* the ATT. We can visualise its full posterio
 ```{python}
 #| fig-cap: "Posterior distribution of the ATT. The dashed line marks the true value (2.0)."
 #| fig-width: 8
-
-import arviz as az
 
 az.plot_posterior(
     model._idata,

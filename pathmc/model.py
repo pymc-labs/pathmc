@@ -213,6 +213,36 @@ class PathModel:
             self._idata = pm.sample(**kwargs)
         return self._idata
 
+    def predict(self, **kwargs: Any) -> az.InferenceData:
+        """Run posterior predictive sampling.
+
+        Wraps ``pm.sample_posterior_predictive()`` and extends the
+        stored InferenceData with a ``posterior_predictive`` group.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed directly to ``pm.sample_posterior_predictive()``.
+
+        Returns
+        -------
+        az.InferenceData
+            InferenceData with ``posterior_predictive`` group added.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.sample()``.
+        """
+        if self._idata is None:
+            raise RuntimeError(
+                "No posterior samples available. Call .sample() before .predict()."
+            )
+        with self._pymc_model:
+            pp = pm.sample_posterior_predictive(self._idata, **kwargs)
+        self._idata.extend(pp)
+        return self._idata
+
     def do(
         self,
         set: dict[str, float] | None = None,

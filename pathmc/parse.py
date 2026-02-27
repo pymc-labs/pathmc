@@ -14,11 +14,28 @@ from pathmc.exceptions import DuplicateEquationError, ParseError
 
 
 @dataclass
+class TransformCall:
+    """A named transform applied to a variable or nested transform.
+
+    Examples::
+
+        adstock(tv, decay=theta)  ->  TransformCall("adstock", "tv", {"decay": "theta"})
+        logistic_saturation(adstock(tv, decay=theta), lam=lam)
+          ->  TransformCall("logistic_saturation", TransformCall(...), {"lam": "lam"})
+    """
+
+    name: str
+    input_expr: str | "TransformCall"
+    params: dict[str, str]
+
+
+@dataclass
 class Term:
     """A single predictor term in a regression equation."""
 
     variable: str
     label: str | None = None
+    transform: TransformCall | None = None
 
 
 @dataclass
@@ -55,6 +72,26 @@ class Spec:
     defined_params: list[DefinedParam] = field(default_factory=list)
 
 
+def _join_continuation_lines(spec_string: str) -> str:
+    """Join lines that start with ``+`` to the preceding line.
+
+    This allows multi-line regression statements like::
+
+        sales ~ b_tv*adstock(tv, decay=theta)
+              + b_dig*logistic_saturation(digital, lam=lam)
+              + trend
+    """
+    lines = spec_string.split("\n")
+    merged: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("+") and merged:
+            merged[-1] = merged[-1] + " " + stripped
+        else:
+            merged.append(line)
+    return "\n".join(merged)
+
+
 def parse_spec(spec_string: str) -> Spec:
     """Parse a DSL specification string into a Spec object.
 
@@ -76,6 +113,7 @@ def parse_spec(spec_string: str) -> Spec:
     DuplicateEquationError
         If two regressions share the same LHS variable.
     """
+    spec_string = _join_continuation_lines(spec_string)
     raw_statements = re.split(r"[;\n]", spec_string)
     statements = [s.strip() for s in raw_statements if s.strip()]
 
@@ -169,19 +207,130 @@ def _parse_regression(stmt: str) -> Regression:
 
 
 def _parse_term(raw: str) -> Term:
-    """Parse a single term, optionally with a coefficient label (``label*var``)."""
+    """Parse a single term, optionally with a coefficient label and/or transform."""
+    raw = raw.strip()
+    label: str | None = None
+
     if "*" in raw:
-        label_str, _, var_str = raw.partition("*")
-        label = label_str.strip()
-        variable = var_str.strip()
-        if not label or not variable:
-            raise ParseError(f"Malformed labeled term: '{raw}'.")
-        return Term(variable=variable, label=label)
+        star_pos = _find_top_level_star(raw)
+        if star_pos is not None:
+            label = raw[:star_pos].strip()
+            raw = raw[star_pos + 1 :].strip()
+            if not label:
+                raise ParseError(f"Malformed labeled term: '{raw}'.")
+
+    if "(" in raw:
+        transform = _parse_transform_expr(raw)
+        variable = _extract_leaf_variable(transform)
+        return Term(variable=variable, label=label, transform=transform)
 
     variable = raw.strip()
     if not variable:
         raise ParseError("Empty variable name in term.")
-    return Term(variable=variable, label=None)
+    return Term(variable=variable, label=label)
+
+
+def _find_top_level_star(raw: str) -> int | None:
+    """Find the position of ``*`` that is NOT inside parentheses."""
+    depth = 0
+    for i, ch in enumerate(raw):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "*" and depth == 0:
+            return i
+    return None
+
+
+def _parse_transform_expr(raw: str) -> TransformCall:
+    """Recursively parse ``name(input, key=val, ...)``."""
+    raw = raw.strip()
+    paren_open = raw.index("(")
+    name = raw[:paren_open].strip()
+    if not name:
+        raise ParseError(
+            f"Missing transform name in '{raw}'. Expected a function name before '('."
+        )
+
+    if raw[-1] != ")":
+        raise ParseError(
+            f"Unclosed parenthesis in transform expression: '{raw}'. Add a closing ')'."
+        )
+
+    inner = raw[paren_open + 1 : -1].strip()
+    args = _split_top_level_args(inner)
+
+    if not args:
+        raise ParseError(
+            f"Empty transform call: '{raw}'. Provide at least an input variable."
+        )
+
+    input_raw = args[0].strip()
+    if not input_raw:
+        raise ParseError(f"Missing input variable in transform: '{raw}'.")
+
+    if "=" in input_raw and "(" not in input_raw:
+        raise ParseError(
+            f"No input variable in transform: '{raw}'. "
+            "The first argument must be a variable or nested transform, "
+            "not a keyword parameter."
+        )
+
+    if "(" in input_raw:
+        input_expr: str | TransformCall = _parse_transform_expr(input_raw)
+    else:
+        input_expr = input_raw
+
+    params: dict[str, str] = {}
+    for arg in args[1:]:
+        if "=" not in arg:
+            raise ParseError(
+                f"Expected keyword parameter (key=value) in transform, "
+                f"got '{arg.strip()}' in '{raw}'."
+            )
+        key, _, val = arg.partition("=")
+        key = key.strip()
+        val = val.strip()
+        if not key:
+            raise ParseError(f"Missing parameter name in '{raw}'.")
+        if not val:
+            raise ParseError(
+                f"Missing value for parameter '{key}' in '{raw}'. "
+                f"Provide a parameter name after '='."
+            )
+        params[key] = val
+
+    return TransformCall(name=name, input_expr=input_expr, params=params)
+
+
+def _split_top_level_args(s: str) -> list[str]:
+    """Split a comma-separated argument list, respecting nested parens."""
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for ch in s:
+        if ch == "(":
+            depth += 1
+            current.append(ch)
+        elif ch == ")":
+            depth -= 1
+            current.append(ch)
+        elif ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
+def _extract_leaf_variable(tc: TransformCall) -> str:
+    """Walk a (possibly nested) TransformCall to find the leaf input variable."""
+    if isinstance(tc.input_expr, str):
+        return tc.input_expr
+    return _extract_leaf_variable(tc.input_expr)
 
 
 def _parse_residual_cov(stmt: str) -> ResidualCov:

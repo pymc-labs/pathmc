@@ -33,6 +33,8 @@ We generate data from a known DGP so we can verify that pathmc recovers the true
 ```{python}
 import numpy as np
 import pandas as pd
+import pymc as pm
+import pathmc
 
 rng = np.random.default_rng(42)
 n = 500
@@ -52,8 +54,6 @@ True values: `a = 0.5`, `b = 0.8`, `c = 0.3`, `indirect = 0.4`, `total = 0.7`.
 The spec uses **labeled coefficients** (`a*X`, `b*M`, `c*X`) and a **defined parameter** (`:=`) for the indirect effect.
 
 ```{python}
-import pathmc
-
 spec = """
 M ~ a*X
 Y ~ b*M + c*X
@@ -91,10 +91,17 @@ The prior table summarizes the default priors assigned to all parameters:
 model.priors()
 ```
 
+### PyMC model graph
+
+```{python}
+#| fig-cap: "PyMC plate diagram for the mediation model with labeled path coefficients."
+pm.model_to_graphviz(model.pymc_model)
+```
+
 ## Sample from the posterior
 
 ```{python}
-model.sample(draws=1000, tune=1000, chains=2, cores=1, random_seed=42)
+model.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ## Posterior summary

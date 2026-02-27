@@ -10,7 +10,7 @@ from __future__ import annotations
 import graphviz
 
 from pathmc.graph import GraphInfo
-from pathmc.parse import Spec
+from pathmc.parse import Spec, TransformCall
 
 
 class EquationList:
@@ -79,8 +79,12 @@ def build_dag_viz(spec: Spec, graph_info: GraphInfo) -> graphviz.Digraph:
 
     for reg in spec.regressions:
         for term in reg.terms:
-            label = term.label if term.label else ""
-            dot.edge(term.variable, reg.lhs, label=label)
+            edge_label = term.label or ""
+            if term.transform is not None:
+                edge_label = _format_transform(term.transform)
+                if term.label:
+                    edge_label = f"{term.label}*{edge_label}"
+            dot.edge(term.variable, reg.lhs, label=edge_label)
 
     for rc in spec.residual_covs:
         dot.edge(rc.var1, rc.var2, style="dashed", dir="both", label="~~")
@@ -107,12 +111,33 @@ def build_equations(spec: Spec) -> EquationList:
         if reg.has_intercept:
             terms.append("1")
         for t in reg.terms:
-            if t.label:
-                terms.append(f"{t.label}*{t.variable}")
-            else:
-                terms.append(t.variable)
+            term_str = _format_term(t)
+            terms.append(term_str)
         lines.append(f"{reg.lhs} ~ {' + '.join(terms)}")
     return EquationList(lines)
+
+
+def _format_term(t: object) -> str:
+    """Format a term for equation display, including transform expressions."""
+    if t.transform is not None:
+        expr = _format_transform(t.transform)
+        if t.label:
+            return f"{t.label}*{expr}"
+        return expr
+    if t.label:
+        return f"{t.label}*{t.variable}"
+    return t.variable
+
+
+def _format_transform(tc: TransformCall) -> str:
+    """Recursively format a TransformCall as a string."""
+    if isinstance(tc.input_expr, TransformCall):
+        input_str = _format_transform(tc.input_expr)
+    else:
+        input_str = tc.input_expr
+    param_strs = [f"{k}={v}" for k, v in tc.params.items()]
+    all_args = [input_str] + param_strs
+    return f"{tc.name}({', '.join(all_args)})"
 
 
 def build_priors(
@@ -147,11 +172,16 @@ def build_priors(
         slope_vars = list(pooling.get("slopes", []))
 
     entries: dict[str, str] = {}
+    seen_transform_params: set[str] = set()
     for reg in spec.regressions:
         entries[f"beta_{reg.lhs}"] = "Normal(0, 10)"
         family = families.get(reg.lhs, "gaussian")
-        if family != "bernoulli":
+        if family not in ("bernoulli", "poisson", "negbinomial"):
             entries[f"sigma_{reg.lhs}"] = "HalfNormal(1)"
+        if family == "negbinomial":
+            entries[f"alpha_disp_{reg.lhs}"] = "HalfNormal(1)"
+        if family == "studentt":
+            entries[f"nu_{reg.lhs}"] = "Gamma(2, 0.1)"
         if has_intercepts:
             entries[f"mu_alpha_{reg.lhs}"] = "Normal(0, 10)"
             entries[f"sigma_alpha_{reg.lhs}"] = "HalfNormal(1)"
@@ -162,4 +192,28 @@ def build_priors(
                 entries[f"mu_slope_{reg.lhs}_{svar}"] = "Normal(0, 10)"
                 entries[f"sigma_slope_{reg.lhs}_{svar}"] = "HalfNormal(1)"
                 entries[f"slope_{reg.lhs}_{svar}"] = "Normal(mu_slope, sigma_slope)"
+        for term in reg.terms:
+            if term.transform is not None:
+                _collect_transform_priors(
+                    term.transform, entries, seen_transform_params
+                )
     return PriorTable(entries)
+
+
+def _collect_transform_priors(
+    tc: TransformCall,
+    entries: dict[str, str],
+    seen: set[str],
+) -> None:
+    """Recursively add transform parameter priors to the entries dict."""
+    from pathmc.transforms import get_transform
+
+    if isinstance(tc.input_expr, TransformCall):
+        _collect_transform_priors(tc.input_expr, entries, seen)
+
+    transform = get_transform(tc.name)
+    for param_key, param_name in tc.params.items():
+        if param_name not in seen:
+            seen.add(param_name)
+            pspec = transform.param_specs[param_key]
+            entries[param_name] = pspec.default_prior

@@ -332,3 +332,74 @@ Required pages:
 - `docs/examples/mmm_basic.qmd`: Basic Media Mix Model with lags and panel structure
 
 Both pages include DOT diagrams, `model.graph()`, matplotlib visualizations, and rendered cell outputs. Add a "Panel mode" section to `intro.qmd`.
+
+---
+
+## v0.3 Milestones — Transforms, Families, PPC
+
+| #   | Name                          | Gate tests                   | Depends on   | Status |
+| --- | ----------------------------- | ---------------------------- | ------------ | ------ |
+| M19 | Transform parser              | `test_transforms_parse.py`   | M1           | ✓      |
+| M20 | Transform registry + compiler | `test_transforms_compile.py` | M19, M4      | ✓      |
+| M21 | Transforms under do()         | `test_transforms_do.py`      | M20, M6, M16 | ✓      |
+| M22 | Additional families           | `test_families.py`           | M4           | ✓      |
+| M23 | Posterior predictive          | `test_ppc.py`                | M4           | ✓      |
+| M24 | v0.3 smoke tests              | `test_v03_smoke.py`          | M19–M23      | ✓      |
+| M25 | v0.3 documentation            | `quarto render` exits 0      | M24          | ✓      |
+
+### M19: Transform Parser
+
+**Goal**: Extend the DSL parser to recognize transform expressions with named parameters and nesting.
+
+**New AST node**: `TransformCall` with `name`, `input_expr` (string or nested `TransformCall`), and `params` dict.
+
+**What to parse**:
+- `y ~ adstock(x, decay=theta)` — single transform
+- `y ~ a*adstock(x, decay=theta)` — labeled + transform
+- `y ~ logistic_saturation(adstock(x, decay=theta), lam=lam)` — nested composition
+- Error cases: missing closing paren, empty param name
+
+### M20: Transform Registry + Compiler
+
+**Goal**: Create `pathmc/transforms.py` with a registration mechanism, implement `adstock` and `logistic_saturation`, and compile transform parameters into the PyMC model.
+
+**Built-in transforms**:
+- `adstock(x, decay=theta)`: geometric decay with `Beta(2, 2)` prior on decay, panel-aware accumulation
+- `logistic_saturation(x, lam=lam)`: `1 - exp(-lam * x)` with `HalfNormal(1)` prior on lam
+
+**Compiler changes**: detect transform terms, emit constrained priors, compute transformed predictors as PyMC tensors, use in regression.
+
+### M21: Transforms under do()
+
+**Goal**: Recompute transforms during interventional simulation in both cross-sectional and panel modes.
+
+For cross-sectional: saturation applies pointwise; adstock degenerates to identity for single-value interventions.
+For panel `do(simulate_over="time")`: adstock accumulates correctly in time-forward simulation.
+
+### M22: Additional Families
+
+**Goal**: Support Poisson, NegBinomial, and StudentT likelihoods.
+
+- **Poisson**: log link, no sigma, `~~` guard rejects
+- **NegBinomial**: log link, dispersion parameter, `~~` guard rejects
+- **StudentT**: identity link, degrees of freedom `nu`, sigma retained
+
+`do()` applies the correct inverse link function for each family.
+
+### M23: Posterior Predictive Checks
+
+**Goal**: Add `.predict()` method on `PathModel` wrapping `pm.sample_posterior_predictive()`.
+
+Returns InferenceData with `posterior_predictive` group. Works for all families and `~~` block models.
+
+### M24: v0.3 Smoke Tests
+
+**Goal**: End-to-end integration tests combining transforms, new families, and PPC.
+
+- MMM with `adstock` + `logistic_saturation` + panel mode: fit, sample, do(), predict
+- Poisson and StudentT pipelines
+- Transform parameter recovery from known DGP
+
+### M25: v0.3 Documentation
+
+**Goal**: Update MMM example with adstock + saturation transforms and PPC. Add transforms section to intro.qmd. Append v0.3 milestones.

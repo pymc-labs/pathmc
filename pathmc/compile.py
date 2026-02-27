@@ -16,7 +16,8 @@ import patsy
 import pymc as pm
 
 from pathmc.panel import PanelInfo
-from pathmc.parse import Regression, Spec
+from pathmc.parse import Regression, Spec, TransformCall
+from pathmc.transforms import get_transform
 
 
 def build_design_matrix(reg: Regression, data: pd.DataFrame) -> pd.DataFrame:
@@ -101,14 +102,17 @@ def compile_to_pymc(
         coords["unit"] = panel_info.unit_labels
         unit_idx = _build_unit_index(data, panel_info)
 
+    transform_map = _build_transform_map(spec)
+
     with pm.Model(coords=coords) as pymc_model:
+        transform_param_rvs = _emit_transform_priors(spec, transform_map)
+
         for reg in spec.regressions:
             if reg.lhs in block_vars:
                 continue
 
             family = families.get(reg.lhs, "gaussian")
             dm = design_matrices[reg.lhs]
-            X = dm.values
             y = data[reg.lhs].values
 
             beta = pm.Normal(
@@ -117,7 +121,19 @@ def compile_to_pymc(
                 sigma=10,
                 dims=f"{reg.lhs}_predictors",
             )
-            mu = pm.math.dot(X, beta)
+
+            has_transforms = any(t.transform is not None for t in reg.terms)
+            if has_transforms:
+                mu = _compute_mu_with_transforms(
+                    reg,
+                    dm,
+                    beta,
+                    data,
+                    transform_param_rvs,
+                    panel_info=panel_info,
+                )
+            else:
+                mu = pm.math.dot(dm.values, beta)
 
             if (
                 has_random_intercepts
@@ -129,11 +145,7 @@ def compile_to_pymc(
             if slope_vars and panel_info is not None and unit_idx is not None:
                 mu = mu + _compile_random_slopes(reg, slope_vars, data, unit_idx)
 
-            if family == "bernoulli":
-                pm.Bernoulli(f"{reg.lhs}_obs", logit_p=mu, observed=y)
-            else:
-                sigma = pm.HalfNormal(f"sigma_{reg.lhs}", sigma=1)
-                pm.Normal(f"{reg.lhs}_obs", mu=mu, sigma=sigma, observed=y)
+            _emit_likelihood(reg.lhs, mu, y, family)
 
         for block in blocks:
             _compile_residual_block(block, spec, data, design_matrices, pymc_model)
@@ -252,12 +264,123 @@ def _identify_residual_blocks(spec: Spec) -> tuple[set[str], list[set[str]]]:
     return block_vars, blocks
 
 
+def _emit_likelihood(var: str, mu: Any, y: np.ndarray, family: str) -> None:
+    """Emit the likelihood for a single endogenous variable."""
+    if family == "bernoulli":
+        pm.Bernoulli(f"{var}_obs", logit_p=mu, observed=y)
+    elif family == "poisson":
+        pm.Poisson(f"{var}_obs", mu=pm.math.exp(mu), observed=y)
+    elif family == "negbinomial":
+        alpha_disp = pm.HalfNormal(f"alpha_disp_{var}", sigma=1)
+        pm.NegativeBinomial(
+            f"{var}_obs", mu=pm.math.exp(mu), alpha=alpha_disp, observed=y
+        )
+    elif family == "studentt":
+        sigma = pm.HalfNormal(f"sigma_{var}", sigma=1)
+        nu = pm.Gamma(f"nu_{var}", alpha=2, beta=0.1)
+        pm.StudentT(f"{var}_obs", nu=nu, mu=mu, sigma=sigma, observed=y)
+    else:
+        sigma = pm.HalfNormal(f"sigma_{var}", sigma=1)
+        pm.Normal(f"{var}_obs", mu=mu, sigma=sigma, observed=y)
+
+
+def _build_transform_map(spec: Spec) -> dict[str, TransformCall]:
+    """Map variable names to their TransformCall for all transform terms."""
+    tmap: dict[str, TransformCall] = {}
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.transform is not None:
+                tmap[term.variable] = term.transform
+    return tmap
+
+
+def _emit_transform_priors(
+    spec: Spec,
+    transform_map: dict[str, TransformCall],
+) -> dict[str, Any]:
+    """Emit PyMC priors for all transform parameters. Returns name->RV mapping."""
+    emitted: dict[str, Any] = {}
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.transform is not None:
+                _emit_transform_call_priors(term.transform, emitted)
+    return emitted
+
+
+def _emit_transform_call_priors(
+    tc: TransformCall,
+    emitted: dict[str, Any],
+) -> None:
+    """Recursively emit priors for a (possibly nested) TransformCall."""
+    if isinstance(tc.input_expr, TransformCall):
+        _emit_transform_call_priors(tc.input_expr, emitted)
+
+    transform = get_transform(tc.name)
+    for param_key, param_name in tc.params.items():
+        if param_name not in emitted:
+            spec = transform.param_specs[param_key]
+            emitted[param_name] = transform.emit_prior(param_name, spec)
+
+
+def _compute_mu_with_transforms(
+    reg: Regression,
+    dm: pd.DataFrame,
+    beta: Any,
+    data: pd.DataFrame,
+    transform_param_rvs: dict[str, Any],
+    panel_info: PanelInfo | None = None,
+) -> Any:
+    """Compute linear predictor, applying transforms for transform terms."""
+    import pytensor.tensor as pt
+
+    cols = list(dm.columns)
+    term_by_var = {t.variable: t for t in reg.terms}
+    mu = pt.zeros(len(data))
+
+    for i, col in enumerate(cols):
+        coef = beta[i]
+        if col == "Intercept":
+            mu = mu + coef
+        elif col in term_by_var and term_by_var[col].transform is not None:
+            tc = term_by_var[col].transform
+            transformed = _apply_transform_chain(
+                tc, data, transform_param_rvs, panel_info=panel_info
+            )
+            mu = mu + coef * transformed
+        else:
+            mu = mu + coef * pt.as_tensor_variable(dm[col].values)
+
+    return mu
+
+
+def _apply_transform_chain(
+    tc: TransformCall,
+    data: pd.DataFrame,
+    param_rvs: dict[str, Any],
+    panel_info: PanelInfo | None = None,
+) -> Any:
+    """Recursively apply a (possibly nested) transform chain."""
+    import pytensor.tensor as pt
+
+    if isinstance(tc.input_expr, TransformCall):
+        input_tensor = _apply_transform_chain(
+            tc.input_expr, data, param_rvs, panel_info=panel_info
+        )
+    else:
+        input_tensor = pt.as_tensor_variable(data[tc.input_expr].values.astype(float))
+
+    transform = get_transform(tc.name)
+    params = {key: param_rvs[name] for key, name in tc.params.items()}
+    return transform.apply_pymc(input_tensor, params, panel_info=panel_info, data=data)
+
+
 def _validate_residual_cov_families(spec: Spec, families: dict[str, str]) -> None:
     """Raise if any variable in a ``~~`` pair is non-Gaussian."""
+    allowed = {"gaussian"}
     for rc in spec.residual_covs:
         for var in (rc.var1, rc.var2):
             family = families.get(var, "gaussian")
-            if family != "gaussian":
+            if family not in allowed:
                 raise ValueError(
                     f"Residual covariance (~~) requires Gaussian family, "
                     f"but '{var}' has family '{family}'. "
