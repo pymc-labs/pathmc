@@ -43,6 +43,7 @@ class PathModel:
         spec: Spec,
         graph_info: GraphInfo,
         data: pd.DataFrame,
+        families: dict[str, str] | None = None,
     ) -> None:
         self._spec = spec
         self._graph_info = graph_info
@@ -52,7 +53,9 @@ class PathModel:
         for reg in spec.regressions:
             self._design_matrices[reg.lhs] = build_design_matrix(reg, data)
 
-        self._pymc_model: pm.Model = compile_to_pymc(spec, data, self._design_matrices)
+        self._pymc_model: pm.Model = compile_to_pymc(
+            spec, data, self._design_matrices, families=families
+        )
         self._idata: az.InferenceData | None = None
 
     @property
@@ -106,6 +109,25 @@ class PathModel:
         Works before sampling.
         """
         return build_priors(self._spec)
+
+    def summary(self) -> pd.DataFrame:
+        """Return a posterior summary table.
+
+        Returns
+        -------
+        pd.DataFrame
+            ArviZ summary of all model parameters.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.sample()``.
+        """
+        if self._idata is None:
+            raise RuntimeError(
+                "No posterior samples available. Call .sample() before .summary()."
+            )
+        return az.summary(self._idata)
 
     def sample(self, **kwargs: Any) -> az.InferenceData:
         """Run MCMC sampling and store the resulting InferenceData.
@@ -177,7 +199,12 @@ class PathModel:
         )
 
 
-def fit(spec_string: str, data: pd.DataFrame, **kwargs) -> PathModel:
+def fit(
+    spec_string: str,
+    data: pd.DataFrame,
+    families: dict[str, str] | None = None,
+    **kwargs: Any,
+) -> PathModel:
     """Parse a specification and compile a Bayesian path model.
 
     Parameters
@@ -186,8 +213,10 @@ def fit(spec_string: str, data: pd.DataFrame, **kwargs) -> PathModel:
         Model specification in the pathmc DSL.
     data : pd.DataFrame
         Observed data.
+    families : dict[str, str] | None
+        Per-variable distribution families (default ``"gaussian"``).
     **kwargs
-        Reserved for future options (e.g. custom priors, families).
+        Reserved for future options.
 
     Returns
     -------
@@ -196,4 +225,4 @@ def fit(spec_string: str, data: pd.DataFrame, **kwargs) -> PathModel:
     """
     spec = parse_spec(spec_string)
     graph_info = build_graph(spec)
-    return PathModel(spec=spec, graph_info=graph_info, data=data)
+    return PathModel(spec=spec, graph_info=graph_info, data=data, families=families)
