@@ -32,6 +32,8 @@ website:
             text: Basic MMM
           - href: examples/mmm_mediation.qmd
             text: MMM with Mediation
+          - href: examples/mmm_geo.qmd
+            text: MMM with Geo-Varying Effects
 
 format:
   html:

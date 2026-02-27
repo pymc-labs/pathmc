@@ -391,6 +391,10 @@ See [roadmap_post_v1.md](roadmap_post_v1.md) for planned future features and the
 - **Panel ordering bugs**: enforce sorting checks; provide panel report.
 - **Over-claiming causality**: docs must emphasize assumptions; provide warnings on `do()` use.
 
+### TODO
+
+- **`do()` does not propagate random slopes.** The `run_do` and `run_panel_do` functions in `simulate.py` handle random intercepts (`alpha_`) but ignore random slopes (`slope_`). When a model is fit with `pooling={"intercept": True, "slopes": [...]}`, `do()` queries reflect only the population-average fixed effects, not geo/unit-specific coefficients. Fix: mirror the random intercept logic for slopes — in cross-sectional `do()`, average over units; in panel `do()`, select the unit-specific slope.
+
 ## 15. Definition of Done (v1)
 
 - `pip install -e .` works

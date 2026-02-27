@@ -148,3 +148,16 @@ print(indirect)
 direct = model.effect("X -> Y")
 print(direct)
 ```
+
+## Assumptions
+
+::: {.callout-important}
+## Sequential ignorability
+
+The direct/indirect decomposition requires a strong assumption beyond the standard "no unmeasured confounders" needed for the total effect: there must be **no unmeasured common cause of M and Y**.
+
+If an omitted variable drives both the mediator and the outcome, the coefficients `b` (M → Y) and `c` (X → Y) absorb its influence — the indirect and direct effects are biased even when the total effect is identified.
+This assumption, called *sequential ignorability* (Imai et al., 2010), is untestable from data alone.
+
+In this example the DGP satisfies it by construction, but in real applications you should ask: "could anything cause both M and Y that I haven't measured?" If yes, report the total effect and treat the decomposition with caution.
+:::
