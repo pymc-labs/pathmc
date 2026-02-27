@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import arviz as az
+import graphviz
 import pandas as pd
 import pymc as pm
-
-import graphviz
 
 from pathmc.compile import build_design_matrix, compile_to_pymc
 from pathmc.graph import GraphInfo, build_graph
@@ -17,6 +19,7 @@ from pathmc.introspect import (
     build_priors,
 )
 from pathmc.parse import Spec, parse_spec
+from pathmc.simulate import DoResult, run_do
 
 
 class PathModel:
@@ -50,6 +53,7 @@ class PathModel:
             self._design_matrices[reg.lhs] = build_design_matrix(reg, data)
 
         self._pymc_model: pm.Model = compile_to_pymc(spec, data, self._design_matrices)
+        self._idata: az.InferenceData | None = None
 
     @property
     def pymc_model(self) -> pm.Model:
@@ -102,6 +106,75 @@ class PathModel:
         Works before sampling.
         """
         return build_priors(self._spec)
+
+    def sample(self, **kwargs: Any) -> az.InferenceData:
+        """Run MCMC sampling and store the resulting InferenceData.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed directly to ``pm.sample()`` (e.g. ``draws``, ``tune``,
+            ``chains``, ``random_seed``).
+
+        Returns
+        -------
+        az.InferenceData
+            Posterior samples.
+        """
+        with self._pymc_model:
+            self._idata = pm.sample(**kwargs)
+        return self._idata
+
+    def do(
+        self,
+        set: dict[str, float] | None = None,
+        shift: dict[str, float] | None = None,
+        kind: str = "mean",
+    ) -> DoResult:
+        """Simulate an intervention using the do-operator.
+
+        Propagates posterior coefficient draws through the DAG in
+        topological order, skipping the structural equation for any
+        variable in *set*.
+
+        Parameters
+        ----------
+        set : dict[str, float] | None
+            Variables to fix at specific values (hard intervention).
+        shift : dict[str, float] | None
+            Reserved for soft interventions (not yet implemented).
+        kind : str
+            Propagation mode. Currently only ``"mean"`` is supported.
+
+        Returns
+        -------
+        DoResult
+            Container with ``.mean(var)``, ``.hdi(var)``, and
+            contrast arithmetic via ``__sub__``.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.sample()``.
+        """
+        if self._idata is None:
+            raise RuntimeError(
+                "No posterior samples available. Call .sample() before .do()."
+            )
+
+        data_means = {col: float(self._data[col].mean()) for col in self._data.columns}
+        design_columns = {
+            var: list(dm.columns) for var, dm in self._design_matrices.items()
+        }
+
+        return run_do(
+            spec=self._spec,
+            graph_info=self._graph_info,
+            idata=self._idata,
+            data_means=data_means,
+            design_columns=design_columns,
+            set=set,
+        )
 
 
 def fit(spec_string: str, data: pd.DataFrame, **kwargs) -> PathModel:
