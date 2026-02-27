@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 docs/_site/
 /docs/site_libs
+/docs/_freeze

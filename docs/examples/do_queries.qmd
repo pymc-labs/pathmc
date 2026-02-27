@@ -1,7 +1,6 @@
 ---
 title: "do() Queries"
-execute:
-  eval: false
+jupyter: pathmc
 ---
 
 The `do()` method implements Pearl's do-operator, enabling interventional reasoning from a fitted Bayesian path model.
@@ -33,7 +32,7 @@ Y ~ X + Z
 """
 
 model = pathmc.fit(spec, data=df)
-model.sample(draws=1000, tune=1000, chains=2, random_seed=42)
+model.sample(draws=1000, tune=1000, chains=2, cores=1, random_seed=42)
 ```
 
 ## Average treatment effect

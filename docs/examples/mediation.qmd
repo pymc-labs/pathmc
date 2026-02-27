@@ -1,7 +1,6 @@
 ---
 title: "Mediation Analysis"
-execute:
-  eval: false
+jupyter: pathmc
 ---
 
 This example demonstrates a classic mediation analysis: estimating the direct and indirect effects of a treatment `X` on an outcome `Y` through a mediator `M`.
@@ -68,7 +67,7 @@ model.equations()
 ## Sample from the posterior
 
 ```{python}
-model.sample(draws=1000, tune=1000, chains=2, random_seed=42)
+model.sample(draws=1000, tune=1000, chains=2, cores=1, random_seed=42)
 ```
 
 ## Posterior summary
