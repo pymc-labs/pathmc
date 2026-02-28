@@ -20,36 +20,8 @@ website:
         text: How It Works
       - href: comparison.qmd
         text: Comparison
-      - text: Examples
-        menu:
-          - href: examples/mediation.qmd
-            text: Mediation Analysis
-          - href: examples/correlated_residuals.qmd
-            text: Correlated Residuals
-          - href: examples/do_queries.qmd
-            text: do() Queries
-          - href: examples/binary_outcomes.qmd
-            text: Binary Outcomes
-          - href: examples/did.qmd
-            text: Difference-in-Differences
-          - href: examples/mmm_basic.qmd
-            text: Basic MMM
-          - href: examples/mmm_mediation.qmd
-            text: MMM with causal funnel
-          - href: examples/mmm_geo.qmd
-            text: MMM with Geo-Varying Effects
-          - href: examples/saas_funnel.qmd
-            text: SaaS Conversion Funnel
-          - href: examples/vaccine_surrogates.qmd
-            text: Vaccine Efficacy & Surrogates
-          - href: examples/dynamic_pricing.qmd
-            text: Dynamic Pricing
-          - href: examples/cross_sectional_vs_panel.qmd
-            text: Cross-Sectional vs Panel DAGs
-          - href: examples/ate_estimation.qmd
-            text: "ATE: Linear vs Logistic"
-          - href: examples/causal_identification.qmd
-            text: Causal Identification
+      - href: examples/index.qmd
+        text: Examples
 
 format:
   html:

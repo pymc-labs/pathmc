@@ -23,23 +23,22 @@ The right choice depends on what stage of the analysis you're in and what assump
 The table below compares pathmc against five packages that Python practitioners commonly reach for when doing causal inference.
 
 | Feature | pathmc | DoWhy | CausalPy | semopy | EconML | Bambi |
-|---------|--------|-------|----------|--------|--------|-------|
-| **Approach** | Structural causal model (path analysis) | Identification + estimation framework | Quasi-experimental designs | Frequentist SEM | ML-based treatment effects | Bayesian regression |
-| **Inference** | Bayesian (PyMC) | Frequentist or Bayesian (pluggable) | Bayesian (PyMC) | Frequentist (ML) | Frequentist (ML) | Bayesian (PyMC) |
-| **DAG specification** | Formula DSL (`~`, `~~`, `:=`) | NetworkX / GML graph | Not required | lavaan-style syntax | Not required | R-style formula |
-| **Multi-equation systems** | Yes (core feature) | No | No | Yes | No | No |
-| **Residual covariance (`~~`)** | Yes (LKJ + MvNormal) | No | No | Yes | No | No |
-| **do() operator** | Yes (posterior propagation) | Yes (estimation-based) | No | No | No | No |
-| **Time-forward simulation** | Yes (panel `do()`) | No | No | No | No | No |
-| **Transforms with estimable params** | Yes (adstock, saturation) | No | No | No | No | No |
-| **Panel / longitudinal data** | Yes (random intercepts + slopes) | Limited | Yes (time series focus) | No | No | Yes (via groups) |
-| **Causal identification checks** | Yes (backdoor, collider warnings) | Yes (comprehensive) | No | No | No | No |
-| **Heterogeneous treatment effects** | Via `cate()` + conditioning | Via refuters | No | No | Yes (core strength) | Via interactions |
-| **Quasi-experimental designs** | DiD via panel `do()` | DiD via estimators | DiD, Synthetic Control, RDD | No | DML, IV | DiD via manual setup |
-| **Latent variables** | No (observed-variable only) | No | No | Yes (CFA/SEM) | No | No |
-| **Causal discovery** | No | Yes (via plugins) | No | No | No | No |
-| **Posterior predictive checks** | Yes | No | Yes | No | No | Yes |
-| **Standardized effects** | Yes (stdyx) | No | No | Yes | No | No |
+|---------|:------:|:-----:|:--------:|:------:|:------:|:-----:|
+| **Bayesian inference** | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| **Formula DSL** | ✅ `~` `~~` `:=` | ❌ | ❌ | ✅ lavaan-style | ❌ | ✅ R-style |
+| **Multi-equation systems** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| **Residual covariance (`~~`)** | ✅ LKJ + MvNormal | ❌ | ❌ | ✅ | ❌ | ❌ |
+| **do() operator** | ✅ posterior propagation | ✅ estimation-based | ❌ | ❌ | ❌ | ❌ |
+| **Time-forward simulation** | ✅ panel `do()` | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Transforms with estimable params** | ✅ adstock, saturation | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Panel / longitudinal data** | ✅ random intercepts + slopes | ❌ | ✅ time series focus | ❌ | ❌ | ✅ via groups |
+| **Causal identification checks** | ✅ backdoor, colliders | ✅ comprehensive | ❌ | ❌ | ❌ | ❌ |
+| **Heterogeneous treatment effects** | ✅ `cate()` | ❌ | ❌ | ❌ | ✅ core strength | ✅ via interactions |
+| **Quasi-experimental designs** | ✅ DiD via panel `do()` | ✅ DiD, IV | ✅ DiD, SC, RDD | ❌ | ✅ DML, IV | ❌ |
+| **Latent variables** | ❌ | ❌ | ❌ | ✅ CFA/SEM | ❌ | ❌ |
+| **Causal discovery** | ❌ | ✅ via plugins | ❌ | ❌ | ❌ | ❌ |
+| **Posterior predictive checks** | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
+| **Standardized effects (stdyx)** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
 
 ## Package-by-package comparison
 

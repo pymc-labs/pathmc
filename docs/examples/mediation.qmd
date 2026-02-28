@@ -1,5 +1,7 @@
 ---
 title: "Mediation Analysis"
+description: "Estimate direct and indirect effects of a treatment through a mediator using path analysis."
+categories: [Fundamentals, Mediation]
 jupyter: pathmc
 ---
 

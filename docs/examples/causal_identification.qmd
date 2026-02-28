@@ -1,5 +1,7 @@
 ---
 title: "Causal Identification"
+description: "Check adjustment sets, detect collider bias, and verify identifiability directly from the DAG before fitting."
+categories: [Causal Inference]
 jupyter: pathmc
 ---
 

@@ -1,5 +1,7 @@
 ---
 title: "Difference-in-Differences"
+description: "Estimate treatment effects by comparing changes over time between treated and control groups using panel mode."
+categories: [Causal Inference, Panel Data]
 jupyter: pathmc
 ---
 

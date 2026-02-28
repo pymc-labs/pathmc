@@ -1,5 +1,7 @@
 ---
 title: "Cross-Sectional vs Panel DAGs"
+description: "Compare how the same causal question leads to different DAGs and models depending on cross-sectional vs panel data."
+categories: [Fundamentals, Panel Data]
 jupyter: pathmc
 ---
 

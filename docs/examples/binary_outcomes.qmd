@@ -1,5 +1,7 @@
 ---
 title: "Binary Outcomes"
+description: "Model binary (0/1) outcomes with Bernoulli-logit likelihoods and recover causal effects on the probability scale."
+categories: [Fundamentals]
 jupyter: pathmc
 ---
 

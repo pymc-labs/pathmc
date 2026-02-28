@@ -1,5 +1,7 @@
 ---
 title: "Vaccine Efficacy and Surrogate Endpoints"
+description: "Assess whether a biomarker is a valid surrogate endpoint for clinical outcomes using mediation analysis."
+categories: [Applications, Mediation]
 jupyter: pathmc
 ---
 

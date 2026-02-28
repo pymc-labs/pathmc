@@ -1,5 +1,7 @@
 ---
 title: "Correlated Residuals"
+description: "Account for unmodeled common causes using the ~~ operator and LKJ priors on residual correlations."
+categories: [Fundamentals]
 jupyter: pathmc
 ---
 

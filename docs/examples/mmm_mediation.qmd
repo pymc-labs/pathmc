@@ -1,5 +1,7 @@
 ---
-title: "MMM with marketing funnel"
+title: "MMM with Marketing Funnel"
+description: "Decompose brand spend into direct and indirect effects through a lower-funnel mediator to fix attribution."
+categories: [Marketing, Mediation]
 jupyter: pathmc
 ---
 

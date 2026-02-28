@@ -1,5 +1,7 @@
 ---
 title: "MMM with Geo-Varying Effects"
+description: "Fit a hierarchical panel MMM with random slopes for geo-varying media coefficients."
+categories: [Marketing, Panel Data]
 jupyter: pathmc
 ---
 

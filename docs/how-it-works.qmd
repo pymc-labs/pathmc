@@ -509,6 +509,24 @@ Each step involves a clean handoff between layers:
 No layer reaches into another's internals. The `Spec` AST and `GraphInfo` are the shared data structures that flow through the system.
 
 
+## Scope: observed-variable SEM
+
+pathmc implements **path analysis** — structural equation models over *observed* variables only. It does not support latent variables, factor models, or CFA/SEM measurement models. This is a deliberate design boundary, not an oversight, and understanding where it lives in the architecture helps explain both the current design and what extending it would require.
+
+The core assumption is: **every variable in the DAG corresponds to a column in the data**. This assumption runs through every layer:
+
+| Layer | Where the assumption lives |
+|-------|---------------------------|
+| **Compiler** | Design matrices are built via patsy from `data` columns. Likelihoods are emitted with `observed=data[var]` for every endogenous variable. |
+| **Simulator** | Exogenous variables are initialized from `data.mean()`. Every node in the topological walk is expected to have a data-backed value or a computed one. |
+| **Effects** | Standardized effects use `sd(X)` and `sd(Y)` computed from the data. Path effects assume all intermediate variables are observable. |
+| **Identification** | Adjustment sets reason over observed variables — d-separation queries assume all nodes could in principle be conditioned on. |
+
+Latent variables would break this assumption in each layer. A latent factor has no data column, so patsy cannot build a design matrix for it; it gets a prior instead of a likelihood; the simulator would need to initialize it from posterior draws rather than data means; and standardization would need posterior SDs instead of data SDs.
+
+The modular architecture means these changes could be isolated per-layer — the parser would gain a new operator (e.g., `=~` for measurement equations), the graph builder would track latent vs observed nodes, and the compiler would emit priors instead of likelihoods for latent factors — but the assumption is woven deeply enough that it would touch every module. Supporting latent variables is a plausible future extension, not a minor patch.
+
+
 ## Key design principles
 
 **Typed AST, not strings.** The parser returns dataclasses, not dicts or formatted strings. Every downstream module works with structured data that has clear attribute access and can be type-checked.

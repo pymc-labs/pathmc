@@ -1,5 +1,7 @@
 ---
 title: "Average Treatment Effects: Linear vs Logistic"
+description: "Compare ATE estimation under linear and logistic models — why g-computation is the general solution."
+categories: [Causal Inference]
 jupyter: pathmc
 ---
 

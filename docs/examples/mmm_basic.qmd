@@ -1,5 +1,7 @@
 ---
 title: "Media Mix Model with Transforms"
+description: "Build an MMM with adstock and logistic saturation transforms to capture carry-over and diminishing returns."
+categories: [Marketing, Panel Data]
 jupyter: pathmc
 ---
 
