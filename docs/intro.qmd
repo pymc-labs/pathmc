@@ -5,6 +5,111 @@ title: "Concepts"
 pathmc is a Python package for **Bayesian path analysis** — a form of observed-variable structural equation modeling (SEM) — built on [PyMC](https://www.pymc.io).
 It lets you specify a system of structural equations using a concise, [lavaan](https://lavaan.ugent.be/)-inspired DSL, compiles them into a PyMC model, and provides tools for causal reasoning via the **do-operator**.
 
+## Start here: mental model
+
+If you are coming from "pure PyMC joint-modeling" workflows, this section is the most important orientation.
+
+pathmc intentionally keeps **two related graph layers**:
+
+1. **Causal DAG layer** (causal structure + intervention logic): the parsed `Spec` plus a `networkx` DAG (`GraphInfo`) with edges, topological order, and exogenous/endogenous node classification.
+2. **PyMC model layer** (computational/statistical): how parameters are estimated.
+
+The two are linked, but not identical objects.
+
+```{mermaid}
+flowchart LR
+  A["DSL spec<br/>(~ , ~~ , :=)"] --> B["Parsed Spec + Causal DAG<br/>(networkx GraphInfo)"]
+  B --> C["Compile once to PyMC model"]
+  C --> D["Sample posterior draws"]
+  D --> E["do()/ate()/cate()<br/>posterior-draw propagation on DAG"]
+  B --> E
+```
+
+### What is fit, and what is simulated?
+
+- `fit(...)` parses the DSL, builds the DAG, and compiles **one** PyMC model.
+- `sample(...)` estimates parameter posteriors in that model.
+- `do(...)` does **not** compile a new PyMC model in current pathmc architecture.
+- Instead, `do(...)` reuses posterior draws and propagates values in DAG topological order.
+
+This design makes repeated intervention scenarios fast and directly comparable (same posterior draw set reused).
+
+### Conditional equations vs full joint model
+
+For a mediation graph:
+
+$$
+M = aX + \varepsilon_M,\qquad
+Y = cX + bM + \varepsilon_Y
+$$
+
+The joint factorization is:
+
+$$
+p(X,M,Y) = p(X)\,p(M\mid X)\,p(Y\mid X,M)
+$$
+
+In current pathmc compilation, endogenous equations are fit conditionally (e.g., `p(M|X)`, `p(Y|X,M)`), while exogenous observed inputs are treated as fixed design inputs during fitting. Causal interventions are then computed post-fit by propagating posterior draws through the causal DAG.
+
+This can match full-joint SCM results when assumptions and intervention semantics align, but results are not guaranteed identical unless baseline handling (especially for exogenous variables) is matched.
+
+### How `do(set={...})` is implemented
+
+`do(set={"V": v0})` applies a hard intervention by **precedence**:
+
+- if variable `V` is intervened, set it directly to `v0`,
+- skip computing `V` from its parents for that scenario,
+- continue propagating to descendants that depend on `V`.
+
+So `do(set={"M": m0})` blocks incoming influence into `M` (e.g., `X -> M`) while keeping outgoing influence from `M` to descendants (e.g., `M -> Y`).
+
+### Why two graph views are useful
+
+Use both, for different jobs:
+
+- `model.graph()` shows the **causal DAG** (causal structure).
+- `pm.model_to_graphviz(model.pymc_model)` shows the **PyMC factor graph** (estimation structure).
+
+```{dot}
+//| fig-cap: "Causal DAG view used for reasoning and intervention planning."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  X -> M [label="a"]
+  X -> Y [label="c"]
+  M -> Y [label="b"]
+}
+```
+
+```{python}
+#| code-fold: true
+#| fig-cap: "PyMC estimation graph (factorization view). Here, `M_predictors (2)` means the coefficient vector `beta_M` has two entries: `Intercept` and `X`. `Y_predictors (3)` means `beta_Y` has three entries: `Intercept`, `M`, and `X`."
+import numpy as np
+import pandas as pd
+import pymc as pm
+import pathmc
+
+rng = np.random.default_rng(42)
+n = 120
+X = rng.normal(size=n)
+M = 0.5 * X + rng.normal(scale=0.5, size=n)
+Y = 0.8 * M + 0.3 * X + rng.normal(scale=0.5, size=n)
+df = pd.DataFrame({"X": X, "M": M, "Y": Y})
+
+spec = """
+M ~ a*X
+Y ~ b*M + c*X
+"""
+
+model = pathmc.fit(spec, data=df)
+pm.model_to_graphviz(model.pymc_model)
+```
+
+Interpretation rule of thumb:
+
+- Causal graph answers: "what intervention semantics do we assume?"
+- PyMC graph answers: "what likelihood/priors are we fitting?"
+
 ## The DSL
 
 A pathmc specification is a multi-line string describing the structural relationships among observed variables.

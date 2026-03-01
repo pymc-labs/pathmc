@@ -16,6 +16,7 @@ The DSL supports **user-defined transformations with estimable parameters**, ena
 ## 2. Non-goals (v1)
 
 - Full SEM with latent variables (CFA/SEM measurement models)
+- Deterministic latent mediator nodes and sparse latent measurement equations
 - Cyclic structural systems (feedback loops) as a default (may be future)
 - Automatic causal identification beyond common helpers (e.g., full do-calculus)
 - Full time-series residual structures (state-space, ARMA errors) as default
@@ -125,6 +126,7 @@ The DSL supports **user-defined transformations with estimable parameters**, ena
 - **Residual covariance**: `y1 ~~ y2`
   - variance (optional): `y ~~ y`
 - **Defined parameters**: `name := expression` (references labels)
+- **Reserved (post-v1)**: deterministic latent assignment syntax is intentionally not finalized in v1. Future DSL versions may add a dedicated operator for deterministic latent nodes to avoid overloading `:=` (which is reserved for post-fit defined parameters).
 
 ### Transform expressions
 
@@ -409,6 +411,8 @@ The following patterns emerged from the SaaS funnel, vaccine surrogates, and dyn
 - **Proportion mediated helper**: `model.proportion_mediated(outcome, treatment, mediator)` — compute `(total - CDE) / total` on the probability (or identity) scale. Requires the CDE helper above.
 - **Multi-family mediator chains**: Models with multiple Bernoulli variables in a causal chain (e.g., engagement → activation → conversion) work today but are untested by dedicated gate tests. When `kind="mean"`, probabilities flow forward as continuous values; when `kind="predictive"`, binary 0/1 draws propagate. Both are correct but the semantics should be documented clearly.
 - **Revenue / policy optimization**: `model.optimize_policy(outcome, treatment_range, objective)` — find the treatment value that maximizes an objective (revenue = price × demand, or similar). Currently the user must loop over `do()` calls manually (see dynamic pricing example).
+- **Deterministic latent mediators with sparse measurements**: support DAGs where an unobserved mediator is a deterministic function of observed parents (and optional lags), and where sparse noisy indicators can be linked to that latent state. Example pattern: `upper_spend -> sales` and `upper_spend -> brand_awareness(latent) -> sales`, with occasional observed brand tracker values. This extends path analysis toward practical latent-state mediation without requiring users to write raw PyMC model code.
+- **Architecture direction for the feature above**: give heavy consideration to a more symbolic, graph-centric PyMC internal execution model while keeping the user-facing DSL CausalDAG-first. Deterministic latent nodes become first-class symbolic nodes (`pm.Deterministic`), downstream equations can consume symbolic parents directly, and compile/do() math can share one graph-aligned representation.
 
 ## 13. Contract Scenarios (Acceptance)
 
@@ -426,6 +430,7 @@ The following patterns emerged from the SaaS funnel, vaccine surrogates, and dyn
 - **Identifiability with estimable transforms** (e.g., adstock vs lag vs saturation): mitigate with strong priors, start with simple examples, provide diagnostics and warnings.
 - **Panel ordering bugs**: enforce sorting checks; provide panel report.
 - **Over-claiming causality**: docs must emphasize assumptions; provide warnings on `do()` use.
+- **Architecture drift between DSL semantics and execution internals**: if latent/deterministic features are added piecemeal, the codebase may accumulate duplicated logic across parser, compiler, and `do()` propagation. Mitigate by evaluating a symbolic, graph-centric PyMC core for post-v1 features so new causal-DAG constructs map consistently to one internal representation.
 
 ## 15. Definition of Done (v1)
 

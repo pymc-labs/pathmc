@@ -60,6 +60,7 @@ spec = """
 M ~ a*X
 Y ~ b*M + c*X
 indirect := a*b
+total := c + a*b
 """
 
 model = pathmc.fit(spec, data=df)
@@ -96,9 +97,11 @@ model.priors()
 ### PyMC model graph
 
 ```{python}
-#| fig-cap: "PyMC plate diagram for the mediation model with labeled path coefficients."
+#| fig-cap: "PyMC plate diagram for the mediation model with labeled path coefficients. `M_predictors (2)` corresponds to `Intercept` and `X`; `Y_predictors (3)` corresponds to `Intercept`, `M`, and `X`."
 pm.model_to_graphviz(model.pymc_model)
 ```
+
+The PyMC graph is the estimation-factorization view (likelihood terms and parameters). The causal DAG for intervention reasoning is shown by `model.graph()`. Interventions are evaluated by propagating posterior draws through that DAG, not by rewriting the PyMC graph.
 
 ## Sample from the posterior
 
@@ -126,25 +129,70 @@ The `indirect` row shows the posterior distribution of `a × b`, computed elemen
 
 ## Causal effect via do()
 
-We can also estimate the **average treatment effect** (ATE) of setting `X` from 0 to 1 using the do-operator:
+### 1) Single-node intervention on treatment (`X`)
+
+Prediction: changing `X` affects `Y` through two active paths: direct (`X -> Y`) and indirect (`X -> M -> Y`).
 
 ```{python}
-r0 = model.do(set={"X": 0.0})
-r1 = model.do(set={"X": 1.0})
-ate = r1 - r0
+r_x0 = model.do(set={"X": 0.0})
+r_x1 = model.do(set={"X": 1.0})
+total = r_x1 - r_x0
 
-print(f"ATE on Y: {ate.mean('Y'):.3f}")
-print(f"94% HDI:  {ate.hdi('Y', prob=0.94)}")
+print(f"Total X effect on Y: {total.mean('Y'):.3f}")
+print(f"94% HDI:             {total.hdi('Y', prob=0.94)}")
 ```
 
 This should be close to the true total effect of 0.7.
 
-The `.ate()` convenience method does the same thing in one call:
+### 2) Single-node intervention on mediator (`M`)
+
+Prediction: fixing `M` changes `Y` through `M -> Y` while bypassing the structural equation that would normally compute `M` from `X`.
+
+```{python}
+r_m0 = model.do(set={"M": 0.0})
+r_m1 = model.do(set={"M": 1.0})
+mediator_only = r_m1 - r_m0
+
+print(f"M intervention effect on Y: {mediator_only.mean('Y'):.3f}")
+print(f"94% HDI:                    {mediator_only.hdi('Y', prob=0.94)}")
+```
+
+### 3) Direct-only contrast by fixing `M` in both `X` scenarios
+
+Prediction: if `M` is fixed in both scenarios, the `X -> M -> Y` path is blocked and only the direct path `X -> Y` contributes to the contrast.
+
+```{python}
+r_d0 = model.do(set={"X": 0.0, "M": 0.0})
+r_d1 = model.do(set={"X": 1.0, "M": 0.0})
+direct_only = r_d1 - r_d0
+
+print(f"Direct-only X effect on Y:  {direct_only.mean('Y'):.3f}")
+print(f"94% HDI:                    {direct_only.hdi('Y', prob=0.94)}")
+print(f"M contrast when M is fixed: {direct_only.mean('M'):.3f}")
+```
+
+The `M` contrast above should be approximately zero, confirming that fixing `M` severs incoming influence into `M` for this intervention.
+
+### 4) ATE convenience method (same contrast as section 1)
+
+For beginners: the **average treatment effect (ATE)** on `Y` compares two intervention worlds:
+
+- world A: `do(X = 0)`
+- world B: `do(X = 1)`
+
+and computes:
+
+\[
+\text{ATE}_{X \to Y} = \mathbb{E}[Y \mid do(X=1)] - \mathbb{E}[Y \mid do(X=0)].
+\]
+
+This is exactly the same treatment contrast we computed manually in section 1 (`total = do(X=1) - do(X=0)`), but wrapped in one helper call.
 
 ```{python}
 ate = model.ate("Y", "X", values=(0.0, 1.0))
 print(f"ATE on Y: {ate.mean('Y'):.3f}")
 print(f"94% HDI:  {ate.hdi('Y', prob=0.94)}")
+print(f"Matches manual total contrast: {(ate.mean('Y') - total.mean('Y')):.6f}")
 ```
 
 ## Path-specific effects

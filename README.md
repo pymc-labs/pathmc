@@ -65,6 +65,5 @@ quarto preview
 Build the static site to `docs/_site/`:
 
 ```bash
-cd docs
 quarto render docs/
 ```

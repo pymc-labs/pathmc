@@ -25,13 +25,22 @@ flowchart LR
 
 2. **Spec → `build_graph()`**: The AST is converted into a NetworkX DAG. This gives us topological ordering (the sequence in which variables can be computed respecting parent→child dependencies), exogenous/endogenous classification, cycle detection, and residual covariance blocks — all before touching any data.
 
-3. **Spec + GraphInfo + data → `compile_to_pymc()`**: The AST and graph, combined with the user's data, are compiled into a full `pm.Model`. Design matrices are built via patsy, coefficient priors are emitted, transform parameters are constrained, and likelihoods are wired up. The graph's topological order determines compilation sequence, ensuring parents are defined before children.
+3. **Spec + GraphInfo + data → `compile_to_pymc()`**: The AST and graph, combined with the user's data, are compiled into a full `pm.Model`. Design matrices are built via patsy, coefficient priors are emitted, transform parameters are constrained, and likelihoods are wired up equation-by-equation.
 
 4. **`pm.Model` → `PathModel`**: Everything is wrapped in a single user-facing object. Compilation happens at `fit()` time so that structural problems surface immediately — not minutes later when MCMC starts.
 
 5. **`.sample()`**: Standard PyMC MCMC sampling. The resulting `InferenceData` is stored on the model, unlocking all post-sampling methods.
 
-6. **Post-sampling analysis and causal queries**: Posterior draws drive everything that follows — interventional simulation (`do()`, `ate()`, `cate()`, `prob()`), effect summaries and standardized coefficients, and identification checks (`adjustment_sets()`, `is_identifiable()`, `collider_warnings()`). The same topological order that structured compilation now structures simulation.
+6. **Post-sampling analysis and causal queries**: Posterior draws drive everything that follows — interventional simulation (`do()`, `ate()`, `cate()`, `prob()`), effect summaries and standardized coefficients, and identification checks (`adjustment_sets()`, `is_identifiable()`, `collider_warnings()`). The DAG topological order is used directly by simulation to propagate interventions parent→child.
+
+## Two graph views (important)
+
+pathmc keeps two related graph representations that serve different jobs:
+
+- **Causal DAG view** (`model.graph()`): domain-level structure used for intervention planning, topological propagation, and identification logic.
+- **PyMC factor graph view** (`pm.model_to_graphviz(model.pymc_model)`): statistical/computational structure used for posterior inference.
+
+These are linked, but they are not the same object and should not be interpreted interchangeably.
 
 ## Public API surface
 
@@ -314,6 +323,7 @@ The `PathModel` methods fall into natural groups:
 - `ate(outcome, treatment, values)` → convenience wrapper around two `do()` calls
 - `cate(outcome, treatment, values, condition)` → conditional ATE
 - `prob(expr, set=...)` → P(expr | do(set)) from predictive draws
+- `att(...)`, `atu(...)` → not currently in API (planned feature)
 
 **Identification:**
 
@@ -325,6 +335,8 @@ The `PathModel` methods fall into natural groups:
 ## Layer 5: The do() operator (`simulate.py`)
 
 The `do()` operator is the core of pathmc's causal reasoning capability. It implements Pearl's do-operator by propagating posterior coefficient draws through the DAG, skipping the structural equation for any intervened variable.
+
+In current pathmc architecture, this is implemented as array-based simulation (xarray/NumPy over posterior draws), not by compiling a second PyMC model or performing PyMC graph surgery.
 
 ### Cross-sectional do()
 
@@ -340,6 +352,10 @@ The `do()` operator is the core of pathmc's causal reasoning capability. It impl
    - `kind="predictive"`: adds a draw from the residual distribution at each step. HDIs are wider but reflect genuine predictive uncertainty.
 
 The result is a `DoResult` — a dict of `{variable: np.ndarray}` where each array has shape `(n_samples,)`. This supports `.mean(var)`, `.hdi(var)`, and contrast arithmetic via `__sub__`.
+
+### Estimand semantics note (cross-sectional)
+
+For cross-sectional `do()`, non-intervened exogenous variables are currently initialized to their observed data means. This default is often reasonable for ATE-style summaries, but users should be explicit about estimand definitions when comparing against subgroup-conditional quantities like ATT/ATU.
 
 ### Panel do()
 
