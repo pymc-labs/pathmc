@@ -97,11 +97,11 @@ model.priors()
 ### PyMC model graph
 
 ```{python}
-#| fig-cap: "PyMC plate diagram for the mediation model with labeled path coefficients. `M_predictors (2)` corresponds to `Intercept` and `X`; `Y_predictors (3)` corresponds to `Intercept`, `M`, and `X`."
+#| fig-cap: "PyMC estimation graph for the mediation model. The generative model structure mirrors the causal DAG, with `M` and `Y` as free RVs conditioned on data via `pm.observe()`."
 pm.model_to_graphviz(model.pymc_model)
 ```
 
-The PyMC graph is the estimation-factorization view (likelihood terms and parameters). The causal DAG for intervention reasoning is shown by `model.graph()`. Interventions are evaluated by propagating posterior draws through that DAG, not by rewriting the PyMC graph.
+The PyMC graph shows the estimation model — the generative model conditioned on observed data via `pm.observe()`. The causal DAG for intervention reasoning is shown by `model.graph()`. Interventions use `pm.do()` on the generative model to apply graph surgery.
 
 ## Sample from the posterior
 

@@ -9,32 +9,27 @@ It lets you specify a system of structural equations using a concise, [lavaan](h
 
 If you are coming from "pure PyMC joint-modeling" workflows, this section is the most important orientation.
 
-pathmc intentionally keeps **two related graph layers**:
+pathmc uses a **generative model architecture** — the PyMC model directly encodes the causal DAG:
 
-1. **Causal DAG layer** (causal structure + intervention logic): the parsed `Spec` plus a `networkx` DAG (`GraphInfo`) with edges, topological order, and exogenous/endogenous node classification.
-2. **PyMC model layer** (computational/statistical): how parameters are estimated.
-
-The two are linked, but not identical objects.
+1. **Causal DAG layer** (`GraphInfo`): topological order, exogenous/endogenous classification, and latent variable tracking — derived from the DSL, independent of data.
+2. **Generative PyMC model**: the compiler emits free random variables for all endogenous nodes, wired through the causal graph. `pm.observe()` conditions on data for estimation; `pm.do()` applies interventions.
 
 ```{mermaid}
 flowchart LR
   A["DSL spec<br/>(~ , ~~ , :=)"] --> B["Parsed Spec + Causal DAG<br/>(networkx GraphInfo)"]
-  B --> C["Compile once to PyMC model"]
-  C --> D["Sample posterior draws"]
-  D --> E["do()/ate()/cate()<br/>posterior-draw propagation on DAG"]
+  B --> C["Compile generative PyMC model"]
+  C --> D["pm.observe() → estimate"]
+  D --> E["pm.do() → intervene<br/>do()/ate()/cate()"]
   B --> E
 ```
 
 ### What is fit, and what is simulated?
 
-- `fit(...)` parses the DSL, builds the DAG, and compiles **one** PyMC model.
-- `sample(...)` estimates parameter posteriors in that model.
-- `do(...)` does **not** compile a new PyMC model in current pathmc architecture.
-- Instead, `do(...)` reuses posterior draws and propagates values in DAG topological order.
+- `fit(...)` parses the DSL, builds the DAG, and compiles a **generative** PyMC model where endogenous variables are free RVs. `pm.observe()` then conditions on data for estimation.
+- `sample(...)` estimates parameter posteriors in the observed model.
+- `do(...)` uses `pm.do()` on the generative model to apply graph surgery, then propagates through the causal chain using `pm.sample_posterior_predictive()` (for `kind="predictive"`) or `compute_deterministics` (for `kind="mean"`).
 
-This design makes repeated intervention scenarios fast and directly comparable (same posterior draw set reused).
-
-### Conditional equations vs full joint model
+### The generative model
 
 For a mediation graph:
 
@@ -49,26 +44,23 @@ $$
 p(X,M,Y) = p(X)\,p(M\mid X)\,p(Y\mid X,M)
 $$
 
-In current pathmc compilation, endogenous equations are fit conditionally (e.g., `p(M|X)`, `p(Y|X,M)`), while exogenous observed inputs are treated as fixed design inputs during fitting. Causal interventions are then computed post-fit by propagating posterior draws through the causal DAG.
-
-This can match full-joint SCM results when assumptions and intervention semantics align, but results are not guaranteed identical unless baseline handling (especially for exogenous variables) is matched.
+The compiler emits this as a generative PyMC model: `X` as `pm.Data`, `M` and `Y` as free random variables wired through their structural equations. `pm.observe()` conditions on observed data, recovering the standard SEM likelihood for estimation. `pm.do()` applies interventions by replacing variables in the generative model with constants — Pearl's do-operator implemented as PyMC graph surgery.
 
 ### How `do(set={...})` is implemented
 
-`do(set={"V": v0})` applies a hard intervention by **precedence**:
+`do(set={"V": v0})` uses `pm.do()` to apply graph surgery on the generative model, replacing `V` with the intervention value and severing all incoming edges:
 
-- if variable `V` is intervened, set it directly to `v0`,
-- skip computing `V` from its parents for that scenario,
-- continue propagating to descendants that depend on `V`.
+- `pm.do(gen_model, {"V": v0})` creates a new model where `V` is a constant.
+- Descendants of `V` automatically see the intervened value through their structural equations.
+- For `kind="mean"`: non-intervened endogenous variables are replaced by their expected values (`mu_V`), and `compute_deterministics` evaluates the result.
+- For `kind="predictive"`: non-intervened endogenous variables remain as free RVs, and `pm.sample_posterior_predictive()` forward-samples through the causal chain with residual noise.
 
-So `do(set={"M": m0})` blocks incoming influence into `M` (e.g., `X -> M`) while keeping outgoing influence from `M` to descendants (e.g., `M -> Y`).
-
-### Why two graph views are useful
+### Two graph views
 
 Use both, for different jobs:
 
-- `model.graph()` shows the **causal DAG** (causal structure).
-- `pm.model_to_graphviz(model.pymc_model)` shows the **PyMC factor graph** (estimation structure).
+- `model.graph()` shows the **causal DAG** (causal structure, with latent nodes dashed).
+- `pm.model_to_graphviz(model.pymc_model)` shows the **PyMC estimation graph** — now closely aligned with the causal structure since the generative model directly encodes the DAG.
 
 ```{dot}
 //| fig-cap: "Causal DAG view used for reasoning and intervention planning."
@@ -83,7 +75,7 @@ digraph {
 
 ```{python}
 #| code-fold: true
-#| fig-cap: "PyMC estimation graph (factorization view). Here, `M_predictors (2)` means the coefficient vector `beta_M` has two entries: `Intercept` and `X`. `Y_predictors (3)` means `beta_Y` has three entries: `Intercept`, `M`, and `X`."
+#| fig-cap: "PyMC estimation graph. The generative model structure mirrors the causal DAG — `M` and `Y` are free RVs wired through their structural equations, conditioned on data via `pm.observe()`."
 import numpy as np
 import pandas as pd
 import pymc as pm
@@ -104,11 +96,6 @@ Y ~ b*M + c*X
 model = pathmc.fit(spec, data=df)
 pm.model_to_graphviz(model.pymc_model)
 ```
-
-Interpretation rule of thumb:
-
-- Causal graph answers: "what intervention semantics do we assume?"
-- PyMC graph answers: "what likelihood/priors are we fitting?"
 
 ## The DSL
 
@@ -200,7 +187,31 @@ ate.mean("Y")                     # posterior mean of the ATE
 ate.hdi("Y", prob=0.94)           # 94% highest density interval
 ```
 
-Propagation proceeds in topological order using posterior coefficient draws, so the result is a full posterior distribution over the causal effect.
+The result is a full posterior distribution over the causal effect, computed via PyMC graph surgery on the generative model.
+
+## Latent deterministic mediators
+
+Some causal pathways pass through variables that are not directly observed. For example, upper-funnel advertising spend may drive sales through an unobserved *brand awareness* mediator.
+
+pathmc supports **latent deterministic mediators** — unobserved endogenous variables that are fully determined by their structural equation (no residual noise). Declare them with the `latent=` parameter:
+
+```python
+model = pathmc.fit(
+    """
+    brand_awareness ~ phi*upper_spend
+    sales ~ b1*upper_spend + b2*brand_awareness
+    """,
+    data=df,
+    latent=["brand_awareness"],
+)
+```
+
+Latent mediators:
+
+- Need no data column — they are unobserved by design.
+- Get a `pm.Deterministic` (no sigma, no likelihood) in the generative model.
+- Propagate correctly through `do()` — interventions on ancestors flow through the latent node.
+- Appear with dashed borders in `model.graph()` and are annotated `[deterministic]` in `model.equations()`.
 
 ## Causal queries
 
@@ -406,7 +417,7 @@ The validity of any causal claim depends on assumptions that pathmc cannot verif
 2. **No unmeasured confounders.** The do-operator assumes that all common causes of the treatment and outcome are observed and included in the model.
 If there are unobserved confounders, the `do()` results are biased.
 
-3. **No model misspecification.** pathmc v0.1 uses linear-Gaussian structural equations. If the true data-generating process involves nonlinearities or non-Gaussian noise, the model may be a poor approximation.
+3. **No model misspecification.** pathmc uses linear structural equations (with optional transforms for nonlinearity) and supports Gaussian, Bernoulli, Poisson, NegBinomial, and StudentT families. If the true data-generating process differs substantially, the model may be a poor approximation.
 
 4. **Positivity.** Interventional queries at values far outside the observed data range are extrapolations and should be interpreted with caution.
 

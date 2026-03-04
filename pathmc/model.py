@@ -11,7 +11,7 @@ import graphviz
 import pandas as pd
 import pymc as pm
 
-from pathmc.compile import build_design_matrix, compile_to_pymc
+from pathmc.compile import build_design_matrix, compile_to_pymc, get_predictor_columns
 from pathmc.effects import (
     EffectResult,
     _has_labeled_terms,
@@ -34,7 +34,7 @@ from pathmc.introspect import (
 )
 from pathmc.panel import PanelInfo, build_panel_info
 from pathmc.parse import Spec, parse_spec
-from pathmc.simulate import DoResult, run_do, run_panel_do
+from pathmc.simulate import DoResult, run_do_pymc, run_panel_do
 
 
 class PathModel:
@@ -57,6 +57,8 @@ class PathModel:
         Panel metadata (unit/time structure).
     pooling : str | dict | None
         Pooling specification for hierarchical panel models.
+    latent : set[str] | None
+        Endogenous variables with no observed data column.
     """
 
     def __init__(
@@ -67,26 +69,58 @@ class PathModel:
         families: dict[str, str] | None = None,
         panel_info: PanelInfo | None = None,
         pooling: str | dict | None = None,
+        latent: set[str] | None = None,
     ) -> None:
         self._spec = spec
         self._graph_info = graph_info
         self._data = data
         self._panel_info = panel_info
         self._pooling = pooling
+        self._latent: set[str] = latent if latent is not None else set()
 
         self._design_matrices: dict[str, pd.DataFrame] = {}
         for reg in spec.regressions:
-            self._design_matrices[reg.lhs] = build_design_matrix(reg, data)
+            missing = [t.variable for t in reg.terms if t.variable not in data.columns]
+            if missing:
+                cols = get_predictor_columns(reg)
+                self._design_matrices[reg.lhs] = pd.DataFrame(
+                    columns=cols,
+                )
+            else:
+                self._design_matrices[reg.lhs] = build_design_matrix(reg, data)
 
         self._families: dict[str, str] = families if families is not None else {}
-        self._pymc_model: pm.Model = compile_to_pymc(
+        self._gen_model: pm.Model = compile_to_pymc(
             spec,
             data,
             self._design_matrices,
             families=families,
             panel_info=panel_info,
             pooling=pooling,
+            latent=self._latent,
+            graph_info=graph_info,
         )
+
+        block_vars = (
+            set().union(*graph_info.residual_blocks)
+            if graph_info.residual_blocks
+            else set()
+        )
+        observations: dict[str, Any] = {}
+        for reg in spec.regressions:
+            var = reg.lhs
+            if var in block_vars:
+                continue
+            if var not in self._latent and var in data.columns:
+                family = self._families.get(var, "gaussian")
+                vals = data[var].values
+                if family in ("bernoulli", "poisson", "negbinomial"):
+                    vals = vals.astype(int)
+                observations[var] = vals
+        if observations:
+            self._pymc_model: pm.Model = pm.observe(self._gen_model, observations)
+        else:
+            self._pymc_model: pm.Model = self._gen_model
         self._idata: az.InferenceData | None = None
 
     @property
@@ -123,7 +157,8 @@ class PathModel:
         """Return a graphviz DAG of the structural model.
 
         Works before sampling. Exogenous nodes are drawn as boxes,
-        endogenous nodes as ellipses. Labeled coefficients appear on edges.
+        endogenous nodes as ellipses. Latent nodes get dashed borders.
+        Labeled coefficients appear on edges.
         """
         return build_dag_viz(self._spec, self._graph_info)
 
@@ -132,14 +167,19 @@ class PathModel:
 
         Works before sampling.
         """
-        return build_equations(self._spec)
+        return build_equations(self._spec, latent=self._latent)
 
     def priors(self) -> PriorTable:
         """Return a summary of prior distributions for all parameters.
 
         Works before sampling.
         """
-        return build_priors(self._spec, families=self._families, pooling=self._pooling)
+        return build_priors(
+            self._spec,
+            families=self._families,
+            pooling=self._pooling,
+            latent=self._latent,
+        )
 
     def summary(self) -> pd.DataFrame:
         """Return a posterior summary table.
@@ -219,7 +259,9 @@ class PathModel:
                 UserWarning,
                 stacklevel=2,
             )
-        return build_standardized_effects(self._spec, self._idata, self._data)
+        return build_standardized_effects(
+            self._spec, self._idata, self._data, latent=self._latent
+        )
 
     def effect(self, path: str) -> EffectResult:
         """Compute the effect along a causal path in the DAG.
@@ -373,9 +415,10 @@ class PathModel:
     ) -> DoResult:
         """Simulate an intervention using the do-operator.
 
-        Propagates posterior coefficient draws through the DAG in
-        topological order, skipping the structural equation for any
-        variable in *set*.
+        Uses PyMC-native graph surgery: ``pm.do()`` on the generative model
+        for interventions, then ``pm.sample_posterior_predictive()``
+        (kind="predictive") or ``compute_deterministics`` (kind="mean")
+        for propagation.
 
         Parameters
         ----------
@@ -384,8 +427,8 @@ class PathModel:
         shift : dict[str, float] | None
             Reserved for soft interventions (not yet implemented).
         kind : str
-            ``"mean"`` for deterministic propagation, ``"predictive"``
-            to add residual noise at each step.
+            ``"mean"`` for deterministic propagation via mu Deterministics,
+            ``"predictive"`` to include residual noise.
         simulate_over : str | None
             ``"time"`` to activate time-forward panel simulation.
             Requires the model to have been fitted with ``panel=``.
@@ -431,22 +474,13 @@ class PathModel:
                 init_from=init_from,
             )
 
-        numeric_cols = self._data.select_dtypes(include="number").columns
-        data_means = {col: float(self._data[col].mean()) for col in numeric_cols}
-        design_columns = {
-            var: list(dm.columns) for var, dm in self._design_matrices.items()
-        }
-
-        return run_do(
-            spec=self._spec,
+        return run_do_pymc(
+            gen_model=self._gen_model,
             graph_info=self._graph_info,
             idata=self._idata,
-            data_means=data_means,
-            design_columns=design_columns,
+            data=self._data,
             set=set,
-            families=self._families,
             kind=kind,
-            panel_info=self._panel_info,
         )
 
     def ate(
@@ -566,6 +600,7 @@ def fit(
     families: dict[str, str] | None = None,
     panel: dict[str, str] | None = None,
     pooling: str | dict | None = None,
+    latent: list[str] | None = None,
     **kwargs: Any,
 ) -> PathModel:
     """Parse a specification and compile a Bayesian path model.
@@ -585,6 +620,10 @@ def fit(
         ``"partial"`` for random intercepts per unit. A dict like
         ``{"intercept": True, "slopes": ["var"]}`` enables random slopes.
         ``None`` (default) means complete pooling (cross-sectional).
+    latent : list[str] | None
+        Variables to treat as latent deterministic mediators. These must
+        appear as LHS of a regression but need not have a data column.
+        The model compiles without a likelihood for these variables.
     **kwargs
         Reserved for future options.
 
@@ -592,9 +631,25 @@ def fit(
     -------
     PathModel
         Compiled model ready for sampling and introspection.
+
+    Raises
+    ------
+    ValueError
+        If a latent variable is not endogenous, or an observed endogenous
+        variable is missing from data.
     """
     spec = parse_spec(spec_string)
-    graph_info = build_graph(spec)
+    latent_set = set(latent) if latent is not None else set()
+    graph_info = build_graph(spec, latent=latent_set)
+
+    endogenous_lhs = {reg.lhs for reg in spec.regressions}
+    for var in endogenous_lhs:
+        if var not in latent_set and var not in data.columns:
+            raise ValueError(
+                f"Endogenous variable '{var}' not found in data columns. "
+                f"If '{var}' is an unobserved mediator, declare it via "
+                f"latent=['{var}']."
+            )
 
     panel_info: PanelInfo | None = None
     if panel is not None:
@@ -607,4 +662,5 @@ def fit(
         families=families,
         panel_info=panel_info,
         pooling=pooling,
+        latent=latent_set,
     )

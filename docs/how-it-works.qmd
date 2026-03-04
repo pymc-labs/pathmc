@@ -15,32 +15,35 @@ flowchart LR
     D --> E["GraphInfo"]
     C --> F["compile_to_pymc()"]
     E --> F
-    F --> G["pm.Model"]
-    G --> H["PathModel"]
-    H --> I[".sample()"]
-    I --> J[".do() / .effects_summary() / ..."]
+    F --> G["Generative pm.Model"]
+    G --> H["pm.observe() → Estimation model"]
+    H --> I["PathModel"]
+    I --> J[".sample()"]
+    J --> K[".do() via pm.do()"]
 ```
 
 1. **Spec string → `parse_spec()`**: The user's lavaan-style formula (e.g., `Y ~ a*X + b*M`) is parsed into a typed AST of dataclasses. Parsing is pure — no data, no PyMC — so structural errors like duplicate equations or malformed syntax are caught immediately and cheaply.
 
-2. **Spec → `build_graph()`**: The AST is converted into a NetworkX DAG. This gives us topological ordering (the sequence in which variables can be computed respecting parent→child dependencies), exogenous/endogenous classification, cycle detection, and residual covariance blocks — all before touching any data.
+2. **Spec → `build_graph()`**: The AST is converted into a NetworkX DAG. This gives us topological ordering (the sequence in which variables can be computed respecting parent→child dependencies), exogenous/endogenous classification, latent variable tracking, cycle detection, and residual covariance blocks — all before touching any data.
 
-3. **Spec + GraphInfo + data → `compile_to_pymc()`**: The AST and graph, combined with the user's data, are compiled into a full `pm.Model`. Design matrices are built via patsy, coefficient priors are emitted, transform parameters are constrained, and likelihoods are wired up equation-by-equation.
+3. **Spec + GraphInfo + data → `compile_to_pymc()`**: The AST and graph, combined with the user's data, are compiled into a **generative** `pm.Model`. Exogenous variables become `pm.Data`; endogenous variables become free random variables (e.g., `pm.Normal`, `pm.Bernoulli`) wired through their structural equations. Latent variables become `pm.Deterministic` nodes (no noise, no likelihood).
 
-4. **`pm.Model` → `PathModel`**: Everything is wrapped in a single user-facing object. Compilation happens at `fit()` time so that structural problems surface immediately — not minutes later when MCMC starts.
+4. **Generative model → `pm.observe()` → Estimation model**: `pm.observe()` conditions the free RVs on observed data, creating the estimation model used for MCMC. This separation is the key architectural pattern: the same generative model supports both estimation (via `pm.observe`) and intervention (via `pm.do`).
 
-5. **`.sample()`**: Standard PyMC MCMC sampling. The resulting `InferenceData` is stored on the model, unlocking all post-sampling methods.
+5. **`PathModel`**: Everything is wrapped in a single user-facing object. Compilation happens at `fit()` time so that structural problems surface immediately — not minutes later when MCMC starts.
 
-6. **Post-sampling analysis and causal queries**: Posterior draws drive everything that follows — interventional simulation (`do()`, `ate()`, `cate()`, `prob()`), effect summaries and standardized coefficients, and identification checks (`adjustment_sets()`, `is_identifiable()`, `collider_warnings()`). The DAG topological order is used directly by simulation to propagate interventions parent→child.
+6. **`.sample()`**: Standard PyMC MCMC sampling on the estimation model. The resulting `InferenceData` is stored on the model, unlocking all post-sampling methods.
 
-## Two graph views (important)
+7. **Post-sampling analysis and causal queries**: `do()` uses `pm.do()` on the generative model to apply graph surgery, then either `compute_deterministics` (for noise-free means) or `pm.sample_posterior_predictive()` (for predictive draws with noise). Effect summaries, standardized coefficients, and identification checks all work from posterior draws and the DAG structure.
 
-pathmc keeps two related graph representations that serve different jobs:
+## Two graph views
 
-- **Causal DAG view** (`model.graph()`): domain-level structure used for intervention planning, topological propagation, and identification logic.
-- **PyMC factor graph view** (`pm.model_to_graphviz(model.pymc_model)`): statistical/computational structure used for posterior inference.
+pathmc keeps two related graph representations:
 
-These are linked, but they are not the same object and should not be interpreted interchangeably.
+- **Causal DAG view** (`model.graph()`): domain-level structure used for intervention planning, topological propagation, and identification logic. Shows latent nodes with dashed borders.
+- **PyMC graph view** (`pm.model_to_graphviz(model.pymc_model)`): the estimation model's computation graph. Since the generative model directly encodes the causal structure, the PyMC graph now closely mirrors the causal DAG.
+
+These are linked and structurally aligned, but serve different purposes: the causal DAG is for reasoning about interventions, the PyMC graph is for understanding the estimation model.
 
 ## Public API surface
 
@@ -180,6 +183,7 @@ class GraphInfo:
     topological_order: list[str]    # valid topological sort
     exogenous: set[str]             # no parents → not modeled
     endogenous: set[str]            # has parents → gets a structural equation
+    latent: set[str]                # unobserved deterministic mediators
     residual_blocks: list[set[str]] # connected components of ~~ edges
     _dag: nx.DiGraph                # internal, used by has_edge() and identify.py
 ```
@@ -208,7 +212,7 @@ directed acyclic graph (DAG). Remove or reverse an edge to break the cycle.
 
 ### What it does
 
-`compile_to_pymc()` takes a `Spec`, data, design matrices, and optional configuration (families, panel info, pooling) and emits a `pm.Model`.
+`compile_to_pymc()` takes a `Spec`, data, design matrices, and optional configuration (families, panel info, pooling) and emits a **generative** `pm.Model`. In this model, endogenous variables are free random variables — not yet conditioned on data. `pm.observe()` is applied later (in `model.py`) to create the estimation model.
 
 ### Design matrices via patsy
 
@@ -216,16 +220,22 @@ Each regression equation gets its own design matrix, built by `build_design_matr
 
 ### Compilation flow
 
-The compiler walks the endogenous variables and emits PyMC random variables:
+The compiler walks the endogenous variables in topological order and emits PyMC random variables:
 
 1. **Validate** residual covariance families — `~~` is only allowed between Gaussian outcomes.
 2. **Emit transform priors** — if any terms use transforms, their constrained parameters are created first (e.g., `pm.Beta("theta_tv", 2, 2)` for adstock decay).
-3. **For each regression**:
+3. **Create `pm.Data`** for exogenous variables present in the data.
+4. **For each regression**:
    - Create `beta_{var} ~ Normal(0, 10)` with shape matching the design matrix columns.
-   - Compute `mu = X @ beta`, applying transforms to the relevant columns.
+   - Build `mu` symbolically by referencing parent RVs (not data columns) for endogenous parents — this is how the generative model encodes the causal structure.
    - Add random intercepts / slopes if panel mode is active.
-   - Emit the likelihood: `Normal`, `Bernoulli(logit_p=...)`, `Poisson(mu=exp(...))`, etc.
-4. **Residual blocks**: variables connected by `~~` are compiled as `MvNormal` blocks with LKJ Cholesky priors on their residual correlation matrix, replacing their individual likelihoods.
+   - Emit a **free RV**: `pm.Normal(var, mu=mu, sigma=sigma)` for Gaussian, `pm.Bernoulli(var, logit_p=mu)` for Bernoulli, etc. These are not observed — `pm.observe()` handles that later.
+   - For **latent** variables: emit `pm.Deterministic(var, mu)` instead (no sigma, no noise).
+5. **Residual blocks**: variables connected by `~~` are compiled as `MvNormal` blocks with LKJ Cholesky priors on their residual correlation matrix.
+
+### Symbolic parent wiring
+
+A critical design detail: when building `mu` for a downstream equation (e.g., `Y ~ b*M + c*X`), the compiler references the free RV for `M` — not the data column. This means the generative model faithfully represents the causal chain `X → M → Y`. When `pm.do()` replaces `M` with a constant, the change automatically propagates to `Y`'s equation.
 
 ### Family support
 
@@ -239,7 +249,7 @@ Families control the likelihood and link function:
 | `negbinomial` | `NegativeBinomial` | log | `alpha_disp` |
 | `studentt` | `StudentT` | identity | `sigma`, `nu` |
 
-The family is resolved per variable at compile time. The resolved families dict is stored on `PathModel` and passed through to `do()` so that the inverse link function is applied correctly during simulation.
+The family is resolved per variable at compile time. The resolved families dict is stored on `PathModel` and used by `pm.observe()` to cast observation data to the correct dtype (e.g., `int` for Bernoulli/Poisson).
 
 ### Panel compilation
 
@@ -274,25 +284,27 @@ This naming is stable across runs and makes it possible to select specific param
 - The parsed `Spec` and `GraphInfo`
 - The original data
 - The design matrices (built at init)
-- The compiled `pm.Model` (built at init)
+- The **generative** `pm.Model` (`_gen_model`) — free RVs for all endogenous variables
+- The **estimation** `pm.Model` (`_pymc_model`) — created by `pm.observe()` on the generative model
 - The `InferenceData` (populated after `.sample()`)
 
-This means introspection methods (`graph()`, `equations()`, `priors()`, `design()`) work **before** sampling — they describe model structure, not results.
+The two-model pattern is central: `_gen_model` is used for interventions (`do()` via `pm.do()`), while `_pymc_model` is used for estimation (`sample()`, `predict()`).
+
+Introspection methods (`graph()`, `equations()`, `priors()`, `design()`) work **before** sampling — they describe model structure, not results.
 
 ### The `fit()` function
 
 `fit()` is the main entry point. It orchestrates the pipeline:
 
 ```python
-def fit(spec_string, data, families=None, panel=None, pooling=None):
+def fit(spec_string, data, families=None, panel=None, pooling=None, latent=None):
     spec = parse_spec(spec_string)          # Layer 1
-    graph_info = build_graph(spec)          # Layer 2
+    graph_info = build_graph(spec, latent)  # Layer 2
     panel_info = build_panel_info(data, panel) if panel else None
     return PathModel(spec, graph_info, data, families, panel_info, pooling)
-    # PathModel.__init__ calls compile_to_pymc()  # Layer 3
 ```
 
-The `PathModel` constructor builds design matrices and compiles the PyMC model immediately. This is a deliberate choice: compilation errors (missing columns, family mismatches, cycle errors) surface at `fit()` time, not at `sample()` time. Users get fast feedback about structural problems before committing to MCMC.
+The `PathModel` constructor builds design matrices, compiles the generative model, and applies `pm.observe()` to create the estimation model — all at `fit()` time. This is a deliberate choice: compilation errors surface immediately, not minutes later when MCMC starts.
 
 ### Method groups
 
@@ -334,32 +346,23 @@ The `PathModel` methods fall into natural groups:
 
 ## Layer 5: The do() operator (`simulate.py`)
 
-The `do()` operator is the core of pathmc's causal reasoning capability. It implements Pearl's do-operator by propagating posterior coefficient draws through the DAG, skipping the structural equation for any intervened variable.
+The `do()` operator is the core of pathmc's causal reasoning capability. It implements Pearl's do-operator using **PyMC-native graph surgery** on the generative model.
 
-In current pathmc architecture, this is implemented as array-based simulation (xarray/NumPy over posterior draws), not by compiling a second PyMC model or performing PyMC graph surgery.
+### Cross-sectional do() — PyMC-native
 
-### Cross-sectional do()
+`run_do_pymc()` uses `pm.do()` on the generative model:
 
-`run_do()` works as follows:
-
-1. **Stack** posterior samples across chains into a single `(chain × draw)` dimension.
-2. **Iterate** through the topological order. For each variable:
-   - If **intervened** (`set={"X": 1.0}`): fill with the fixed value. The structural equation is skipped entirely — this is what "do" means.
-   - If **exogenous**: fill with the observed data mean (a sensible default for non-intervened root causes).
-   - If **endogenous**: compute the linear predictor from parent values and posterior coefficient draws, applying transforms where needed.
-3. **Apply the link function** or add residual noise depending on `kind`:
-   - `kind="mean"`: deterministic propagation (inverse link only). Gives the expected value.
-   - `kind="predictive"`: adds a draw from the residual distribution at each step. HDIs are wider but reflect genuine predictive uncertainty.
+1. **Build replacements**: for each intervened variable `V`, map it to a constant array of the intervention value. For latent variables, target `mu_V` instead (since latent variables are `pm.Deterministic` nodes).
+2. **Apply graph surgery**: `pm.do(gen_model, replacements)` creates a new model where intervened variables are replaced with constants, severing incoming edges.
+3. **Propagate** depending on `kind`:
+   - `kind="mean"`: non-intervened endogenous variables are also replaced by their deterministic means (via an anonymous tensor trick: `gen_model['mu_V'] * 1`). `compute_deterministics()` then evaluates the `mu_*` nodes using posterior draws. This gives noise-free expected values.
+   - `kind="predictive"`: non-intervened variables remain as free RVs. `pm.sample_posterior_predictive()` forward-samples through the causal chain, adding residual noise at each step. HDIs are wider but reflect genuine predictive uncertainty.
 
 The result is a `DoResult` — a dict of `{variable: np.ndarray}` where each array has shape `(n_samples,)`. This supports `.mean(var)`, `.hdi(var)`, and contrast arithmetic via `__sub__`.
 
-### Estimand semantics note (cross-sectional)
-
-For cross-sectional `do()`, non-intervened exogenous variables are currently initialized to their observed data means. This default is often reasonable for ATE-style summaries, but users should be explicit about estimand definitions when comparing against subgroup-conditional quantities like ATT/ATU.
-
 ### Panel do()
 
-`run_panel_do()` extends this to time-forward simulation:
+`run_panel_do()` uses NumPy-based propagation for time-forward simulation:
 
 1. **Iterate** over units, then time steps within each unit.
 2. At each time step, resolve **lagged variables** from previously simulated values (e.g., `sales_lag1` at time *t* comes from `sales` at time *t - 1*).
@@ -371,12 +374,12 @@ This design lets pathmc answer counterfactual questions like *"What would sales 
 
 ### Transform handling in do()
 
-Transforms need dual implementations:
+Transforms have dual implementations:
 
-- **PyMC graph** (at compile time): tensor operations that participate in the computation graph for gradient-based sampling.
-- **NumPy** (at do() time): array operations over posterior draws for simulation outside the PyMC graph.
+- **PyMC graph** (at compile time): tensor operations that participate in the computation graph for gradient-based sampling. These are also used by the cross-sectional `do()` since it operates on the PyMC generative model.
+- **NumPy** (at panel do() time): array operations over posterior draws for time-forward simulation outside the PyMC graph.
 
-The `Transform` base class enforces this with `apply_pymc()` and `apply_numpy()` methods. For cross-sectional `do()`, adstock degenerates to identity (there's no time axis to accumulate over). For panel `do()`, adstock tracks state via a mutable dict that persists across time steps within each unit.
+The `Transform` base class enforces this with `apply_pymc()` and `apply_numpy()` methods. For panel `do()`, adstock tracks state via a mutable dict that persists across time steps within each unit.
 
 
 ## The transform registry (`transforms.py`)
@@ -519,28 +522,27 @@ Each step involves a clean handoff between layers:
 | Compile | `compile.py` | `Spec` + data + design matrices | `pm.Model` |
 | Identify | `identify.py` | `GraphInfo` | adjustment sets, warnings |
 | Sample | `model.py` | `pm.Model` | `az.InferenceData` |
-| do() / ate() | `simulate.py` | `Spec` + `GraphInfo` + `InferenceData` | `DoResult` |
+| do() / ate() | `simulate.py` | Generative `pm.Model` + `GraphInfo` + `InferenceData` | `DoResult` |
 | Effects | `effects.py` | `Spec` + `InferenceData` + data | `pd.DataFrame` |
 
 No layer reaches into another's internals. The `Spec` AST and `GraphInfo` are the shared data structures that flow through the system.
 
 
-## Scope: observed-variable SEM
+## Scope: observed-variable SEM with latent deterministic mediators
 
-pathmc implements **path analysis** — structural equation models over *observed* variables only. It does not support latent variables, factor models, or CFA/SEM measurement models. This is a deliberate design boundary, not an oversight, and understanding where it lives in the architecture helps explain both the current design and what extending it would require.
+pathmc implements **path analysis** — structural equation models over observed variables — with support for **latent deterministic mediators**. It does not support latent factor models or CFA/SEM measurement models.
 
-The core assumption is: **every variable in the DAG corresponds to a column in the data**. This assumption runs through every layer:
+The core assumption is: **every variable in the DAG is either observed (a column in the data) or a deterministic function of its observed parents (a latent mediator)**. This assumption runs through every layer:
 
-| Layer | Where the assumption lives |
-|-------|---------------------------|
-| **Compiler** | Design matrices are built via patsy from `data` columns. Likelihoods are emitted with `observed=data[var]` for every endogenous variable. |
-| **Simulator** | Exogenous variables are initialized from `data.mean()`. Every node in the topological walk is expected to have a data-backed value or a computed one. |
-| **Effects** | Standardized effects use `sd(X)` and `sd(Y)` computed from the data. Path effects assume all intermediate variables are observable. |
-| **Identification** | Adjustment sets reason over observed variables — d-separation queries assume all nodes could in principle be conditioned on. |
+| Layer | How it works |
+|-------|-------------|
+| **Compiler** | Exogenous variables become `pm.Data`. Observed endogenous variables become free RVs (e.g., `pm.Normal`). Latent endogenous variables become `pm.Deterministic` nodes — no noise, no likelihood. |
+| **Model** | `pm.observe()` conditions observed endogenous RVs on data. Latent variables are not observed — their values are determined by the structural equations. |
+| **Simulator** | `pm.do()` applies graph surgery to the generative model. Latent variables are targeted via their `mu_*` Deterministic nodes. |
+| **Effects** | Standardized effects use `sd(X)` and `sd(Y)` from data for observed variables. Latent variables use posterior standard deviations. |
+| **Identification** | Adjustment sets reason over the DAG structure. Latent nodes are tracked separately in `GraphInfo.latent`. |
 
-Latent variables would break this assumption in each layer. A latent factor has no data column, so patsy cannot build a design matrix for it; it gets a prior instead of a likelihood; the simulator would need to initialize it from posterior draws rather than data means; and standardization would need posterior SDs instead of data SDs.
-
-The modular architecture means these changes could be isolated per-layer — the parser would gain a new operator (e.g., `=~` for measurement equations), the graph builder would track latent vs observed nodes, and the compiler would emit priors instead of likelihoods for latent factors — but the assumption is woven deeply enough that it would touch every module. Supporting latent variables is a plausible future extension, not a minor patch.
+Full latent factor models (with measurement equations like `=~`) would require additional extensions to the parser and compiler. The current latent support is limited to deterministic mediators that are fully determined by their parents' structural equations.
 
 
 ## Key design principles
@@ -551,9 +553,11 @@ The modular architecture means these changes could be isolated per-layer — the
 
 **Compilation errors surface at `fit()` time.** Design matrices, family validation, and cycle detection all happen during initialization. Users don't wait until `sample()` to discover structural problems.
 
-**do() planner is separate from the do() executor.** The topological order (plan) comes from the graph layer. The propagation logic (execution) lives in `simulate.py`. This separation means the planning logic is tested independently of posterior arithmetic.
+**Generative model + `pm.observe` pattern.** The compiler emits a generative model with free RVs. `pm.observe()` creates the estimation model; `pm.do()` creates the intervention model. This clean separation enables both correct coefficient estimation and PyMC-native causal interventions from the same compiled model.
 
-**Dual transform implementations.** Transforms must work in two contexts: the PyMC computation graph (for MCMC) and numpy arrays (for `do()` simulation). The `Transform` base class enforces this contract.
+**do() via PyMC graph surgery.** Cross-sectional `do()` uses `pm.do()` on the generative model, delegating propagation to PyMC's computation graph rather than reimplementing it in NumPy. Panel `do()` still uses NumPy propagation for time-forward simulation with lagged dependencies.
+
+**Dual transform implementations.** Transforms must work in two contexts: the PyMC computation graph (for MCMC and cross-sectional `do()`) and numpy arrays (for panel `do()` time-forward simulation). The `Transform` base class enforces this contract.
 
 **Predictable parameter naming.** Names like `beta_Y`, `sigma_M`, `alpha_sales` follow documented patterns that are stable across runs. This matters for ArviZ coordinate-based selection and for users who want to set custom priors or inspect specific parameters.
 
