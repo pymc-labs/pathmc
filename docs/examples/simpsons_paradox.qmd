@@ -1,0 +1,188 @@
+---
+title: "Simpson's Paradox"
+description: "A treatment appears harmful overall but beneficial within every subgroup — resolve the paradox with DAG-informed regression and the do-operator."
+categories: [Fundamentals, Causal Inference]
+jupyter: pathmc
+---
+
+A new drug is tested across a population. The overall data suggests the drug *lowers* recovery rates — yet within every subgroup (male, female), the drug *raises* them. Should the hospital prescribe it or not?
+
+This is **Simpson's Paradox** (Pearl, Glymour & Jewell, *Primer* §1.5): a confounding variable can reverse the sign of an association, making a beneficial treatment look harmful (or vice versa). The paradox disappears once we think causally.
+
+## The causal structure
+
+Gender influences both who receives the drug (men are more likely to take it) and who recovers (baseline recovery rates differ by gender). This makes gender a **confounder** — a common cause of treatment and outcome.
+
+```{dot}
+//| fig-cap: "Gender confounds the drug–recovery relationship. Adjusting for gender is required to identify the causal effect."
+//| fig-width: 3
+digraph {
+  rankdir=LR
+  gender -> drug
+  gender -> recovery
+  drug -> recovery
+}
+```
+
+A naive analysis that ignores gender mixes two effects: the drug's causal impact on recovery, and the fact that the group taking the drug has a different baseline recovery rate. The result is a coefficient with the **wrong sign**.
+
+## Simulate data
+
+We construct a dataset where the drug truly helps (positive causal effect), but confounding through gender reverses the naive association.
+
+```{python}
+import numpy as np
+import pandas as pd
+import pathmc
+
+rng = np.random.default_rng(42)
+n = 1000
+
+gender = rng.choice([0.0, 1.0], size=n)
+
+p_drug = np.where(gender == 1, 0.7, 0.3)
+drug = rng.binomial(1, p_drug).astype(float)
+
+TRUE_DRUG_EFFECT = 0.3
+recovery = (
+    0.2
+    + 0.5 * gender
+    + TRUE_DRUG_EFFECT * drug
+    + rng.normal(scale=0.3, size=n)
+)
+
+df = pd.DataFrame({"gender": gender, "drug": drug, "recovery": recovery})
+df.head()
+```
+
+The true causal effect of the drug on recovery is **0.3** — the drug helps. Let's see what happens when we ignore gender.
+
+## The naive analysis (wrong)
+
+A simple regression of recovery on drug — without adjusting for gender — conflates the causal effect with confounding.
+
+```{python}
+naive_model = pathmc.fit("recovery ~ drug", data=df)
+naive_model.sample(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+```{python}
+naive_effects = naive_model.effects_summary()
+naive_effects
+```
+
+```{python}
+naive_ate = naive_model.ate("recovery", "drug", values=(0.0, 1.0))
+print(f"Naive ATE: {naive_ate.mean('recovery'):.3f}  (true = {TRUE_DRUG_EFFECT})")
+print(f"94% HDI:   {naive_ate.hdi('recovery', prob=0.94)}")
+```
+
+The naive estimate is **biased upward** (or may even reverse sign depending on the confounding strength) because it absorbs the gender-recovery association into the drug coefficient.
+
+## The DAG-informed analysis (correct)
+
+Including gender in the model blocks the backdoor path and isolates the causal effect.
+
+```{python}
+spec = """
+drug ~ gender
+recovery ~ b_drug*drug + gender
+"""
+
+model = pathmc.fit(spec, data=df)
+model.graph()
+```
+
+### Identification check
+
+Before sampling, we can verify that the causal effect is identifiable and find the required adjustment set.
+
+```{python}
+print(f"Identifiable?    {model.is_identifiable('drug', 'recovery')}")
+print(f"Adjustment sets: {model.adjustment_sets('drug', 'recovery')}")
+```
+
+pathmc confirms that conditioning on `{gender}` is necessary and sufficient.
+
+```{python}
+model.sample(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+```{python}
+model.effects_summary()
+```
+
+```{python}
+ate = model.ate("recovery", "drug", values=(0.0, 1.0))
+print(f"Adjusted ATE: {ate.mean('recovery'):.3f}  (true = {TRUE_DRUG_EFFECT})")
+print(f"94% HDI:      {ate.hdi('recovery', prob=0.94)}")
+```
+
+The adjusted estimate recovers the true effect.
+
+## The do-operator resolves the paradox
+
+The `do()` operator implements Pearl's **graph surgery**: it sets the treatment to a value while severing all incoming arrows. This is equivalent to a randomized experiment where we *assign* the drug, breaking the link between gender and drug choice.
+
+```{python}
+r0 = model.do(set={"drug": 0.0})
+r1 = model.do(set={"drug": 1.0})
+
+contrast = r1 - r0
+print(f"do(drug=1) - do(drug=0): {contrast.mean('recovery'):.3f}")
+print(f"94% HDI:                 {contrast.hdi('recovery', prob=0.94)}")
+```
+
+The do-operator and the adjusted regression agree: the drug improves recovery by approximately 0.3 units.
+
+## Visualizing the paradox
+
+```{python}
+#| label: fig-simpsons-paradox
+#| fig-cap: "Simpson's Paradox: the naive estimate (ignoring gender) is biased, while the DAG-informed estimate recovers the true causal effect of 0.3."
+#| code-fold: true
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(6, 3.5))
+
+naive_val = naive_ate.mean("recovery")
+naive_hdi = naive_ate.hdi("recovery", prob=0.94)
+adj_val = ate.mean("recovery")
+adj_hdi = ate.hdi("recovery", prob=0.94)
+
+ax.errorbar(
+    naive_val, 1, xerr=[[naive_val - naive_hdi[0]], [naive_hdi[1] - naive_val]],
+    fmt="o", color="C3", capsize=5, label="Naive (no adjustment)",
+)
+ax.errorbar(
+    adj_val, 0, xerr=[[adj_val - adj_hdi[0]], [adj_hdi[1] - adj_val]],
+    fmt="o", color="C0", capsize=5, label="Adjusted (controls for gender)",
+)
+ax.axvline(TRUE_DRUG_EFFECT, color="black", linestyle="--", label=f"True effect ({TRUE_DRUG_EFFECT})")
+ax.set_yticks([0, 1])
+ax.set_yticklabels(["Adjusted", "Naive"])
+ax.set_xlabel("ATE of drug on recovery")
+ax.legend(loc="upper left", fontsize=9)
+ax.set_title("Simpson's Paradox: confounding reverses the apparent effect")
+plt.tight_layout()
+plt.show()
+```
+
+## Summary
+
+- **Simpson's Paradox** occurs when a confounder reverses the sign of an association relative to the true causal effect.
+- **The naive regression** (ignoring the confounder) gives a biased — potentially wrong-sign — estimate.
+- **The DAG-informed regression** adjusts for the confounder, recovering the true causal effect.
+- **`adjustment_sets()`** identifies which variables must be conditioned on before you run any MCMC.
+- **`do()`** implements graph surgery, giving the interventional quantity directly.
+- The paradox is not a statistical curiosity — it determines whether a hospital should prescribe a drug or withhold it.
+
+::: {.callout-note}
+## Reflection
+
+In your own domain, could a Simpson's Paradox be hiding? Consider:
+
+- **Marketing**: Campaign ROI appears negative overall, but positive in each region — could region-level confounders (market size, competition) be driving the reversal?
+- **HR**: A training program seems to reduce performance company-wide, but improves it in every department — could department assignment be a confounder?
+- **Healthcare**: A treatment looks harmful in aggregate but beneficial for every age group — could age be driving both treatment selection and outcomes?
+:::
