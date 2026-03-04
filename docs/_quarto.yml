@@ -14,8 +14,18 @@ website:
     left:
       - href: index.qmd
         text: Home
-      - href: intro.qmd
-        text: Concepts
+      - text: Concepts
+        menu:
+          - href: concepts/model_specification.qmd
+            text: Model Specification
+          - href: concepts/transforms_families.qmd
+            text: Transforms and Families
+          - href: concepts/causal_inference.qmd
+            text: Causal Inference
+          - href: concepts/panel_data.qmd
+            text: Panel Data
+          - href: concepts/panel_interventions.qmd
+            text: Time-Forward Panel Simulation
       - href: how-it-works.qmd
         text: How It Works
       - href: comparison.qmd

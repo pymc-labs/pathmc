@@ -38,7 +38,7 @@ ate = (r1 - r0).mean("Y")       # average treatment effect
 
 ## Getting started
 
-- [Concepts](intro.qmd) — DSL syntax, DAGs, the do-operator, and causal assumptions
+- [Concepts](concepts/model_specification.qmd) — DSL syntax, DAGs, transforms, causal queries, and panel data
 - [Mediation analysis](examples/mediation.qmd) — labels, defined parameters, and indirect effects
 - [Correlated residuals](examples/correlated_residuals.qmd) — the `~~` operator for shared unobserved causes
 - [do() queries](examples/do_queries.qmd) — interventional reasoning and contrast arithmetic

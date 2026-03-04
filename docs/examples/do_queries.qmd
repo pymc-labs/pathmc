@@ -154,4 +154,4 @@ Remember that `do()` assumes the DAG is correctly specified and all confounders 
 If there is an unobserved common cause of `X` and `Y` that is not in the model, the `do()` result will still be biased — the method computes the *mechanical consequence* of the intervention under the given model, not ground truth.
 
 Always pair `do()` with careful thinking about your causal assumptions.
-See the [Concepts](../intro.qmd) page for more on this topic.
+See the [Causal Inference](../concepts/causal_inference.qmd) concepts page for more on this topic.
