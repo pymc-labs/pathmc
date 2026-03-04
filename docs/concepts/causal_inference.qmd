@@ -9,6 +9,45 @@ pathmc implements Pearl's do-operator for **interventional reasoning** and provi
 The `do()` method simulates what would happen if we *intervened* to fix a variable at a specific value, severing all incoming edges to that variable in the DAG.
 Rather than conditioning on observed data ("what is Y when X happens to be 1?"), `do()` answers the causal question: "what *would* Y be if we *set* X to 1?"
 
+The key mechanism is **graph surgery**: `do(X = x*)` replaces the variable X with a constant and removes all arrows pointing *into* X.
+The arrows pointing *out of* X remain — downstream variables still see the intervened value.
+
+```{dot}
+//| label: fig-graph-surgery
+//| fig-cap: "Graph surgery under do(X = 1). Left: the observational DAG — Z confounds X and Y. Right: after do(X = 1), the incoming edge Z → X is severed and X is fixed at 1. The causal effect X → Y is now identified because the confounding path through Z is blocked."
+//| fig-width: 6.5
+digraph {
+  rankdir=TB
+  node [shape=box, style=rounded]
+  compound=true
+
+  subgraph cluster_obs {
+    label="Observational"
+    style=rounded; fontsize=14; fontname="Helvetica-Bold"; color="#636363"
+
+    Z_obs [label="Z\n(confounder)", style="filled,rounded", fillcolor="lightyellow"]
+    X_obs [label="X", style="filled,rounded", fillcolor="lightgreen"]
+    Y_obs [label="Y", style="filled,rounded", fillcolor="lightcoral"]
+
+    Z_obs -> X_obs
+    Z_obs -> Y_obs
+    X_obs -> Y_obs
+  }
+
+  subgraph cluster_do {
+    label="do(X = 1)"
+    style=rounded; fontsize=14; fontname="Helvetica-Bold"; color="#2171b5"
+
+    Z_do [label="Z\n(confounder)", style="filled,rounded", fillcolor="lightyellow"]
+    X_do [label="X = 1\n(fixed)", style="filled,rounded", fillcolor="#c6dbef", penwidth=2]
+    Y_do [label="Y\n(recomputed)", style="filled,rounded", fillcolor="lightcoral"]
+
+    Z_do -> Y_do
+    X_do -> Y_do
+  }
+}
+```
+
 ```python
 model.sample(draws=1000, chains=2)
 

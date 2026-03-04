@@ -69,7 +69,30 @@ Here `indirect` is computed element-wise as the product of the posterior draws f
 
 ### Residual covariance
 
-The `~~` operator declares correlated residuals between two endogenous variables:
+The `~~` operator declares correlated residuals between two endogenous variables.
+This captures shared unmeasured causes that make the residuals of two equations move together — for example, two mediators influenced by the same unobserved factor.
+
+```{dot}
+//| label: fig-residual-covariance
+//| fig-cap: "Residual covariance structure. The directed edges (solid) encode the structural equations. The undirected edge M1 ~~ M2 (dashed, double-headed) declares correlated residuals. pathmc compiles M1 and M2 into a single multivariate normal block with an LKJ prior on the residual correlation."
+//| fig-width: 5
+digraph {
+  rankdir=TB
+  node [shape=box, style="filled,rounded"]
+
+  T [label="T", fillcolor="#c6dbef"]
+  M1 [label="M1", fillcolor="#d9f0d3"]
+  M2 [label="M2", fillcolor="#d9f0d3"]
+  Y [label="Y", fillcolor="#fcbba1"]
+
+  T -> M1 [label=" a₁"]
+  T -> M2 [label=" a₂"]
+  T -> Y [label=" c"]
+  M1 -> Y [label=" b₁"]
+  M2 -> Y [label=" b₂"]
+  M1 -> M2 [dir=both, style=dashed, color="#e6550d", constraint=false, label=" ~~"]
+}
+```
 
 ```python
 spec = """
@@ -104,7 +127,28 @@ model.graph()  # Returns a graphviz Digraph
 
 Some causal pathways pass through variables that are not directly observed. For example, upper-funnel advertising spend may drive sales through an unobserved *brand awareness* mediator.
 
-pathmc supports **latent deterministic mediators** — unobserved endogenous variables that are fully determined by their structural equation (no residual noise). Declare them with the `latent=` parameter:
+pathmc supports **latent deterministic mediators** — unobserved endogenous variables that are fully determined by their structural equation (no residual noise).
+The latent node has no data column, no residual variance, and no likelihood — it is a pure deterministic function of its parents.
+
+```{dot}
+//| label: fig-latent-mediator
+//| fig-cap: "Latent mediator DAG. Brand awareness (dashed border) is unobserved — it mediates the effect of upper_spend on sales without contributing a likelihood term. The direct path upper_spend → sales and the indirect path upper_spend → brand_awareness → sales are both present."
+//| fig-width: 5
+digraph {
+  rankdir=LR
+  node [shape=box, style="filled,rounded"]
+
+  upper_spend [label="upper_spend", fillcolor="#c6dbef"]
+  brand [label="brand_awareness\n(latent)", style="dashed,filled,rounded", fillcolor="#f0f0f0"]
+  sales [label="sales", fillcolor="#fcbba1"]
+
+  upper_spend -> brand [label=" φ"]
+  upper_spend -> sales [label=" b₁"]
+  brand -> sales [label=" b₂"]
+}
+```
+
+Declare latent variables with the `latent=` parameter:
 
 ```python
 model = pathmc.fit(

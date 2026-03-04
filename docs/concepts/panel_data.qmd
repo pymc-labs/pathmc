@@ -18,7 +18,38 @@ df = pathmc.add_lags(
 )
 ```
 
-This creates `sales_lag1` and `spend_lag1` columns, correctly respecting unit boundaries (no leakage across regions).
+This creates `sales_lag1` and `spend_lag1` columns, correctly respecting unit boundaries.
+The lag for each row comes from the previous time step *within the same unit* — never from a different unit.
+The first time step of each unit has no valid lag and is dropped.
+
+```{dot}
+//| label: fig-add-lags
+//| fig-cap: "add_lags() respects panel boundaries. Lag arrows (dashed) connect consecutive time steps within each unit. No arrows cross unit boundaries — Region B's week 1 does not leak into Region A's lag."
+//| fig-width: 6.5
+digraph {
+  rankdir=LR
+  node [shape=record, style="filled,rounded", fontsize=10]
+  edge [fontsize=9]
+
+  subgraph cluster_A {
+    label="Region A"; style=rounded; color="#2171b5"; fontcolor="#2171b5"; fontname="Helvetica-Bold"
+    A1 [label="wk 1 | sales=50", fillcolor="#deebf7"]
+    A2 [label="wk 2 | sales=55", fillcolor="#deebf7"]
+    A3 [label="wk 3 | sales=48", fillcolor="#deebf7"]
+    A1 -> A2 [label="lag1=50", style=dashed, color="#2171b5"]
+    A2 -> A3 [label="lag1=55", style=dashed, color="#2171b5"]
+  }
+
+  subgraph cluster_B {
+    label="Region B"; style=rounded; color="#e6550d"; fontcolor="#e6550d"; fontname="Helvetica-Bold"
+    B1 [label="wk 1 | sales=70", fillcolor="#fee0d2"]
+    B2 [label="wk 2 | sales=65", fillcolor="#fee0d2"]
+    B3 [label="wk 3 | sales=72", fillcolor="#fee0d2"]
+    B1 -> B2 [label="lag1=70", style=dashed, color="#e6550d"]
+    B2 -> B3 [label="lag1=65", style=dashed, color="#e6550d"]
+  }
+}
+```
 
 ## Fitting with random intercepts
 

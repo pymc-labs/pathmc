@@ -25,7 +25,29 @@ sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
 """
 ```
 
-This applies adstock carry-over first, then logistic saturation on the adstocked values.
+The nesting order defines a pipeline: raw spend flows through adstock (accumulating carry-over), then through saturation (applying diminishing returns), then enters the linear predictor scaled by its coefficient.
+
+```{dot}
+//| label: fig-transform-pipeline
+//| fig-cap: "Transform composition pipeline for a single channel. Raw spend enters the inner transform (adstock) first, producing an accumulated stock. The stock then passes through the outer transform (logistic saturation), producing a 0–1 response. The response is multiplied by the channel coefficient and added to the linear predictor."
+//| fig-width: 6.5
+digraph {
+  rankdir=LR
+  node [shape=box, style="filled,rounded", fontsize=11]
+  edge [fontsize=10]
+
+  tv [label="tv\n(raw spend)", fillcolor="#c6dbef"]
+  adstock [label="adstock\n(carry-over)", fillcolor="#ffffb2"]
+  sat [label="logistic_saturation\n(diminishing returns)", fillcolor="#d9f0d3"]
+  coef [label="× b_tv\n(coefficient)", fillcolor="#e2e2e2", shape=circle, width=0.8, fixedsize=true, fontsize=9]
+  mu [label="μ_sales\n(linear predictor)", fillcolor="#fcbba1"]
+
+  tv -> adstock [label=" decay=θ"]
+  adstock -> sat [label=" lam=λ"]
+  sat -> coef
+  coef -> mu
+}
+```
 
 ### Transforms and `do()`
 
