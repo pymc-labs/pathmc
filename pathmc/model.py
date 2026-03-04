@@ -37,10 +37,8 @@ from pathmc.panel import PanelInfo, build_panel_info
 from pathmc.parse import Spec, parse_spec
 from pathmc.simulate import (
     DoResult,
+    run_do_panel_unified,
     run_do_pymc,
-    run_panel_do,
-    run_panel_do_batched,
-    run_panel_do_scan,
 )
 
 
@@ -113,6 +111,9 @@ class PathModel:
             if graph_info.residual_blocks
             else set()
         )
+
+        scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+
         observations: dict[str, Any] = {}
         for reg in spec.regressions:
             var = reg.lhs
@@ -123,7 +124,15 @@ class PathModel:
                 vals = data[var].values
                 if family in ("bernoulli", "poisson", "negbinomial"):
                     vals = vals.astype(int)
+
+                if scan_info is not None:
+                    vals = (
+                        vals[scan_info.sort_idx]
+                        .reshape(scan_info.n_units, scan_info.n_times)
+                        .T
+                    )
                 observations[var] = vals
+
         if observations:
             self._pymc_model: pm.Model = pm.observe(self._gen_model, observations)
         else:
@@ -418,7 +427,6 @@ class PathModel:
         shift: dict[str, float] | None = None,
         kind: str = "mean",
         simulate_over: str | None = None,
-        init_from: str = "observed",
         panel_engine: str = "numpy",
     ) -> DoResult:
         """Simulate an intervention using the do-operator.
@@ -443,13 +451,10 @@ class PathModel:
         simulate_over : str | None
             ``"time"`` to activate time-forward panel simulation.
             Requires the model to have been fitted with ``panel=``.
-        init_from : str
-            ``"observed"`` to initialise from observed data (default).
         panel_engine : str
-            Engine for ``simulate_over="time"`` panel propagation.
-            ``"numpy"`` (default): NumPy time-forward loop.
-            ``"batched"``: pm.do() per time-step in a Python loop.
-            ``"scan"``: pytensor.scan encoding the full time-forward loop.
+            Deprecated — ignored. Panel do() now uses the scan-compiled
+            generative model for all temporal propagation. Passing any
+            value other than the default emits a ``DeprecationWarning``.
 
         Returns
         -------
@@ -475,33 +480,50 @@ class PathModel:
                     "simulate_over='time' requires a panel model. "
                     "Pass panel={...} to fit()."
                 )
-            panel_do_kwargs = dict(
-                spec=self._spec,
+
+            if panel_engine != "numpy":
+                warnings.warn(
+                    f"panel_engine='{panel_engine}' is deprecated and ignored. "
+                    f"Panel do() now uses the scan-compiled generative model.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+
+            scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+            n_times = (
+                scan_info.n_times
+                if scan_info is not None
+                else len(self._data[self._panel_info.time].unique())
+            )
+
+            if set:
+                for var, val in set.items():
+                    if isinstance(val, np.ndarray) and len(val) != n_times:
+                        raise ValueError(
+                            f"Intervention array for '{var}' has length "
+                            f"{len(val)}, expected {n_times} (one per time "
+                            f"step)."
+                        )
+
+            if scan_info is not None:
+                return run_do_panel_unified(
+                    gen_model=self._gen_model,
+                    graph_info=self._graph_info,
+                    idata=self._idata,
+                    panel_info=self._panel_info,
+                    scan_info=scan_info,
+                    set=set,
+                    kind=kind,
+                    families=self._families,
+                )
+
+            return run_do_pymc(
+                gen_model=self._gen_model,
                 graph_info=self._graph_info,
                 idata=self._idata,
                 data=self._data,
-                design_columns={
-                    var: list(dm.columns) for var, dm in self._design_matrices.items()
-                },
-                panel_info=self._panel_info,
                 set=set,
-                families=self._families,
                 kind=kind,
-                init_from=init_from,
-            )
-            if panel_engine == "numpy":
-                return run_panel_do(**panel_do_kwargs)
-            if panel_engine == "batched":
-                return run_panel_do_batched(
-                    **panel_do_kwargs, pooling=self._pooling, latent=self._latent
-                )
-            if panel_engine == "scan":
-                return run_panel_do_scan(
-                    **panel_do_kwargs, pooling=self._pooling, latent=self._latent
-                )
-            raise ValueError(
-                f"Unknown panel_engine '{panel_engine}'. "
-                f"Choose from 'numpy', 'batched', or 'scan'."
             )
 
         return run_do_pymc(

@@ -1,7 +1,7 @@
 """Transform registry and built-in transforms (adstock, logistic_saturation).
 
-Each transform is a callable that can produce both PyMC tensor operations
-(for model compilation) and numpy array operations (for do() simulation).
+Each transform produces PyMC tensor operations for model compilation and
+provides a ``step()`` method for use inside ``pytensor.scan`` bodies.
 
 PyMC graph operations delegate to ``pymc_marketing.mmm.transformers`` for
 optimised convolution-based adstock and vectorised saturation.
@@ -39,8 +39,10 @@ class ParamSpec:
 class Transform:
     """Base class for named transforms with estimable parameters.
 
-    Subclasses must implement :meth:`apply_pymc` and :meth:`apply_numpy`
-    and define :attr:`name` and :attr:`param_specs`.
+    Subclasses must implement :meth:`apply_pymc` and define
+    :attr:`name` and :attr:`param_specs`.  Stateful transforms
+    (e.g. adstock) should also override :meth:`step` and
+    :attr:`has_state`.
     """
 
     name: str
@@ -90,21 +92,30 @@ class Transform:
         """
         raise NotImplementedError
 
-    def apply_numpy(
-        self,
-        x: np.ndarray,
-        params: dict[str, np.ndarray],
-    ) -> np.ndarray:
-        """Apply the transform using numpy arrays (for do() simulation).
+    @property
+    def has_state(self) -> bool:
+        """Whether this transform carries state across time steps."""
+        return False
+
+    def step(self, x_t: Any, state: Any, params: dict[str, Any]) -> tuple[Any, Any]:
+        """Apply one time step inside a ``pytensor.scan`` body.
 
         Parameters
         ----------
-        x : np.ndarray
-            Input array.
+        x_t : tensor
+            Input value(s) at time *t*.
+        state : tensor
+            Carry state from the previous time step.
         params : dict
-            Posterior draws for each parameter.
+            PyMC random variables for each parameter.
+
+        Returns
+        -------
+        tuple[tensor, tensor]
+            ``(output_t, new_state)``.  Pointwise transforms return
+            ``(f(x_t), state)`` unchanged.
         """
-        raise NotImplementedError
+        return self.apply_pymc(x_t, params), state
 
 
 class Adstock(Transform):
@@ -160,28 +171,15 @@ class Adstock(Transform):
         result_flat = adstocked.T.flatten()  # back to unit-major order
         return result_flat[reverse_idx]
 
-    def apply_numpy(
-        self,
-        x: np.ndarray,
-        params: dict[str, np.ndarray],
-    ) -> np.ndarray:
-        decay = params["decay"]
-        if np.ndim(decay) == 0:
-            decay = float(decay)
-        n = len(x)
-        result = np.zeros(n)
-        for t in range(n):
-            result[t] = x[t] + (decay * result[t - 1] if t > 0 else 0.0)
-        return result
+    @property
+    def has_state(self) -> bool:
+        return True
 
-    def apply_numpy_scalar(
-        self,
-        x_val: float,
-        prev_adstocked: float,
-        decay: float | np.ndarray,
-    ) -> float | np.ndarray:
-        """Single-step adstock for time-forward do() simulation."""
-        return x_val + decay * prev_adstocked
+    def step(self, x_t: Any, state: Any, params: dict[str, Any]) -> tuple[Any, Any]:
+        """Single time-step geometric adstock: ``y_t = x_t + decay * y_{t-1}``."""
+        decay = params["decay"]
+        adstock_t = x_t + decay * state
+        return adstock_t, adstock_t
 
 
 class LogisticSaturation(Transform):
@@ -208,15 +206,6 @@ class LogisticSaturation(Transform):
     ) -> Any:
         lam = params["lam"]
         return _pmm_logistic_saturation(x, lam=lam)
-
-    def apply_numpy(
-        self,
-        x: np.ndarray,
-        params: dict[str, np.ndarray],
-    ) -> np.ndarray:
-        lam = params["lam"]
-        return 1.0 - np.exp(-lam * x)
-
 
 REGISTRY: dict[str, Transform] = {
     "adstock": Adstock(),

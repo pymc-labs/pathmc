@@ -1,20 +1,12 @@
 ---
-title: "Panel do() Engines"
-description: "Compare three panel simulation engines and visualise adstock ramp-up / ramp-down from a temporary spend increase."
+title: "Panel Interventions with Temporal Dynamics"
+description: "How pathmc handles adstock carry-over in panel interventions, with ramp-up / ramp-down visualisation from a temporary spend increase."
 categories: [Panel Data, Advanced]
 jupyter: pathmc
 ---
 
-pathmc offers three engines for time-forward panel `do()` simulation, selectable via the `panel_engine` keyword argument.
-All three produce equivalent results but differ in implementation strategy.
-
-::: {.callout-note}
-## Why multiple engines?
-
-- **numpy** (default): the original NumPy time-forward loop. Battle-tested and fast for moderate panel sizes.
-- **batched**: builds a single-timestep PyMC model and applies `pm.do()` + `compute_deterministics` at each time step.
-- **scan**: encodes the full time-forward loop as a `pytensor.scan` inside a PyMC model. A single `pm.do()` + `compute_deterministics` call evaluates the entire trajectory.
-:::
+Panel models with temporal dependencies — adstock transforms, lag terms — are compiled using `pytensor.scan`, encoding the full temporal structure in the generative model.
+When you call `do(simulate_over="time")`, PyMC's native `pm.do()` handles the intervention: the scan propagates the effect forward through time, correctly accounting for adstock accumulation and decay.
 
 ## Simulate panel data
 
@@ -22,19 +14,15 @@ We simulate a 2-channel MMM panel with adstock carry-over, logistic saturation, 
 The `digital` channel has moderate adstock decay (`θ = 0.7`) and operates in the responsive part of the saturation curve (`λ = 0.02`), so a temporary boost in digital spend produces a clearly visible ramp-up and ramp-down.
 
 ```{python}
-import time
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.stats import gaussian_kde
 import pathmc
 
 FIG_WIDTH = 8
 FIG_HEIGHT = 4
-COLOR_NUMPY = "#2171b5"
-COLOR_BATCHED = "#e6550d"
-COLOR_SCAN = "#31a354"
+COLOR_EFFECT = "#2171b5"
+COLOR_BOOST = "#31a354"
 
 rng = np.random.default_rng(42)
 
@@ -78,8 +66,6 @@ df.head()
 ```
 
 ## Fit the model
-
-One model, one posterior — all three engines share the same parameter estimates.
 
 ```{python}
 spec = """
@@ -126,8 +112,8 @@ digital_scenario[boost_start:boost_end] = mean_digital * (1 + boost_fraction)
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.7))
 weeks = np.arange(1, n_weeks + 1)
 ax.plot(weeks, digital_baseline, color="gray", ls="--", label="Baseline digital")
-ax.plot(weeks, digital_scenario, color=COLOR_SCAN, lw=2, label="Scenario digital (+15%)")
-ax.axvspan(boost_start + 1, boost_end, alpha=0.1, color=COLOR_SCAN, label="Boost window")
+ax.plot(weeks, digital_scenario, color=COLOR_BOOST, lw=2, label="Scenario digital (+15%)")
+ax.axvspan(boost_start + 1, boost_end, alpha=0.1, color=COLOR_BOOST, label="Boost window")
 ax.set_xlabel("Week")
 ax.set_ylabel("Digital spend")
 ax.legend(loc="upper right")
@@ -135,34 +121,20 @@ plt.tight_layout()
 plt.show()
 ```
 
-## Run counterfactual with all three engines
+## Run counterfactual
 
-We run both the **baseline** (constant digital at its mean) and the **scenario** (15% boost during weeks 11–20) through each engine, then take the difference to isolate the causal effect of the temporary increase.
+We run both the **baseline** (constant digital at its mean) and the **scenario** (15% boost during weeks 11–20), then take the difference to isolate the causal effect of the temporary increase.
 
 ```{python}
-engines = ["numpy", "batched", "scan"]
-ENGINE_COLORS = {"numpy": COLOR_NUMPY, "batched": COLOR_BATCHED, "scan": COLOR_SCAN}
-
-baselines = {}
-scenarios = {}
-timings = {}
-
-for engine in engines:
-    t0 = time.perf_counter()
-
-    baselines[engine] = model.do(
-        set={"digital": digital_baseline},
-        simulate_over="time",
-        panel_engine=engine,
-    )
-    scenarios[engine] = model.do(
-        set={"digital": digital_scenario},
-        simulate_over="time",
-        panel_engine=engine,
-    )
-
-    timings[engine] = time.perf_counter() - t0
-    print(f"{engine:8s}: {timings[engine]:.2f}s")
+result_baseline = model.do(
+    set={"digital": digital_baseline},
+    simulate_over="time",
+)
+result_scenario = model.do(
+    set={"digital": digital_scenario},
+    simulate_over="time",
+)
+contrast = result_scenario - result_baseline
 ```
 
 ## Adstock ramp-up and ramp-down
@@ -176,16 +148,13 @@ The per-time-step counterfactual difference (`scenario − baseline`) reveals th
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-for engine in engines:
-    contrast = scenarios[engine] - baselines[engine]
-    sales_by_time = contrast.by_time("sales")  # (n_times, n_samples)
-    mean_curve = sales_by_time.mean(axis=1)
-    lo = np.percentile(sales_by_time, 3, axis=1)
-    hi = np.percentile(sales_by_time, 97, axis=1)
+sales_by_time = contrast.by_time("sales")  # (n_times, n_samples)
+mean_curve = sales_by_time.mean(axis=1)
+lo = np.percentile(sales_by_time, 3, axis=1)
+hi = np.percentile(sales_by_time, 97, axis=1)
 
-    ax.plot(weeks, mean_curve, color=ENGINE_COLORS[engine], lw=2, label=engine)
-    ax.fill_between(weeks, lo, hi, alpha=0.12, color=ENGINE_COLORS[engine])
-
+ax.plot(weeks, mean_curve, color=COLOR_EFFECT, lw=2, label="Posterior mean")
+ax.fill_between(weeks, lo, hi, alpha=0.15, color=COLOR_EFFECT, label="94% interval")
 ax.axvspan(boost_start + 1, boost_end, alpha=0.08, color="gray")
 ax.axhline(0, color="black", ls=":", alpha=0.4)
 ax.set_xlabel("Week")
@@ -202,84 +171,24 @@ The pattern is exactly what we expect from adstock dynamics:
 - **During the boost** (weeks 11–20): the effect ramps up as the adstock stock accumulates from the extra spend.
 - **After the boost** (weeks 21+): spend returns to baseline, but the accumulated adstock decays gradually, producing a tail of residual effect.
 
-## Engine agreement
+## Overall ATE
 
-### Overall ATE
-
-The ATE (averaged over all weeks) confirms that all three engines agree on the total causal impact.
+The ATE (averaged over all weeks) summarises the total causal impact of the temporary boost.
 
 ```{python}
-summary_rows = []
-for engine in engines:
-    contrast = scenarios[engine] - baselines[engine]
-    hdi = contrast.hdi("sales", prob=0.94)
-    summary_rows.append({
-        "Engine": engine,
-        "Mean ATE": f"{contrast.mean('sales'):.4f}",
-        "HDI low": f"{hdi[0]:.4f}",
-        "HDI high": f"{hdi[1]:.4f}",
-    })
-pd.DataFrame(summary_rows)
+hdi = contrast.hdi("sales", prob=0.94)
+pd.DataFrame([{
+    "Mean ATE": f"{contrast.mean('sales'):.4f}",
+    "HDI low": f"{hdi[0]:.4f}",
+    "HDI high": f"{hdi[1]:.4f}",
+}])
 ```
-
-### Time-resolved agreement
-
-```{python}
-#| label: fig-engine-overlay
-#| fig-cap: "Per-week posterior mean of incremental sales by engine. All three engines trace nearly identical trajectories."
-#| code-fold: true
-
-fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.7))
-for engine in engines:
-    contrast = scenarios[engine] - baselines[engine]
-    mean_curve = contrast.by_time("sales").mean(axis=1)
-    ax.plot(weeks, mean_curve, color=ENGINE_COLORS[engine], lw=2, label=engine,
-            ls="-" if engine == "numpy" else "--" if engine == "batched" else ":")
-ax.axvspan(boost_start + 1, boost_end, alpha=0.08, color="gray")
-ax.axhline(0, color="black", ls=":", alpha=0.4)
-ax.set_xlabel("Week")
-ax.set_ylabel("Incremental sales (posterior mean)")
-ax.legend()
-plt.tight_layout()
-plt.show()
-```
-
-## Performance comparison
-
-```{python}
-#| label: fig-timing
-#| fig-cap: "Wall-clock time per engine for the full baseline + scenario pair. Differences reflect implementation overhead, not statistical accuracy."
-#| code-fold: true
-
-fig, ax = plt.subplots(figsize=(FIG_WIDTH * 0.6, FIG_HEIGHT))
-bars = ax.barh(
-    engines,
-    [timings[e] for e in engines],
-    color=[ENGINE_COLORS[e] for e in engines],
-    edgecolor="white",
-    height=0.5,
-)
-for bar, engine in zip(bars, engines):
-    ax.text(
-        bar.get_width() + 0.05, bar.get_y() + bar.get_height() / 2,
-        f"{timings[engine]:.2f}s", va="center", fontsize=10,
-    )
-ax.set_xlabel("Wall-clock time (seconds)")
-ax.set_xlim(0, max(timings.values()) * 1.3)
-plt.tight_layout()
-plt.show()
-```
-
-## When to use which engine
 
 ::: {.callout-tip}
-## Choosing an engine
+## How it works under the hood
 
-| Engine | Best for | Trade-off |
-|--------|----------|-----------|
-| **numpy** | Default use, moderate panels | Battle-tested; duplicates transform logic in NumPy |
-| **batched** | Correctness-sensitive work | PyMC-native transforms; Python loop adds per-step overhead |
-| **scan** | Long time series, state-space extensions | Single-pass evaluation; pytensor.scan has compilation overhead |
-
-All three produce statistically equivalent results. Start with `"numpy"` (the default) and switch engines when performance or extensibility matters.
+The model is compiled with `pytensor.scan`, which encodes the adstock recurrence (`y_t = x_t + decay * y_{t-1}`) directly in the PyMC computation graph.
+When you call `do(set={"digital": ...}, simulate_over="time")`, pathmc uses `pm.do()` to replace the `digital` data node with your intervention values.
+The scan recomputes the full trajectory — adstock accumulation, saturation, and downstream effects — using the posterior parameter draws.
+No separate simulation engine is needed.
 :::
