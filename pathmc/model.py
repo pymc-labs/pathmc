@@ -8,6 +8,7 @@ from typing import Any
 
 import arviz as az
 import graphviz
+import numpy as np
 import pandas as pd
 import pymc as pm
 
@@ -34,7 +35,13 @@ from pathmc.introspect import (
 )
 from pathmc.panel import PanelInfo, build_panel_info
 from pathmc.parse import Spec, parse_spec
-from pathmc.simulate import DoResult, run_do_pymc, run_panel_do
+from pathmc.simulate import (
+    DoResult,
+    run_do_pymc,
+    run_panel_do,
+    run_panel_do_batched,
+    run_panel_do_scan,
+)
 
 
 class PathModel:
@@ -407,11 +414,12 @@ class PathModel:
 
     def do(
         self,
-        set: dict[str, float] | None = None,
+        set: dict[str, float | np.ndarray] | None = None,
         shift: dict[str, float] | None = None,
         kind: str = "mean",
         simulate_over: str | None = None,
         init_from: str = "observed",
+        panel_engine: str = "numpy",
     ) -> DoResult:
         """Simulate an intervention using the do-operator.
 
@@ -422,8 +430,11 @@ class PathModel:
 
         Parameters
         ----------
-        set : dict[str, float] | None
+        set : dict[str, float | np.ndarray] | None
             Variables to fix at specific values (hard intervention).
+            For panel models with ``simulate_over="time"``, values can
+            be arrays of shape ``(n_times,)`` for time-varying
+            interventions (e.g., a temporary spend increase).
         shift : dict[str, float] | None
             Reserved for soft interventions (not yet implemented).
         kind : str
@@ -434,6 +445,11 @@ class PathModel:
             Requires the model to have been fitted with ``panel=``.
         init_from : str
             ``"observed"`` to initialise from observed data (default).
+        panel_engine : str
+            Engine for ``simulate_over="time"`` panel propagation.
+            ``"numpy"`` (default): NumPy time-forward loop.
+            ``"batched"``: pm.do() per time-step in a Python loop.
+            ``"scan"``: pytensor.scan encoding the full time-forward loop.
 
         Returns
         -------
@@ -446,7 +462,7 @@ class PathModel:
         RuntimeError
             If called before ``.sample()``.
         ValueError
-            If ``simulate_over="time"`` without panel.
+            If ``simulate_over="time"`` without panel, or unknown engine.
         """
         if self._idata is None:
             raise RuntimeError(
@@ -459,7 +475,7 @@ class PathModel:
                     "simulate_over='time' requires a panel model. "
                     "Pass panel={...} to fit()."
                 )
-            return run_panel_do(
+            panel_do_kwargs = dict(
                 spec=self._spec,
                 graph_info=self._graph_info,
                 idata=self._idata,
@@ -472,6 +488,20 @@ class PathModel:
                 families=self._families,
                 kind=kind,
                 init_from=init_from,
+            )
+            if panel_engine == "numpy":
+                return run_panel_do(**panel_do_kwargs)
+            if panel_engine == "batched":
+                return run_panel_do_batched(
+                    **panel_do_kwargs, pooling=self._pooling, latent=self._latent
+                )
+            if panel_engine == "scan":
+                return run_panel_do_scan(
+                    **panel_do_kwargs, pooling=self._pooling, latent=self._latent
+                )
+            raise ValueError(
+                f"Unknown panel_engine '{panel_engine}'. "
+                f"Choose from 'numpy', 'batched', or 'scan'."
             )
 
         return run_do_pymc(
