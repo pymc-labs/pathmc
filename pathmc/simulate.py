@@ -104,8 +104,6 @@ def run_do_pymc(
     DoResult
         Propagated posterior draws for every endogenous variable.
     """
-    from pymc.sampling.deterministic import compute_deterministics
-
     if set is None:
         set = {}
 
@@ -128,7 +126,7 @@ def run_do_pymc(
             for var in graph_info.topological_order
             if var in graph_info.endogenous
         ]
-        det = compute_deterministics(
+        det = pm.compute_deterministics(
             idata.posterior, model=do_model, var_names=det_names, progressbar=False
         )
 
@@ -157,6 +155,23 @@ def run_do_pymc(
         with do_model:
             ppc = pm.sample_posterior_predictive(idata, progressbar=False)
 
+    # Latent vars are pm.Deterministic nodes — PPC won't forward-sample them.
+    # Compute them explicitly so they appear in the result.
+    latent_det_names = [
+        f"mu_{var}"
+        for var in graph_info.topological_order
+        if var in latent and var not in set
+    ]
+    if latent_det_names:
+        latent_det = pm.compute_deterministics(
+            idata.posterior,
+            model=do_model,
+            var_names=latent_det_names,
+            progressbar=False,
+        )
+    else:
+        latent_det = None
+
     stacked = idata.posterior.stack(sample=("chain", "draw"))
     n_samples = stacked.sizes["sample"]
     values = {}
@@ -172,6 +187,8 @@ def run_do_pymc(
             values[var] = ppc.posterior_predictive[var].values.flatten()
         elif f"mu_{var}" in ppc.posterior_predictive:
             values[var] = ppc.posterior_predictive[f"mu_{var}"].values.flatten()
+        elif latent_det is not None and f"mu_{var}" in latent_det:
+            values[var] = latent_det[f"mu_{var}"].values.flatten()
 
     return DoResult(values=values)
 

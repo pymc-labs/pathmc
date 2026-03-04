@@ -102,6 +102,17 @@ def build_graph(spec: Spec, latent: set[str] | None = None) -> GraphInfo:
 
     residual_blocks = _build_residual_blocks(spec)
 
+    block_vars = set().union(*residual_blocks) if residual_blocks else set()
+    latent_in_blocks = latent & block_vars
+    if latent_in_blocks:
+        sorted_vars = ", ".join(f"'{v}'" for v in sorted(latent_in_blocks))
+        raise ValueError(
+            f"Latent variable(s) {sorted_vars} cannot appear in a residual "
+            f"covariance block (~~). Latent variables have no observed data, "
+            f"so residual covariance is undefined. Remove them from ~~ or "
+            f"from the latent list."
+        )
+
     return GraphInfo(
         topological_order=topological_order,
         exogenous=exogenous,
