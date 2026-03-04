@@ -273,10 +273,10 @@ scenario_x = baseline_x.copy()
 scenario_x[7:18] = mean_x * 1.25  # 25% boost, weeks 8-18
 
 result_base = model.do(
-    set={"x": baseline_x}, simulate_over="time", panel_engine="numpy"
+    set={"x": baseline_x}, simulate_over="time"
 )
 result_scen = model.do(
-    set={"x": scenario_x}, simulate_over="time", panel_engine="numpy"
+    set={"x": scenario_x}, simulate_over="time"
 )
 contrast = result_scen - result_base
 ```

@@ -1,18 +1,17 @@
 ---
-title: "Panel do() Engines"
-description: "Compare three panel simulation engines and visualise adstock ramp-up / ramp-down from a temporary spend increase."
+title: "Panel do() — Scan-based Interventions"
+description: "How pathmc uses pytensor.scan-compiled models for panel interventions, with adstock ramp-up / ramp-down visualisation."
 categories: [Panel Data, Advanced]
 jupyter: pathmc
 ---
 
-pathmc offers three engines for time-forward panel `do()` simulation, selectable via the `panel_engine` keyword argument.
-All three produce equivalent results but differ in implementation strategy.
+Panel models with temporal dependencies (adstock transforms, lag terms) are compiled using `pytensor.scan`, encoding the full temporal structure in the generative model.
+`pm.do()` then handles interventions natively — no separate simulation engine needed.
 
 ::: {.callout-note}
-## Why multiple engines?
+## Architecture
 
-- **numpy** (default): the original NumPy time-forward loop. Battle-tested and fast for moderate panel sizes.
-- **batched**: builds a single-timestep PyMC model and applies `pm.do()` + `compute_deterministics` at each time step.
+The `panel_engine` parameter is deprecated. All panel `do()` calls now go through the unified scan-compiled generative model.
 - **scan**: encodes the full time-forward loop as a `pytensor.scan` inside a PyMC model. A single `pm.do()` + `compute_deterministics` call evaluates the entire trajectory.
 :::
 

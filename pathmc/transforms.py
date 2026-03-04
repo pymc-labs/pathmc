@@ -106,6 +106,31 @@ class Transform:
         """
         raise NotImplementedError
 
+    @property
+    def has_state(self) -> bool:
+        """Whether this transform carries state across time steps."""
+        return False
+
+    def step(self, x_t: Any, state: Any, params: dict[str, Any]) -> tuple[Any, Any]:
+        """Apply one time step inside a ``pytensor.scan`` body.
+
+        Parameters
+        ----------
+        x_t : tensor
+            Input value(s) at time *t*.
+        state : tensor
+            Carry state from the previous time step.
+        params : dict
+            PyMC random variables for each parameter.
+
+        Returns
+        -------
+        tuple[tensor, tensor]
+            ``(output_t, new_state)``.  Pointwise transforms return
+            ``(f(x_t), state)`` unchanged.
+        """
+        return self.apply_pymc(x_t, params), state
+
 
 class Adstock(Transform):
     """Geometric adstock: ``y_t = x_t + decay * y_{t-1}``.
@@ -182,6 +207,16 @@ class Adstock(Transform):
     ) -> float | np.ndarray:
         """Single-step adstock for time-forward do() simulation."""
         return x_val + decay * prev_adstocked
+
+    @property
+    def has_state(self) -> bool:
+        return True
+
+    def step(self, x_t: Any, state: Any, params: dict[str, Any]) -> tuple[Any, Any]:
+        """Single time-step geometric adstock: ``y_t = x_t + decay * y_{t-1}``."""
+        decay = params["decay"]
+        adstock_t = x_t + decay * state
+        return adstock_t, adstock_t
 
 
 class LogisticSaturation(Transform):

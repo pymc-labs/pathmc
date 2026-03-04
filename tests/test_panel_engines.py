@@ -1,15 +1,9 @@
-"""Cross-engine comparison tests for panel do().
+"""Panel do() tests.
 
-Verifies that the three panel do() engines (numpy, batched, scan)
-produce consistent results on models with known DGPs.
-
-Engine properties:
-- **numpy** and **scan** propagate per-draw temporal state and should
-  agree within floating-point tolerance.
-- **batched** averages temporal carry-over across draws (mean-field
-  approximation imposed by ``pm.Data``).  It agrees closely with the
-  other two engines but may show small deviations for models with
-  strong temporal dynamics and wide posteriors.
+Tests panel interventions on models with various temporal structures
+(no temporal state, lags, adstock). The ``panel_engine`` parameter is
+deprecated; all panel do() calls go through the unified scan-compiled
+generative model (or cross-sectional fallback for non-temporal models).
 """
 
 import numpy as np
@@ -369,40 +363,23 @@ class TestPredictiveModeTemporal:
     temporal model, the scan engine should emit a warning.
     """
 
-    def test_scan_predictive_warns_on_lag_model(self, lag_panel):
-        """scan + predictive + temporal state should warn."""
-        import warnings as w
-
-        with w.catch_warnings(record=True) as caught:
-            w.simplefilter("always")
-            lag_panel.do(
-                set={"spend": 30.0},
-                simulate_over="time",
-                kind="predictive",
-                panel_engine="scan",
-            )
-
-        user_warnings = [c for c in caught if issubclass(c.category, UserWarning)]
-        assert any("post-hoc" in str(c.message) for c in user_warnings), (
-            "Expected a warning about post-hoc noise from scan + predictive "
-            "on a model with temporal state"
+    def test_scan_predictive_on_lag_model(self, lag_panel):
+        """Predictive on a scan-compiled lag model should produce valid results."""
+        r = lag_panel.do(
+            set={"spend": 30.0},
+            simulate_over="time",
+            kind="predictive",
         )
+        assert np.isfinite(r.mean("sales"))
 
-    def test_scan_predictive_warns_on_adstock_model(self, adstock_panel):
-        """scan + predictive + adstock should also warn."""
-        import warnings as w
-
-        with w.catch_warnings(record=True) as caught:
-            w.simplefilter("always")
-            adstock_panel.do(
-                set={"tv": 30.0},
-                simulate_over="time",
-                kind="predictive",
-                panel_engine="scan",
-            )
-
-        user_warnings = [c for c in caught if issubclass(c.category, UserWarning)]
-        assert any("post-hoc" in str(c.message) for c in user_warnings)
+    def test_scan_predictive_on_adstock_model(self, adstock_panel):
+        """Predictive on a scan-compiled adstock model should produce valid results."""
+        r = adstock_panel.do(
+            set={"tv": 30.0},
+            simulate_over="time",
+            kind="predictive",
+        )
+        assert np.isfinite(r.mean("sales"))
 
     def test_scan_mean_no_warning_on_lag_model(self, lag_panel):
         """scan + mean mode should NOT warn even with temporal state."""
@@ -515,10 +492,16 @@ class TestInputValidation:
                 panel_engine="scan",
             )
 
-    def test_unknown_engine_raises(self, simple_panel):
-        with pytest.raises(ValueError, match="Unknown panel_engine"):
+    def test_unknown_engine_emits_deprecation(self, simple_panel):
+        """Unknown panel_engine should emit DeprecationWarning (ignored)."""
+        import warnings as w
+
+        with w.catch_warnings(record=True) as caught:
+            w.simplefilter("always")
             simple_panel.do(
                 set={"spend": 30.0},
                 simulate_over="time",
                 panel_engine="turbo",
             )
+        deprecations = [c for c in caught if issubclass(c.category, DeprecationWarning)]
+        assert any("deprecated" in str(c.message) for c in deprecations)
