@@ -744,6 +744,16 @@ def _compile_scan_panel(
             if parsed is not None:
                 lag_cols[v] = parsed
 
+    for reg in spec.regressions:
+        for term in reg.terms:
+            lag = _parse_lag(term.variable)
+            if lag is not None and lag[1] > 1:
+                raise NotImplementedError(
+                    f"Scan-compiled panel models only support lag order 1, "
+                    f"but '{term.variable}' has lag order {lag[1]}. "
+                    f"Use lag1 terms or file a feature request for higher-order lags."
+                )
+
     adstock_cols = [col for col, tc in transform_map.items() if _has_adstock(tc)]
 
     # --- coords ---
@@ -982,7 +992,7 @@ def _compile_scan_panel(
 
             family = families.get(var, "gaussian")
             if family == "bernoulli":
-                pm.Bernoulli(var, logit_p=mu_all, shape=(n_times, n_units))
+                pm.Bernoulli(var, p=mu_all, shape=(n_times, n_units))
             elif family == "poisson":
                 pm.Poisson(var, mu=mu_all, shape=(n_times, n_units))
             elif family == "negbinomial":

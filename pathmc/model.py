@@ -427,7 +427,6 @@ class PathModel:
         shift: dict[str, float] | None = None,
         kind: str = "mean",
         simulate_over: str | None = None,
-        init_from: str = "observed",
         panel_engine: str = "numpy",
     ) -> DoResult:
         """Simulate an intervention using the do-operator.
@@ -452,13 +451,10 @@ class PathModel:
         simulate_over : str | None
             ``"time"`` to activate time-forward panel simulation.
             Requires the model to have been fitted with ``panel=``.
-        init_from : str
-            ``"observed"`` to initialise from observed data (default).
         panel_engine : str
-            Engine for ``simulate_over="time"`` panel propagation.
-            ``"numpy"`` (default): NumPy time-forward loop.
-            ``"batched"``: pm.do() per time-step in a Python loop.
-            ``"scan"``: pytensor.scan encoding the full time-forward loop.
+            Deprecated — ignored. Panel do() now uses the scan-compiled
+            generative model for all temporal propagation. Passing any
+            value other than the default emits a ``DeprecationWarning``.
 
         Returns
         -------
