@@ -694,6 +694,15 @@ def fit(
     latent_set = set(latent) if latent is not None else set()
     graph_info = build_graph(spec, latent=latent_set)
 
+    has_lag_terms = any(
+        term.lag_of is not None for reg in spec.regressions for term in reg.terms
+    )
+    if has_lag_terms and panel is None:
+        raise ValueError(
+            "lag() terms require a panel model. Pass panel={'unit': ..., "
+            "'time': ...} to fit()."
+        )
+
     endogenous_lhs = {reg.lhs for reg in spec.regressions}
     for var in endogenous_lhs:
         if var not in latent_set and var not in data.columns:

@@ -9,7 +9,7 @@ import pathmc
 
 @pytest.fixture()
 def panel_lag_data():
-    """Panel with lagged structure: sales ~ spend_lag1, 3 regions, 15 weeks."""
+    """Panel with lagged structure: sales ~ lag(spend), 3 regions, 15 weeks."""
     rng = np.random.default_rng(42)
     regions = ["A", "B", "C"]
     n_weeks = 15
@@ -28,18 +28,14 @@ def panel_lag_data():
                 }
             )
             spend_prev = spend
-    df = pd.DataFrame(rows)
-    df = pathmc.add_lags(
-        df, variables=["spend"], lags=[1], panel={"unit": "region", "time": "week"}
-    )
-    return df.dropna().reset_index(drop=True)
+    return pd.DataFrame(rows)
 
 
 @pytest.fixture()
 def panel_lag_model(panel_lag_data):
     """Fitted panel model with lag structure."""
     model = pathmc.fit(
-        "sales ~ spend_lag1",
+        "sales ~ lag(spend)",
         data=panel_lag_data,
         panel={"unit": "region", "time": "week"},
         pooling="partial",

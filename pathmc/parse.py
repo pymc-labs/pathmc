@@ -36,6 +36,7 @@ class Term:
     variable: str
     label: str | None = None
     transform: TransformCall | None = None
+    lag_of: str | None = None
 
 
 @dataclass
@@ -221,6 +222,8 @@ def _parse_term(raw: str) -> Term:
 
     if "(" in raw:
         transform = _parse_transform_expr(raw)
+        if transform.name == "lag":
+            return _make_lag_term(transform, raw, label)
         variable = _extract_leaf_variable(transform)
         return Term(variable=variable, label=label, transform=transform)
 
@@ -228,6 +231,28 @@ def _parse_term(raw: str) -> Term:
     if not variable:
         raise ParseError("Empty variable name in term.")
     return Term(variable=variable, label=label)
+
+
+def _make_lag_term(tc: TransformCall, raw: str, label: str | None) -> Term:
+    """Build a ``Term`` from a ``lag(var)`` expression.
+
+    ``lag()`` is a structural term (not a real transform) that
+    references the previous time step of a variable.  Only lag-1 is
+    supported — higher-order lags are rejected by design.
+    """
+    if tc.params:
+        raise ParseError(
+            f"lag() does not accept parameters: '{raw}'. "
+            f"pathmc supports lag-1 only by design. The influence of "
+            f"t-2 on t should be mediated through t-1."
+        )
+    if isinstance(tc.input_expr, TransformCall):
+        raise ParseError(
+            f"lag() only accepts a plain variable name, not a "
+            f"nested transform: '{raw}'."
+        )
+    base_var = tc.input_expr
+    return Term(variable=f"lag({base_var})", label=label, lag_of=base_var)
 
 
 def _find_top_level_star(raw: str) -> int | None:

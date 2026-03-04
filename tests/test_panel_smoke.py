@@ -9,7 +9,7 @@ import pathmc
 
 @pytest.fixture()
 def full_panel_data():
-    """Full panel pipeline data: 3 regions, 20 weeks, sales ~ spend_lag1."""
+    """Full panel pipeline data: 3 regions, 20 weeks, sales ~ lag(spend)."""
     rng = np.random.default_rng(42)
     regions = ["A", "B", "C"]
     true_intercepts = {"A": 5.0, "B": 8.0, "C": 12.0}
@@ -29,23 +29,16 @@ def full_panel_data():
                 }
             )
             spend_prev = spend
-    df = pd.DataFrame(rows)
-    df = pathmc.add_lags(
-        df,
-        variables=["spend"],
-        lags=[1],
-        panel={"unit": "region", "time": "week"},
-    )
-    return df.dropna().reset_index(drop=True)
+    return pd.DataFrame(rows)
 
 
 @pytest.mark.slow
 class TestFullPipeline:
-    """End-to-end: add_lags -> fit -> sample -> summary -> do."""
+    """End-to-end: fit with lag() -> sample -> summary -> do."""
 
     def test_pipeline_completes(self, full_panel_data):
         model = pathmc.fit(
-            "sales ~ spend_lag1",
+            "sales ~ lag(spend)",
             data=full_panel_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
@@ -60,7 +53,7 @@ class TestFullPipeline:
     def test_do_time_forward_ate(self, full_panel_data):
         """do(simulate_over='time') produces ATE with correct sign."""
         model = pathmc.fit(
-            "sales ~ spend_lag1",
+            "sales ~ lag(spend)",
             data=full_panel_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
@@ -75,7 +68,7 @@ class TestFullPipeline:
 
     def test_graph_works(self, full_panel_data):
         model = pathmc.fit(
-            "sales ~ spend_lag1",
+            "sales ~ lag(spend)",
             data=full_panel_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
@@ -118,7 +111,7 @@ class TestRandomInterceptVariation:
 
     def test_different_units_different_intercepts(self, full_panel_data):
         model = pathmc.fit(
-            "sales ~ spend_lag1",
+            "sales ~ lag(spend)",
             data=full_panel_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",

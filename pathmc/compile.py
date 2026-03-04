@@ -600,15 +600,32 @@ def _parse_lag(col: str) -> tuple[str, int] | None:
     return None
 
 
+def _build_lag_map(spec: Spec) -> dict[str, str]:
+    """Map lag term variable names to their base variables.
+
+    Returns a dict like ``{"lag(sales)": "sales"}`` built from
+    ``Term.lag_of`` fields produced by the ``lag()`` DSL syntax.
+    """
+    lag_map: dict[str, str] = {}
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.lag_of is not None:
+                lag_map[term.variable] = term.lag_of
+    return lag_map
+
+
 def _has_temporal_deps(spec: Spec, graph_info: GraphInfo) -> bool:
     """Return True if the model has adstock transforms or any lag terms.
 
-    Both endogenous lags (``sales_lag1``) and exogenous lags
-    (``spend_lag1``) create temporal dependencies that require
-    scan-based compilation for correct ``do()`` propagation.
+    Detects temporal dependencies from:
+    - ``lag()`` DSL syntax (``Term.lag_of``)
+    - Legacy ``_lag\\d+$`` column names (backward compat)
+    - ``adstock()`` transforms
     """
     for reg in spec.regressions:
         for term in reg.terms:
+            if term.lag_of is not None:
+                return True
             if term.transform is not None:
                 tc = term.transform
                 while tc is not None:
@@ -730,19 +747,27 @@ def _compile_scan_panel(
     time_values = sorted(data_sorted[time_col].unique())
 
     # --- classify columns ---
+    lag_map = _build_lag_map(spec)
+
     pure_exog = [
         v
         for v in graph_info.topological_order
         if v in graph_info.exogenous
         and _parse_lag(v) is None
+        and v not in lag_map
         and v in data_sorted.columns
     ]
     lag_cols: dict[str, tuple[str, int]] = {}
+    # Regex-based lag detection (backward compat with _lag\d+$ columns)
     for v in graph_info.topological_order:
         if v in graph_info.exogenous:
             parsed = _parse_lag(v)
             if parsed is not None:
                 lag_cols[v] = parsed
+    # AST-driven lag detection (from lag() DSL syntax)
+    for col_name, base_var in lag_map.items():
+        if col_name not in lag_cols:
+            lag_cols[col_name] = (base_var, 1)
 
     for reg in spec.regressions:
         for term in reg.terms:
@@ -829,11 +854,7 @@ def _compile_scan_panel(
 
         # Exogenous variables referenced by lag columns need carry state
         exog_lag_bases = sorted(
-            {
-                base
-                for _col, (base, _k) in lag_cols.items()
-                if base not in endo_set
-            }
+            {base for _col, (base, _k) in lag_cols.items() if base not in endo_set}
         )
 
         init_endo: dict[str, np.ndarray] = {
@@ -941,6 +962,8 @@ def _compile_scan_panel(
                         mu = mu + coef * exog_t[col]
                     else:
                         lag = _parse_lag(col)
+                        if lag is None and col in lag_map:
+                            lag = (lag_map[col], 1)
                         if lag is not None:
                             base_var, _lag_k = lag
                             if base_var in prev_endo:

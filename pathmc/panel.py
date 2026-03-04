@@ -6,6 +6,7 @@ and metadata structures used by the panel-aware compiler and simulator.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import pandas as pd
@@ -62,6 +63,13 @@ def add_lags(
     KeyError
         If required columns are missing from *df* or *panel*.
     """
+    warnings.warn(
+        "add_lags() is deprecated. Use lag(var) syntax in the model "
+        "spec instead, e.g. 'sales ~ spend + lag(sales)'. "
+        "add_lags() will be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     _validate_panel_args(df, panel, variables)
 
     unit_col = panel["unit"]
