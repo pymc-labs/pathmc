@@ -1,15 +1,23 @@
 """do() operator: interventional simulation via posterior propagation.
 
-Implements Pearl's do-operator for cross-sectional path models by
-propagating posterior coefficient draws through the DAG in topological
-order, skipping the structural equation for any intervened variable.
+Cross-sectional do() uses PyMC-native graph surgery: ``pm.do()`` on
+the generative model + ``pm.sample_posterior_predictive()`` for
+kind="predictive", or ``pm.do()`` + ``compute_deterministics`` for
+kind="mean".
+
+Panel do() uses time-forward numpy propagation with adstock state tracking.
 """
 
 from __future__ import annotations
 
+import re
+import warnings
+from typing import Any
+
 import arviz as az
 import numpy as np
 import pandas as pd
+import pymc as pm
 
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
@@ -57,117 +65,137 @@ class DoResult:
         return DoResult(values=new_values)
 
 
-def _expit(x: np.ndarray) -> np.ndarray:
-    """Numerically stable inverse-logit (sigmoid)."""
-    return 1.0 / (1.0 + np.exp(-np.clip(x, -500, 500)))
-
-
-def run_do(
-    spec: Spec,
+def run_do_pymc(
+    gen_model: pm.Model,
     graph_info: GraphInfo,
     idata: az.InferenceData,
-    data_means: dict[str, float],
-    design_columns: dict[str, list[str]],
+    data: pd.DataFrame,
     set: dict[str, float] | None = None,
-    families: dict[str, str] | None = None,
     kind: str = "mean",
-    rng: np.random.Generator | None = None,
-    panel_info: PanelInfo | None = None,
 ) -> DoResult:
-    """Propagate posterior draws through the DAG under an intervention.
+    """Run the do-operator using PyMC-native graph surgery.
+
+    For ``kind="predictive"``: uses ``pm.do()`` on the generative model
+    followed by ``pm.sample_posterior_predictive()`` to forward-sample
+    through the causal chain with residual noise.
+
+    For ``kind="mean"``: uses ``pm.do()`` with the anonymous tensor trick
+    (replacing free endogenous RVs with their mu Deterministics) followed
+    by ``compute_deterministics`` for noise-free mean propagation.
 
     Parameters
     ----------
-    spec : Spec
-        Parsed model specification.
+    gen_model : pm.Model
+        The generative PyMC model (endogenous vars are free RVs).
     graph_info : GraphInfo
-        DAG with topological order.
+        DAG with topological order and node classification.
     idata : az.InferenceData
         Posterior samples from ``pm.sample()``.
-    data_means : dict[str, float]
-        Mean of each observed variable in the data (used for non-intervened
-        exogenous variables).
-    design_columns : dict[str, list[str]]
-        Column names of each design matrix, keyed by endogenous variable.
+    data : pd.DataFrame
+        Observed data (used for sizing intervention arrays).
     set : dict[str, float] | None
         Variables to intervene on, with their fixed values.
-    families : dict[str, str] | None
-        Per-variable distribution families (default ``"gaussian"``).
     kind : str
-        ``"mean"`` for deterministic propagation, ``"predictive"`` to add
-        residual noise at each step.
-    rng : np.random.Generator | None
-        Random number generator for predictive sampling.
+        ``"mean"`` for deterministic propagation, ``"predictive"`` to
+        include residual noise at each step.
 
     Returns
     -------
     DoResult
-        Propagated posterior draws for every variable in the DAG.
+        Propagated posterior draws for every endogenous variable.
     """
     if set is None:
         set = {}
-    if families is None:
-        families = {}
-    if rng is None:
-        rng = np.random.default_rng()
+
+    N = len(data)
+    latent = graph_info.latent
+
+    replacements: dict[str, Any] = {}
+    for var, val in set.items():
+        key = f"mu_{var}" if var in latent else var
+        replacements[key] = np.full(N, val)
+
+    if kind == "mean":
+        for var in graph_info.topological_order:
+            if var in graph_info.endogenous and var not in set and var not in latent:
+                replacements[var] = gen_model[f"mu_{var}"] * 1
+
+        do_model = pm.do(gen_model, replacements)
+        det_names = [
+            f"mu_{var}"
+            for var in graph_info.topological_order
+            if var in graph_info.endogenous
+        ]
+        det = pm.compute_deterministics(
+            idata.posterior, model=do_model, var_names=det_names, progressbar=False
+        )
+
+        stacked = idata.posterior.stack(sample=("chain", "draw"))
+        n_samples = stacked.sizes["sample"]
+        values: dict[str, np.ndarray] = {}
+        for var in graph_info.topological_order:
+            if var in set:
+                values[var] = np.full(n_samples, set[var])
+            elif var in graph_info.exogenous:
+                if var in data.columns:
+                    values[var] = np.full(n_samples, float(data[var].mean()))
+                else:
+                    values[var] = np.zeros(n_samples)
+            else:
+                mu_vals = det[f"mu_{var}"].values.flatten()
+                values[var] = mu_vals
+
+        return DoResult(values=values)
+
+    do_model = pm.do(gen_model, replacements)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message="Could not extract data from symbolic observation"
+        )
+        with do_model:
+            ppc = pm.sample_posterior_predictive(idata, progressbar=False)
+
+    # Latent vars are pm.Deterministic nodes — PPC won't forward-sample them.
+    # Compute them explicitly so they appear in the result.
+    latent_det_names = [
+        f"mu_{var}"
+        for var in graph_info.topological_order
+        if var in latent and var not in set
+    ]
+    if latent_det_names:
+        latent_det = pm.compute_deterministics(
+            idata.posterior,
+            model=do_model,
+            var_names=latent_det_names,
+            progressbar=False,
+        )
+    else:
+        latent_det = None
 
     stacked = idata.posterior.stack(sample=("chain", "draw"))
     n_samples = stacked.sizes["sample"]
-
-    transform_map = _build_transform_map(spec)
-    values: dict[str, np.ndarray] = {}
-
-    has_panel_intercepts = (
-        panel_info is not None
-        and f"mu_alpha_{graph_info.topological_order[-1]}" in stacked
-    )
-
+    values = {}
     for var in graph_info.topological_order:
         if var in set:
             values[var] = np.full(n_samples, set[var])
         elif var in graph_info.exogenous:
-            values[var] = np.full(n_samples, data_means[var])
-        else:
-            beta_arr = stacked[f"beta_{var}"]
-            cols = design_columns[var]
-            linear = np.zeros(n_samples)
-
-            for col in cols:
-                coef = beta_arr.sel({f"{var}_predictors": col}).values
-                if col == "Intercept":
-                    linear = linear + coef
-                elif col in transform_map:
-                    transformed = _apply_transform_chain_numpy(
-                        transform_map[col], values[col], stacked
-                    )
-                    linear = linear + coef * transformed
-                else:
-                    linear = linear + coef * values[col]
-
-            if has_panel_intercepts and f"alpha_{var}" in stacked:
-                alpha_arr = stacked[f"alpha_{var}"]
-                alpha_mean = alpha_arr.mean(dim="unit").values
-                linear = linear + alpha_mean
-
-            for col in cols:
-                if col == "Intercept":
-                    continue
-                slope_name = f"slope_{var}_{col}"
-                if slope_name in stacked:
-                    slope_arr = stacked[slope_name]
-                    slope_mean = slope_arr.mean(dim="unit").values
-                    linear = linear + slope_mean * values[col]
-
-            family = families.get(var, "gaussian")
-
-            if kind == "predictive":
-                values[var] = _add_residual_noise(
-                    linear, var, family, stacked, n_samples, rng
-                )
+            if var in data.columns:
+                values[var] = np.full(n_samples, float(data[var].mean()))
             else:
-                values[var] = _apply_link(linear, family)
+                values[var] = np.zeros(n_samples)
+        elif var in ppc.posterior_predictive:
+            values[var] = ppc.posterior_predictive[var].values.flatten()
+        elif f"mu_{var}" in ppc.posterior_predictive:
+            values[var] = ppc.posterior_predictive[f"mu_{var}"].values.flatten()
+        elif latent_det is not None and f"mu_{var}" in latent_det:
+            values[var] = latent_det[f"mu_{var}"].values.flatten()
 
     return DoResult(values=values)
+
+
+def _expit(x: np.ndarray) -> np.ndarray:
+    """Numerically stable inverse-logit (sigmoid)."""
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -500, 500)))
 
 
 def _apply_link(linear: np.ndarray, family: str) -> np.ndarray:
@@ -219,27 +247,6 @@ def _build_transform_map(spec: Spec) -> dict[str, TransformCall]:
             if term.transform is not None:
                 tmap[term.variable] = term.transform
     return tmap
-
-
-def _apply_transform_chain_numpy(
-    tc: TransformCall,
-    input_val: np.ndarray,
-    stacked: object,
-) -> np.ndarray:
-    """Apply a (possibly nested) transform chain using numpy.
-
-    For cross-sectional do(), input_val is a constant broadcast to n_samples.
-    The transform is applied pointwise, using posterior draws of the parameters.
-    """
-    if isinstance(tc.input_expr, TransformCall):
-        input_val = _apply_transform_chain_numpy(tc.input_expr, input_val, stacked)
-
-    transform = get_transform(tc.name)
-    params = {key: stacked[name].values for key, name in tc.params.items()}
-
-    if transform.name == "adstock":
-        return input_val
-    return transform.apply_numpy(input_val, params)
 
 
 def run_panel_do(
@@ -426,7 +433,8 @@ def run_panel_do(
                             linear = linear + slope_unit * parent_val
 
                     family = families.get(var, "gaussian")
-                    if kind == "predictive":
+                    is_latent = var in graph_info.latent
+                    if kind == "predictive" and not is_latent:
                         all_values[var][u_idx, t_idx, :] = _add_residual_noise(
                             linear, var, family, stacked, n_samples, rng
                         )
@@ -498,8 +506,6 @@ def _apply_panel_transform(
 
 def _parse_lag(col_name: str) -> tuple[str, int] | None:
     """Parse a lag column name like 'sales_lag1' -> ('sales', 1)."""
-    import re
-
     m = re.match(r"^(.+)_lag(\d+)$", col_name)
     if m:
         return m.group(1), int(m.group(2))

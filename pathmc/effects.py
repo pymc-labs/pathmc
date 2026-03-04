@@ -17,9 +17,7 @@ from pathmc.parse import Spec
 
 def _has_labeled_terms(spec: Spec) -> bool:
     """Check whether any regression term has a user-supplied label."""
-    return any(
-        term.label is not None for reg in spec.regressions for term in reg.terms
-    )
+    return any(term.label is not None for reg in spec.regressions for term in reg.terms)
 
 
 @dataclass
@@ -156,9 +154,9 @@ def build_effects_summary(
         )
 
     if not rows:
-        return pd.DataFrame(
-            columns=["mean", "sd", "hdi_3%", "hdi_97%"]
-        ).rename_axis("name")
+        return pd.DataFrame(columns=["mean", "sd", "hdi_3%", "hdi_97%"]).rename_axis(
+            "name"
+        )
     return pd.DataFrame(rows).set_index("name")
 
 
@@ -166,6 +164,7 @@ def build_standardized_effects(
     spec: Spec,
     idata: az.InferenceData,
     data: pd.DataFrame,
+    latent: set[str] | None = None,
 ) -> pd.DataFrame:
     """Compute stdyx-standardized coefficients from posterior draws.
 
@@ -174,6 +173,7 @@ def build_standardized_effects(
         stdyx = coef * sd(X) / sd(Y)
 
     This gives the expected change in Y (in SD units) per SD change in X.
+    Edges involving latent variables (no observed SD) are skipped.
 
     Parameters
     ----------
@@ -183,6 +183,8 @@ def build_standardized_effects(
         Posterior samples from MCMC.
     data : pd.DataFrame
         Observed data used to compute variable standard deviations.
+    latent : set[str] | None
+        Latent variable names (skipped for standardization).
 
     Returns
     -------
@@ -190,11 +192,16 @@ def build_standardized_effects(
         Summary with columns: mean, sd, hdi_3%, hdi_97% of the
         standardized coefficient. Index is the label name.
     """
+    if latent is None:
+        latent = set()
+
     labeled_draws = extract_labeled_draws(spec, idata)
 
     rows = []
     for reg in spec.regressions:
         lhs = reg.lhs
+        if lhs in latent or lhs not in data.columns:
+            continue
         sd_y = float(data[lhs].std())
         if sd_y == 0:
             continue
@@ -204,7 +211,7 @@ def build_standardized_effects(
                 continue
 
             var = term.variable
-            if var not in data.columns:
+            if var in latent or var not in data.columns:
                 continue
             sd_x = float(data[var].std())
             if sd_x == 0:

@@ -60,7 +60,7 @@ class TestPoissonCompilation:
     def test_observed_rv_present(self, poisson_data):
         model = pathmc.fit("Y ~ X", data=poisson_data, families={"Y": "poisson"})
         obs_names = {rv.name for rv in model.pymc_model.observed_RVs}
-        assert "Y_obs" in obs_names
+        assert "Y" in obs_names
 
     def test_residual_cov_with_poisson_raises(self, poisson_data):
         poisson_data = poisson_data.copy()

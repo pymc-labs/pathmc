@@ -147,19 +147,24 @@ def build_dag_viz(spec: Spec, graph_info: GraphInfo) -> graphviz.Digraph:
     spec : Spec
         Parsed specification.
     graph_info : GraphInfo
-        Graph with edge information.
+        Graph with edge information and latent set.
 
     Returns
     -------
     graphviz.Digraph
-        Renderable DAG for notebook display.
+        Renderable DAG for notebook display. Latent nodes are drawn
+        with dashed borders to distinguish them from observed nodes.
     """
     dot = graphviz.Digraph(format="svg")
     dot.attr(rankdir="LR")
 
     for node in graph_info.topological_order:
-        shape = "ellipse" if node in graph_info.endogenous else "box"
-        dot.node(node, shape=shape)
+        if node in graph_info.latent:
+            dot.node(node, shape="ellipse", style="dashed")
+        elif node in graph_info.endogenous:
+            dot.node(node, shape="ellipse")
+        else:
+            dot.node(node, shape="box")
 
     for reg in spec.regressions:
         for term in reg.terms:
@@ -176,19 +181,25 @@ def build_dag_viz(spec: Spec, graph_info: GraphInfo) -> graphviz.Digraph:
     return dot
 
 
-def build_equations(spec: Spec) -> EquationList:
+def build_equations(spec: Spec, latent: set[str] | None = None) -> EquationList:
     """Build human-readable equations from the parsed specification.
 
     Parameters
     ----------
     spec : Spec
         Parsed specification.
+    latent : set[str] | None
+        Latent variable names. Equations for these are annotated with
+        ``[deterministic]`` to indicate no likelihood.
 
     Returns
     -------
     EquationList
         Iterable, printable list of equation strings with LaTeX rendering.
     """
+    if latent is None:
+        latent = set()
+
     lines: list[str] = []
     latex_lines: list[str] = []
     for reg in spec.regressions:
@@ -200,10 +211,16 @@ def build_equations(spec: Spec) -> EquationList:
         for t in reg.terms:
             terms.append(_format_term(t))
             latex_terms.append(_format_term_latex(t))
-        lines.append(f"{reg.lhs} ~ {' + '.join(terms)}")
-        latex_lines.extend(
-            _build_equation_latex(reg.lhs, latex_terms)
-        )
+
+        suffix = " [deterministic]" if reg.lhs in latent else ""
+        lines.append(f"{reg.lhs} ~ {' + '.join(terms)}{suffix}")
+
+        if reg.lhs in latent:
+            latex_lines.extend(
+                _build_equation_latex(reg.lhs, latex_terms, deterministic=True)
+            )
+        else:
+            latex_lines.extend(_build_equation_latex(reg.lhs, latex_terms))
     for dp in spec.defined_params:
         lines.append(f"{dp.name} := {dp.expression}")
         latex_lines.append(
@@ -227,20 +244,39 @@ def _format_term(t: object) -> str:
 _MULTILINE_THRESHOLD = 4
 
 
-def _build_equation_latex(lhs: str, latex_terms: list[str]) -> list[str]:
+def _build_equation_latex(
+    lhs: str,
+    latex_terms: list[str],
+    deterministic: bool = False,
+) -> list[str]:
     """Build LaTeX lines for one equation, splitting long ones across lines.
 
     Short equations (fewer than ``_MULTILINE_THRESHOLD`` terms) stay on a
     single line. Longer ones put each term on its own line, aligned on ``+``.
+    Deterministic equations omit the error term.
     """
-    error = rf"\varepsilon_{{{lhs}}}"
     lhs_latex = rf"\mathrm{{{lhs}}}"
+
+    if deterministic:
+        if len(latex_terms) < _MULTILINE_THRESHOLD:
+            rhs = " + ".join(latex_terms)
+            return [rf"{lhs_latex} &\equiv {rhs}"]
+
+        result: list[str] = []
+        for i, term in enumerate(latex_terms):
+            if i == 0:
+                result.append(rf"{lhs_latex} &\equiv {term}")
+            else:
+                result.append(rf"&\quad + {term}")
+        return result
+
+    error = rf"\varepsilon_{{{lhs}}}"
 
     if len(latex_terms) < _MULTILINE_THRESHOLD:
         rhs = " + ".join(latex_terms) + f" + {error}"
         return [rf"{lhs_latex} &= {rhs}"]
 
-    result: list[str] = []
+    result = []
     for i, term in enumerate(latex_terms):
         if i == 0:
             result.append(rf"{lhs_latex} &= {term}")
@@ -307,6 +343,7 @@ def build_priors(
     spec: Spec,
     families: dict[str, str] | None = None,
     pooling: str | dict | None = None,
+    latent: set[str] | None = None,
 ) -> PriorTable:
     """Build a prior summary table from the model specification.
 
@@ -318,6 +355,8 @@ def build_priors(
         Per-variable distribution families.
     pooling : str | dict | None
         Pooling specification for panel models.
+    latent : set[str] | None
+        Latent variables (no sigma/likelihood priors emitted).
 
     Returns
     -------
@@ -326,6 +365,8 @@ def build_priors(
     """
     if families is None:
         families = {}
+    if latent is None:
+        latent = set()
 
     has_intercepts = pooling == "partial" or (
         isinstance(pooling, dict) and pooling.get("intercept", False)
@@ -338,13 +379,16 @@ def build_priors(
     seen_transform_params: set[str] = set()
     for reg in spec.regressions:
         entries[f"beta_{reg.lhs}"] = "Normal(0, 10)"
-        family = families.get(reg.lhs, "gaussian")
-        if family not in ("bernoulli", "poisson", "negbinomial"):
-            entries[f"sigma_{reg.lhs}"] = "HalfNormal(1)"
-        if family == "negbinomial":
-            entries[f"alpha_disp_{reg.lhs}"] = "HalfNormal(1)"
-        if family == "studentt":
-            entries[f"nu_{reg.lhs}"] = "Gamma(2, 0.1)"
+
+        if reg.lhs not in latent:
+            family = families.get(reg.lhs, "gaussian")
+            if family not in ("bernoulli", "poisson", "negbinomial"):
+                entries[f"sigma_{reg.lhs}"] = "HalfNormal(1)"
+            if family == "negbinomial":
+                entries[f"alpha_disp_{reg.lhs}"] = "HalfNormal(1)"
+            if family == "studentt":
+                entries[f"nu_{reg.lhs}"] = "Gamma(2, 0.1)"
+
         if has_intercepts:
             entries[f"mu_alpha_{reg.lhs}"] = "Normal(0, 10)"
             entries[f"sigma_alpha_{reg.lhs}"] = "HalfNormal(1)"

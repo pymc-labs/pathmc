@@ -14,7 +14,6 @@ from typing import Any
 
 import numpy as np
 import pymc as pm
-import pytensor.tensor as pt
 from pymc_marketing.mmm.transformers import (
     geometric_adstock as _pmm_geometric_adstock,
     logistic_saturation as _pmm_logistic_saturation,
@@ -140,9 +139,7 @@ class Adstock(Transform):
             return self._apply_pymc_panel(x, decay, panel_info, data)
         return _pmm_geometric_adstock(x, alpha=decay, l_max=self.l_max, axis=0)
 
-    def _apply_pymc_panel(
-        self, x: Any, decay: Any, panel_info: Any, data: Any
-    ) -> Any:
+    def _apply_pymc_panel(self, x: Any, decay: Any, panel_info: Any, data: Any) -> Any:
         """Apply adstock per unit via matrix reshaping, not per-unit scans."""
         unit_col = panel_info.unit
         time_col = panel_info.time

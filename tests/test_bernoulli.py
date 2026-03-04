@@ -42,7 +42,7 @@ class TestBernoulliCompilation:
     def test_observed_rv_is_bernoulli(self, binary_data):
         model = pathmc.fit("Y ~ X", data=binary_data, families={"Y": "bernoulli"})
         rv_names = [rv.name for rv in model.pymc_model.observed_RVs]
-        assert "Y_obs" in rv_names
+        assert "Y" in rv_names
 
     def test_no_sigma_for_bernoulli(self, binary_data):
         model = pathmc.fit("Y ~ X", data=binary_data, families={"Y": "bernoulli"})
