@@ -1,0 +1,387 @@
+---
+title: "MMM with Brand Awareness Dynamics"
+description: "Model brand awareness as a latent, self-sustaining AR(1) process that mediates upper-funnel spend into long-run sales lift."
+categories: [Marketing, Panel Data]
+jupyter: pathmc
+---
+
+Standard media mix models treat each channel's effect as instantaneous (or at most, smoothed by adstock).
+But upper-funnel spend — brand campaigns, TV, sponsorships — doesn't just nudge this week's sales.
+It builds **brand awareness**, a latent stock that persists over time and compounds into sustained sales lift.
+
+This example models brand awareness as a **latent AR(1) mediator**:
+
+- **Upper-funnel spend** drives awareness and has a small direct effect on sales
+- **Brand awareness** feeds back into itself with lag — once built, it decays slowly
+- **Lower-funnel spend** (performance, search) drives sales directly
+- **Awareness** is unobserved — we never measure it, but the model infers its trajectory from the sales signal
+
+The result: upper-funnel spend looks weak in a flat regression, but its total effect — including the persistent awareness channel — can be substantial.
+
+## The causal structure
+
+```{dot}
+//| label: fig-dag
+//| fig-cap: "Brand awareness DAG. Upper-funnel spend builds awareness (a) and has a small direct effect on sales (c). Awareness persists via an AR(1) self-loop (ρ) and drives sales (b). Lower-funnel spend affects sales directly (d)."
+//| fig-width: 6
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+
+  upper_funnel -> awareness [label="a"]
+  awareness -> "lag(awareness)" [style=dashed, dir=back]
+  "lag(awareness)" -> awareness [label="ρ"]
+  awareness -> sales [label="b"]
+  upper_funnel -> sales [label="c"]
+  lower_funnel -> sales [label="d"]
+}
+```
+
+The key quantities:
+
+| Effect | Formula | Interpretation |
+|--------|---------|----------------|
+| **Direct (upper-funnel)** | c | Upper-funnel → Sales, not through awareness |
+| **Awareness channel** | a × b / (1 − ρ) | Upper-funnel → Awareness (persistent) → Sales |
+| **Total (upper-funnel)** | c + a × b / (1 − ρ) | Full long-run causal effect |
+| **Direct (lower-funnel)** | d | Lower-funnel → Sales, immediate |
+
+The awareness channel amplifies the raw coefficient $a \times b$ by the AR(1) multiplier $1 / (1 - \rho)$ — the same "long-run multiplier" from the [autoregressive example](autoregressive.qmd).
+
+## Simulate data
+
+We generate a national-level time series of 50 weeks with a known DGP so we can verify the model recovers the true parameters.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
+import pathmc
+
+FIG_WIDTH = 8
+FIG_HEIGHT = 4
+COLOR_UPPER = "#2171b5"
+COLOR_LOWER = "#e6550d"
+COLOR_AWARENESS = "#31a354"
+COLOR_TOTAL = "#756bb1"
+
+rng = np.random.default_rng(42)
+
+n_weeks = 50
+
+true_a = 0.5       # upper_funnel → awareness
+true_rho = 0.7     # awareness persistence
+true_b = 0.3       # awareness → sales
+true_c = 0.2       # upper_funnel → sales (direct)
+true_d = 0.5       # lower_funnel → sales
+true_sigma = 1.0
+
+rows = []
+awareness = 0.0
+for week in range(1, n_weeks + 1):
+    uf = rng.uniform(5, 25)
+    lf = rng.uniform(5, 20)
+    awareness = true_a * uf + true_rho * awareness
+    sales = (
+        true_b * awareness
+        + true_c * uf
+        + true_d * lf
+        + rng.normal(scale=true_sigma)
+    )
+    rows.append({
+        "country": "national", "week": week,
+        "upper_funnel": uf, "lower_funnel": lf,
+        "sales": sales,
+    })
+
+df = pd.DataFrame(rows)
+
+true_awareness_channel = true_a * true_b / (1 - true_rho)
+true_total_uf = true_c + true_awareness_channel
+
+print(f"True upper-funnel direct effect (c):        {true_c}")
+print(f"True awareness channel (a×b / (1−ρ)):       {true_awareness_channel:.3f}")
+print(f"True total upper-funnel effect:              {true_total_uf:.3f}")
+print(f"True lower-funnel effect (d):                {true_d}")
+print(f"True awareness persistence (ρ):              {true_rho}")
+print(f"Fraction of UF effect through awareness:     {true_awareness_channel / true_total_uf:.0%}")
+df.head()
+```
+
+Over two-thirds of upper-funnel's total effect on sales flows through the latent awareness stock — invisible to a model that doesn't represent this mediator.
+
+## Visualise the data
+
+```{python}
+#| label: fig-sales
+#| fig-cap: "Weekly sales over 50 weeks. The persistent autocorrelation reflects the latent awareness stock that accumulates from upper-funnel spend."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.plot(df["week"], df["sales"], color=COLOR_UPPER, lw=1.5)
+ax.scatter(df["week"], df["sales"], color=COLOR_UPPER, s=15, zorder=3)
+ax.set_xlabel("Week")
+ax.set_ylabel("Sales")
+plt.tight_layout()
+plt.show()
+```
+
+## The attribution trap
+
+::: {.callout-warning}
+## Why naive regression undervalues upper-funnel
+
+Regressing `sales ~ upper_funnel + lower_funnel` estimates the *total contemporaneous association*, confounding the direct effect with the awareness-mediated effect.
+But worse: because awareness is latent and autocorrelated, a flat regression cannot separate the persistent component from the immediate one.
+The model might attribute some of the awareness-driven sales to lower-funnel (if they happen to correlate), or it underestimates upper-funnel's true ROI because the effect is spread over many future weeks.
+
+A path model with an explicit latent awareness mediator solves both problems: it decomposes the effect and accounts for persistence.
+:::
+
+## Specify and fit the model
+
+The spec declares two equations: one for awareness (latent, with AR(1) persistence) and one for sales.
+The `latent=["awareness"]` argument tells pathmc that awareness is unobserved — it will be inferred as a deterministic function of the model parameters.
+
+```{python}
+spec = """
+awareness ~ a_uf*upper_funnel + rho*lag(awareness)
+sales ~ b_aw*awareness + c_uf*upper_funnel + d_lf*lower_funnel
+"""
+
+model = pathmc.fit(
+    spec,
+    data=df,
+    panel={"unit": "country", "time": "week"},
+    latent=["awareness"],
+)
+```
+
+```{python}
+model.graph()
+```
+
+```{python}
+model.equations()
+```
+
+::: {.callout-tip collapse="true"}
+## What `latent=["awareness"]` does
+
+Because `awareness` is declared latent:
+
+1. pathmc does **not** look for an `awareness` column in the data
+2. The `awareness` equation produces a `pm.Deterministic` — no noise term, no likelihood
+3. The scan propagates awareness forward through time as a carry variable: $\text{awareness}_t = a \cdot \text{upper\_funnel}_t + \rho \cdot \text{awareness}_{t-1}$
+4. The only likelihood is on `sales` — the model infers the awareness trajectory by fitting the sales signal
+:::
+
+## Sample
+
+```{python}
+idata = model.sample(
+    draws=200, tune=200, chains=4, random_seed=42,
+    target_accept=0.95,
+)
+```
+
+## Results
+
+### Coefficient recovery
+
+```{python}
+model.summary()
+```
+
+```{python}
+model.effects_summary()
+```
+
+::: {.callout-tip}
+## Reading the effects
+
+- **a_uf** ≈ 0.5: how much one unit of upper-funnel spend increases awareness
+- **rho** ≈ 0.7: awareness persistence (high → slow decay)
+- **b_aw** ≈ 0.3: how much one unit of awareness lifts sales
+- **c_uf** ≈ 0.2: direct upper-funnel → sales (small)
+- **d_lf** ≈ 0.5: direct lower-funnel → sales (immediate)
+:::
+
+### Long-run decomposition
+
+The total long-run effect of upper-funnel on sales combines the direct path with the awareness-mediated path, accounting for the AR(1) multiplier.
+
+```{python}
+#| label: fig-effect-decomposition
+#| fig-cap: "Posterior distributions of upper-funnel's direct effect (c), awareness-mediated effect (a × b / (1 − ρ)), and total long-run effect. True values shown as dashed lines."
+#| code-fold: true
+
+a_draws = idata.posterior["beta_awareness"].sel(awareness_predictors="upper_funnel").values.flatten()
+rho_draws = idata.posterior["beta_awareness"].sel(awareness_predictors="lag(awareness)").values.flatten()
+b_draws = idata.posterior["beta_sales"].sel(sales_predictors="awareness").values.flatten()
+c_draws = idata.posterior["beta_sales"].sel(sales_predictors="upper_funnel").values.flatten()
+
+awareness_channel_draws = a_draws * b_draws / (1 - rho_draws)
+total_draws = c_draws + awareness_channel_draws
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+for draws, color, label, true_val in [
+    (c_draws, COLOR_UPPER, "Direct (c)", true_c),
+    (awareness_channel_draws, COLOR_AWARENESS, "Via awareness (a×b/(1−ρ))", true_awareness_channel),
+    (total_draws, COLOR_TOTAL, "Total long-run", true_total_uf),
+]:
+    valid = draws[np.isfinite(draws)]
+    lo, hi = np.percentile(valid, [1, 99])
+    kde = gaussian_kde(valid)
+    x_grid = np.linspace(lo, hi, 200)
+    density = kde(x_grid)
+    ax.fill_between(x_grid, density, alpha=0.25, color=color)
+    ax.plot(x_grid, density, color=color, label=label, lw=2)
+    ax.axvline(true_val, color=color, ls="--", lw=1.5, alpha=0.7)
+
+ax.axvline(0, color="black", ls=":", alpha=0.3)
+ax.set_xlabel("Effect on sales (per unit upper-funnel spend)")
+ax.set_ylabel("Density")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+The awareness-mediated channel is larger than the direct effect — missing it means undervaluing upper-funnel by more than half.
+
+## Counterfactual: channel comparison over time
+
+What does each channel contribute to sales when run at its average level versus zero?
+
+Because awareness is persistent, upper-funnel's contribution **ramps up** over time as the awareness stock builds, while lower-funnel's contribution is **flat** (immediate, no persistence).
+
+```{python}
+mean_uf = df["upper_funnel"].mean()
+mean_lf = df["lower_funnel"].mean()
+
+r_baseline = model.do(
+    set={"upper_funnel": mean_uf},
+    simulate_over="time", kind="mean",
+)
+r_no_uf = model.do(
+    set={"upper_funnel": 0.0},
+    simulate_over="time", kind="mean",
+)
+uf_contrast = r_baseline - r_no_uf
+
+r_baseline_lf = model.do(
+    set={"lower_funnel": mean_lf},
+    simulate_over="time", kind="mean",
+)
+r_no_lf = model.do(
+    set={"lower_funnel": 0.0},
+    simulate_over="time", kind="mean",
+)
+lf_contrast = r_baseline_lf - r_no_lf
+```
+
+```{python}
+#| label: fig-cut-channels
+#| fig-cap: "Impact of running each channel at its mean vs. zero. Upper-funnel (blue) shows a gradual ramp-up as awareness accumulates — the effect builds over time. Lower-funnel (orange) produces a flat, immediate effect with no temporal dynamics."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+weeks = np.arange(1, n_weeks + 1)
+
+uf_by_time = uf_contrast.by_time("sales")
+uf_mean = uf_by_time.mean(axis=1)
+uf_lo = np.percentile(uf_by_time, 3, axis=1)
+uf_hi = np.percentile(uf_by_time, 97, axis=1)
+
+lf_by_time = lf_contrast.by_time("sales")
+lf_mean = lf_by_time.mean(axis=1)
+lf_lo = np.percentile(lf_by_time, 3, axis=1)
+lf_hi = np.percentile(lf_by_time, 97, axis=1)
+
+ax.plot(weeks, uf_mean, color=COLOR_UPPER, lw=2, label="Upper-funnel contribution")
+ax.fill_between(weeks, uf_lo, uf_hi, alpha=0.15, color=COLOR_UPPER)
+ax.plot(weeks, lf_mean, color=COLOR_LOWER, lw=2, label="Lower-funnel contribution")
+ax.fill_between(weeks, lf_lo, lf_hi, alpha=0.15, color=COLOR_LOWER)
+
+ax.set_xlabel("Week")
+ax.set_ylabel("Sales lift (mean spend vs. zero)")
+ax.legend(fontsize=8)
+ax.axhline(0, color="black", ls=":", alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+The asymmetry is the central insight: **lower-funnel is flat** (its effect is fully immediate), while **upper-funnel ramps up** as brand awareness builds.
+A snapshot at week 1 would severely underestimate upper-funnel's contribution; by week 15+, the awareness stock has reached its long-run level.
+
+## Counterfactual: upper-funnel pulse
+
+A brand campaign runs at high intensity for 10 weeks (weeks 11–20), then stops entirely.
+This produces the classic "brand halo" pattern: awareness builds during the campaign and decays slowly after it ends.
+
+```{python}
+uf_pulse = np.zeros(n_weeks)
+uf_pulse[10:20] = mean_uf * 2  # double average for 10 weeks
+
+uf_zero = np.zeros(n_weeks)
+
+r_pulse = model.do(set={"upper_funnel": uf_pulse}, simulate_over="time", kind="mean")
+r_off = model.do(set={"upper_funnel": uf_zero}, simulate_over="time", kind="mean")
+pulse_effect = r_pulse - r_off
+```
+
+```{python}
+#| label: fig-pulse
+#| fig-cap: "Sales response to a 10-week upper-funnel pulse (weeks 11–20, shaded). During the pulse, awareness accumulates and sales lift grows. After the pulse ends, the brand halo decays gradually — awareness persists with rate ρ, sustaining sales lift for weeks beyond the campaign."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+pulse_by_time = pulse_effect.by_time("sales")
+pulse_mean = pulse_by_time.mean(axis=1)
+pulse_lo = np.percentile(pulse_by_time, 3, axis=1)
+pulse_hi = np.percentile(pulse_by_time, 97, axis=1)
+
+ax.plot(weeks, pulse_mean, color=COLOR_UPPER, lw=2, label="Posterior mean")
+ax.fill_between(weeks, pulse_lo, pulse_hi, alpha=0.15, color=COLOR_UPPER, label="94% interval")
+ax.axvspan(11, 20, alpha=0.08, color="gray", label="Campaign window")
+ax.axhline(0, color="black", ls=":", alpha=0.4)
+
+ax.set_xlabel("Week")
+ax.set_ylabel("Incremental sales vs. no upper-funnel")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+This is the signature of brand awareness dynamics:
+
+- **Before the campaign** (weeks 1–10): no upper-funnel spend, no effect
+- **During the campaign** (weeks 11–20): awareness accumulates, sales lift ramps up
+- **After the campaign** (weeks 21+): spend stops, but the awareness stock decays at rate $\rho$ per period — the "brand halo" sustains sales lift for many additional weeks
+
+The **total incremental sales** from the pulse includes both the in-campaign lift and the post-campaign tail.
+
+## Summary
+
+- **Brand awareness is a latent AR(1) stock.** It accumulates from upper-funnel spend and decays slowly, creating persistent sales lift beyond the campaign period.
+- **`latent=["awareness"]`** lets pathmc infer the awareness trajectory without requiring observed awareness data. The model learns the dynamics from the sales signal alone.
+- **Upper-funnel effects are amplified by persistence.** The direct effect $c$ understates the total contribution; the awareness-mediated channel $a \times b / (1 - \rho)$ captures the long-run value.
+- **Lower-funnel effects are immediate.** No persistence, no ramp-up — the effect is what you see in a single-period regression.
+- **The "brand halo" emerges naturally** from the AR(1) dynamics: a temporary campaign builds awareness that sustains sales lift for weeks after spending stops.
+
+::: {.callout-note}
+## Extensions
+
+This model treats awareness as a linear, deterministic mediator. Natural extensions include:
+
+- **Saturation on upper-funnel spend**: `awareness ~ logistic_saturation(upper_funnel, lam=lam_uf) + rho*lag(awareness)` — capturing diminishing returns on awareness-building
+- **Adstock on channels**: layering adstock transforms before the awareness equation
+- **Multiple geos**: add `panel={"unit": "region", "time": "week"}` with `pooling="partial"` to estimate region-varying effects
+- **Interaction terms**: awareness moderating lower-funnel effectiveness (e.g. brand awareness lifts search conversion rates) — not yet supported in pathmc's DSL, but a natural direction for future work
+
+See the [Autoregressive Panel Models](autoregressive.qmd) example for a simpler introduction to `lag()` dynamics.
+:::

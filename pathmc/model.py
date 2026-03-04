@@ -309,11 +309,28 @@ class PathModel:
     def sample(self, **kwargs: Any) -> az.InferenceData:
         """Run MCMC sampling and store the resulting InferenceData.
 
+        All keyword arguments are forwarded to ``pm.sample()``.
+
         Parameters
         ----------
+        draws : int
+            Number of posterior draws per chain (default 1000).
+        tune : int
+            Number of tuning steps per chain (default 1000).
+        chains : int
+            Number of independent chains (default: min(cores, 4)).
+        random_seed : int or array-like, optional
+            Seed(s) for reproducibility.
+        target_accept : float
+            Target acceptance rate for NUTS (default 0.8). Raise to
+            0.9–0.99 for models with divergences.
+        nuts_sampler : str
+            Which NUTS implementation to use. One of ``"pymc"`` (default),
+            ``"nutpie"``, ``"numpyro"``, or ``"blackjax"``. Alternative
+            samplers require the corresponding package to be installed
+            (``pip install nutpie``, ``pip install numpyro jax``).
         **kwargs
-            Passed directly to ``pm.sample()`` (e.g. ``draws``, ``tune``,
-            ``chains``, ``random_seed``).
+            Any other ``pm.sample()`` keyword arguments.
 
         Returns
         -------
