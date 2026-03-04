@@ -31,13 +31,13 @@ A standalone benchmark script (`benchmarks/scan_vs_conv.py`) that fits the same 
    - Variant B: scan-based estimation (hand-built `pm.Model` with `pytensor.scan`)
 
 2. **Adstock + AR**:
-   - Spec: `sales ~ adstock(spend, decay=theta) + sales_lag1`
+   - Spec: `sales ~ adstock(spend, decay=theta) + lag(sales)`
    - Same DGP but with AR(1) coefficient 0.3
    - Variant A: convolution + data column for lag (current)
    - Variant B: scan with carry for both adstock state and previous mu
 
 3. **Multi-equation**:
-   - Spec: `awareness ~ adstock(spend, decay=theta); sales ~ awareness + sales_lag1`
+   - Spec: `awareness ~ adstock(spend, decay=theta); sales ~ awareness + lag(sales)`
    - Two-equation DAG with temporal dependencies in both
    - Same two variants
 
@@ -213,7 +213,7 @@ Phase 2: Implementation
 
 Models that are panel but have no adstock or lags (e.g., `sales ~ spend` with `panel=...`) should NOT use scan. The compiler should detect whether temporal structure exists and fall back to the current flat compilation. Scan adds overhead for models that don't need it.
 
-Detection logic: a model has temporal structure if any regression term has an adstock transform OR any predictor column matches the `{var}_lag{k}` pattern where `{var}` is endogenous.
+Detection logic: a model has temporal structure if any regression term has an adstock transform OR any term has `lag_of` set (i.e., `lag(var)` in the spec).
 
 ## Risk: Teacher forcing vs. free-running
 

@@ -32,7 +32,7 @@ After tests pass, also verify:
 | M10 | Documentation              | `cd docs && quarto render` exits 0          | M9         | ✓      |
 | M11 | Bernoulli-logit Family     | `test_bernoulli.py`                         | M4         | ✓      |
 | M12 | Predictive do()            | `test_do_predictive.py`                     | M6, M11    | ✓      |
-| M13 | `add_lags()` utility       | `test_add_lags.py`                          | —          | ✓      |
+| M13 | `add_lags()` utility (deprecated — use `lag()` in spec) | `test_add_lags.py` | — | ✓ |
 | M14 | Panel fit + random intercepts | `test_panel.py`                          | M13        | ✓      |
 | M15 | Random slopes              | `test_random_slopes.py`                     | M14        | ✓      |
 | M16 | Time-forward do()          | `test_panel_do.py`                          | M13, M14   | ✓      |
@@ -278,9 +278,9 @@ Required pages:
 
 ## v0.2 Milestones — Panel Mode
 
-### M13: `add_lags()` utility
+### M13: `add_lags()` utility (deprecated — use `lag()` in spec)
 
-**Goal**: Standalone data-preprocessing helper that creates lag columns within each panel unit.
+**Goal**: Standalone data-preprocessing helper that creates lag columns within each panel unit. **Deprecated.** Use `lag(var)` in the spec instead.
 
 **Public API**: `pathmc.add_lags(df, variables, lags, panel={"unit": ..., "time": ...})`
 
@@ -330,7 +330,7 @@ Required pages:
 **Goal**: End-to-end integration tests for the full panel pipeline.
 
 **What to handle**:
-- `add_lags()` → `fit(panel=..., pooling="partial")` → `sample()` → `summary()` completes
+- `fit(panel=..., pooling="partial")` with `lag()` in spec → `sample()` → `summary()` completes
 - `do(simulate_over="time")` produces sensible ATE (correct sign for known DGP)
 - Random intercepts produce per-unit variation
 - Panel model with Bernoulli outcomes works

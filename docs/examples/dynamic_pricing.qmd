@@ -66,7 +66,7 @@ digraph {
   node [shape=box, style=rounded]
 
   price -> demand [label="  β_price"]
-  price_lag1 -> demand [label="  β_lag"]
+  "lag(price)" -> demand [label="  β_lag"]
   competitor_price -> demand
   competitor_price -> price
   season -> demand
@@ -78,7 +78,7 @@ digraph {
 The model for region $g$ at week $t$:
 
 $$
-\text{demand}_{g,t} = \alpha_g + (\beta_{\text{price}} + u_{g,\text{price}}) \cdot \text{price}_{g,t} + \beta_{\text{lag}} \cdot \text{price\_lag1}_{g,t} + \beta_{\text{comp}} \cdot \text{competitor}_{g,t} + \beta_{\text{season}} \cdot \text{season}_{g,t} + \beta_{\text{trend}} \cdot t + \varepsilon_{g,t}
+\text{demand}_{g,t} = \alpha_g + (\beta_{\text{price}} + u_{g,\text{price}}) \cdot \text{price}_{g,t} + \beta_{\text{lag}} \cdot \text{lag(price)}_{g,t} + \beta_{\text{comp}} \cdot \text{competitor}_{g,t} + \beta_{\text{season}} \cdot \text{season}_{g,t} + \beta_{\text{trend}} \cdot t + \varepsilon_{g,t}
 $$
 
 where $\alpha_g$ is a region-specific intercept and $u_{g,\text{price}}$ is a region-specific deviation in price sensitivity, both partially pooled toward population means.
@@ -231,24 +231,6 @@ This is a qualitative error that would lead to the worst possible business decis
 This is why causal inference matters for pricing. The correlation between price and demand reflects the common causes (seasonality, competitor actions) that drive both — and those common causes happen to push price and demand in the same direction.
 :::
 
-## Prepare lagged data
-
-pathmc's `add_lags()` utility creates lagged columns within each panel unit, respecting the unit-time structure.
-
-```{python}
-df = pathmc.add_lags(
-    df_raw,
-    variables=["price"],
-    lags=[1],
-    panel={"unit": "region", "time": "week"},
-)
-
-print(f"Rows before dropping NaN: {len(df)}")
-df = df.dropna().reset_index(drop=True)
-print(f"Rows after dropping NaN:  {len(df)}")
-df[["region", "week", "price", "price_lag1"]].head(8)
-```
-
 ## Specify and fit the model
 
 The spec includes the lagged price, confounders, and trend.
@@ -256,12 +238,12 @@ We use random slopes on `price` to let each region have its own price elasticity
 
 ```{python}
 spec = """
-demand ~ b_price*price + b_lag*price_lag1 + b_comp*competitor_price + b_season*season + trend
+demand ~ b_price*price + b_lag*lag(price) + b_comp*competitor_price + b_season*season + trend
 """
 
 model = pathmc.fit(
     spec,
-    data=df,
+    data=df_raw,
     panel={"unit": "region", "time": "week"},
     pooling={"intercept": True, "slopes": ["price"]},
 )
@@ -308,7 +290,7 @@ Compare this to the naive regression, which gave a positive coefficient.
 
 ```{python}
 beta_price = idata.posterior["beta_demand"].sel(demand_predictors="price").values.flatten()
-beta_lag = idata.posterior["beta_demand"].sel(demand_predictors="price_lag1").values.flatten()
+beta_lag = idata.posterior["beta_demand"].sel(demand_predictors="lag(price)").values.flatten()
 beta_comp = idata.posterior["beta_demand"].sel(demand_predictors="competitor_price").values.flatten()
 
 print(f"Price effect:      posterior mean = {beta_price.mean():.2f}  (true = {true_mu_price})")
@@ -472,7 +454,7 @@ With panel mode and `simulate_over="time"`, the simulation propagates forward th
 ### Scenario: $2 price increase for all regions
 
 ```{python}
-current_price = float(df["price"].mean())
+current_price = float(df_raw["price"].mean())
 new_price = current_price + 2.0
 
 r_baseline = model.do(
