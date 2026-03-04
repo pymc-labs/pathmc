@@ -1,0 +1,126 @@
+---
+title: "Causal Inference"
+---
+
+pathmc implements Pearl's do-operator for **interventional reasoning** and provides tools to check whether causal effects are identifiable from the DAG structure.
+
+## The do-operator
+
+The `do()` method simulates what would happen if we *intervened* to fix a variable at a specific value, severing all incoming edges to that variable in the DAG.
+Rather than conditioning on observed data ("what is Y when X happens to be 1?"), `do()` answers the causal question: "what *would* Y be if we *set* X to 1?"
+
+```python
+model.sample(draws=1000, chains=2)
+
+baseline = model.do(set={"X": 0.0})
+treatment = model.do(set={"X": 1.0})
+
+ate = treatment - baseline        # contrast arithmetic
+ate.mean("Y")                     # posterior mean of the ATE
+ate.hdi("Y", prob=0.94)           # 94% highest density interval
+```
+
+The result is a full posterior distribution over the causal effect, computed via PyMC graph surgery on the generative model.
+
+::: {.callout-note}
+## `kind="mean"` vs `kind="predictive"`
+
+- `kind="mean"` (default): propagates the expected value through the causal chain — no residual noise. Good for estimating average effects.
+- `kind="predictive"`: forward-samples through the causal chain with residual noise at each endogenous variable. Good for prediction intervals and probabilistic queries.
+:::
+
+## Causal queries
+
+pathmc provides convenience methods for common causal estimands, built on top of `do()`.
+
+### Average treatment effect
+
+`.ate()` computes the contrast between two intervention levels:
+
+```python
+ate = model.ate("Y", "X", values=(0.0, 1.0))
+ate.mean("Y")       # E[Y | do(X=1)] - E[Y | do(X=0)]
+ate.hdi("Y")        # 94% HDI of the ATE
+```
+
+### Conditional average treatment effect
+
+`.cate()` holds additional variables fixed to examine effect modification:
+
+```python
+cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": 2.0})
+cate.mean("Y")      # ATE of X on Y, with Z fixed at 2
+```
+
+### Probability queries
+
+`.prob()` computes `P(expression | do(set))` using predictive draws:
+
+```python
+model.prob("Y > 0", set={"X": 1.0})   # fraction of draws where Y > 0
+```
+
+## Standardized effects
+
+After fitting, `.standardized()` computes **stdyx-standardized coefficients** for all labeled effects:
+
+```python
+model.standardized()
+```
+
+Each coefficient is standardized as `coef × sd(X) / sd(Y)`, giving the expected change in Y (in standard deviation units) per standard deviation change in X.
+This enables comparing effect magnitudes across predictors measured on different scales.
+
+## Identification helpers
+
+Before running interventional queries, it is useful to verify whether the causal effect is identifiable from the DAG structure.
+
+### Backdoor adjustment sets
+
+`.adjustment_sets()` finds all valid backdoor adjustment sets for a treatment-outcome pair:
+
+```python
+model.adjustment_sets("X", "Y")
+# [{'Z'}] — must adjust for Z to identify the causal effect of X on Y
+```
+
+### Identifiability check
+
+`.is_identifiable()` returns `True` if at least one valid backdoor adjustment set exists:
+
+```python
+model.is_identifiable("X", "Y")  # True
+```
+
+### Collider warnings
+
+`.collider_warnings()` flags variables in a proposed adjustment set that are colliders, conditioning on which would open spurious paths:
+
+```python
+model.collider_warnings({"C"}, "X", "Y")
+# ["'C' is a collider between 'X' and 'Y'. Conditioning on it may open a spurious path..."]
+```
+
+## Causal assumptions and limitations
+
+pathmc makes causal reasoning *possible* but not *automatic*.
+The validity of any causal claim depends on assumptions that pathmc cannot verify from data alone:
+
+1. **Correct DAG structure.** The user must specify the right causal graph. A misspecified DAG (e.g., omitting a confounder) produces biased effect estimates regardless of the statistical method.
+
+2. **No unmeasured confounders.** The do-operator assumes that all common causes of the treatment and outcome are observed and included in the model.
+If there are unobserved confounders, the `do()` results are biased.
+
+3. **No model misspecification.** pathmc uses linear structural equations (with optional transforms for nonlinearity) and supports Gaussian, Bernoulli, Poisson, NegBinomial, and StudentT families. If the true data-generating process differs substantially, the model may be a poor approximation.
+
+4. **Positivity.** Interventional queries at values far outside the observed data range are extrapolations and should be interpreted with caution.
+
+pathmc provides the identification helpers above to assist with checking the backdoor criterion, but the analyst is ultimately responsible for specifying the correct DAG and defending the causal assumptions.
+
+::: {.callout-important}
+## pathmc computes; you identify
+
+The `do()` operator computes the mechanical consequence of an intervention *given* the model.
+Whether that computation has a valid causal interpretation depends entirely on the assumptions encoded in the DAG.
+Always state and defend your causal assumptions before interpreting `do()` results as causal effects.
+:::

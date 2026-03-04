@@ -1,0 +1,97 @@
+---
+title: "Panel Data"
+---
+
+pathmc supports **panel (longitudinal) data** — repeated observations of multiple units over time.
+Panel structure enables modeling temporal effects like carry-over and lagged dependencies, and borrowing strength across units via hierarchical pooling.
+
+## Preparing panel data
+
+Use `add_lags()` to create lag columns within each unit:
+
+```python
+df = pathmc.add_lags(
+    df,
+    variables=["sales", "spend"],
+    lags=[1],
+    panel={"unit": "region", "time": "week"},
+)
+```
+
+This creates `sales_lag1` and `spend_lag1` columns, correctly respecting unit boundaries (no leakage across regions).
+
+## Fitting with random intercepts
+
+Partial pooling adds a hierarchical intercept per unit, borrowing strength across units:
+
+```python
+model = pathmc.fit(
+    "sales ~ spend_lag1 + trend",
+    data=df,
+    panel={"unit": "region", "time": "week"},
+    pooling="partial",
+)
+```
+
+Each region gets its own intercept, drawn from a shared distribution: `alpha_region ~ Normal(mu_alpha, sigma_alpha)`.
+
+## Random slopes
+
+For varying effects across units, specify which predictors get random slopes:
+
+```python
+model = pathmc.fit(
+    "sales ~ spend_lag1",
+    data=df,
+    panel={"unit": "region", "time": "week"},
+    pooling={"intercept": True, "slopes": ["spend_lag1"]},
+)
+```
+
+## Time-forward simulation
+
+When a model includes temporal state — adstock transforms or lagged variables — the `do()` operator must walk through time step by step to correctly re-compute the temporal dynamics under the intervention.
+Activate this with `simulate_over="time"`:
+
+```python
+scenario = model.do(
+    set={"spend": 120},
+    simulate_over="time",
+    kind="mean",
+)
+```
+
+### Time-varying interventions
+
+The `set=` parameter accepts arrays of shape `(n_times,)` for per-time-step interventions, enabling scenarios like a temporary spend increase:
+
+```python
+import numpy as np
+
+spend_scenario = np.full(n_weeks, 100.0)
+spend_scenario[10:20] = 150.0  # boost during weeks 11-20
+
+result = model.do(
+    set={"spend": spend_scenario},
+    simulate_over="time",
+)
+```
+
+### Per-time-step results
+
+Panel `do()` results include per-time-step data accessible via `.by_time()`:
+
+```python
+contrast = scenario - baseline
+curve = contrast.by_time("sales")       # shape: (n_times, n_samples)
+mean_by_week = curve.mean(axis=1)       # posterior mean at each week
+time_labels = contrast.time_index       # the time column values
+```
+
+::: {.callout-tip}
+## When is `simulate_over="time"` needed?
+
+Not always! If your panel model has only random intercepts, random slopes, or trend terms — but no adstock transforms or lagged variables — a regular `do()` call works fine. See [Time-Forward Panel Simulation](panel_interventions.qmd) for the full explanation.
+:::
+
+See the [Cross-Sectional vs Panel DAGs](../examples/cross_sectional_vs_panel.qmd), [Difference-in-Differences](../examples/did.qmd), [Basic MMM](../examples/mmm_basic.qmd), [MMM with Mediation](../examples/mmm_mediation.qmd), and [MMM with Geo-Varying Effects](../examples/mmm_geo.qmd) examples for panel mode in action.

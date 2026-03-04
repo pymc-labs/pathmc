@@ -1,0 +1,73 @@
+---
+title: "Transforms and Families"
+---
+
+pathmc supports **named transforms with estimable parameters** directly in the DSL, and multiple outcome distribution **families** beyond the default Gaussian.
+
+## Built-in transforms
+
+Transforms are applied to predictor columns before entering the regression, with their parameters learned from data alongside the structural coefficients.
+
+| Transform | Syntax | Behaviour |
+|-----------|--------|-----------|
+| `adstock` | `adstock(x, decay=theta)` | Geometric carry-over: `y_t = x_t + decay * y_{t-1}` |
+| `logistic_saturation` | `logistic_saturation(x, lam=lam)` | Diminishing returns: `y = 1 - exp(-lam * x)` |
+
+Transform parameters get appropriate priors automatically: `decay` receives a `Beta(2, 2)` prior (constrained to (0, 1)), and `lam` receives a `HalfNormal(1)` prior (positive support).
+
+### Composability
+
+Transforms nest naturally — inner transforms are evaluated first:
+
+```python
+spec = """
+sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
+"""
+```
+
+This applies adstock carry-over first, then logistic saturation on the adstocked values.
+
+### Transforms and `do()`
+
+When you intervene on a variable that feeds into a transform, the transform is **recomputed** using the intervened value and posterior draws of the transform parameters.
+For panel models with `simulate_over="time"`, adstock accumulates correctly across time steps under the intervention.
+
+```python
+r0 = model.do(set={"tv": 10}, simulate_over="time", kind="mean")
+r1 = model.do(set={"tv": 50}, simulate_over="time", kind="mean")
+contrast = r1 - r0  # effect of increasing TV spend, accounting for adstock + saturation
+```
+
+See [Time-Forward Panel Simulation](panel_interventions.qmd) for why `simulate_over="time"` is necessary when models have adstock or lagged variables.
+
+## Distribution families
+
+Beyond the default Gaussian, pathmc supports several outcome distributions:
+
+| Family | Syntax | Link | Extra parameters |
+|--------|--------|------|-----------------|
+| Gaussian | (default) | identity | σ |
+| Bernoulli | `families={"Y": "bernoulli"}` | logit | — |
+| Poisson | `families={"Y": "poisson"}` | log | — |
+| NegBinomial | `families={"Y": "negbinomial"}` | log | dispersion α |
+| StudentT | `families={"Y": "studentt"}` | identity | degrees of freedom ν |
+
+```python
+model = pathmc.fit(
+    "click ~ ad_spend + placement",
+    data=df,
+    families={"click": "bernoulli"},
+)
+```
+
+## Posterior predictive checks
+
+After sampling, call `.predict()` to generate posterior predictive draws — a fundamental diagnostic for assessing model fit:
+
+```python
+model.sample(draws=1000, chains=2)
+idata = model.predict()
+# idata.posterior_predictive now contains simulated outcomes
+```
+
+See the [Basic MMM](../examples/mmm_basic.qmd) example for transforms, families, and PPC in action.

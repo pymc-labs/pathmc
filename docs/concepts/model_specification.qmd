@@ -1,0 +1,125 @@
+---
+title: "Model Specification"
+---
+
+pathmc is a Python package for **Bayesian path analysis** — a form of observed-variable structural equation modeling (SEM) — built on [PyMC](https://www.pymc.io).
+It lets you specify a system of structural equations using a concise, [lavaan](https://lavaan.ugent.be/)-inspired DSL, compiles them into a PyMC model, and provides tools for causal reasoning via the **do-operator**.
+
+```{mermaid}
+%%| fig-cap: "The pathmc pipeline: a spec string is parsed, compiled into a generative PyMC model, then used for estimation (`pm.observe`) and intervention (`pm.do`)."
+flowchart LR
+  A["DSL spec<br/>(~ , ~~ , :=)"] --> B["Parsed Spec + Causal DAG<br/>(networkx GraphInfo)"]
+  B --> C["Compile generative PyMC model"]
+  C --> D["pm.observe() → estimate"]
+  D --> E["pm.do() → intervene<br/>do()/ate()/cate()"]
+  B --> E
+```
+
+::: {.callout-tip collapse="true"}
+## How the generative model works
+
+pathmc uses a **generative model architecture**.
+For a mediation graph `M = aX + ε_M, Y = cX + bM + ε_Y`, the compiler emits `X` as `pm.Data`, and `M` and `Y` as free random variables wired through their structural equations.
+`pm.observe()` conditions on observed data for estimation.
+`pm.do()` replaces variables with constants for interventional reasoning — Pearl's do-operator as PyMC graph surgery.
+
+See [How pathmc Works](../how-it-works.qmd) for the full architecture walkthrough.
+:::
+
+## The DSL
+
+A pathmc specification is a multi-line string describing the structural relationships among observed variables.
+Three operators are supported:
+
+| Syntax | Meaning | Example |
+|--------|---------|---------|
+| `~`  | Regression (directed edge) | `Y ~ X1 + X2` |
+| `~~` | Residual covariance | `M1 ~~ M2` |
+| `:=` | Defined parameter | `indirect := a*b` |
+
+Statements are separated by newlines or semicolons.
+
+### Regression equations
+
+Each `lhs ~ rhs` statement declares that the left-hand variable is caused by the right-hand variables:
+
+```python
+spec = """
+M ~ a*X
+Y ~ b*M + c*X
+"""
+```
+
+- **Labeled coefficients** like `a*X` give names to regression weights, making them available for downstream calculations.
+- **Intercepts** are included by default. Suppress them with `0 +` on the right-hand side: `Y ~ 0 + X1 + X2`.
+
+### Defined parameters
+
+The `:=` operator creates derived quantities evaluated over posterior draws:
+
+```python
+spec = """
+M ~ a*X
+Y ~ b*M + c*X
+indirect := a*b
+"""
+```
+
+Here `indirect` is computed element-wise as the product of the posterior draws for `a` and `b`, giving a full posterior distribution for the indirect effect.
+
+### Residual covariance
+
+The `~~` operator declares correlated residuals between two endogenous variables:
+
+```python
+spec = """
+M1 ~ a1*T
+M2 ~ a2*T
+Y  ~ b1*M1 + b2*M2 + c*T
+M1 ~~ M2
+"""
+```
+
+Under the hood, pathmc groups `~~`-connected variables into multivariate normal blocks with an LKJ prior on the residual correlation matrix.
+
+## Directed acyclic graphs
+
+Every pathmc model defines a **DAG** (directed acyclic graph).
+Each regression `Y ~ X1 + X2` creates directed edges X1 → Y and X2 → Y.
+pathmc validates that the graph is acyclic — cyclic specifications raise an error.
+
+The DAG determines:
+
+- **Topological order**: the sequence in which variables can be computed, respecting parent → child dependencies.
+- **Exogenous vs endogenous**: variables with no parents in the DAG are exogenous (not modeled); variables with parents are endogenous (each gets a structural equation).
+
+Inspect the graph after fitting:
+
+```python
+model = pathmc.fit(spec, data=df)
+model.graph()  # Returns a graphviz Digraph
+```
+
+## Latent deterministic mediators
+
+Some causal pathways pass through variables that are not directly observed. For example, upper-funnel advertising spend may drive sales through an unobserved *brand awareness* mediator.
+
+pathmc supports **latent deterministic mediators** — unobserved endogenous variables that are fully determined by their structural equation (no residual noise). Declare them with the `latent=` parameter:
+
+```python
+model = pathmc.fit(
+    """
+    brand_awareness ~ phi*upper_spend
+    sales ~ b1*upper_spend + b2*brand_awareness
+    """,
+    data=df,
+    latent=["brand_awareness"],
+)
+```
+
+Latent mediators:
+
+- Need no data column — they are unobserved by design.
+- Get a `pm.Deterministic` (no sigma, no likelihood) in the generative model.
+- Propagate correctly through `do()` — interventions on ancestors flow through the latent node.
+- Appear with dashed borders in `model.graph()` and are annotated `[deterministic]` in `model.equations()`.
