@@ -350,3 +350,175 @@ class TestKnownDGP:
         assert hdi[0] < 15.0 < hdi[1], (
             f"True ATE 15.0 outside 94% HDI [{hdi[0]:.2f}, {hdi[1]:.2f}]"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: predictive mode with temporal state — scan adds noise post-hoc
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+class TestPredictiveModeTemporal:
+    """Verify predictive mode behaviour when temporal state is present.
+
+    The scan engine adds residual noise *after* computing the full mean
+    trajectory, so noise does not propagate through lags/adstock.  The
+    numpy engine adds noise within the time loop (per-draw correct).
+
+    For kind="mean" these engines agree; for kind="predictive" on a
+    temporal model, the scan engine should emit a warning.
+    """
+
+    def test_scan_predictive_warns_on_lag_model(self, lag_panel):
+        """scan + predictive + temporal state should warn."""
+        import warnings as w
+
+        with w.catch_warnings(record=True) as caught:
+            w.simplefilter("always")
+            lag_panel.do(
+                set={"spend": 30.0},
+                simulate_over="time",
+                kind="predictive",
+                panel_engine="scan",
+            )
+
+        user_warnings = [c for c in caught if issubclass(c.category, UserWarning)]
+        assert any("post-hoc" in str(c.message) for c in user_warnings), (
+            "Expected a warning about post-hoc noise from scan + predictive "
+            "on a model with temporal state"
+        )
+
+    def test_scan_predictive_warns_on_adstock_model(self, adstock_panel):
+        """scan + predictive + adstock should also warn."""
+        import warnings as w
+
+        with w.catch_warnings(record=True) as caught:
+            w.simplefilter("always")
+            adstock_panel.do(
+                set={"tv": 30.0},
+                simulate_over="time",
+                kind="predictive",
+                panel_engine="scan",
+            )
+
+        user_warnings = [c for c in caught if issubclass(c.category, UserWarning)]
+        assert any("post-hoc" in str(c.message) for c in user_warnings)
+
+    def test_scan_mean_no_warning_on_lag_model(self, lag_panel):
+        """scan + mean mode should NOT warn even with temporal state."""
+        import warnings as w
+
+        with w.catch_warnings(record=True) as caught:
+            w.simplefilter("always")
+            lag_panel.do(
+                set={"spend": 30.0},
+                simulate_over="time",
+                kind="mean",
+                panel_engine="scan",
+            )
+
+        post_hoc_warnings = [
+            c
+            for c in caught
+            if issubclass(c.category, UserWarning) and "post-hoc" in str(c.message)
+        ]
+        assert len(post_hoc_warnings) == 0
+
+    def test_numpy_predictive_no_warning(self, lag_panel):
+        """numpy engine should never emit the post-hoc warning."""
+        import warnings as w
+
+        with w.catch_warnings(record=True) as caught:
+            w.simplefilter("always")
+            lag_panel.do(
+                set={"spend": 30.0},
+                simulate_over="time",
+                kind="predictive",
+                panel_engine="numpy",
+            )
+
+        post_hoc_warnings = [
+            c
+            for c in caught
+            if issubclass(c.category, UserWarning) and "post-hoc" in str(c.message)
+        ]
+        assert len(post_hoc_warnings) == 0
+
+    def test_lag_predictive_by_time_variance_higher_for_numpy(self, lag_panel):
+        """numpy predictive propagates noise through lags, amplifying variance.
+
+        Because noise at time t feeds into the lag at t+1, the per-time-step
+        variance should grow over time for the numpy engine.  The scan engine's
+        post-hoc noise gives constant variance across time steps (after the
+        mean trajectory stabilises).
+        """
+        r_np = lag_panel.do(
+            set={"spend": 30.0},
+            simulate_over="time",
+            kind="predictive",
+            panel_engine="numpy",
+        )
+        r_scan = lag_panel.do(
+            set={"spend": 30.0},
+            simulate_over="time",
+            kind="predictive",
+            panel_engine="scan",
+        )
+
+        np_by_t = r_np.by_time("sales")  # (n_times, n_samples)
+        scan_by_t = r_scan.by_time("sales")
+
+        np_var_late = np_by_t[-3:].var(axis=1).mean()
+        scan_var_late = scan_by_t[-3:].var(axis=1).mean()
+
+        # numpy propagates noise through lags → higher late-time variance
+        assert np_var_late > scan_var_late * 0.9, (
+            f"Expected numpy predictive variance ({np_var_late:.4f}) to be "
+            f"at least comparable to scan ({scan_var_late:.4f}) — noise "
+            f"propagation through lags should amplify variance over time"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: input validation
+# ---------------------------------------------------------------------------
+
+
+class TestInputValidation:
+    """Validate error messages for malformed inputs."""
+
+    def test_wrong_length_array_raises(self, simple_panel):
+        """Array intervention with wrong length should raise ValueError."""
+        wrong_length = np.full(5, 30.0)  # panel has 15 time steps
+        with pytest.raises(ValueError, match="expected"):
+            simple_panel.do(
+                set={"spend": wrong_length},
+                simulate_over="time",
+                panel_engine="numpy",
+            )
+
+    def test_wrong_length_array_batched(self, simple_panel):
+        wrong_length = np.full(5, 30.0)
+        with pytest.raises(ValueError, match="expected"):
+            simple_panel.do(
+                set={"spend": wrong_length},
+                simulate_over="time",
+                panel_engine="batched",
+            )
+
+    def test_wrong_length_array_scan(self, simple_panel):
+        wrong_length = np.full(5, 30.0)
+        with pytest.raises(ValueError, match="expected"):
+            simple_panel.do(
+                set={"spend": wrong_length},
+                simulate_over="time",
+                panel_engine="scan",
+            )
+
+    def test_unknown_engine_raises(self, simple_panel):
+        with pytest.raises(ValueError, match="Unknown panel_engine"):
+            simple_panel.do(
+                set={"spend": 30.0},
+                simulate_over="time",
+                panel_engine="turbo",
+            )

@@ -323,6 +323,18 @@ def _build_transform_map(spec: Spec) -> dict[str, TransformCall]:
     return tmap
 
 
+def _validate_set_lengths(
+    set_dict: dict[str, float | np.ndarray], n_times: int
+) -> None:
+    """Raise ValueError if any array intervention has the wrong length."""
+    for var, val in set_dict.items():
+        if isinstance(val, np.ndarray) and val.shape != (n_times,):
+            raise ValueError(
+                f"set['{var}'] has shape {val.shape}, expected ({n_times},). "
+                f"Time-varying interventions must have one value per time step."
+            )
+
+
 def _resolve_set_value(val: float | np.ndarray, t_idx: int) -> float:
     """Return the intervention value at time step *t_idx*.
 
@@ -403,6 +415,8 @@ def run_panel_do(
     time_values = sorted(data_sorted[time_col].unique())
     n_units = len(units)
     n_times = len(time_values)
+
+    _validate_set_lengths(set, n_times)
 
     has_alpha = f"alpha_{graph_info.topological_order[-1]}" in stacked
 
@@ -882,18 +896,20 @@ def run_panel_do_batched(
        negligible, but for precision-sensitive work the **scan** engine
        (per-draw correct via ``pytensor.scan``) is preferred.
     """
+    if latent is None:
+        latent = frozenset()
     if set is None:
         set = {}
     if families is None:
         families = {}
-    if latent is None:
-        latent = set()
     if rng is None:
         rng = np.random.default_rng()
 
     n_units, n_times, units, time_values, data_sorted = _prepare_panel_data(
         data, panel_info
     )
+    _validate_set_lengths(set, n_times)
+
     stacked = idata.posterior.stack(sample=("chain", "draw"))
     n_samples = stacked.sizes["sample"]
 
@@ -1325,19 +1341,40 @@ def run_panel_do_scan(
 
     For ``kind="predictive"``, post-hoc noise is added independently
     at each (unit, time) point after the mean trajectory is computed.
+    This means residual noise does **not** propagate through temporal
+    dependencies (lags, adstock).  For models with autoregressive terms,
+    the numpy engine's predictive mode is more faithful because it adds
+    noise within the time loop.
     """
+    if latent is None:
+        latent = frozenset()
     if set is None:
         set = {}
     if families is None:
         families = {}
-    if latent is None:
-        latent = set()
     if rng is None:
         rng = np.random.default_rng()
 
     n_units, n_times, units, time_values, data_sorted = _prepare_panel_data(
         data, panel_info
     )
+    _validate_set_lengths(set, n_times)
+
+    transform_map = _build_transform_map(spec)
+    has_temporal_state = any(_has_adstock(tc) for tc in transform_map.values()) or any(
+        _parse_lag(v) is not None for v in graph_info.topological_order
+    )
+
+    if kind == "predictive" and has_temporal_state:
+        warnings.warn(
+            "scan engine with kind='predictive' adds residual noise post-hoc, "
+            "so noise does not propagate through temporal dependencies (lags, "
+            "adstock). For faithful predictive draws on temporal models, use "
+            "panel_engine='numpy'.",
+            UserWarning,
+            stacklevel=2,
+        )
+
     stacked = idata.posterior.stack(sample=("chain", "draw"))
     n_samples = stacked.sizes["sample"]
 
@@ -1411,6 +1448,9 @@ def run_panel_do_scan(
             for u in range(n_units):
                 for t in range(n_times):
                     mu_slice = flat[:, t, u]
+                    # Post-hoc noise: added after the full trajectory is
+                    # computed, so it does NOT feed back into temporal
+                    # carry-over (lags/adstock at t+1 use the noiseless mu).
                     if kind == "predictive" and var not in latent:
                         family = families.get(var, "gaussian")
                         all_values[var][u, t, :] = _add_residual_noise(
