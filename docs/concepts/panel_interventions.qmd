@@ -225,7 +225,7 @@ This is what `simulate_over="time"` activates.
 ::: {.callout-note collapse="true"}
 ## The same logic applies to lagged endogenous variables
 
-If your model includes `sales_lag1` as a predictor of sales (an autoregressive term), the same cascade occurs: an intervention that changes sales at time *t* changes `sales_lag1` at time *t*+1, which changes sales at *t*+1, which changes `sales_lag1` at *t*+2, and so on. See the [Cross-Sectional vs Panel DAGs](cross_sectional_vs_panel.qmd) example for a worked-through case with lagged promo effects.
+If your model includes `sales_lag1` as a predictor of sales (an autoregressive term), the same cascade occurs: an intervention that changes sales at time *t* changes `sales_lag1` at time *t*+1, which changes sales at *t*+1, which changes `sales_lag1` at *t*+2, and so on. See the [Cross-Sectional vs Panel DAGs](../examples/cross_sectional_vs_panel.qmd) example for a worked-through case with lagged promo effects.
 :::
 
 ## Seeing it in pathmc

@@ -14,8 +14,12 @@ website:
     left:
       - href: index.qmd
         text: Home
-      - href: intro.qmd
-        text: Concepts
+      - text: Concepts
+        menu:
+          - href: concepts/overview.qmd
+            text: Overview
+          - href: concepts/panel_interventions.qmd
+            text: Time-Forward Panel Simulation
       - href: how-it-works.qmd
         text: How It Works
       - href: comparison.qmd
