@@ -13,7 +13,7 @@ It combines three things that are usually separate:
 
 1. A lavaan-style formula language for specifying systems of equations
 2. Full Bayesian inference via PyMC
-3. A built-in `do()` operator that propagates posterior uncertainty through the DAG
+3. A built-in `do()` operator that uses PyMC-native graph surgery (`pm.do()`) to propagate posterior uncertainty through the DAG
 
 Other packages emphasize different parts of the causal workflow — discovery, identification, estimation of treatment effects, or quasi-experimental designs.
 The right choice depends on what stage of the analysis you're in and what assumptions you're willing to encode.
@@ -28,14 +28,14 @@ The table below compares pathmc against five packages that Python practitioners 
 | **Formula DSL** | ✅ `~` `~~` `:=` | ❌ | ❌ | ✅ lavaan-style | ❌ | ✅ R-style |
 | **Multi-equation systems** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **Residual covariance (`~~`)** | ✅ LKJ + MvNormal | ❌ | ❌ | ✅ | ❌ | ❌ |
-| **do() operator** | ✅ posterior propagation | ✅ estimation-based | ❌ | ❌ | ❌ | ❌ |
+| **do() operator** | ✅ `pm.do()` graph surgery | ✅ estimation-based | ❌ | ❌ | ❌ | ❌ |
 | **Time-forward simulation** | ✅ panel `do()` | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Transforms with estimable params** | ✅ adstock, saturation | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Panel / longitudinal data** | ✅ random intercepts + slopes | ❌ | ✅ time series focus | ❌ | ❌ | ✅ via groups |
 | **Causal identification checks** | ✅ backdoor, colliders | ✅ comprehensive | ❌ | ❌ | ❌ | ❌ |
 | **Heterogeneous treatment effects** | ✅ `cate()` | ❌ | ❌ | ❌ | ✅ core strength | ✅ via interactions |
 | **Quasi-experimental designs** | ✅ DiD via panel `do()` | ✅ DiD, IV | ✅ DiD, SC, RDD | ❌ | ✅ DML, IV | ❌ |
-| **Latent variables** | ❌ | ❌ | ❌ | ✅ CFA/SEM | ❌ | ❌ |
+| **Latent variables** | ✅ deterministic mediators | ❌ | ❌ | ✅ CFA/SEM | ❌ | ❌ |
 | **Causal discovery** | ❌ | ✅ via plugins | ❌ | ❌ | ❌ | ❌ |
 | **Posterior predictive checks** | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
 | **Standardized effects (stdyx)** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
@@ -72,8 +72,8 @@ It supports latent variables (CFA), full SEM, and fit indices (CFI, RMSEA, SRMR)
 
 **Choose semopy when** you need latent variable models (factor analysis, measurement models), frequentist estimation with ML or DWLS, or classical SEM fit indices.
 
-**Choose pathmc when** you want Bayesian inference (full posteriors, priors, posterior predictive checks), a `do()` operator for interventional queries, panel data with hierarchical structure, or transforms with estimable parameters.
-semopy gives you the SEM toolkit; pathmc gives you Bayesian path analysis with a causal simulation engine.
+**Choose pathmc when** you want Bayesian inference (full posteriors, priors, posterior predictive checks), a `do()` operator for interventional queries, panel data with hierarchical structure, transforms with estimable parameters, or latent deterministic mediators.
+semopy gives you the full SEM toolkit with measurement models; pathmc gives you Bayesian path analysis with a causal simulation engine and PyMC-native interventions.
 
 ### EconML
 
@@ -116,7 +116,7 @@ Bambi excels at one equation at a time; pathmc models the whole DAG.
 
 Being clear about limitations is as important as highlighting strengths:
 
-- **No latent variables.** pathmc is observed-variable path analysis. If you need measurement models or factor analysis, use semopy or lavaan (R).
+- **No latent factor models.** pathmc supports latent *deterministic mediators* (unobserved variables fully determined by their parents), but not measurement models, factor analysis, or CFA/SEM latent factors. For those, use semopy or lavaan (R).
 - **No causal discovery.** pathmc takes a DAG as input; it does not learn structure from data. For discovery, see [causal-learn](https://causal-learn.readthedocs.io/) or DoWhy's discovery plugins.
 - **No nonparametric estimation.** pathmc assumes parametric structural equations (linear + transforms). For flexible nonparametric effects, use EconML or BART-based approaches.
 - **No instrumental variables or front-door criterion.** Identification is currently limited to the backdoor criterion.
