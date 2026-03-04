@@ -864,6 +864,9 @@ def _compile_scan_panel(
             if base_var in init_endo and lag_col in data_sorted.columns:
                 mat = _reshape_to_panel(data_sorted, lag_col, n_units, n_times)
                 init_endo[base_var] = mat[0].astype("float64")
+            elif base_var in init_endo and base_var in data_sorted.columns:
+                mat = _reshape_to_panel(data_sorted, base_var, n_units, n_times)
+                init_endo[base_var] = mat[0].astype("float64")
 
         init_exog_lag: dict[str, np.ndarray] = {}
         for base in exog_lag_bases:

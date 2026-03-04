@@ -548,7 +548,7 @@ Full latent factor models (with measurement equations like `=~`) would require a
 
 **do() via PyMC graph surgery.** Cross-sectional `do()` uses `pm.do()` on the generative model, delegating propagation to PyMC's computation graph rather than reimplementing it in NumPy. Panel models with temporal dependencies are compiled with `pytensor.scan`, encoding the full temporal structure in the generative model.
 
-**Dual transform implementations.** Transforms must work in two contexts: the PyMC computation graph (for MCMC and cross-sectional `do()`) and numpy arrays (for panel `do()` time-forward simulation). The `Transform` base class enforces this contract.
+**Scan-native transforms.** Transforms implement a `step()` method that runs inside the `pytensor.scan` loop, maintaining state (e.g., adstock carry-over) across time steps. The same compiled model handles both estimation and interventions.
 
 **Predictable parameter naming.** Names like `beta_Y`, `sigma_M`, `alpha_sales` follow documented patterns that are stable across runs. This matters for ArviZ coordinate-based selection and for users who want to set custom priors or inspect specific parameters.
 
