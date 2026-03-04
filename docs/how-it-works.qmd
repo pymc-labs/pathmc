@@ -53,7 +53,7 @@ The public API is deliberately tiny — two functions:
 import pathmc
 
 model = pathmc.fit(spec_string, data=df, ...)   # parse → graph → compile → PathModel
-df = pathmc.add_lags(df, variables, lags, panel) # panel data preprocessing
+df = pathmc.add_lags(df, variables, lags, panel) # deprecated — use lag() in spec
 ```
 
 Everything else lives on the `PathModel` object returned by `fit()`. This keeps the import namespace clean and makes discovery easy: users explore the model, not the module.
@@ -63,7 +63,7 @@ Everything else lives on the `PathModel` object returned by `fit()`. This keeps 
 
 ```
 pathmc/
-├── __init__.py      # Exports fit() and add_lags() — nothing else
+├── __init__.py      # Exports fit() and add_lags() (deprecated) — nothing else
 ├── parse.py         # DSL → typed AST (Spec)
 ├── graph.py         # Spec → DAG (GraphInfo via NetworkX)
 ├── compile.py       # Spec + data → pm.Model (patsy + PyMC)
@@ -73,7 +73,7 @@ pathmc/
 ├── introspect.py    # graph(), equations(), priors() — pre-sampling views
 ├── transforms.py    # Transform registry (adstock, logistic_saturation)
 ├── identify.py      # Backdoor criterion, adjustment sets, collider warnings
-├── panel.py         # PanelInfo, add_lags(), panel validation
+├── panel.py         # PanelInfo, add_lags() (deprecated), panel validation
 └── exceptions.py    # ParseError, DuplicateEquationError, CycleError
 ```
 
@@ -362,24 +362,15 @@ The result is a `DoResult` — a dict of `{variable: np.ndarray}` where each arr
 
 ### Panel do()
 
-`run_panel_do()` uses NumPy-based propagation for time-forward simulation:
+When a model includes temporal dependencies — `lag()` terms or adstock transforms — the compiler emits a `pytensor.scan` loop that encodes the full temporal structure in the generative model. The scan's `step_fn` resolves lagged variables from the previous time step's simulated values and tracks adstock accumulation, so the entire temporal trajectory lives inside the PyMC computation graph.
 
-1. **Iterate** over units, then time steps within each unit.
-2. At each time step, resolve **lagged variables** from previously simulated values (e.g., `sales_lag1` at time *t* comes from `sales` at time *t - 1*).
-3. Track **adstock state** across time steps — the geometric carry-over from previous periods.
-4. Use **unit-specific** random intercepts and slopes (not averaged).
-5. Average results over units and time at the end.
+This means `pm.do()` works on panel models the same way it works on cross-sectional ones: graph surgery replaces the intervened variable, and PyMC's existing forward-sampling machinery propagates the intervention through the scan loop. The scan naturally handles:
 
-This design lets pathmc answer counterfactual questions like *"What would sales have been if we doubled ad spend in weeks 20–30?"* — the intervention propagates through lagged effects and adstock accumulation realistically.
+- **Lagged endogenous variables**: `lag(sales)` at time *t* is resolved from the simulated `sales` at *t − 1*.
+- **Adstock accumulation**: the geometric carry-over state is maintained across time steps within the scan.
+- **Unit-specific parameters**: random intercepts and slopes are indexed per unit inside the scan body.
 
-### Transform handling in do()
-
-Transforms have dual implementations:
-
-- **PyMC graph** (at compile time): tensor operations that participate in the computation graph for gradient-based sampling. These are also used by the cross-sectional `do()` since it operates on the PyMC generative model.
-- **NumPy** (at panel do() time): array operations over posterior draws for time-forward simulation outside the PyMC graph.
-
-The `Transform` base class enforces this with `apply_pymc()` and `apply_numpy()` methods. For panel `do()`, adstock tracks state via a mutable dict that persists across time steps within each unit.
+This design lets pathmc answer counterfactual questions like *"What would sales have been if we doubled ad spend in weeks 20–30?"* — the intervention propagates through lagged effects and adstock accumulation within the same compiled model used for estimation.
 
 
 ## The transform registry (`transforms.py`)
@@ -476,7 +467,7 @@ A simple dataclass holding the unit column name, time column name, and sorted un
 
 ### add_lags()
 
-A preprocessing utility that creates lag columns within each unit via `groupby().shift()`. It sorts by unit then time, validates that all required columns exist, and returns a copy with the new columns. The first *k* rows per unit contain `NaN` for lag-*k* columns — users are expected to drop these before fitting.
+**Deprecated.** Use `lag(var)` syntax directly in the spec instead. The old preprocessing utility created lag columns within each unit via `groupby().shift()`. Lags are now expressed as structural terms in the DSL (e.g., `sales ~ lag(sales) + spend`), parsed as `Term.lag_of`, and compiled into the generative model.
 
 
 ## Putting it all together
@@ -555,9 +546,9 @@ Full latent factor models (with measurement equations like `=~`) would require a
 
 **Generative model + `pm.observe` pattern.** The compiler emits a generative model with free RVs. `pm.observe()` creates the estimation model; `pm.do()` creates the intervention model. This clean separation enables both correct coefficient estimation and PyMC-native causal interventions from the same compiled model.
 
-**do() via PyMC graph surgery.** Cross-sectional `do()` uses `pm.do()` on the generative model, delegating propagation to PyMC's computation graph rather than reimplementing it in NumPy. Panel `do()` still uses NumPy propagation for time-forward simulation with lagged dependencies.
+**do() via PyMC graph surgery.** Cross-sectional `do()` uses `pm.do()` on the generative model, delegating propagation to PyMC's computation graph rather than reimplementing it in NumPy. Panel models with temporal dependencies are compiled with `pytensor.scan`, encoding the full temporal structure in the generative model.
 
-**Dual transform implementations.** Transforms must work in two contexts: the PyMC computation graph (for MCMC and cross-sectional `do()`) and numpy arrays (for panel `do()` time-forward simulation). The `Transform` base class enforces this contract.
+**Scan-native transforms.** Transforms implement a `step()` method that runs inside the `pytensor.scan` loop, maintaining state (e.g., adstock carry-over) across time steps. The same compiled model handles both estimation and interventions.
 
 **Predictable parameter naming.** Names like `beta_Y`, `sigma_M`, `alpha_sales` follow documented patterns that are stable across runs. This matters for ArviZ coordinate-based selection and for users who want to set custom priors or inspect specific parameters.
 

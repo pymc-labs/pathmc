@@ -27,7 +27,7 @@ The test files import from specific modules. These paths are **fixed**:
 
 ```
 pathmc/
-  __init__.py       # Public API exports: fit(), add_lags()
+  __init__.py       # Public API exports: fit(), add_lags() (deprecated)
   parse.py          # parse_spec(spec_string) -> Spec
   graph.py          # build_graph(spec) -> GraphInfo
   compile.py        # Compiler -> pm.Model (Gaussian, Bernoulli, Poisson, etc.)

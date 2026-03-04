@@ -12,7 +12,7 @@ pathmc has **three** panel `do()` engines in `simulate.py`:
 
 Meanwhile, the **cross-sectional** `do()` uses a fourth approach: PyMC-native graph surgery (`pm.do()` on the generative model + PPC or `compute_deterministics`). This is clean and requires no custom propagation logic.
 
-The **estimation model** (`compile.py`) uses pymc-marketing's convolution-based adstock — a vectorised `pt.signal.convolve1d` applied to the entire time series at once. No scan. No recurrence. Lags are pre-computed data columns created by `add_lags()`.
+The **estimation model** (`compile.py`) uses pymc-marketing's convolution-based adstock — a vectorised `pt.signal.convolve1d` applied to the entire time series at once. No scan. No recurrence. Lags are expressed via `lag(var)` in the spec and compiled into the model.
 
 This creates a fundamental mismatch: the estimation model "sees" the full time series as a flat vector (convolution operates on all T points simultaneously), but `do()` needs to generate *new* trajectories where each time step depends on simulated values at previous steps.
 
@@ -24,10 +24,10 @@ The three engines are a consequence of the estimation model not encoding tempora
 
 In the estimation model:
 - `adstock(spend)` is a convolution over the observed spend series → produces a vector of length N
-- `sales_lag1` is a pre-computed data column → just another `pm.Data` node
-- `mu_sales = beta_0 + beta_1 * adstock(spend) + beta_2 * sales_lag1`
+- `lag(sales)` is a structural term in the spec → compiled into the temporal model
+- `mu_sales = beta_0 + beta_1 * adstock(spend) + beta_2 * lag(sales)`
 
-When you do `pm.do(gen_model, {'spend': new_spend})`, the adstock convolution recomputes correctly over the new spend values. However, `sales_lag1` is still the **observed** lag, not the simulated one. The model has no knowledge that `sales_lag1` is the previous value of `sales` — it's just a data column.
+When you do `pm.do(gen_model, {'spend': new_spend})`, the adstock convolution recomputes correctly over the new spend values. With the old `add_lags()` approach, the lag was a pre-computed data column — the model had no knowledge that it was the previous value of `sales`. The `lag()` DSL syntax encodes this structurally.
 
 This breaks causal propagation through time. Each engine is a different workaround:
 
@@ -86,9 +86,9 @@ This is fully correct and elegant. Actually, for this case, convolution-based `p
 
 ### Autoregressive terms: the teacher-forcing question
 
-For models with lags of endogenous variables (`sales ~ spend + sales_lag1`), there's a deeper issue.
+For models with lags of endogenous variables (`sales ~ spend + lag(sales)`), there's a deeper issue.
 
-**Teacher forcing** (standard regression approach): Each time step conditions on the *observed* previous outcome. `mu_t = β₀ + β₁·spend_t + β₂·sales_{t-1}^obs`. This is what the current convolution-based estimation model does — `sales_lag1` is a pre-computed data column.
+**Teacher forcing** (standard regression approach): Each time step conditions on the *observed* previous outcome. `mu_t = β₀ + β₁·spend_t + β₂·sales_{t-1}^obs`. The old `add_lags()` approach produced pre-computed data columns for this.
 
 **Free-running** (state-space approach): Each time step conditions on the *model-predicted* previous outcome. `mu_t = β₀ + β₁·spend_t + β₂·mu_{t-1}`. This is what a scan-based generative model would produce — the carry variable feeds the previous prediction forward.
 
@@ -192,8 +192,8 @@ The original recommendation (Path B: keep convolution, promote scan engine) was 
 
 1. Take 2-3 representative panel models:
    - Adstock only: `sales ~ adstock(spend, decay)` (T=100, 5 units)
-   - Adstock + AR: `sales ~ adstock(spend, decay) + sales_lag1` (T=100, 5 units)
-   - Multi-equation: `awareness ~ adstock(spend, decay); sales ~ awareness + sales_lag1`
+   - Adstock + AR: `sales ~ adstock(spend, decay) + lag(sales)` (T=100, 5 units)
+   - Multi-equation: `awareness ~ adstock(spend, decay); sales ~ awareness + lag(sales)`
 2. Compile each with convolution (current) and with scan
 3. Compare: sampling time, ESS/second, divergences, coefficient recovery
 

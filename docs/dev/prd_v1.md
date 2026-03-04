@@ -82,7 +82,7 @@ The DSL supports **user-defined transformations with estimable parameters**, ena
 
 - Panel/longitudinal support:
   - long-format with `panel={"unit":..., "time":...}`
-  - `add_lags()` helper
+  - `add_lags()` helper (deprecated — use `lag()` in spec)
   - time-forward `do(simulate_over="time")` when time index present
   - random intercepts by unit; optional random slopes
 - Docs: at least 2 panel examples:
@@ -211,7 +211,7 @@ Weekly sales driven by advertising spend with a one-period lag, fit per unit ove
 
 ```python
 spec = """
-sales ~ sales_lag1 + spend_lag1 + trend
+sales ~ lag(sales) + lag(spend) + trend
 """
 fit = pathmc.fit(
     spec,
@@ -321,8 +321,8 @@ fit.standardized()  # stdyx-standardized coefficients
 
 - Activated by `panel={"unit": ..., "time": ...}`.
 - Data is long-format with `unit` and `time` columns.
-- Dynamics are represented via **explicit lag columns** (e.g., `sales_lag1`).
-- `add_lags()` produces lag columns within unit sorted by time.
+- Dynamics are represented via **`lag(var)` syntax** in the spec (e.g., `lag(sales)`).
+- The parser emits `Term.lag_of`; the compiler builds temporal structure (scan) from this.
 - `do(simulate_over="time")` propagates forward in time, using simulated values for lagged dependencies.
 
 ### Transformations with estimable parameters
@@ -380,7 +380,7 @@ fit.standardized()  # stdyx-standardized coefficients
 3. Design matrix builder
 4. Gaussian compiler (univariate)
 5. `do()` cross-sectional
-6. Panel indexing + `add_lags()`
+6. Panel indexing + `lag()` in spec
 7. Time-forward `do()`
 8. `~~` multivariate blocks
 9. Effects (`:=`) evaluation
@@ -421,7 +421,7 @@ The following patterns emerged from the SaaS funnel, vaccine surrogates, and dyn
 1. Cross-sectional mediation with labels + `:=` + `do()` ATE sanity
 2. Gaussian `~~` block compiles to LKJ + MvNormal; residual corr exposed
 3. Mixed families compile independently; `~~` disallowed unless enabled
-4. Panel `add_lags()` aligns within unit/time; dynamic spec remains acyclic
+4. Panel `lag()` terms align within unit/time; dynamic spec remains acyclic
 5. Time-forward `do()` propagates through lag terms
 6. Transforms with estimable parameters are constrained, appear in transform graph, and recompute under `do()`
 

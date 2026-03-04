@@ -225,7 +225,7 @@ This is what `simulate_over="time"` activates.
 ::: {.callout-note collapse="true"}
 ## The same logic applies to lagged endogenous variables
 
-If your model includes `sales_lag1` as a predictor of sales (an autoregressive term), the same cascade occurs: an intervention that changes sales at time *t* changes `sales_lag1` at time *t*+1, which changes sales at *t*+1, which changes `sales_lag1` at *t*+2, and so on. See the [Cross-Sectional vs Panel DAGs](../examples/cross_sectional_vs_panel.qmd) example for a worked-through case with lagged promo effects.
+If your model includes `lag(sales)` as a predictor of sales (an autoregressive term), the same cascade occurs: an intervention that changes sales at time *t* changes `lag(sales)` at time *t*+1, which changes sales at *t*+1, which changes `lag(sales)` at *t*+2, and so on. See the [Cross-Sectional vs Panel DAGs](../examples/cross_sectional_vs_panel.qmd) example for a worked-through case with lagged promo effects.
 :::
 
 ## Seeing it in pathmc
@@ -317,8 +317,8 @@ Three phases are visible:
 | **Random intercepts / slopes** | No — unit-level shifts, no time dependency | No |
 | **Trend term** (`week`) | No — deterministic, known at all time steps | No |
 | **Adstock transform** | **Yes** — recursive accumulation across time | **Yes** |
-| **Lagged exogenous** (`promo_lag1`) | **Yes** — previous value feeds current step | **Yes** |
-| **Lagged endogenous** (`sales_lag1`) | **Yes** — previous outcome feeds current step | **Yes** |
+| **Lagged exogenous** (`lag(promo)`) | **Yes** — previous value feeds current step | **Yes** |
+| **Lagged endogenous** (`lag(sales)`) | **Yes** — previous outcome feeds current step | **Yes** |
 
 The rule is simple: if any predictor at time *t* depends on a value computed at time *t* − 1, the intervention must walk through time in order.
 

@@ -4,8 +4,8 @@ Compares pytensor.scan-based generative models against convolution-based
 (current pathmc compiler) estimation for three representative panel DGPs:
 
 1. **Adstock only**: sales ~ adstock(spend, decay=theta)
-2. **Adstock + AR**: sales ~ adstock(spend, decay=theta) + sales_lag1
-3. **Multi-equation**: awareness ~ adstock(spend, decay=theta); sales ~ awareness + sales_lag1
+2. **Adstock + AR**: sales ~ adstock(spend, decay=theta) + lag(sales)
+3. **Multi-equation**: awareness ~ adstock(spend, decay=theta); sales ~ awareness + lag(sales)
 
 Gate criteria (from scan_unification_plan.md):
 - ≤3x slower → proceed to Phase 2
@@ -87,9 +87,18 @@ def generate_adstock_only(rng: np.random.Generator) -> pd.DataFrame:
     for uid in range(N_UNITS):
         spend = rng.uniform(0, 1, size=T)
         adstocked = _apply_adstock_numpy(spend, p["decay"])
-        sales = p["intercept"] + p["beta_spend"] * adstocked + rng.normal(0, p["sigma"], T)
+        sales = (
+            p["intercept"] + p["beta_spend"] * adstocked + rng.normal(0, p["sigma"], T)
+        )
         for t in range(T):
-            rows.append({"region": f"u{uid}", "week": t + 1, "spend": spend[t], "sales": sales[t]})
+            rows.append(
+                {
+                    "region": f"u{uid}",
+                    "week": t + 1,
+                    "spend": spend[t],
+                    "sales": sales[t],
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -109,7 +118,14 @@ def generate_adstock_ar(rng: np.random.Generator) -> pd.DataFrame:
                 + rng.normal(0, p["sigma"])
             )
         for t in range(T):
-            rows.append({"region": f"u{uid}", "week": t + 1, "spend": spend[t], "sales": sales[t]})
+            rows.append(
+                {
+                    "region": f"u{uid}",
+                    "week": t + 1,
+                    "spend": spend[t],
+                    "sales": sales[t],
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -119,10 +135,16 @@ def generate_multi_eq(rng: np.random.Generator) -> pd.DataFrame:
     for uid in range(N_UNITS):
         spend = rng.uniform(0, 1, size=T)
         adstocked = _apply_adstock_numpy(spend, p["decay"])
-        awareness = p["intercept_awareness"] + p["beta_spend"] * adstocked + rng.normal(0, p["sigma_awareness"], T)
+        awareness = (
+            p["intercept_awareness"]
+            + p["beta_spend"] * adstocked
+            + rng.normal(0, p["sigma_awareness"], T)
+        )
         sales = np.zeros(T)
         for t in range(T):
-            prev = sales[t - 1] if t > 0 else p["intercept_sales"] / (1 - p["ar1_sales"])
+            prev = (
+                sales[t - 1] if t > 0 else p["intercept_sales"] / (1 - p["ar1_sales"])
+            )
             sales[t] = (
                 p["intercept_sales"]
                 + p["beta_awareness"] * awareness[t]
@@ -130,13 +152,15 @@ def generate_multi_eq(rng: np.random.Generator) -> pd.DataFrame:
                 + rng.normal(0, p["sigma_sales"])
             )
         for t in range(T):
-            rows.append({
-                "region": f"u{uid}",
-                "week": t + 1,
-                "spend": spend[t],
-                "awareness": awareness[t],
-                "sales": sales[t],
-            })
+            rows.append(
+                {
+                    "region": f"u{uid}",
+                    "week": t + 1,
+                    "spend": spend[t],
+                    "awareness": awareness[t],
+                    "sales": sales[t],
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -146,32 +170,48 @@ def generate_multi_eq(rng: np.random.Generator) -> pd.DataFrame:
 
 
 def fit_conv_adstock_only(
-    df: pd.DataFrame, draws: int, tune: int, chains: int, seed: int,
+    df: pd.DataFrame,
+    draws: int,
+    tune: int,
+    chains: int,
+    seed: int,
 ) -> az.InferenceData:
     model = pathmc.fit("sales ~ adstock(spend, decay=theta)", data=df, panel=PANEL)
-    return model.sample(draws=draws, tune=tune, chains=chains, random_seed=seed, **SAMPLE_KWARGS)
+    return model.sample(
+        draws=draws, tune=tune, chains=chains, random_seed=seed, **SAMPLE_KWARGS
+    )
 
 
 def fit_conv_adstock_ar(
-    df: pd.DataFrame, draws: int, tune: int, chains: int, seed: int,
+    df: pd.DataFrame,
+    draws: int,
+    tune: int,
+    chains: int,
+    seed: int,
 ) -> az.InferenceData:
-    df_lag = pathmc.add_lags(df, variables=["sales"], lags=1, panel=PANEL)
-    df_lag = df_lag.dropna().reset_index(drop=True)
-    model = pathmc.fit("sales ~ adstock(spend, decay=theta) + sales_lag1", data=df_lag, panel=PANEL)
-    return model.sample(draws=draws, tune=tune, chains=chains, random_seed=seed, **SAMPLE_KWARGS)
+    model = pathmc.fit(
+        "sales ~ adstock(spend, decay=theta) + lag(sales)", data=df, panel=PANEL
+    )
+    return model.sample(
+        draws=draws, tune=tune, chains=chains, random_seed=seed, **SAMPLE_KWARGS
+    )
 
 
 def fit_conv_multi_eq(
-    df: pd.DataFrame, draws: int, tune: int, chains: int, seed: int,
+    df: pd.DataFrame,
+    draws: int,
+    tune: int,
+    chains: int,
+    seed: int,
 ) -> az.InferenceData:
-    df_lag = pathmc.add_lags(df, variables=["sales"], lags=1, panel=PANEL)
-    df_lag = df_lag.dropna().reset_index(drop=True)
     model = pathmc.fit(
-        "awareness ~ adstock(spend, decay=theta); sales ~ awareness + sales_lag1",
-        data=df_lag,
+        "awareness ~ adstock(spend, decay=theta); sales ~ awareness + lag(sales)",
+        data=df,
         panel=PANEL,
     )
-    return model.sample(draws=draws, tune=tune, chains=chains, random_seed=seed, **SAMPLE_KWARGS)
+    return model.sample(
+        draws=draws, tune=tune, chains=chains, random_seed=seed, **SAMPLE_KWARGS
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -189,8 +229,12 @@ def _panel_sort_index(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, int, in
     return sort_idx, reverse_idx, n_units, n_time
 
 
-def _sample(model: pm.Model, draws: int, tune: int, chains: int, seed: int) -> az.InferenceData:
-    kwargs = dict(draws=draws, tune=tune, chains=chains, random_seed=seed, **SAMPLE_KWARGS)
+def _sample(
+    model: pm.Model, draws: int, tune: int, chains: int, seed: int
+) -> az.InferenceData:
+    kwargs = dict(
+        draws=draws, tune=tune, chains=chains, random_seed=seed, **SAMPLE_KWARGS
+    )
     if sys.platform == "darwin":
         kwargs["mp_ctx"] = "forkserver"
     with model:
@@ -198,7 +242,11 @@ def _sample(model: pm.Model, draws: int, tune: int, chains: int, seed: int) -> a
 
 
 def fit_scan_adstock_only(
-    df: pd.DataFrame, draws: int, tune: int, chains: int, seed: int,
+    df: pd.DataFrame,
+    draws: int,
+    tune: int,
+    chains: int,
+    seed: int,
 ) -> az.InferenceData:
     sort_idx, _, n_units, n_time = _panel_sort_index(df)
     spend_sorted = df["spend"].values[sort_idx].reshape(n_units, n_time).T
@@ -229,14 +277,16 @@ def fit_scan_adstock_only(
 
 
 def fit_scan_adstock_ar(
-    df: pd.DataFrame, draws: int, tune: int, chains: int, seed: int,
+    df: pd.DataFrame,
+    draws: int,
+    tune: int,
+    chains: int,
+    seed: int,
 ) -> az.InferenceData:
-    df_lag = pathmc.add_lags(df, variables=["sales"], lags=1, panel=PANEL)
-    df_lag = df_lag.dropna().reset_index(drop=True)
-    sort_idx, _, n_units, n_time = _panel_sort_index(df_lag)
+    sort_idx, _, n_units, n_time = _panel_sort_index(df)
 
-    spend_sorted = df_lag["spend"].values[sort_idx].reshape(n_units, n_time).T
-    sales_sorted = df_lag["sales"].values[sort_idx].reshape(n_units, n_time).T
+    spend_sorted = df["spend"].values[sort_idx].reshape(n_units, n_time).T
+    sales_sorted = df["sales"].values[sort_idx].reshape(n_units, n_time).T
 
     with pm.Model() as gen_model:
         spend_data = pm.Data("spend", spend_sorted)
@@ -263,15 +313,17 @@ def fit_scan_adstock_ar(
 
 
 def fit_scan_multi_eq(
-    df: pd.DataFrame, draws: int, tune: int, chains: int, seed: int,
+    df: pd.DataFrame,
+    draws: int,
+    tune: int,
+    chains: int,
+    seed: int,
 ) -> az.InferenceData:
-    df_lag = pathmc.add_lags(df, variables=["sales"], lags=1, panel=PANEL)
-    df_lag = df_lag.dropna().reset_index(drop=True)
-    sort_idx, _, n_units, n_time = _panel_sort_index(df_lag)
+    sort_idx, _, n_units, n_time = _panel_sort_index(df)
 
-    spend_sorted = df_lag["spend"].values[sort_idx].reshape(n_units, n_time).T
-    awareness_sorted = df_lag["awareness"].values[sort_idx].reshape(n_units, n_time).T
-    sales_sorted = df_lag["sales"].values[sort_idx].reshape(n_units, n_time).T
+    spend_sorted = df["spend"].values[sort_idx].reshape(n_units, n_time).T
+    awareness_sorted = df["awareness"].values[sort_idx].reshape(n_units, n_time).T
+    sales_sorted = df["sales"].values[sort_idx].reshape(n_units, n_time).T
 
     with pm.Model() as gen_model:
         spend_data = pm.Data("spend", spend_sorted)
@@ -284,7 +336,9 @@ def fit_scan_multi_eq(
         def step(spend_t, prev_sales_mu, prev_adstock, beta_aw_, beta_sl_, decay_):
             adstock_t = spend_t + decay_ * prev_adstock
             mu_awareness_t = beta_aw_[0] + beta_aw_[1] * adstock_t
-            mu_sales_t = beta_sl_[0] + beta_sl_[1] * mu_awareness_t + beta_sl_[2] * prev_sales_mu
+            mu_sales_t = (
+                beta_sl_[0] + beta_sl_[1] * mu_awareness_t + beta_sl_[2] * prev_sales_mu
+            )
             return mu_sales_t, adstock_t, mu_awareness_t
 
         (mu_sales_all, _, mu_aw_all), _ = pytensor.scan(
@@ -298,7 +352,9 @@ def fit_scan_multi_eq(
         pm.Normal("awareness", mu=mu_aw_all, sigma=sigma_aw, shape=(n_time, n_units))
         pm.Normal("sales", mu=mu_sales_all, sigma=sigma_sl, shape=(n_time, n_units))
 
-    est_model = pm.observe(gen_model, {"awareness": awareness_sorted, "sales": sales_sorted})
+    est_model = pm.observe(
+        gen_model, {"awareness": awareness_sorted, "sales": sales_sorted}
+    )
     return _sample(est_model, draws, tune, chains, seed)
 
 
@@ -359,9 +415,9 @@ def run_benchmark(
     ess_params: list[str],
     recovery_map: dict[str, float],
 ) -> BenchmarkResult:
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  {name} — {method}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     t0 = time.perf_counter()
     idata = fit_fn(df, draws, tune, chains, seed)
@@ -377,8 +433,13 @@ def run_benchmark(
         recovery[param] = (true_val, post_mean)
 
     return BenchmarkResult(
-        name=name, method=method, wall_time_s=wall,
-        ess_bulk=ess, ess_per_sec=ess_s, divergences=divs, recovery=recovery,
+        name=name,
+        method=method,
+        wall_time_s=wall,
+        ess_bulk=ess,
+        ess_per_sec=ess_s,
+        divergences=divs,
+        recovery=recovery,
     )
 
 
@@ -417,10 +478,20 @@ def print_comparison(results: list[BenchmarkResult]) -> None:
         if conv is None or scan is None:
             continue
 
-        wall_ratio = scan.wall_time_s / conv.wall_time_s if conv.wall_time_s > 0 else float("inf")
+        wall_ratio = (
+            scan.wall_time_s / conv.wall_time_s
+            if conv.wall_time_s > 0
+            else float("inf")
+        )
 
         shared_params = set(conv.ess_per_sec) & set(scan.ess_per_sec)
-        valid_params = [p for p in shared_params if np.isfinite(conv.ess_per_sec[p]) and np.isfinite(scan.ess_per_sec[p]) and scan.ess_per_sec[p] > 0]
+        valid_params = [
+            p
+            for p in shared_params
+            if np.isfinite(conv.ess_per_sec[p])
+            and np.isfinite(scan.ess_per_sec[p])
+            and scan.ess_per_sec[p] > 0
+        ]
 
         if valid_params:
             avg_conv_ess = np.mean([conv.ess_per_sec[p] for p in valid_params])
@@ -468,33 +539,72 @@ def main() -> None:
 
     # ---- Model 1: Adstock only ----
     df1 = generate_adstock_only(rng)
-    for method, fn in [("convolution", fit_conv_adstock_only), ("scan", fit_scan_adstock_only)]:
-        results.append(run_benchmark(
-            "adstock_only", method, fn, df1,
-            args.draws, args.tune, args.chains, args.seed,
-            ess_params=ess_common, recovery_map={"theta": 0.7},
-        ))
+    for method, fn in [
+        ("convolution", fit_conv_adstock_only),
+        ("scan", fit_scan_adstock_only),
+    ]:
+        results.append(
+            run_benchmark(
+                "adstock_only",
+                method,
+                fn,
+                df1,
+                args.draws,
+                args.tune,
+                args.chains,
+                args.seed,
+                ess_params=ess_common,
+                recovery_map={"theta": 0.7},
+            )
+        )
         print_result(results[-1])
 
     # ---- Model 2: Adstock + AR ----
     df2 = generate_adstock_ar(rng)
-    for method, fn in [("convolution", fit_conv_adstock_ar), ("scan", fit_scan_adstock_ar)]:
-        results.append(run_benchmark(
-            "adstock_ar", method, fn, df2,
-            args.draws, args.tune, args.chains, args.seed,
-            ess_params=ess_common, recovery_map={"theta": 0.7},
-        ))
+    for method, fn in [
+        ("convolution", fit_conv_adstock_ar),
+        ("scan", fit_scan_adstock_ar),
+    ]:
+        results.append(
+            run_benchmark(
+                "adstock_ar",
+                method,
+                fn,
+                df2,
+                args.draws,
+                args.tune,
+                args.chains,
+                args.seed,
+                ess_params=ess_common,
+                recovery_map={"theta": 0.7},
+            )
+        )
         print_result(results[-1])
 
     # ---- Model 3: Multi-equation ----
     df3 = generate_multi_eq(rng)
-    ess_multi = ["theta", "beta_awareness", "beta_sales", "sigma_awareness", "sigma_sales"]
+    ess_multi = [
+        "theta",
+        "beta_awareness",
+        "beta_sales",
+        "sigma_awareness",
+        "sigma_sales",
+    ]
     for method, fn in [("convolution", fit_conv_multi_eq), ("scan", fit_scan_multi_eq)]:
-        results.append(run_benchmark(
-            "multi_eq", method, fn, df3,
-            args.draws, args.tune, args.chains, args.seed,
-            ess_params=ess_multi, recovery_map={"theta": 0.7},
-        ))
+        results.append(
+            run_benchmark(
+                "multi_eq",
+                method,
+                fn,
+                df3,
+                args.draws,
+                args.tune,
+                args.chains,
+                args.seed,
+                ess_params=ess_multi,
+                recovery_map={"theta": 0.7},
+            )
+        )
         print_result(results[-1])
 
     print_comparison(results)

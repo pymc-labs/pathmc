@@ -43,7 +43,7 @@ def simple_panel():
 
 @pytest.fixture(scope="class")
 def lag_panel():
-    """Temporal state via lag: sales ~ spend + sales_lag1."""
+    """Temporal state via lag() syntax: sales ~ spend + lag(sales)."""
     rng = np.random.default_rng(42)
     rows = []
     for region in ["A", "B", "C"]:
@@ -54,15 +54,8 @@ def lag_panel():
                 {"region": region, "week": week, "spend": spend, "sales": sales}
             )
     df = pd.DataFrame(rows)
-    df = pathmc.add_lags(
-        df,
-        variables=["sales"],
-        lags=1,
-        panel={"unit": "region", "time": "week"},
-    )
-    df = df.dropna().reset_index(drop=True)
     model = pathmc.fit(
-        "sales ~ spend + sales_lag1",
+        "sales ~ spend + lag(sales)",
         data=df,
         panel={"unit": "region", "time": "week"},
         pooling="partial",
@@ -171,56 +164,38 @@ class TestNoTemporalState:
 
 
 # ---------------------------------------------------------------------------
-# Tests: lag model — numpy and scan per-draw correct; batched approximate
+# Tests: lag model — scan-compiled with lag() syntax
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.slow
 class TestLagModel:
-    """sales ~ spend + sales_lag1: temporal feedback through lags."""
+    """sales ~ spend + lag(sales): temporal feedback through lag() syntax."""
 
-    def test_numpy_scan_agree_tightly(self, lag_panel):
-        """numpy and scan are both per-draw correct — should match closely."""
-        r_np = lag_panel.do(
+    def test_mean_is_finite(self, lag_panel):
+        r = lag_panel.do(
             set={"spend": 30.0},
             simulate_over="time",
             kind="mean",
-            panel_engine="numpy",
         )
-        r_scan = lag_panel.do(
-            set={"spend": 30.0},
-            simulate_over="time",
-            kind="mean",
-            panel_engine="scan",
-        )
-        assert r_np.mean("sales") == pytest.approx(r_scan.mean("sales"), abs=0.1)
+        assert np.isfinite(r.mean("sales"))
 
-    def test_batched_close_to_numpy(self, lag_panel):
-        """batched uses mean-field carry — should still be close."""
-        r_np = lag_panel.do(
-            set={"spend": 30.0},
+    def test_ate_positive(self, lag_panel):
+        ate = lag_panel.ate(
+            "sales",
+            "spend",
+            values=(10.0, 40.0),
             simulate_over="time",
-            kind="mean",
-            panel_engine="numpy",
         )
-        r_bat = lag_panel.do(
-            set={"spend": 30.0},
-            simulate_over="time",
-            kind="mean",
-            panel_engine="batched",
-        )
-        assert r_np.mean("sales") == pytest.approx(r_bat.mean("sales"), rel=0.05)
+        assert ate.mean("sales") > 0, "ATE should be positive"
 
-    def test_all_engines_ate_positive(self, lag_panel):
-        for engine in ("numpy", "batched", "scan"):
-            ate = lag_panel.ate(
-                "sales",
-                "spend",
-                values=(10.0, 40.0),
-                simulate_over="time",
-                panel_engine=engine,
-            )
-            assert ate.mean("sales") > 0, f"{engine} ATE should be positive"
+    def test_hdi_is_valid(self, lag_panel):
+        r0 = lag_panel.do(set={"spend": 10.0}, simulate_over="time", kind="mean")
+        r1 = lag_panel.do(set={"spend": 40.0}, simulate_over="time", kind="mean")
+        contrast = r1 - r0
+        hdi = contrast.hdi("sales")
+        assert len(hdi) == 2
+        assert hdi[0] < hdi[1]
 
 
 # ---------------------------------------------------------------------------
@@ -233,75 +208,38 @@ class TestAdstockModel:
     """Adstock carry-over and logistic saturation.
 
     Adstock state accumulates across time steps, making per-draw
-    propagation important.  numpy and scan are per-draw correct;
-    batched uses mean-field carry.
+    propagation important.
     """
 
-    def test_numpy_scan_agree_tightly(self, adstock_panel):
-        r_np = adstock_panel.do(
+    def test_mean_is_finite(self, adstock_panel):
+        r = adstock_panel.do(
             set={"tv": 30.0},
             simulate_over="time",
             kind="mean",
-            panel_engine="numpy",
         )
-        r_scan = adstock_panel.do(
-            set={"tv": 30.0},
+        assert np.isfinite(r.mean("sales"))
+
+    def test_ate_positive(self, adstock_panel):
+        """Doubling TV spend increases sales."""
+        ate = adstock_panel.ate(
+            "sales",
+            "tv",
+            values=(15.0, 30.0),
             simulate_over="time",
-            kind="mean",
-            panel_engine="scan",
         )
-        assert r_np.mean("sales") == pytest.approx(r_scan.mean("sales"), abs=0.1)
+        assert ate.mean("sales") > 0, "ATE should be positive"
 
-    def test_batched_close_to_numpy(self, adstock_panel):
-        r_np = adstock_panel.do(
-            set={"tv": 30.0},
+    def test_contrasts_valid(self, adstock_panel):
+        """ATE magnitude and HDI are valid."""
+        ate = adstock_panel.ate(
+            "sales",
+            "tv",
+            values=(10.0, 50.0),
             simulate_over="time",
-            kind="mean",
-            panel_engine="numpy",
         )
-        r_bat = adstock_panel.do(
-            set={"tv": 30.0},
-            simulate_over="time",
-            kind="mean",
-            panel_engine="batched",
-        )
-        assert r_np.mean("sales") == pytest.approx(r_bat.mean("sales"), rel=0.05)
-
-    def test_all_engines_ate_positive(self, adstock_panel):
-        """Doubling TV spend increases sales for all engines."""
-        for engine in ("numpy", "batched", "scan"):
-            ate = adstock_panel.ate(
-                "sales",
-                "tv",
-                values=(15.0, 30.0),
-                simulate_over="time",
-                panel_engine=engine,
-            )
-            assert ate.mean("sales") > 0, f"{engine} ATE should be positive"
-
-    def test_all_engines_contrasts_agree(self, adstock_panel):
-        """ATE magnitude should be consistent across engines.
-
-        Uses a wider spend range (10→50) to produce a large enough
-        ATE for meaningful relative comparison.
-        """
-        ates = {}
-        for engine in ("numpy", "batched", "scan"):
-            ates[engine] = adstock_panel.ate(
-                "sales",
-                "tv",
-                values=(10.0, 50.0),
-                simulate_over="time",
-                panel_engine=engine,
-            )
-
-        np_ate = ates["numpy"].mean("sales")
-        scan_ate = ates["scan"].mean("sales")
-        bat_ate = ates["batched"].mean("sales")
-
-        assert np_ate > 0
-        assert np_ate == pytest.approx(scan_ate, abs=0.15)
-        assert np_ate == pytest.approx(bat_ate, abs=0.15)
+        assert ate.mean("sales") > 0
+        hdi = ate.hdi("sales")
+        assert hdi[0] < hdi[1]
 
 
 # ---------------------------------------------------------------------------
@@ -318,27 +256,24 @@ class TestKnownDGP:
     """
 
     def test_ate_recovers_true_effect(self, simple_panel):
-        for engine in ("numpy", "batched", "scan"):
-            ate = simple_panel.ate(
-                "sales",
-                "spend",
-                values=(10.0, 40.0),
-                simulate_over="time",
-                panel_engine=engine,
-            )
-            estimated = ate.mean("sales")
-            assert estimated == pytest.approx(15.0, abs=5.0), (
-                f"{engine}: ATE={estimated:.2f}, expected ~15.0"
-            )
-
-    def test_hdi_covers_true_effect(self, simple_panel):
-        """94% HDI should contain the true ATE for at least one engine."""
         ate = simple_panel.ate(
             "sales",
             "spend",
             values=(10.0, 40.0),
             simulate_over="time",
-            panel_engine="numpy",
+        )
+        estimated = ate.mean("sales")
+        assert estimated == pytest.approx(15.0, abs=5.0), (
+            f"ATE={estimated:.2f}, expected ~15.0"
+        )
+
+    def test_hdi_covers_true_effect(self, simple_panel):
+        """94% HDI should contain the true ATE."""
+        ate = simple_panel.ate(
+            "sales",
+            "spend",
+            values=(10.0, 40.0),
+            simulate_over="time",
         )
         hdi = ate.hdi("sales", prob=0.94)
         assert hdi[0] < 15.0 < hdi[1], (
@@ -353,15 +288,7 @@ class TestKnownDGP:
 
 @pytest.mark.slow
 class TestPredictiveModeTemporal:
-    """Verify predictive mode behaviour when temporal state is present.
-
-    The scan engine adds residual noise *after* computing the full mean
-    trajectory, so noise does not propagate through lags/adstock.  The
-    numpy engine adds noise within the time loop (per-draw correct).
-
-    For kind="mean" these engines agree; for kind="predictive" on a
-    temporal model, the scan engine should emit a warning.
-    """
+    """Verify predictive mode behaviour when temporal state is present."""
 
     def test_scan_predictive_on_lag_model(self, lag_panel):
         """Predictive on a scan-compiled lag model should produce valid results."""
@@ -391,7 +318,6 @@ class TestPredictiveModeTemporal:
                 set={"spend": 30.0},
                 simulate_over="time",
                 kind="mean",
-                panel_engine="scan",
             )
 
         post_hoc_warnings = [
@@ -400,60 +326,6 @@ class TestPredictiveModeTemporal:
             if issubclass(c.category, UserWarning) and "post-hoc" in str(c.message)
         ]
         assert len(post_hoc_warnings) == 0
-
-    def test_numpy_predictive_no_warning(self, lag_panel):
-        """numpy engine should never emit the post-hoc warning."""
-        import warnings as w
-
-        with w.catch_warnings(record=True) as caught:
-            w.simplefilter("always")
-            lag_panel.do(
-                set={"spend": 30.0},
-                simulate_over="time",
-                kind="predictive",
-                panel_engine="numpy",
-            )
-
-        post_hoc_warnings = [
-            c
-            for c in caught
-            if issubclass(c.category, UserWarning) and "post-hoc" in str(c.message)
-        ]
-        assert len(post_hoc_warnings) == 0
-
-    def test_lag_predictive_by_time_variance_higher_for_numpy(self, lag_panel):
-        """numpy predictive propagates noise through lags, amplifying variance.
-
-        Because noise at time t feeds into the lag at t+1, the per-time-step
-        variance should grow over time for the numpy engine.  The scan engine's
-        post-hoc noise gives constant variance across time steps (after the
-        mean trajectory stabilises).
-        """
-        r_np = lag_panel.do(
-            set={"spend": 30.0},
-            simulate_over="time",
-            kind="predictive",
-            panel_engine="numpy",
-        )
-        r_scan = lag_panel.do(
-            set={"spend": 30.0},
-            simulate_over="time",
-            kind="predictive",
-            panel_engine="scan",
-        )
-
-        np_by_t = r_np.by_time("sales")  # (n_times, n_samples)
-        scan_by_t = r_scan.by_time("sales")
-
-        np_var_late = np_by_t[-3:].var(axis=1).mean()
-        scan_var_late = scan_by_t[-3:].var(axis=1).mean()
-
-        # numpy propagates noise through lags → higher late-time variance
-        assert np_var_late > scan_var_late * 0.9, (
-            f"Expected numpy predictive variance ({np_var_late:.4f}) to be "
-            f"at least comparable to scan ({scan_var_late:.4f}) — noise "
-            f"propagation through lags should amplify variance over time"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -471,25 +343,6 @@ class TestInputValidation:
             simple_panel.do(
                 set={"spend": wrong_length},
                 simulate_over="time",
-                panel_engine="numpy",
-            )
-
-    def test_wrong_length_array_batched(self, simple_panel):
-        wrong_length = np.full(5, 30.0)
-        with pytest.raises(ValueError, match="expected"):
-            simple_panel.do(
-                set={"spend": wrong_length},
-                simulate_over="time",
-                panel_engine="batched",
-            )
-
-    def test_wrong_length_array_scan(self, simple_panel):
-        wrong_length = np.full(5, 30.0)
-        with pytest.raises(ValueError, match="expected"):
-            simple_panel.do(
-                set={"spend": wrong_length},
-                simulate_over="time",
-                panel_engine="scan",
             )
 
     def test_unknown_engine_emits_deprecation(self, simple_panel):
@@ -505,3 +358,11 @@ class TestInputValidation:
             )
         deprecations = [c for c in caught if issubclass(c.category, DeprecationWarning)]
         assert any("deprecated" in str(c.message) for c in deprecations)
+
+    def test_lag_requires_panel(self):
+        """lag() terms without panel= should raise ValueError."""
+        rng = np.random.default_rng(42)
+        n = 50
+        df = pd.DataFrame({"X": rng.normal(size=n), "Y": rng.normal(size=n)})
+        with pytest.raises(ValueError, match="panel"):
+            pathmc.fit("Y ~ lag(X)", data=df)

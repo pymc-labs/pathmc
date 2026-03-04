@@ -1,10 +1,12 @@
-"""Gate tests for M13: add_lags() utility."""
+"""Gate tests for M13: add_lags() utility (deprecated)."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
 import pathmc
+
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 
 @pytest.fixture()
