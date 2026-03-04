@@ -885,10 +885,23 @@ def _compile_scan_panel(
         }
 
         sequences = [exog_data_nodes[k] for k in exog_keys]
+
+        def _init_carry(arr: np.ndarray) -> Any:
+            """Convert init array to tensor for scan carry state.
+
+            Uses ``pytensor.shared`` when n_units=1 to prevent PyTensor
+            from marking the unit dimension as broadcastable (static
+            shape 1), which would cause shape mismatches in the
+            gradient scan.
+            """
+            if arr.shape[0] == 1:
+                return pytensor.shared(arr, broadcastable=(False,))
+            return pt.as_tensor_variable(arr)
+
         outputs_info = (
-            [pt.as_tensor_variable(init_endo[k]) for k in endo_keys]
-            + [pt.as_tensor_variable(init_adstock[k]) for k in adstock_keys]
-            + [pt.as_tensor_variable(init_exog_lag[k]) for k in exog_lag_bases]
+            [_init_carry(init_endo[k]) for k in endo_keys]
+            + [_init_carry(init_adstock[k]) for k in adstock_keys]
+            + [_init_carry(init_exog_lag[k]) for k in exog_lag_bases]
         )
 
         # Non-sequences: all parameters

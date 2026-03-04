@@ -1,0 +1,292 @@
+---
+title: "Autoregressive Panel Models"
+description: "Model persistence and momentum with lag(Y) in a panel setting, and see how AR(1) dynamics amplify causal effects over time."
+categories: [Panel Data, Fundamentals]
+jupyter: pathmc
+---
+
+Many quantities in business and social science don't jump instantly to a new level when you change an input — they **ramp up** gradually and **decay** slowly.
+Customer engagement builds on past engagement; brand equity compounds over time; regional adoption spreads with momentum.
+
+An **AR(1) model** captures this persistence by including the lagged outcome as a predictor:
+
+$$Y_t = \beta_0 + \beta_X \cdot X_t + \rho \cdot Y_{t-1} + \varepsilon_t$$
+
+The coefficient $\rho$ controls how much of the previous period's value carries forward.
+When $0 < \rho < 1$, the system is stationary: shocks accumulate but eventually decay.
+The **long-run multiplier** of $X$ is $\beta_X / (1 - \rho)$ — often much larger than the immediate effect $\beta_X$ alone.
+
+## The causal structure
+
+```{dot}
+//| label: fig-dag
+//| fig-cap: "Autoregressive DAG. X has a direct contemporaneous effect on Y, and Y feeds back into itself through a one-period lag."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+
+  X -> Y [label="β_x"]
+  Y -> "lag(Y)" [label="", style=dashed, dir=back]
+  "lag(Y)" -> Y [label="ρ"]
+}
+```
+
+The key distinction from a static regression: a one-unit increase in $X$ at time $t$ affects $Y_t$ directly (by $\beta_X$), but also $Y_{t+1}$ (through $\rho \cdot Y_t$), $Y_{t+2}$ (through $\rho^2$), and so on.
+The total long-run effect is the geometric series $\beta_X \sum_{k=0}^{\infty} \rho^k = \beta_X / (1 - \rho)$.
+
+## Simulate data
+
+We generate a national-level time series of 50 weeks, where weekly `promotion` spend drives `engagement` with AR(1) persistence.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
+import pathmc
+
+FIG_WIDTH = 8
+FIG_HEIGHT = 4
+COLOR_EFFECT = "#2171b5"
+COLOR_HI = "#e6550d"
+COLOR_LO = "#31a354"
+COLOR_THEORY = "#756bb1"
+
+rng = np.random.default_rng(42)
+
+n_weeks = 50
+true_intercept = 2.0
+true_beta_x = 0.4
+true_rho = 0.6
+true_sigma = 0.5
+
+rows = []
+y = 0.0
+for week in range(1, n_weeks + 1):
+    promo = rng.uniform(0, 10)
+    y = true_intercept + true_beta_x * promo + true_rho * y + rng.normal(scale=true_sigma)
+    rows.append({"country": "national", "week": week, "promotion": promo, "engagement": y})
+
+df = pd.DataFrame(rows)
+
+true_longrun = true_beta_x / (1 - true_rho)
+print(f"True immediate effect: β_x = {true_beta_x}")
+print(f"True persistence:      ρ   = {true_rho}")
+print(f"True long-run effect:  β_x / (1 − ρ) = {true_longrun}")
+df.head()
+```
+
+::: {.callout-tip}
+## Immediate vs. long-run effects
+
+With $\beta_X = 0.4$ and $\rho = 0.6$, each unit of promotion spend lifts engagement by 0.4 *this week* — but the cumulative long-run effect is $0.4 / (1 - 0.6) = 1.0$.
+The AR(1) dynamics amplify the immediate effect by a factor of $1 / (1 - \rho) = 2.5\times$.
+:::
+
+## Visualise the data
+
+```{python}
+#| label: fig-engagement
+#| fig-cap: "Weekly engagement over 50 weeks. The series is persistent — high values tend to follow high values — reflecting the AR(1) structure."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.plot(df["week"], df["engagement"], color=COLOR_EFFECT, lw=1.5)
+ax.scatter(df["week"], df["engagement"], color=COLOR_EFFECT, s=15, zorder=3)
+ax.set_xlabel("Week")
+ax.set_ylabel("Engagement")
+plt.tight_layout()
+plt.show()
+```
+
+## Specify and fit the model
+
+The `lag(engagement)` term tells pathmc to include the previous period's engagement as a predictor.
+This requires panel mode so pathmc knows which column identifies time ordering.
+
+```{python}
+spec = "engagement ~ b_x*promotion + rho*lag(engagement)"
+
+model = pathmc.fit(
+    spec,
+    data=df,
+    panel={"unit": "country", "time": "week"},
+)
+```
+
+```{python}
+model.graph()
+```
+
+```{python}
+model.equations()
+```
+
+## Sample
+
+```{python}
+idata = model.sample(draws=200, tune=200, chains=4, random_seed=42)
+```
+
+## Results
+
+### Coefficient recovery
+
+```{python}
+model.summary()
+```
+
+```{python}
+model.effects_summary()
+```
+
+::: {.callout-tip}
+## Reading the results
+
+- **b_x** should be close to 0.4 (immediate effect of promotion)
+- **rho** should be close to 0.6 (persistence / AR(1) coefficient)
+:::
+
+### Long-run multiplier
+
+The long-run effect is a nonlinear function of two parameters ($\beta_X / (1 - \rho)$), so we compute it from the joint posterior to get the full uncertainty.
+
+```{python}
+#| label: fig-longrun-multiplier
+#| fig-cap: "Posterior distribution of the long-run multiplier β_x / (1 − ρ). The true value (1.0) is shown as a dashed line. The immediate effect β_x (0.4) would substantially understate the total impact."
+#| code-fold: true
+
+b_x_draws = idata.posterior["beta_engagement"].sel(engagement_predictors="promotion").values.flatten()
+rho_draws = idata.posterior["beta_engagement"].sel(engagement_predictors="lag(engagement)").values.flatten()
+longrun_draws = b_x_draws / (1 - rho_draws)
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+kde = gaussian_kde(longrun_draws)
+x_grid = np.linspace(np.percentile(longrun_draws, 1), np.percentile(longrun_draws, 99), 200)
+density = kde(x_grid)
+ax.fill_between(x_grid, density, alpha=0.25, color=COLOR_EFFECT)
+ax.plot(x_grid, density, color=COLOR_EFFECT, lw=2, label="Posterior")
+ax.axvline(true_longrun, color=COLOR_THEORY, ls="--", lw=2, label=f"True = {true_longrun:.1f}")
+ax.axvline(true_beta_x, color=COLOR_HI, ls=":", lw=2, label=f"Immediate only = {true_beta_x}")
+ax.set_xlabel("Long-run multiplier: β_x / (1 − ρ)")
+ax.set_ylabel("Density")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+## Counterfactual: ramp-up dynamics
+
+What happens to engagement over time when we set promotion to a constant level?
+With an AR(1) model, engagement doesn't jump to the long-run level instantly — it **ramps up** over several periods as the lagged effect accumulates.
+
+We compare two scenarios: low promotion (2 units) vs. high promotion (8 units).
+
+```{python}
+r_lo = model.do(set={"promotion": 2.0}, simulate_over="time", kind="mean")
+r_hi = model.do(set={"promotion": 8.0}, simulate_over="time", kind="mean")
+contrast = r_hi - r_lo
+```
+
+```{python}
+#| label: fig-rampup
+#| fig-cap: "Time profile of the causal effect of increasing promotion from 2 to 8 units. The effect ramps up over the first ~10 weeks as the AR(1) dynamics accumulate, then converges to the long-run steady state. Dashed lines show the theoretical immediate effect and long-run multiplier."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+weeks = np.arange(1, n_weeks + 1)
+engagement_by_time = contrast.by_time("engagement")
+mean_curve = engagement_by_time.mean(axis=1)
+lo = np.percentile(engagement_by_time, 3, axis=1)
+hi = np.percentile(engagement_by_time, 97, axis=1)
+
+ax.plot(weeks, mean_curve, color=COLOR_EFFECT, lw=2, label="Posterior mean")
+ax.fill_between(weeks, lo, hi, alpha=0.15, color=COLOR_EFFECT, label="94% interval")
+
+delta_x = 8.0 - 2.0
+ax.axhline(true_beta_x * delta_x, color=COLOR_HI, ls=":", lw=1.5,
+           label=f"Immediate effect = {true_beta_x * delta_x:.1f}")
+ax.axhline(true_longrun * delta_x, color=COLOR_THEORY, ls="--", lw=1.5,
+           label=f"Long-run effect = {true_longrun * delta_x:.1f}")
+
+ax.set_xlabel("Week")
+ax.set_ylabel("Incremental engagement (promo 8 − promo 2)")
+ax.legend(fontsize=8)
+ax.axhline(0, color="black", ls=":", alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+The ramp-up shape is characteristic of AR(1) dynamics:
+
+- **Week 1**: the effect equals the immediate impact $\beta_X \cdot \Delta X$
+- **Weeks 2–10**: each period adds $\rho$ times the previous period's effect
+- **Week 10+**: the effect converges to the long-run level $\frac{\beta_X}{1 - \rho} \cdot \Delta X$
+
+The **half-life** — how many periods it takes to reach half the long-run effect — is $\log(0.5) / \log(\rho) \approx$ `{python} f"{np.log(0.5) / np.log(true_rho):.1f}"` weeks for $\rho = 0.6$.
+
+## Pulse response: what happens when the input stops?
+
+A complementary view: what if promotion runs at a high level for 10 weeks, then drops to zero?
+
+```{python}
+promo_pulse = np.zeros(n_weeks)
+promo_pulse[5:15] = 8.0  # weeks 6–15
+
+promo_zero = np.zeros(n_weeks)
+
+r_pulse = model.do(set={"promotion": promo_pulse}, simulate_over="time", kind="mean")
+r_zero = model.do(set={"promotion": promo_zero}, simulate_over="time", kind="mean")
+pulse_effect = r_pulse - r_zero
+```
+
+```{python}
+#| label: fig-pulse
+#| fig-cap: "Response to a 10-week promotion pulse (weeks 6–15, shaded). The effect ramps up during the pulse as the AR(1) stock builds, then decays geometrically after the pulse ends."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+pulse_by_time = pulse_effect.by_time("engagement")
+mean_curve = pulse_by_time.mean(axis=1)
+lo = np.percentile(pulse_by_time, 3, axis=1)
+hi = np.percentile(pulse_by_time, 97, axis=1)
+
+ax.plot(weeks, mean_curve, color=COLOR_EFFECT, lw=2, label="Posterior mean")
+ax.fill_between(weeks, lo, hi, alpha=0.15, color=COLOR_EFFECT, label="94% interval")
+ax.axvspan(6, 15, alpha=0.08, color="gray", label="Promotion window")
+ax.axhline(0, color="black", ls=":", alpha=0.4)
+
+ax.set_xlabel("Week")
+ax.set_ylabel("Incremental engagement vs. no promotion")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+This is the fingerprint of AR(1) dynamics in action:
+
+- **Before the pulse** (weeks 1–5): no intervention, no effect
+- **During the pulse** (weeks 6–15): engagement ramps up as the AR(1) stock accumulates
+- **After the pulse** (weeks 16+): promotion stops, but the accumulated engagement decays gradually at rate $\rho$ per period
+
+## Summary
+
+- **`lag(Y)` in the spec** adds an autoregressive term: $Y_t$ depends on $Y_{t-1}$.
+- The **immediate effect** $\beta_X$ understates the total impact. The **long-run multiplier** $\beta_X / (1 - \rho)$ captures the full cumulative effect.
+- **`do(simulate_over="time")`** propagates interventions through the AR(1) dynamics, correctly modelling the ramp-up and decay.
+- The **half-life** $\log(0.5) / \log(\rho)$ tells you how quickly the system reaches half its long-run response.
+
+::: {.callout-note}
+## When to use AR(1) terms
+
+Consider adding `lag(Y)` when:
+
+- Your outcome exhibits **serial correlation** — high values tend to follow high values
+- Effects of inputs are known to **persist** beyond the current period (brand equity, customer habits, regional adoption)
+- You care about the **long-run vs. short-run** distinction for policy decisions
+
+If the outcome also passes through a **latent mediator** with persistence (e.g. brand awareness driving sales), see the [Brand Awareness Dynamics](mmm_awareness.qmd) example.
+:::

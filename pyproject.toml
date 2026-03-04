@@ -19,6 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
+samplers = ["nutpie", "numpyro", "jax"]
 
 [tool.setuptools.packages.find]
 include = ["pathmc*"]
