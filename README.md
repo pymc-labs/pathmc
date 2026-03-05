@@ -4,6 +4,11 @@
   <img src="docs/assets/logo.png" alt="pathmc logo" width="75%">
 </p>
 
+**Structural causal models with Bayesian estimation and interventional simulation via a concise DSL.**
+
+pathmc compiles a lavaan-inspired formula language into PyMC models.
+Specify a system of structural equations, fit with MCMC, and reason about causal effects using the do-operator.
+
 ## Setup
 
 Create the conda environment:
