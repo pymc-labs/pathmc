@@ -1,6 +1,6 @@
 # Scan + do() Unification — Implementation Plan
 
-> **Background**: See `panel_engine_unification.md` for the full analysis of why three panel engines exist and the case for unifying them via scan-based generative models.
+> **Background**: See `panel_engine_unification.md` (same directory) for the full analysis of why three panel engines exist and the case for unifying them via scan-based generative models.
 
 ## Goal
 
