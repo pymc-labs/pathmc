@@ -487,6 +487,29 @@ class PathModel:
                 "No posterior samples available. Call .sample() before .do()."
             )
 
+        if set:
+            for var, val in set.items():
+                if var not in self._data.columns:
+                    continue
+                lo = float(self._data[var].min())
+                hi = float(self._data[var].max())
+                if isinstance(val, np.ndarray):
+                    val_lo, val_hi = float(val.min()), float(val.max())
+                    out_of_range = val_lo < lo or val_hi > hi
+                    val_desc = f"[{val_lo:.2f}, {val_hi:.2f}]"
+                else:
+                    out_of_range = val < lo or val > hi
+                    val_desc = f"{val:.2f}"
+                if out_of_range:
+                    warnings.warn(
+                        f"Intervention value {val_desc} for '{var}' is outside "
+                        f"the observed data range [{lo:.2f}, {hi:.2f}]. "
+                        f"Results are extrapolations and should be interpreted "
+                        f"with caution.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+
         if simulate_over == "time":
             if self._panel_info is None:
                 raise ValueError(
