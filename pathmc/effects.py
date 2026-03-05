@@ -77,7 +77,7 @@ def extract_labeled_draws(
         for term in reg.terms:
             if term.label is not None:
                 draws = (
-                    idata.posterior[beta_name]
+                    idata.posterior[beta_name]  # type: ignore[attr-defined]
                     .sel({coord_name: term.variable})
                     .values.flatten()
                 )
@@ -297,7 +297,7 @@ def compute_path_effect(
             beta_name = f"beta_{target}"
             coord_name = f"{target}_predictors"
             draws = (
-                idata.posterior[beta_name].sel({coord_name: source}).values.flatten()
+                idata.posterior[beta_name].sel({coord_name: source}).values.flatten()  # type: ignore[attr-defined]
             )
 
         edge_draws.append(draws)

@@ -11,7 +11,7 @@ import re
 import graphviz
 
 from pathmc.graph import GraphInfo
-from pathmc.parse import Spec, TransformCall
+from pathmc.parse import Spec, Term, TransformCall
 
 _GREEK = {
     "alpha": r"\alpha",
@@ -229,7 +229,7 @@ def build_equations(spec: Spec, latent: set[str] | None = None) -> EquationList:
     return EquationList(lines, latex_lines)
 
 
-def _format_term(t: object) -> str:
+def _format_term(t: Term) -> str:
     """Format a term for equation display, including transform expressions."""
     if t.transform is not None:
         expr = _format_transform(t.transform)
@@ -286,7 +286,7 @@ def _build_equation_latex(
     return result
 
 
-def _format_term_latex(t: object) -> str:
+def _format_term_latex(t: Term) -> str:
     """Format a term as LaTeX, including transform expressions."""
     if t.transform is not None:
         expr = _format_transform_latex(t.transform)

@@ -147,7 +147,7 @@ def run_do_pymc(
     graph_info: GraphInfo,
     idata: az.InferenceData,
     data: pd.DataFrame,
-    set: dict[str, float] | None = None,
+    set: dict[str, float | np.ndarray] | None = None,
     kind: str = "mean",
     families: dict[str, str] | None = None,
 ) -> DoResult:
@@ -211,7 +211,7 @@ def run_do_pymc(
 
         do_model = pm.do(gen_model, replacements)
 
-        posterior_ds = idata.posterior
+        posterior_ds = idata.posterior  # type: ignore[attr-defined]
         if non_float_endo:
             import xarray as xr
 
@@ -220,9 +220,7 @@ def run_do_pymc(
             dummy_vars: dict[str, xr.DataArray] = {}
             for var in non_float_endo:
                 rv = do_model[var]
-                var_shape = tuple(
-                    s for s in rv.type.shape if s is not None
-                ) or (N,)
+                var_shape = tuple(s for s in rv.type.shape if s is not None) or (N,)
                 dummy = np.zeros((n_chains, n_draws, *var_shape), dtype=rv.dtype)
                 dims = ["chain", "draw"] + [
                     f"{var}_dim_{i}" for i in range(len(var_shape))
@@ -239,7 +237,7 @@ def run_do_pymc(
             posterior_ds, model=do_model, var_names=det_names, progressbar=False
         )
 
-        stacked = idata.posterior.stack(sample=("chain", "draw"))
+        stacked = idata.posterior.stack(sample=("chain", "draw"))  # type: ignore[attr-defined]
         n_samples = stacked.sizes["sample"]
         values: dict[str, np.ndarray] = {}
         for var in graph_info.topological_order:
@@ -271,7 +269,7 @@ def run_do_pymc(
     ]
     if latent_det_names:
         latent_det = pm.compute_deterministics(
-            idata.posterior,
+            idata.posterior,  # type: ignore[attr-defined]
             model=do_model,
             var_names=latent_det_names,
             progressbar=False,
@@ -279,7 +277,7 @@ def run_do_pymc(
     else:
         latent_det = None
 
-    stacked = idata.posterior.stack(sample=("chain", "draw"))
+    stacked = idata.posterior.stack(sample=("chain", "draw"))  # type: ignore[attr-defined]
     n_samples = stacked.sizes["sample"]
     values = {}
     for var in graph_info.topological_order:
@@ -366,10 +364,13 @@ def run_do_panel_unified(
             if var in graph_info.endogenous
         ]
         det = pm.compute_deterministics(
-            idata.posterior, model=do_model, var_names=det_names, progressbar=False
+            idata.posterior,  # type: ignore[attr-defined]
+            model=do_model,
+            var_names=det_names,
+            progressbar=False,
         )
 
-        stacked = idata.posterior.stack(sample=("chain", "draw"))
+        stacked = idata.posterior.stack(sample=("chain", "draw"))  # type: ignore[attr-defined]
         n_samples = stacked.sizes["sample"]
 
         values: dict[str, np.ndarray] = {}
@@ -420,7 +421,7 @@ def run_do_panel_unified(
     ]
     if latent_det_names:
         latent_det = pm.compute_deterministics(
-            idata.posterior,
+            idata.posterior,  # type: ignore[attr-defined]
             model=do_model,
             var_names=latent_det_names,
             progressbar=False,
@@ -428,7 +429,7 @@ def run_do_panel_unified(
     else:
         latent_det = None
 
-    stacked = idata.posterior.stack(sample=("chain", "draw"))
+    stacked = idata.posterior.stack(sample=("chain", "draw"))  # type: ignore[attr-defined]
     n_samples = stacked.sizes["sample"]
 
     values = {}

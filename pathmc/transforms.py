@@ -207,6 +207,7 @@ class LogisticSaturation(Transform):
         lam = params["lam"]
         return _pmm_logistic_saturation(x, lam=lam)
 
+
 REGISTRY: dict[str, Transform] = {
     "adstock": Adstock(),
     "logistic_saturation": LogisticSaturation(),
