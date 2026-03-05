@@ -35,6 +35,7 @@ from pathmc.introspect import (
 )
 from pathmc.panel import PanelInfo, build_panel_info
 from pathmc.parse import Spec, parse_spec
+from pathmc.sensitivity import SensitivityResult, compute_sensitivity
 from pathmc.simulate import (
     DoResult,
     run_do_panel_unified,
@@ -637,6 +638,98 @@ class PathModel:
         r_lo = self.do(set=set_lo, **do_kwargs)
         r_hi = self.do(set=set_hi, **do_kwargs)
         return r_hi - r_lo
+
+    def sensitivity(
+        self,
+        outcome: str,
+        treatment: str,
+        gamma_range: tuple[float, float] = (0.0, 1.0),
+        delta_range: tuple[float, float] = (0.0, 1.0),
+        n_grid: int = 20,
+        values: tuple[float, float] = (0.0, 1.0),
+        **do_kwargs: Any,
+    ) -> SensitivityResult:
+        """Assess robustness of a causal effect to unmeasured confounding.
+
+        Hypothesizes an unmeasured confounder U with effect γ on the
+        treatment and δ on the outcome. The confounding bias is γ × δ,
+        so the adjusted ATE at each grid point is::
+
+            adjusted ATE = observed ATE − γ × δ
+
+        The result includes a contour plot showing which (γ, δ)
+        combinations would overturn the causal conclusion.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name.
+        treatment : str
+            Treatment variable name.
+        gamma_range : tuple[float, float]
+            ``(min, max)`` range for γ (confounder → treatment effect).
+        delta_range : tuple[float, float]
+            ``(min, max)`` range for δ (confounder → outcome effect).
+        n_grid : int
+            Number of grid points per dimension (default 20).
+        values : tuple[float, float]
+            ``(lo, hi)`` intervention values for computing the ATE
+            (default ``(0.0, 1.0)``).
+        **do_kwargs
+            Passed to ``ate()`` and thence to ``do()``
+            (e.g. ``kind``, ``simulate_over``).
+
+        Returns
+        -------
+        SensitivityResult
+            Sensitivity analysis results with ``.plot()`` method.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.sample()``.
+        ValueError
+            If the ranges are invalid or ``n_grid < 2``.
+        """
+        if self._idata is None:
+            raise RuntimeError(
+                "No posterior samples available. Call .sample() before .sensitivity()."
+            )
+
+        all_vars = self._graph_info.exogenous | self._graph_info.endogenous
+        if treatment not in all_vars:
+            raise ValueError(
+                f"Treatment '{treatment}' not in model. "
+                f"Available variables: {sorted(all_vars)}"
+            )
+        if outcome not in all_vars:
+            raise ValueError(
+                f"Outcome '{outcome}' not in model. "
+                f"Available variables: {sorted(all_vars)}"
+            )
+
+        if gamma_range[0] >= gamma_range[1]:
+            raise ValueError(
+                f"gamma_range must be (min, max) with min < max, got {gamma_range}."
+            )
+        if delta_range[0] >= delta_range[1]:
+            raise ValueError(
+                f"delta_range must be (min, max) with min < max, got {delta_range}."
+            )
+        if n_grid < 2:
+            raise ValueError(f"n_grid must be >= 2, got {n_grid}.")
+
+        ate_result = self.ate(outcome, treatment, values=values, **do_kwargs)
+        ate_draws = ate_result._values[outcome]
+
+        return compute_sensitivity(
+            observed_ate_draws=ate_draws,
+            outcome=outcome,
+            treatment=treatment,
+            gamma_range=gamma_range,
+            delta_range=delta_range,
+            n_grid=n_grid,
+        )
 
     def prob(
         self,
