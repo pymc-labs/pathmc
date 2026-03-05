@@ -28,20 +28,23 @@ The table below compares pathmc against five packages that Python practitioners 
 | Feature | pathmc | DoWhy | CausalPy | semopy | EconML | Bambi |
 |---------|:------:|:-----:|:--------:|:------:|:------:|:-----:|
 | **Bayesian inference** | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
-| **Formula DSL** | ✅ `~` `~~` `:=` | ❌ | ❌ | ✅ lavaan-style | ❌ | ✅ R-style |
+| **Formula DSL** | ✅ `~` `~~` `:=` `X:Z` | ❌ | ❌ | ✅ lavaan-style | ❌ | ✅ R-style |
 | **Multi-equation systems** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **Residual covariance (`~~`)** | ✅ LKJ + MvNormal | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **do() operator** | ✅ `pm.do()` graph surgery | ✅ estimation-based | ❌ | ❌ | ❌ | ❌ |
 | **Time-forward simulation** | ✅ panel `do()` | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Transforms with estimable params** | ✅ adstock, saturation | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Panel / longitudinal data** | ✅ random intercepts + slopes | ❌ | ✅ time series focus | ❌ | ❌ | ✅ via groups |
-| **Causal identification checks** | ✅ backdoor, colliders | ✅ comprehensive | ❌ | ❌ | ❌ | ❌ |
+| **Causal identification checks** | ✅ backdoor, front-door, colliders | ✅ comprehensive | ❌ | ❌ | ❌ | ❌ |
+| **Sensitivity analysis** | ✅ `sensitivity()` | ✅ refutation tests | ❌ | ❌ | ❌ | ❌ |
 | **Heterogeneous treatment effects** | ✅ `cate()` | ❌ | ❌ | ❌ | ✅ core strength | ✅ via interactions |
 | **Quasi-experimental designs** | ✅ DiD via panel `do()` | ✅ DiD, IV | ✅ DiD, SC, RDD | ❌ | ✅ DML, IV | ❌ |
 | **Latent variables** | ✅ deterministic mediators | ❌ | ❌ | ✅ CFA/SEM | ❌ | ❌ |
 | **Causal discovery** | ❌ | ✅ via plugins | ❌ | ❌ | ❌ | ❌ |
 | **Posterior predictive checks** | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ |
 | **Standardized effects (stdyx)** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| **Path-specific effects** | ✅ `effect("X→M→Y")` | ❌ | ❌ | ✅ indirect effects | ❌ | ❌ |
+| **Probabilistic queries** | ✅ `prob("Y>0")` | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ## Package-by-package comparison
 
@@ -49,7 +52,7 @@ The table below compares pathmc against five packages that Python practitioners 
 
 [DoWhy](https://www.pywhy.org/dowhy/) is the most comprehensive causal inference framework in Python.
 It follows a four-step workflow — model, identify, estimate, refute — that cleanly separates the causal reasoning from the statistical estimation.
-DoWhy's identification engine is more complete than pathmc's: it implements the full do-calculus, instrumental variables, front-door criterion, and more.
+DoWhy's identification engine is more complete than pathmc's: it implements the full do-calculus, instrumental variables, and more. pathmc covers backdoor and front-door identification, but DoWhy goes further.
 
 **Choose DoWhy when** you need rigorous identification beyond the backdoor criterion, want access to many estimators (IPW, matching, IV, etc.), or need refutation tests to stress-test your estimates.
 
@@ -107,6 +110,7 @@ Bambi excels at one equation at a time; pathmc models the whole DAG.
 |----------|-----------------|
 | You have a DAG and want to estimate all paths simultaneously | **pathmc** |
 | You need to simulate counterfactual interventions through a system | **pathmc** |
+| You want to assess robustness to unmeasured confounding | **pathmc** or **DoWhy** |
 | You need rigorous identification beyond the backdoor criterion | **DoWhy** |
 | You have a natural experiment (DiD, RDD, synthetic control) | **CausalPy** |
 | You need latent variable SEM with fit indices | **semopy** |
@@ -122,7 +126,7 @@ Being clear about limitations is as important as highlighting strengths:
 - **No latent factor models.** pathmc supports latent *deterministic mediators* (unobserved variables fully determined by their parents), but not measurement models, factor analysis, or CFA/SEM latent factors. For those, use semopy or lavaan (R).
 - **No causal discovery.** pathmc takes a DAG as input; it does not learn structure from data. For discovery, see [causal-learn](https://causal-learn.readthedocs.io/) or DoWhy's discovery plugins.
 - **No nonparametric estimation.** pathmc assumes parametric structural equations (linear + transforms). For flexible nonparametric effects, use EconML or BART-based approaches.
-- **No instrumental variables or front-door criterion.** Identification is currently limited to the backdoor criterion.
+- **No instrumental variables.** Identification supports the backdoor criterion and front-door criterion (`frontdoor_identifiable()`), but not IV estimation.
 - **Linear structural equations.** While transforms (adstock, saturation) add nonlinearity in predictors, the structural equations remain linear in coefficients. For fully nonlinear structural models, you would need to write custom PyMC code.
 
 ## Complementary workflows
