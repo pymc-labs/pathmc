@@ -4,6 +4,30 @@ title: "Causal Inference"
 
 pathmc implements Pearl's do-operator for **interventional reasoning** and provides tools to check whether causal effects are identifiable from the DAG structure.
 
+## Estimand, estimator, estimate
+
+Modern causal inference — across the Pearl, potential outcomes, and epidemiology traditions — organizes the workflow into three stages:
+
+| Stage | Definition | pathmc mapping |
+|---|---|---|
+| **Estimand** | The causal quantity defined by the research question and the DAG — *what* you want to learn | A query like "What is the ATE of X on Y?" expressed via `ate()`, `cate()`, or `prob()` |
+| **Estimator** | The statistical procedure that computes the estimand from data — *how* you learn it | G-computation: fit the structural model, then forward-simulate under the intervention via `do()` |
+| **Estimate** | The numerical result | The posterior distribution in the `DoResult` returned by `do()`, `ate()`, or `cate()` |
+
+The **estimand** is determined by your research question and the causal assumptions encoded in the DAG.
+pathmc's **estimator** is [g-computation](https://en.wikipedia.org/wiki/G-computation) (Robins, 1986) — also known as the *truncated factorization formula* in Pearl's framework.
+Rather than reweighting observed data (as in IPW or matching), g-computation forward-simulates the structural model under the intervention, propagating uncertainty through the full Bayesian posterior.
+The **estimate** is the resulting posterior distribution — not a single point estimate, but a full distribution over the causal effect, with uncertainty quantified by the model.
+
+::: {.callout-tip}
+## For potential-outcomes practitioners
+
+pathmc's g-computation is the structural analog of standardization in the potential outcomes tradition.
+Under the same identification assumptions, `E[Y | do(X=1)] - E[Y | do(X=0)]` (Pearl) equals `E[Y(1) - Y(0)]` (Rubin).
+Similarly, the backdoor criterion corresponds to conditional ignorability (unconfoundedness).
+If you are coming from the DoWhy workflow, pathmc's `ate()` and `cate()` produce the same estimands — the difference is that pathmc computes them via a generative structural model rather than a generic estimator API.
+:::
+
 ## The do-operator
 
 The `do()` method simulates what would happen if we *intervened* to fix a variable at a specific value, severing all incoming edges to that variable in the DAG.
