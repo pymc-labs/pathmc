@@ -9,14 +9,17 @@ jupyter: pathmc
 
 Obviously not — the association between lighters and cancer is not causal. Smoking is the common cause: it drives both lighter-carrying and cancer risk. **Seeing** someone carry a lighter updates our beliefs about their cancer risk (because we infer they probably smoke), but **doing** — forcibly giving someone a lighter — would not change their cancer risk at all.
 
-This distinction between *conditioning* and *intervening* is the foundation of causal inference (Pearl, *Primer* §3.1–3.2). pathmc makes it concrete: filter the data to see what happens when `X = x`, or use `do(X = x)` to simulate an intervention. When confounding is present, the two give different answers.
+This distinction between *conditioning* and *intervening* is the foundation of causal inference [@pearl2016primer, §3.1–3.2]. In notation: $P(Y \mid X = x)$ tells us what we *observe* among units with a particular $X$ value, while $P(Y \mid do(X = x))$ tells us what *would happen* if we set $X$ by intervention, severing all non-causal paths into $X$.
+
+pathmc makes the distinction concrete: filter the data to see what happens when `X = x`, or use `do(X = x)` to simulate an intervention. When confounding is present, the two give different answers — and only `do()` answers the causal question.
 
 ## The confounded model
 
-A confounder `Z` causes both `X` and `Y`. The causal effect of `X` on `Y` is 0.4, but the confounded association is larger because `Z` contributes through both paths.
+A confounder `Z` causes both `X` and `Y`. The true causal effect of `X` on `Y` is 0.4, but the observed association is larger because `Z` contributes through both paths.
 
 ```{dot}
-//| fig-cap: "Confounded fork: Z causes both X and Y. The association between X and Y mixes the causal effect with confounding through Z."
+//| label: fig-confounded-fork
+//| fig-cap: "Confounded fork: Z causes both X and Y. The observed X–Y association mixes the causal effect (X → Y) with spurious correlation through Z."
 //| fig-width: 3
 digraph {
   rankdir=LR
@@ -43,23 +46,67 @@ Y = TRUE_EFFECT * X + 0.6 * Z + rng.normal(scale=0.5, size=n)
 df = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
 ```
 
-## Seeing: P(Y | X = x)
+## Seeing vs doing in the raw data
 
-Filtering the data to cases where `X` is near a target value gives us the **conditional** distribution — what we *see* among people who happen to have `X ≈ x`. This includes both the causal effect of `X` and the confounding influence of `Z`.
+Before fitting any models, we can see the confounding directly. @fig-seeing-doing-scatter shows that the slope of Y on X in the raw data (the "seeing" slope) is steeper than the true causal effect. High-X individuals tend to have high Z, which independently raises Y — inflating the apparent relationship.
 
 ```{python}
-x_low = df.query("X < -0.5")["Y"].mean()
-x_high = df.query("X > 0.5")["Y"].mean()
-print(f"E[Y | X < -0.5]: {x_low:.3f}")
-print(f"E[Y | X >  0.5]: {x_high:.3f}")
-print(f"Naive difference: {x_high - x_low:.3f}")
+#| label: fig-seeing-doing-scatter
+#| fig-cap: "Scatter of X vs Y colored by the confounder Z. The raw regression slope (gray dashed) is steeper than the true causal effect (black dashed) because high-Z observations (yellow) push both X and Y upward simultaneously."
+#| code-fold: true
+import matplotlib.pyplot as plt
+
+FIG_WIDTH = 7
+FIG_HEIGHT = 4
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+scatter = ax.scatter(X, Y, c=Z, cmap="viridis", alpha=0.4, s=15, rasterized=True)
+cbar = plt.colorbar(scatter, ax=ax, label="Confounder Z")
+
+from numpy.polynomial.polynomial import polyfit
+raw_coeffs = polyfit(X, Y, 1)
+x_range = np.linspace(X.min(), X.max(), 100)
+ax.plot(x_range, raw_coeffs[0] + raw_coeffs[1] * x_range, "--", color="gray",
+        linewidth=2, label=f"Raw slope = {raw_coeffs[1]:.2f} (seeing)")
+ax.plot(x_range, np.mean(Y) + TRUE_EFFECT * (x_range - np.mean(X)), "--", color="black",
+        linewidth=2, label=f"True causal slope = {TRUE_EFFECT} (doing)")
+
+ax.set_xlabel("X")
+ax.set_ylabel("Y")
+ax.legend(loc="upper left", fontsize=9)
+plt.tight_layout()
+plt.show()
 ```
 
-The naive difference overestimates the true causal effect of 0.4 because high-`X` individuals also tend to have high `Z`, which independently raises `Y`.
+The gap between the gray and black lines *is* confounding bias. The raw slope picks up both `X → Y` and the spurious `X ← Z → Y` path. To recover the causal effect, we need to either adjust for `Z` or use `do()`.
+
+## Seeing: P(Y | X = x)
+
+To estimate what we *see* at a particular value of $X$, we take a narrow window of observations where $X$ is close to a target value — approximating the conditional expectation $E[Y \mid X = x]$. This is purely observational: no model, no adjustment, just the data filtered to units whose $X$ happens to fall near the target.
+
+```{python}
+WINDOW = 0.2
+
+lo_mask = (df["X"] > 0.0 - WINDOW) & (df["X"] < 0.0 + WINDOW)
+hi_mask = (df["X"] > 1.0 - WINDOW) & (df["X"] < 1.0 + WINDOW)
+
+y_see_lo = df.loc[lo_mask, "Y"].mean()
+y_see_hi = df.loc[hi_mask, "Y"].mean()
+z_see_lo = df.loc[lo_mask, "Z"].mean()
+z_see_hi = df.loc[hi_mask, "Z"].mean()
+
+print(f"E[Y | X ≈ 0] = {y_see_lo:.3f}   (n = {lo_mask.sum()},  mean Z in window = {z_see_lo:.2f})")
+print(f"E[Y | X ≈ 1] = {y_see_hi:.3f}   (n = {hi_mask.sum()},  mean Z in window = {z_see_hi:.2f})")
+print(f"Seeing difference:  {y_see_hi - y_see_lo:.3f}")
+print(f"True causal effect: {TRUE_EFFECT}")
+```
+
+The seeing difference is far larger than the true causal effect of 0.4. The `mean Z in window` column reveals why: among observations where $X \approx 1$, the average $Z$ is about 1.0 — far above the population mean. Because $Z$ causes $X$ (the arrow $Z \to X$ in the DAG), selecting high-$X$ observations also selects high-$Z$ observations. And since $Z$ directly raises $Y$, the conditional mean $E[Y \mid X \approx 1]$ is inflated by the "extra" $Z$ that comes bundled with high $X$ values.
 
 ## Doing: P(Y | do(X = x))
 
-The `do()` operator performs **graph surgery**: it severs all arrows into `X` and forces it to a value. This simulates an experiment where we *assign* `X`, breaking the link between `Z` and `X`.
+The `do()` operator performs **graph surgery** [@pearl2009causality]: it severs all arrows into `X` and forces it to a value. This simulates an experiment where we *assign* `X`, breaking the link between `Z` and `X`. The post-intervention DAG has no `Z → X` edge, so `Z` no longer confounds the estimate.
 
 ```{python}
 spec = """
@@ -72,17 +119,19 @@ model.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ```{python}
-r_low = model.do(set={"X": -0.5})
-r_high = model.do(set={"X": 0.5})
+r_do_lo = model.do(set={"X": 0.0})
+r_do_hi = model.do(set={"X": 1.0})
 
-causal_contrast = r_high - r_low
-print(f"E[Y | do(X=0.5)] - E[Y | do(X=-0.5)]: {causal_contrast.mean('Y'):.3f}")
-print(f"Expected (1.0 × {TRUE_EFFECT}):                  {1.0 * TRUE_EFFECT:.3f}")
+causal_contrast = r_do_hi - r_do_lo
+print(f"E[Y | do(X=1)] - E[Y | do(X=0)]: {causal_contrast.mean('Y'):.3f}")
+print(f"True causal effect (1 × {TRUE_EFFECT}):       {1.0 * TRUE_EFFECT:.3f}")
 ```
 
-The `do()` contrast isolates the causal effect, free of confounding.
+The `do()` contrast uses the *same* 0-to-1 comparison as the seeing calculation above, but now the estimate lands on the true causal effect. Graph surgery breaks the $Z \to X$ link, so high $X$ no longer implies high $Z$ — the confounding path is severed.
 
 ## Side by side: seeing ≠ doing
+
+The `.ate()` method wraps the entire do-calculus pipeline into a single call: specify the outcome, the treatment, and two contrast values, and pathmc returns a full posterior over the causal effect. (For the full API — including conditional effects and probability queries — see [Causal Inference](../concepts/causal_inference.qmd).)
 
 ```{python}
 ate = model.ate("Y", "X", values=(0.0, 1.0))
@@ -92,17 +141,17 @@ print(f"94% HDI:                  {ate.hdi('Y', prob=0.94)}")
 
 ```{python}
 #| label: fig-seeing-vs-doing-confounded
-#| fig-cap: "Under confounding, the conditional association (seeing) overestimates the causal effect (doing). The do-operator recovers the true effect."
+#| fig-cap: "Under confounding, the conditional difference (seeing, narrow window around X=0 and X=1) overestimates the causal effect by more than 2×. The do-operator recovers the true effect of 0.4. Black dashed line marks the true DGP value."
 #| code-fold: true
-import matplotlib.pyplot as plt
 
-fig, ax = plt.subplots(figsize=(6, 3.5))
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
 causal_val = ate.mean("Y")
 causal_hdi = ate.hdi("Y", prob=0.94)
+seeing_diff = y_see_hi - y_see_lo
 
 ax.errorbar(
-    x_high - x_low, 1,
+    seeing_diff, 1,
     fmt="s", color="C3", markersize=8, label="Seeing (conditional difference)",
 )
 ax.errorbar(
@@ -112,17 +161,16 @@ ax.errorbar(
 )
 ax.axvline(TRUE_EFFECT, color="black", linestyle="--", label=f"True causal effect ({TRUE_EFFECT})")
 ax.set_yticks([0, 1])
-ax.set_yticklabels(["do(X=1) - do(X=0)", "E[Y|X>0.5] - E[Y|X<-0.5]"])
+ax.set_yticklabels(["do(X=1) − do(X=0)", "E[Y|X≈1] − E[Y|X≈0]"])
 ax.set_xlabel("Effect of X on Y")
 ax.legend(loc="best", fontsize=9)
-ax.set_title("Confounded: seeing ≠ doing")
 plt.tight_layout()
 plt.show()
 ```
 
 ## When seeing = doing: no confounding
 
-If `X` is **randomized** (no common cause with `Y`), there is no confounding and the conditional association *equals* the causal effect. The `do()` operator becomes redundant — but it doesn't hurt.
+If `X` is **randomized** (no common cause with `Y`), there is no confounding and the observational association *equals* the causal effect. The `do()` operator becomes redundant — but it doesn't hurt. This is the experimental ideal: random assignment makes the association causal by design.
 
 ```{python}
 X_rand = rng.normal(size=n)
@@ -136,31 +184,33 @@ model_rand = pathmc.fit("Y ~ X", data=df_rand)
 model_rand.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
+Without confounding, the regression slope of Y on X — the "seeing" estimate that uses all the data — should match the do-operator ATE. Both should recover the true causal effect.
+
 ```{python}
-x_low_rand = df_rand.query("X < -0.5")["Y"].mean()
-x_high_rand = df_rand.query("X > 0.5")["Y"].mean()
-print(f"Seeing  (conditional): {x_high_rand - x_low_rand:.3f}")
+from numpy.polynomial.polynomial import polyfit as polyfit_rand
+seeing_slope = polyfit_rand(X_rand, Y_rand, 1)[1]
 
 ate_rand = model_rand.ate("Y", "X", values=(0.0, 1.0))
+print(f"Seeing  (OLS slope):   {seeing_slope:.3f}")
 print(f"Doing   (do-operator): {ate_rand.mean('Y'):.3f}")
 print(f"True effect:           {TRUE_EFFECT}")
 ```
 
-Without confounding, both approaches converge to the same answer.
+Both estimates land on the true effect. When $X$ is randomized, there is no confounding path to inflate or deflate the association — the conditional relationship *is* the causal relationship.
 
 ```{python}
 #| label: fig-seeing-vs-doing-unconfounded
-#| fig-cap: "Without confounding (randomized X), the conditional association and the do-operator agree — both recover the true causal effect."
+#| fig-cap: "Without confounding (randomized X), the OLS slope and the do-operator agree — both recover the true causal effect of 0.4."
 #| code-fold: true
 
-fig, ax = plt.subplots(figsize=(6, 3.5))
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
 rand_val = ate_rand.mean("Y")
 rand_hdi = ate_rand.hdi("Y", prob=0.94)
 
 ax.errorbar(
-    x_high_rand - x_low_rand, 1,
-    fmt="s", color="C1", markersize=8, label="Seeing (conditional difference)",
+    seeing_slope, 1,
+    fmt="s", color="C1", markersize=8, label="Seeing (OLS slope)",
 )
 ax.errorbar(
     rand_val, 0,
@@ -169,10 +219,9 @@ ax.errorbar(
 )
 ax.axvline(TRUE_EFFECT, color="black", linestyle="--", label=f"True causal effect ({TRUE_EFFECT})")
 ax.set_yticks([0, 1])
-ax.set_yticklabels(["do(X=1) - do(X=0)", "E[Y|X>0.5] - E[Y|X<-0.5]"])
+ax.set_yticklabels(["do(X=1) − do(X=0)", "OLS slope"])
 ax.set_xlabel("Effect of X on Y")
 ax.legend(loc="best", fontsize=9)
-ax.set_title("Unconfounded: seeing = doing")
 plt.tight_layout()
 plt.show()
 ```
@@ -180,9 +229,9 @@ plt.show()
 ## Summary
 
 - **Seeing** is conditioning: $P(Y \mid X = x)$. It reflects associations in the data, which can include confounding.
-- **Doing** is intervening: $P(Y \mid do(X = x))$. It simulates an experiment by severing all non-causal paths into $X$.
-- **When confounding is present**, seeing ≠ doing. The conditional association overestimates (or underestimates) the true causal effect.
-- **When $X$ is randomized** (no confounders), seeing = doing. The association *is* the causal effect.
+- **Doing** is intervening: $P(Y \mid do(X = x))$. It simulates an experiment by severing all non-causal paths into $X$ [@pearl2016primer, §3.1].
+- **When confounding is present**, seeing ≠ doing. The scatter plot (@fig-seeing-doing-scatter) makes this visible: the raw regression slope conflates causation and confounding.
+- **When $X$ is randomized** (no confounders), seeing = doing. The association *is* the causal effect — this is why randomized experiments are the gold standard [@pearl2018why, Ch. 4].
 - **pathmc's `do()` operator** automates graph surgery, giving you the interventional distribution without manual adjustment reasoning.
 - **The practical question**: "Would changing $X$ change $Y$?" is answered by `do()`, not by filtering the data.
 

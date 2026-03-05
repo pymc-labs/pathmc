@@ -7,14 +7,38 @@ jupyter: pathmc
 
 A company wants to know whether its advertising causes sales, but an unmeasured confounder — say, seasonal demand — drives both ad spending and sales. With no way to measure the confounder, the backdoor criterion fails. Is identification hopeless?
 
-Not necessarily. If advertising affects sales *through a measurable mediator* (say, website visits), and that mediator is not directly confounded with sales, Pearl's **front-door criterion** (*Primer* §3.4) provides an alternative path to identification.
+Not necessarily. If advertising affects sales *through a measurable mediator* (say, website visits), and that mediator is not directly confounded with sales, Pearl's **front-door criterion** [@pearl2016primer, §3.4] provides an alternative path to identification.
 
-This is the idea behind the classic smoking → tar → cancer example: even when we cannot measure the genetic confounder linking smoking and cancer, the mediator (tar deposits) enables identification of the causal effect.
+```{dot}
+//| label: fig-front-door-example
+//| fig-cap: "The advertising scenario as a front-door structure. Seasonal demand (unobserved) confounds ad spend and sales, but website visits mediate the full causal effect of advertising, enabling identification."
+//| fig-width: 5
+//| fig-height: 2
+//| code-fold: true
+digraph {
+  rankdir=LR
+  node [shape=box, style="rounded,filled", fillcolor="lightyellow", fontname="Helvetica"]
+  seasonal_demand [label="Seasonal\ndemand", style="dashed,rounded", fillcolor="white"]
+  ad_spend [label="Ad spend"]
+  website_visits [label="Website\nvisits"]
+  sales [label="Sales"]
+
+  seasonal_demand -> ad_spend
+  seasonal_demand -> sales
+  ad_spend -> website_visits
+  website_visits -> sales
+}
+```
+
+This is the idea behind the classic smoking → tar → cancer example [@pearl2018why, Ch. 7]: even when we cannot measure the genetic confounder linking smoking and cancer, the mediator (tar deposits) enables identification of the causal effect. The front-door criterion is narrower than the backdoor criterion — it requires a specific DAG structure — but when it applies, it recovers the causal effect despite unmeasured confounding.
 
 ## The causal structure
 
+The front-door structure has four key features: an unobserved confounder `U` that blocks backdoor identification, and a mediator `M` that carries the entire causal effect from `X` to `Y`.
+
 ```{dot}
-//| fig-cap: "Front-door structure: the unobserved confounder U blocks backdoor identification, but the mediator M satisfies the front-door criterion. Dashed node indicates U is unobserved."
+//| label: fig-front-door-dag
+//| fig-cap: "Front-door structure: the unobserved confounder U (dashed) blocks backdoor identification of X → Y. But the mediator M satisfies the front-door criterion, enabling identification through the X → M → Y path."
 //| fig-width: 4
 digraph {
   rankdir=LR
@@ -26,7 +50,7 @@ digraph {
 }
 ```
 
-Three features make the front-door criterion work:
+Three conditions make the front-door criterion work [@pearl2009causality]:
 
 1. `X → M` is unconfounded (no backdoor path from `X` to `M`)
 2. `M → Y` is confounded by `U`, but `X` blocks all backdoor paths from `M` to `Y`
@@ -36,7 +60,7 @@ In practice, pathmc handles this as a **mediation analysis**: we estimate the `X
 
 ## Simulate data
 
-We generate data with a known confounding structure. The true causal effect of `X` on `Y` (through `M`) is `a × b = 0.6 × 0.5 = 0.3`.
+We generate data with a known confounding structure. The true causal effect of `X` on `Y` (through `M`) is `a × b = 0.6 × 0.5 = 0.3`. The confounder `U` inflates the naive `X → Y` association.
 
 ```{python}
 import numpy as np
@@ -60,6 +84,41 @@ df.head()
 
 Notice that `U` is **not** in the DataFrame — it is unobserved.
 
+## The confounding problem, visualized
+
+@fig-front-door-scatter shows why a naive analysis fails. The scatter of `X` vs `Y` has a steep slope because the confounder `U` pushes both variables in the same direction. The true causal effect (0.3) is much weaker than the observed association.
+
+```{python}
+#| label: fig-front-door-scatter
+#| fig-cap: "X vs Y colored by the unobserved confounder U. The raw regression slope (gray dashed) is steeper than the true causal effect (black dashed) because U inflates both X and Y. Recovering the true slope requires the front-door criterion."
+#| code-fold: true
+import matplotlib.pyplot as plt
+from numpy.polynomial.polynomial import polyfit
+
+FIG_WIDTH = 7
+FIG_HEIGHT = 4
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+scatter = ax.scatter(X, Y, c=U, cmap="viridis", alpha=0.4, s=15, rasterized=True)
+cbar = plt.colorbar(scatter, ax=ax, label="Confounder U (unobserved)")
+
+raw_coeffs = polyfit(X, Y, 1)
+x_range = np.linspace(X.min(), X.max(), 100)
+ax.plot(x_range, raw_coeffs[0] + raw_coeffs[1] * x_range, "--", color="gray",
+        linewidth=2, label=f"Raw slope = {raw_coeffs[1]:.2f} (confounded)")
+ax.plot(x_range, np.mean(Y) + TRUE_INDIRECT * (x_range - np.mean(X)), "--", color="black",
+        linewidth=2, label=f"True causal slope = {TRUE_INDIRECT} (front-door)")
+
+ax.set_xlabel("X")
+ax.set_ylabel("Y")
+ax.legend(loc="upper left", fontsize=9)
+plt.tight_layout()
+plt.show()
+```
+
+The gap between the gray and black lines is pure confounding through `U`. A naive regression would estimate the gray slope; the front-door criterion recovers the black one.
+
 ## The naive approach fails
 
 A naive regression of `Y` on `X` (ignoring both the mediator and the confounder) gives a biased estimate because the backdoor path `X ← U → Y` is open.
@@ -67,7 +126,6 @@ A naive regression of `Y` on `X` (ignoring both the mediator and the confounder)
 ```{python}
 naive = pathmc.fit("Y ~ b_naive*X", data=df)
 naive.sample(draws=500, tune=500, chains=4, random_seed=42)
-naive.effects_summary()
 ```
 
 ```{python}
@@ -85,7 +143,7 @@ The key insight: even though `U` confounds `X → Y`, the two sub-paths are sepa
 - **`X → M`**: `X` is the only cause of `M` in the DAG, so the `X → M` coefficient is unconfounded.
 - **`M → Y`**: `U` confounds this path, but conditioning on `X` blocks the backdoor `M ← X ← U → Y`. Since `X` is observed, the `M → Y` coefficient *conditional on X* is identified.
 
-The total causal effect is the product of these two identified coefficients.
+The total causal effect is the product of these two identified coefficients: `a × b`.
 
 ```{python}
 spec = """
@@ -123,28 +181,34 @@ model.effects_summary()
 
 The `indirect` parameter (`a × b`) recovers the true causal effect without observing `U`.
 
-## do-operator confirmation
-
-The `do()` operator provides an independent check: intervening on `X` severs all incoming arrows (including from `U`), and the effect propagates through `M` to `Y`.
-
 ```{python}
-ate = model.ate("Y", "X", values=(0.0, 1.0))
-print(f"Front-door ATE: {ate.mean('Y'):.3f}  (true = {TRUE_INDIRECT:.1f})")
-print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
+effects = model.effects_summary()
+fd_mean = effects.loc["indirect", "mean"]
+fd_hdi_low = effects.loc["indirect", "hdi_3%"]
+fd_hdi_high = effects.loc["indirect", "hdi_97%"]
+print(f"Front-door indirect (a×b): {fd_mean:.3f}  (true = {TRUE_INDIRECT:.1f})")
+print(f"94% HDI:                   [{fd_hdi_low:.3f}, {fd_hdi_high:.3f}]")
 ```
+
+::: {.callout-warning}
+## Why not use `model.ate("Y", "X")` here?
+
+The `do(X)` operator performs graph surgery on the structural equations *as written*. Because the spec includes `X` in the `Y` equation (`Y ~ b*M + X`), `do(X)` propagates the intervention through *both* the mediated path (`X → M → Y`) and the `X` coefficient in the `Y` equation. But that `X` coefficient is not a causal effect — it is a confounding proxy for `U`, included only to block the backdoor path from `M` to `Y`. The `do()` operator cannot distinguish adjustment variables from causal arrows.
+
+For the front-door criterion, the correct estimate is the **defined parameter** `indirect := a*b`, which computes the product of the two identified path coefficients. This is the front-door formula applied directly. See [Causal Inference](../concepts/causal_inference.qmd) for more on the `do()` API and when it applies.
+:::
 
 ## Comparing approaches
 
+@fig-front-door-comparison summarizes the core result: the naive regression overshoots because of confounding, while the front-door indirect effect `a × b` recovers the true causal effect.
+
 ```{python}
 #| label: fig-front-door-comparison
-#| fig-cap: "The naive regression (confounded) overestimates the causal effect. The front-door mediation model recovers the true effect despite the unobserved confounder."
+#| fig-cap: "Naive regression vs front-door indirect effect. The naive estimate (confounded by U) overestimates the causal effect. The front-door mediation model recovers the true effect of 0.3 via the indirect path a × b. Black dashed line marks the true DGP value."
 #| code-fold: true
-import matplotlib.pyplot as plt
 
-fig, ax = plt.subplots(figsize=(6, 3.5))
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
-fd_val = ate.mean("Y")
-fd_hdi = ate.hdi("Y", prob=0.94)
 naive_val = naive_ate.mean("Y")
 naive_hdi = naive_ate.hdi("Y", prob=0.94)
 
@@ -154,23 +218,22 @@ ax.errorbar(
     fmt="o", color="C3", capsize=5, label="Naive (confounded)",
 )
 ax.errorbar(
-    fd_val, 0,
-    xerr=[[fd_val - fd_hdi[0]], [fd_hdi[1] - fd_val]],
-    fmt="o", color="C0", capsize=5, label="Front-door (mediation)",
+    fd_mean, 0,
+    xerr=[[fd_mean - fd_hdi_low], [fd_hdi_high - fd_mean]],
+    fmt="o", color="C0", capsize=5, label="Front-door (indirect a×b)",
 )
 ax.axvline(TRUE_INDIRECT, color="black", linestyle="--", label=f"True causal effect ({TRUE_INDIRECT})")
 ax.set_yticks([0, 1])
 ax.set_yticklabels(["Front-door", "Naive"])
 ax.set_xlabel("ATE of X on Y")
 ax.legend(loc="best", fontsize=9)
-ax.set_title("Front-door criterion overcomes unobserved confounding")
 plt.tight_layout()
 plt.show()
 ```
 
 ## When does the front-door criterion apply?
 
-The front-door criterion requires a specific DAG structure:
+The front-door criterion requires a specific DAG structure [@pearl2016primer, §3.4]:
 
 1. **Complete mediation**: `X` affects `Y` *only* through `M` (no direct `X → Y` edge).
 2. **No `X → M` confounding**: there is no unobserved common cause of `X` and `M`.
@@ -186,12 +249,12 @@ In pathmc, the front-door criterion is implemented naturally as mediation analys
 
 ## Summary
 
-- **Unobserved confounding** between treatment and outcome blocks standard backdoor identification.
-- **The front-door criterion** identifies the causal effect through a measured mediator, even when the confounder is unobserved.
-- **In pathmc**, this takes the form of a mediation analysis: estimate `X → M → Y` and compute the indirect effect `a × b`.
+- **Unobserved confounding** between treatment and outcome blocks standard backdoor identification. The scatter plot (@fig-front-door-scatter) makes the problem visible: the raw slope conflates causation and confounding.
+- **The front-door criterion** [@pearl2016primer, §3.4] identifies the causal effect through a measured mediator, even when the confounder is unobserved. It works by decomposing the effect into two separately identified sub-paths.
+- **In pathmc**, this takes the form of a mediation analysis: estimate `X → M → Y` and compute the indirect effect `a × b` with the `:=` operator.
 - **Including `X` in the `Y` equation** is essential — it blocks the backdoor path from `M` to `Y` through the unobserved confounder.
-- **`do()`** provides a cross-check: the interventional estimate should agree with the front-door indirect effect.
-- **The conditions are strong**: complete mediation, no `X → M` confounding, and `X` blocking all `M → Y` backdoor paths. Verify these from domain knowledge before relying on the result.
+- **`do(X)` does not apply directly** here — because `X` appears in the `Y` equation as an adjustment variable, `do(X)` would propagate through the confounding proxy coefficient. The `indirect := a*b` defined parameter is the correct front-door estimate.
+- **The conditions are strong**: complete mediation, no `X → M` confounding, and `X` blocking all `M → Y` backdoor paths. Verify these from domain knowledge before relying on the result [@pearl2018why, Ch. 7].
 
 ::: {.callout-note}
 ## Reflection
