@@ -8,12 +8,13 @@ This page walks through the internals of pathmc — from the high-level API down
 ## Quick overview
 
 ```{mermaid}
+%%{init: {'theme': 'default', 'themeVariables': {'fontSize': '18px'}}}%%
 flowchart LR
-    A["spec string"] --> B["DAG"]
-    B --> C["generative\npm.Model"]
-    C -->|"pm.observe()"| D["estimation\n→ MCMC"]
-    C -->|"pm.do()"| E["causal effects\n(g-computation)"]
-    B --> F["identification\n& sensitivity"]
+    A["spec string"] --> B["NetworkX<br/>DAG"]
+    B --> C["generative<br/>pm.Model"]
+    C -->|"pm.observe()"| D["estimation<br/>→ MCMC"]
+    C -->|"pm.do()"| E["causal effects<br/>(g-computation)"]
+    B --> F["identification<br/>& sensitivity"]
 ```
 
 pathmc compiles a lavaan-style spec string into a NetworkX DAG and then into a **generative** `pm.Model` — a PyMC model where endogenous variables are free random variables wired through their structural equations. That generative model is the central artifact:
