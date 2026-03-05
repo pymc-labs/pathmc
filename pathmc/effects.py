@@ -210,6 +210,9 @@ def build_standardized_effects(
             if term.label is None or term.label not in labeled_draws:
                 continue
 
+            if term.interaction_of is not None:
+                continue
+
             var = term.variable
             if var in latent or var not in data.columns:
                 continue

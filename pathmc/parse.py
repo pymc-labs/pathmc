@@ -37,6 +37,7 @@ class Term:
     label: str | None = None
     transform: TransformCall | None = None
     lag_of: str | None = None
+    interaction_of: tuple[str, ...] | None = None
 
 
 @dataclass
@@ -227,6 +228,9 @@ def _parse_term(raw: str) -> Term:
         variable = _extract_leaf_variable(transform)
         return Term(variable=variable, label=label, transform=transform)
 
+    if ":" in raw:
+        return _parse_interaction_term(raw, label)
+
     variable = raw.strip()
     if not variable:
         raise ParseError("Empty variable name in term.")
@@ -253,6 +257,26 @@ def _make_lag_term(tc: TransformCall, raw: str, label: str | None) -> Term:
         )
     base_var = tc.input_expr
     return Term(variable=f"lag({base_var})", label=label, lag_of=base_var)
+
+
+def _parse_interaction_term(raw: str, label: str | None) -> Term:
+    """Parse an interaction term like ``X:Z`` or ``X:Z:W``."""
+    parts = [p.strip() for p in raw.split(":")]
+    if len(parts) < 2:
+        raise ParseError(
+            f"Malformed interaction term: '{raw}'. "
+            "Use 'X:Z' syntax for two-way interactions."
+        )
+    for p in parts:
+        if not p:
+            raise ParseError(f"Empty variable name in interaction term: '{raw}'.")
+        if not re.match(r"^[A-Za-z_]\w*$", p):
+            raise ParseError(
+                f"Invalid variable name '{p}' in interaction term '{raw}'. "
+                "Interaction terms only support plain variable names (no transforms)."
+            )
+    variable = ":".join(parts)
+    return Term(variable=variable, label=label, interaction_of=tuple(parts))
 
 
 def _find_top_level_star(raw: str) -> int | None:

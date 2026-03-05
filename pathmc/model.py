@@ -87,7 +87,14 @@ class PathModel:
 
         self._design_matrices: dict[str, pd.DataFrame] = {}
         for reg in spec.regressions:
-            missing = [t.variable for t in reg.terms if t.variable not in data.columns]
+            missing: list[str] = []
+            for t in reg.terms:
+                if t.interaction_of is not None:
+                    for v in t.interaction_of:
+                        if v not in data.columns and v not in missing:
+                            missing.append(v)
+                elif t.variable not in data.columns:
+                    missing.append(t.variable)
             if missing:
                 cols = get_predictor_columns(reg)
                 self._design_matrices[reg.lhs] = pd.DataFrame(
