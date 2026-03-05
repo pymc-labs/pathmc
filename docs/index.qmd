@@ -4,9 +4,9 @@ title: "pathmc"
 
 ![](assets/logo.png){width=75% fig-align="center"}
 
-**Bayesian path analysis via PyMC.**
+**Structural causal models with Bayesian estimation and interventional simulation via a concise DSL.**
 
-pathmc compiles a concise, lavaan-inspired formula DSL into PyMC models for observed-variable structural equation modeling.
+pathmc compiles a lavaan-inspired formula language into PyMC models.
 Specify a system of structural equations, fit with MCMC, and reason about causal effects using the do-operator.
 
 ```python
