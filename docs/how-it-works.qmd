@@ -5,7 +5,28 @@ subtitle: "Architecture walkthrough for developers and contributors"
 
 This page walks through the internals of pathmc — from the high-level API down to the implementation choices that make it work. It is aimed at developers who want to understand the design, extend the package, or simply satisfy their curiosity about what happens when you call `pathmc.fit()`.
 
-## The ten-second version
+## Quick overview
+
+```{mermaid}
+flowchart LR
+    A["spec string"] --> B["DAG"]
+    B --> C["generative\npm.Model"]
+    C -->|"pm.observe()"| D["estimation\n→ MCMC"]
+    C -->|"pm.do()"| E["causal effects\n(g-computation)"]
+    B --> F["identification\n& sensitivity"]
+```
+
+pathmc compiles a lavaan-style spec string into a NetworkX DAG and then into a **generative** `pm.Model` — a PyMC model where endogenous variables are free random variables wired through their structural equations. That generative model is the central artifact:
+
+- **Estimation**: `pm.observe()` conditions on data, creating the model you sample with MCMC.
+- **Intervention**: `pm.do()` applies graph surgery on the *same* generative model, replacing a variable with a constant and forward-simulating to compute causal effects (ATE, CATE, counterfactuals) with full posterior uncertainty.
+
+The DAG also enables **identification checks** (backdoor/front-door criteria, adjustment sets, collider warnings) and **sensitivity analysis** for unmeasured confounding — both work from graph structure alone, without sampling.
+
+Everything is accessed through a single `PathModel` object returned by `pathmc.fit()`.
+
+
+## Pipeline details
 
 ```{mermaid}
 flowchart LR
