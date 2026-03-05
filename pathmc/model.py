@@ -541,6 +541,7 @@ class PathModel:
                 data=self._data,
                 set=set,
                 kind=kind,
+                families=self._families,
             )
 
         return run_do_pymc(
@@ -550,6 +551,7 @@ class PathModel:
             data=self._data,
             set=set,
             kind=kind,
+            families=self._families,
         )
 
     def ate(

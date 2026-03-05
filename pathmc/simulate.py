@@ -131,6 +131,17 @@ class DoResult:
         )
 
 
+def _apply_inverse_link(mu_vals: np.ndarray, family: str) -> np.ndarray:
+    """Map linear-predictor values back to the response scale."""
+    if family == "bernoulli":
+        from scipy.special import expit
+
+        return expit(mu_vals)
+    if family in ("poisson", "negbinomial"):
+        return np.exp(mu_vals)
+    return mu_vals
+
+
 def run_do_pymc(
     gen_model: pm.Model,
     graph_info: GraphInfo,
@@ -138,6 +149,7 @@ def run_do_pymc(
     data: pd.DataFrame,
     set: dict[str, float] | None = None,
     kind: str = "mean",
+    families: dict[str, str] | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -164,6 +176,9 @@ def run_do_pymc(
     kind : str
         ``"mean"`` for deterministic propagation, ``"predictive"`` to
         include residual noise at each step.
+    families : dict[str, str] | None
+        Per-variable distribution families (e.g. ``{"Y": "bernoulli"}``).
+        Used to apply the inverse link function for ``kind="mean"``.
 
     Returns
     -------
@@ -173,6 +188,8 @@ def run_do_pymc(
 
     if set is None:
         set = {}
+    if families is None:
+        families = {}
 
     N = len(data)
     latent = graph_info.latent
@@ -183,18 +200,43 @@ def run_do_pymc(
         replacements[key] = np.full(N, val)
 
     if kind == "mean":
+        non_float_endo: list[str] = []
         for var in graph_info.topological_order:
             if var in graph_info.endogenous and var not in set and var not in latent:
-                replacements[var] = gen_model[f"mu_{var}"] * 1
+                model_var = gen_model[var]
+                if model_var.dtype.startswith("float"):
+                    replacements[var] = gen_model[f"mu_{var}"] * 1
+                else:
+                    non_float_endo.append(var)
 
         do_model = pm.do(gen_model, replacements)
+
+        posterior_ds = idata.posterior
+        if non_float_endo:
+            import xarray as xr
+
+            n_chains = posterior_ds.sizes["chain"]
+            n_draws = posterior_ds.sizes["draw"]
+            dummy_vars: dict[str, xr.DataArray] = {}
+            for var in non_float_endo:
+                rv = do_model[var]
+                var_shape = tuple(
+                    s for s in rv.type.shape if s is not None
+                ) or (N,)
+                dummy = np.zeros((n_chains, n_draws, *var_shape), dtype=rv.dtype)
+                dims = ["chain", "draw"] + [
+                    f"{var}_dim_{i}" for i in range(len(var_shape))
+                ]
+                dummy_vars[var] = xr.DataArray(dummy, dims=dims)
+            posterior_ds = posterior_ds.assign(dummy_vars)
+
         det_names = [
             f"mu_{var}"
             for var in graph_info.topological_order
             if var in graph_info.endogenous
         ]
         det = pm.compute_deterministics(
-            idata.posterior, model=do_model, var_names=det_names, progressbar=False
+            posterior_ds, model=do_model, var_names=det_names, progressbar=False
         )
 
         stacked = idata.posterior.stack(sample=("chain", "draw"))
@@ -210,7 +252,7 @@ def run_do_pymc(
                     values[var] = np.zeros(n_samples)
             else:
                 mu_vals = det[f"mu_{var}"].values.flatten()
-                values[var] = mu_vals
+                values[var] = _apply_inverse_link(mu_vals, families.get(var, ""))
 
         return DoResult(values=values)
 

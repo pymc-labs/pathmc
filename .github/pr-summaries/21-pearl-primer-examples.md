@@ -20,15 +20,18 @@ Created four new Quarto tutorial documents in `docs/examples/`, each following t
 - `docs/examples/collider_bias.qmd`: Birth-weight paradox. Demonstrates collider_warnings(), binary outcomes via families={"mortality": "bernoulli"}, and how conditioning on a collider reverses the sign of the estimate.
 - `docs/examples/seeing_vs_doing.qmd`: Contrasts P(Y|X=x) with P(Y|do(X=x)) in a confounded model, then shows they agree when X is unconfounded (randomized).
 - `docs/examples/front_door.qmd`: Smoking/tar/cancer with unobserved confounder. Shows naive regression failure, front-door identification via mediation analysis (indirect := a*b), and do-operator cross-check.
+- `pathmc/simulate.py`: Fix `do(kind="mean")` crash with non-Gaussian families (Bernoulli, Poisson). `pm.do()` rejected float replacements for int-valued RVs. Now skips non-float endogenous RVs in the replacement dict and provides dummy posterior data instead. Also applies the inverse link function (sigmoid for Bernoulli, exp for Poisson/NegBinomial) so `do(kind="mean")` returns values on the response scale (probabilities for Bernoulli, rates for Poisson).
+- `pathmc/model.py`: Pass `families` to `run_do_pymc()` so the inverse link can be applied.
 
 ## Testing
 
 - [x] Existing tests pass (221 passed, 93 deselected)
-- [x] No new source code changes — documentation only
-- [x] Follows existing tutorial patterns and conventions
+- [x] All four tutorials render successfully with `quarto render`
+- [x] Manual verification: `do(kind="mean")` returns probabilities in (0,1) for Bernoulli variables
 
 ## Notes
 
 - All four tutorials use simulated data with known ground truth so readers can verify parameter recovery.
 - Each tutorial includes a comparison figure (correct vs biased estimates) with code-fold.
 - Categories assigned for automatic listing: [Fundamentals, Causal Inference] and [Causal Inference, Mediation].
+- The `do()` bug fix was pre-existing (the existing `binary_outcomes.qmd` had the same issue) but surfaced when writing the collider bias tutorial.
