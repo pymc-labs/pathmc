@@ -1,0 +1,300 @@
+---
+title: "Moderation (Effect Modification)"
+description: "Model treatment effect heterogeneity using interaction terms — the effect of X on Y depends on context Z."
+categories: [Causal Inference]
+jupyter: pathmc
+---
+
+Does a training program improve performance equally for everyone, or does it help experienced workers more than novices? Does an ad campaign lift sales the same way in every market, or does it work better where brand awareness is already high?
+
+These are **moderation** questions: the causal effect of treatment $X$ on outcome $Y$ depends on the level of a third variable $Z$ — the moderator. The effect is not a single number but a function of context.
+
+In a linear model, moderation is captured by an **interaction term** $X \cdot Z$. pathmc does not yet parse interaction syntax (`X:Z`) in the DSL, but the same analysis is straightforward using a precomputed interaction column. This notebook shows the pattern and explains the one place where manual care is needed: recomputing the interaction term inside `do()` calls.
+
+
+## The causal structure
+
+In a moderation model, $Z$ modifies the strength (or direction) of the $X \to Y$ relationship. The structural equation is:
+
+$$Y = \beta_0 + \beta_X X + \beta_Z Z + \beta_{XZ} X \cdot Z + \varepsilon$$
+
+The **conditional effect** of $X$ on $Y$ — the causal effect at a specific level of $Z$ — is:
+
+$$\frac{\partial Y}{\partial X} = \beta_X + \beta_{XZ} \cdot Z$$
+
+When $\beta_{XZ} = 0$, the effect of $X$ does not depend on $Z$ and there is no moderation. When $\beta_{XZ} \neq 0$, the effect is heterogeneous: it varies with the moderator.
+
+```{dot}
+//| label: fig-dag
+//| fig-cap: "Moderation DAG: both X and Z cause Y, and their interaction XZ captures how Z modifies the strength of the X → Y effect. The dashed arrow from Z to the X → Y edge represents the effect modification that the interaction term encodes."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+  X -> Y
+  Z -> Y
+  XZ -> Y [label=" interaction"]
+}
+```
+
+
+## Simulate data
+
+We generate data from a known DGP so we can verify that pathmc recovers the true parameters and correctly computes conditional effects.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import pathmc
+
+FIG_WIDTH = 8
+FIG_HEIGHT = 4
+COLOR_X = "#2171b5"
+COLOR_Z = "#e6550d"
+COLOR_TRUE = "#333333"
+
+rng = np.random.default_rng(42)
+n = 500
+
+TRUE_MAIN_X = 0.5
+TRUE_MAIN_Z = 0.3
+TRUE_INTER = 0.8
+
+X = rng.normal(size=n)
+Z = rng.normal(size=n)
+Y = (
+    TRUE_MAIN_X * X
+    + TRUE_MAIN_Z * Z
+    + TRUE_INTER * X * Z
+    + rng.normal(scale=0.5, size=n)
+)
+
+df = pd.DataFrame({"X": X, "Z": Z, "Y": Y})
+df.head()
+```
+
+True values: $\beta_X = 0.5$, $\beta_Z = 0.3$, $\beta_{XZ} = 0.8$.
+
+The conditional effect of $X$ at $Z = z$ is $0.5 + 0.8z$:
+
+- At $Z = 0$: effect = 0.5
+- At $Z = 1$: effect = 1.3
+- At $Z = -1$: effect = −0.3
+
+So $X$ has a strong positive effect when $Z$ is high, and a *negative* effect when $Z$ is sufficiently low (below $-0.625$).
+
+
+## Specify and fit the model
+
+pathmc's DSL does not currently parse interaction syntax like `X:Z` or `X*Z`.
+The workaround is to create the interaction column in the data and include it as a regular predictor:
+
+```{python}
+df["XZ"] = df["X"] * df["Z"]
+
+spec = """
+Y ~ a*X + b*Z + c*XZ
+"""
+
+model = pathmc.fit(spec, data=df)
+```
+
+::: {.callout-note}
+## Future: DSL-native interactions
+
+A planned DSL extension ([#50](https://github.com/pymc-labs/pathmc/issues/50)) will support `Y ~ a*X + b*Z + c*X:Z` directly, removing the need for manual column creation and the `do()` workaround described below.
+:::
+
+### Inspect the model
+
+```{python}
+model.graph()
+```
+
+```{python}
+model.equations()
+```
+
+```{python}
+model.priors()
+```
+
+
+## Sample from the posterior
+
+```{python}
+model.sample(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+
+## Coefficient interpretation
+
+```{python}
+model.effects_summary()
+```
+
+The three labeled coefficients have distinct interpretations in a moderation model:
+
+| Coefficient | Interpretation |
+|-------------|---------------|
+| **a** ($\beta_X$) | Effect of $X$ on $Y$ when $Z = 0$ (the "main effect" of $X$) |
+| **b** ($\beta_Z$) | Effect of $Z$ on $Y$ when $X = 0$ (the "main effect" of $Z$) |
+| **c** ($\beta_{XZ}$) | How much the effect of $X$ changes per unit increase in $Z$ |
+
+::: {.callout-important}
+## Main effects are conditional, not marginal
+
+In a model with interactions, the coefficient on $X$ is *not* the average effect of $X$. It is the effect **when $Z = 0$**. If $Z$ is not centered, this may not correspond to any meaningful subgroup. Centering $Z$ before creating the interaction term ensures that the main effect of $X$ corresponds to the effect at the sample mean of $Z$.
+:::
+
+
+## Conditional effects via `do()`
+
+### Why interaction terms need special handling
+
+When pathmc computes `do(set={"X": 1.0})`, it replaces `X` with 1.0 in the generative model but leaves `XZ` at its observed data values — because `XZ` is a separate exogenous column that the model does not know is derived from `X` and `Z`. The interaction term is not automatically recomputed.
+
+This means a naive `ate()` call computes:
+
+$$\text{do}(X{=}1) - \text{do}(X{=}0) = \beta_X \cdot (1 - 0) = \beta_X$$
+
+The $\beta_{XZ} \cdot XZ$ terms cancel because `XZ` is the same in both scenarios. The result equals the main effect coefficient $\beta_X$, ignoring the interaction entirely.
+
+```{python}
+naive_ate = model.ate("Y", "X", values=(0.0, 1.0))
+print(f"Naive ATE (main effect only): {naive_ate.mean('Y'):.3f}")
+print(f"True main effect β_X:         {TRUE_MAIN_X}")
+```
+
+This is the correct ATE only when $\mathbb{E}[Z] = 0$, because the true ATE is $\beta_X + \beta_{XZ} \cdot \mathbb{E}[Z]$. But it misses the point of moderation analysis: we want to know how the effect *varies* with $Z$.
+
+
+### Computing the CATE at a specific Z level
+
+To compute the **conditional average treatment effect** (CATE) at $Z = z$, set `X`, `Z`, and `XZ` together so the interaction is consistent:
+
+```{python}
+def cate_at_z(model, z_val):
+    """Compute CATE of X on Y at Z = z_val, with correct interaction."""
+    r0 = model.do(set={"X": 0.0, "Z": z_val, "XZ": 0.0 * z_val})
+    r1 = model.do(set={"X": 1.0, "Z": z_val, "XZ": 1.0 * z_val})
+    return r1 - r0
+
+for z_val in [-1.0, 0.0, 1.0]:
+    cate = cate_at_z(model, z_val)
+    true_cate = TRUE_MAIN_X + TRUE_INTER * z_val
+    print(
+        f"CATE at Z={z_val:+.0f}:  {cate.mean('Y'):.3f}  "
+        f"(true = {true_cate:.1f},  94% HDI: {cate.hdi('Y', prob=0.94)})"
+    )
+```
+
+The pattern is: `XZ` must equal $X \times Z$ in both the baseline and treatment scenarios. When $X = 0$, `XZ = 0` regardless of $Z$. When $X = 1$, `XZ = Z$.
+
+
+### Effect heterogeneity: how the CATE varies with Z
+
+The conditional effect $\beta_X + \beta_{XZ} \cdot Z$ is a linear function of $Z$. We can trace out the full CATE curve by evaluating it at many moderator levels and comparing to the true function:
+
+```{python}
+#| label: fig-cate-curve
+#| fig-cap: "Conditional average treatment effect (CATE) of X on Y as a function of the moderator Z. Blue band: 94% HDI from posterior draws. Black dashed line: true conditional effect from the DGP. The treatment effect is positive for high Z and turns negative below Z ≈ −0.6."
+#| code-fold: true
+
+z_grid = np.linspace(-2, 2, 30)
+cate_means = []
+cate_lower = []
+cate_upper = []
+
+for z_val in z_grid:
+    cate = cate_at_z(model, z_val)
+    cate_means.append(cate.mean("Y"))
+    hdi = cate.hdi("Y", prob=0.94)
+    cate_lower.append(hdi[0])
+    cate_upper.append(hdi[1])
+
+cate_means = np.array(cate_means)
+cate_lower = np.array(cate_lower)
+cate_upper = np.array(cate_upper)
+true_cate = TRUE_MAIN_X + TRUE_INTER * z_grid
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+ax.fill_between(z_grid, cate_lower, cate_upper, alpha=0.25, color=COLOR_X)
+ax.plot(z_grid, cate_means, color=COLOR_X, lw=2, label="Estimated CATE")
+ax.plot(z_grid, true_cate, "--", color=COLOR_TRUE, lw=2, label="True CATE")
+ax.axhline(0, color="gray", lw=0.8, ls=":")
+ax.set_xlabel("Moderator Z")
+ax.set_ylabel("CATE of X on Y")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+The estimated CATE tracks the true function closely, with posterior uncertainty widening at extreme values of $Z$ where the data is sparser.
+
+
+### Reading the CATE directly from coefficients
+
+Because the model is linear, the CATE is a simple function of the posterior draws for `a` and `c`. We can verify that the `do()`-based computation matches the algebraic formula:
+
+```{python}
+import arviz as az
+
+posterior = model._idata.posterior.stack(sample=("chain", "draw"))
+a_draws = posterior["beta_Y"].sel(Y_predictors="X").values
+c_draws = posterior["beta_Y"].sel(Y_predictors="XZ").values
+
+z_check = 1.0
+cate_from_coeffs = a_draws + c_draws * z_check
+cate_from_do = cate_at_z(model, z_check)
+
+print(f"CATE at Z=1 from coefficients: {np.mean(cate_from_coeffs):.4f}")
+print(f"CATE at Z=1 from do():         {cate_from_do.mean('Y'):.4f}")
+```
+
+Both methods agree. The coefficient approach is faster (no model evaluation needed), but `do()` generalizes to nonlinear models and more complex causal structures where the CATE cannot be read directly from coefficients.
+
+
+## Visualizing the raw data
+
+The interaction is visible in the raw data: the slope of $Y$ on $X$ is steeper when $Z$ is high than when $Z$ is low.
+
+```{python}
+#| label: fig-scatter-by-z
+#| fig-cap: "Y versus X, colored by the moderator Z. The slope of Y on X is steeper for high-Z observations (yellow) than for low-Z observations (purple), reflecting the positive interaction term."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+scatter = ax.scatter(X, Y, c=Z, cmap="viridis", alpha=0.5, s=15, rasterized=True)
+plt.colorbar(scatter, ax=ax, label="Moderator Z")
+
+ax.set_xlabel("X")
+ax.set_ylabel("Y")
+plt.tight_layout()
+plt.show()
+```
+
+
+## Summary
+
+- **Moderation** (effect modification) means the causal effect of $X$ on $Y$ depends on a third variable $Z$. In a linear model, this is captured by an interaction term $X \cdot Z$.
+- The **conditional effect** of $X$ at moderator level $Z = z$ is $\beta_X + \beta_{XZ} \cdot z$. The coefficient $\beta_{XZ}$ quantifies how much the effect changes per unit of $Z$.
+- In a model with interactions, the **main effect coefficient** $\beta_X$ is the effect of $X$ when $Z = 0$, not the overall average effect. Center $Z$ if you want $\beta_X$ to represent the effect at the sample mean.
+- Because pathmc treats the interaction column `XZ` as an independent exogenous variable, **`do()` does not automatically recompute** `XZ` when you intervene on `X`. Set both `X` and `XZ` in the `do()` call to maintain consistency.
+- The `do()`-based CATE agrees with the algebraic formula $\beta_X + \beta_{XZ} \cdot Z$ for linear models, but `do()` generalizes to nonlinear settings where the CATE cannot be read from coefficients.
+- A future DSL extension ([#50](https://github.com/pymc-labs/pathmc/issues/50)) will handle interaction terms natively, removing the need for manual column creation and `do()` workarounds.
+
+::: {.callout-note}
+## Reflection
+
+Think about treatment effects in your own domain that might depend on context:
+
+- **Marketing**: Does advertising effectiveness depend on existing brand awareness? An ad might lift sales substantially in a market that already recognizes the brand, but have little impact where the brand is unknown.
+- **Education**: Does a new teaching method help all students equally, or does it benefit high-performers more than struggling students? The answer determines whether the method reduces or widens achievement gaps.
+- **Medicine**: Does a drug's efficacy depend on patient age or baseline severity? If so, the average treatment effect could mask that the drug helps one subgroup substantially while doing little for another.
+
+In each case, including the moderator as a main effect is not enough — you need the interaction term to detect *how* the effect varies.
+:::
