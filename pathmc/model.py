@@ -133,10 +133,11 @@ class PathModel:
                     )
                 observations[var] = vals
 
+        self._pymc_model: pm.Model
         if observations:
-            self._pymc_model: pm.Model = pm.observe(self._gen_model, observations)
+            self._pymc_model = pm.observe(self._gen_model, observations)
         else:
-            self._pymc_model: pm.Model = self._gen_model
+            self._pymc_model = self._gen_model
         self._idata: az.InferenceData | None = None
 
     @property
@@ -621,8 +622,8 @@ class PathModel:
         if condition is None:
             condition = {}
         lo, hi = values
-        set_lo = {treatment: lo, **condition}
-        set_hi = {treatment: hi, **condition}
+        set_lo: dict[str, float | np.ndarray] = {treatment: lo, **condition}
+        set_hi: dict[str, float | np.ndarray] = {treatment: hi, **condition}
         r_lo = self.do(set=set_lo, **do_kwargs)
         r_hi = self.do(set=set_hi, **do_kwargs)
         return r_hi - r_lo
@@ -630,7 +631,7 @@ class PathModel:
     def prob(
         self,
         expr: str,
-        set: dict[str, float] | None = None,
+        set: dict[str, float | np.ndarray] | None = None,
         kind: str = "predictive",
         **do_kwargs: Any,
     ) -> float:
@@ -656,9 +657,9 @@ class PathModel:
             Estimated probability (fraction of draws satisfying *expr*).
         """
         result = self.do(set=set, kind=kind, **do_kwargs)
-        namespace = {var: draws for var, draws in result._values.items()}
-        import numpy as np
-
+        namespace: dict[str, Any] = {
+            var: draws for var, draws in result._values.items()
+        }
         namespace["np"] = np
         namespace["__builtins__"] = {}
         mask = eval(expr, namespace)  # noqa: S307

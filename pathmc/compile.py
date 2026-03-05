@@ -347,7 +347,7 @@ def _get_slope_vars(pooling: str | dict | None) -> list[str]:
 def _build_unit_index(data: pd.DataFrame, panel_info: PanelInfo) -> np.ndarray:
     """Map each row to an integer unit index."""
     label_to_idx = {label: i for i, label in enumerate(panel_info.unit_labels)}
-    return data[panel_info.unit].map(label_to_idx).values
+    return data[panel_info.unit].map(label_to_idx).to_numpy()
 
 
 def _compile_random_intercept(var: str, unit_idx: np.ndarray) -> Any:
@@ -427,7 +427,7 @@ def _compile_residual_block(
         mus.append(pm.math.dot(X, beta))
 
     mu_stacked = pm.math.stack(mus, axis=1)
-    y_stacked = np.column_stack([data[v].values for v in block_sorted])
+    y_stacked = np.column_stack([data[v].to_numpy() for v in block_sorted])
 
     block_name = "_".join(block_sorted)
     chol, _, _ = pm.LKJCholeskyCov(
@@ -627,7 +627,7 @@ def _has_temporal_deps(spec: Spec, graph_info: GraphInfo) -> bool:
             if term.lag_of is not None:
                 return True
             if term.transform is not None:
-                tc = term.transform
+                tc: TransformCall | None = term.transform
                 while tc is not None:
                     if tc.name == "adstock":
                         return True
@@ -671,7 +671,7 @@ def _reshape_to_panel(
     n_times: int,
 ) -> np.ndarray:
     """Reshape a column from flat sorted data to ``(n_times, n_units)``."""
-    return data_sorted[column].values.reshape(n_units, n_times).T
+    return data_sorted[column].to_numpy().reshape(n_units, n_times).T
 
 
 def _apply_step_transform(
