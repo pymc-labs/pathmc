@@ -890,3 +890,143 @@ def fit(
         pooling=pooling,
         latent=latent_set,
     )
+
+
+def simulate(
+    spec_string: str,
+    data: pd.DataFrame,
+    params: dict[str, Any],
+    families: dict[str, str] | None = None,
+    random_seed: int | np.random.Generator | None = None,
+) -> pd.DataFrame:
+    """Simulate data from a pathmc model with known parameter values.
+
+    Builds a generative PyMC model from the specification, fixes all
+    parameter random variables at the values in *params* using
+    ``pm.do()``, and draws one simulated dataset.
+
+    This is useful for:
+
+    - **Simulate-and-recover** workflows: generate data from known
+      parameters, fit the model, and verify that the posterior
+      concentrates around the truth.
+    - **Teaching**: create pedagogical datasets with exact causal
+      structure matching the model DAG.
+    - **Power analysis**: generate data under hypothesized effect
+      sizes and check whether the model can detect them.
+
+    Parameters
+    ----------
+    spec_string : str
+        Model specification in the pathmc DSL. All regressions define
+        the generative structure (e.g. ``"M ~ X\\nY ~ M + X"``).
+    data : pd.DataFrame
+        DataFrame containing the exogenous variables (predictors).
+        Endogenous (outcome) columns need not be present — they will
+        be simulated. If present, they are ignored.
+    params : dict[str, Any]
+        True parameter values keyed by PyMC variable name. Typical
+        keys are ``"beta_{var}"`` (coefficient vector) and
+        ``"sigma_{var}"`` (residual std). Use ``pathmc.fit(...).priors()``
+        on a dummy dataset to discover expected names and shapes.
+    families : dict[str, str] | None
+        Per-variable distribution families (default ``"gaussian"``).
+        Supports the same families as :func:`fit`: ``"gaussian"``,
+        ``"bernoulli"``, ``"poisson"``, ``"negbinomial"``, ``"studentt"``.
+    random_seed : int | np.random.Generator | None
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of *data* with simulated endogenous columns appended.
+
+    Raises
+    ------
+    ValueError
+        If required parameter values are missing from *params*.
+    NotImplementedError
+        If the spec contains residual covariances (``~~``).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> import pathmc
+    >>> rng = np.random.default_rng(42)
+    >>> exog = pd.DataFrame({"X": rng.normal(size=100)})
+    >>> df = pathmc.simulate(
+    ...     "Y ~ X",
+    ...     data=exog,
+    ...     params={"beta_Y": [2.0, 0.5], "sigma_Y": 1.0},
+    ...     random_seed=42,
+    ... )
+    >>> list(df.columns)
+    ['X', 'Y']
+    """
+    spec = parse_spec(spec_string)
+
+    if spec.residual_covs:
+        raise NotImplementedError(
+            "simulate() does not yet support residual covariances (~~). "
+            "Use numpy-based simulation for models with correlated residuals."
+        )
+
+    graph_info = build_graph(spec)
+
+    endogenous_lhs = [reg.lhs for reg in spec.regressions]
+    endo_set = set(endogenous_lhs)
+
+    data_sim = data.copy()
+    for var in endogenous_lhs:
+        if var not in data_sim.columns:
+            data_sim[var] = 0.0
+
+    design_matrices: dict[str, pd.DataFrame] = {}
+    for reg in spec.regressions:
+        design_matrices[reg.lhs] = build_design_matrix(reg, data_sim)
+
+    gen_model = compile_to_pymc(
+        spec,
+        data_sim,
+        design_matrices,
+        families=families,
+        graph_info=graph_info,
+    )
+
+    all_rv_names = {rv.name for rv in gen_model.free_RVs}
+    endo_rv_names = endo_set & all_rv_names
+    param_rv_names = all_rv_names - endo_rv_names
+
+    missing = param_rv_names - set(params.keys())
+    if missing:
+        raise ValueError(
+            f"Missing parameter values for: {sorted(missing)}. "
+            f"All model parameters must be provided. "
+            f"Expected: {sorted(param_rv_names)}"
+        )
+
+    extra = set(params.keys()) - param_rv_names
+    if extra:
+        warnings.warn(
+            f"Ignoring unknown parameter names: {sorted(extra)}. "
+            f"Expected parameter names: {sorted(param_rv_names)}",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    do_dict = {k: v for k, v in params.items() if k in param_rv_names}
+    fixed_model = pm.do(gen_model, do_dict)
+
+    endo_order = [v for v in graph_info.topological_order if v in endo_rv_names]
+    vars_to_draw = [fixed_model[var] for var in endo_order]
+
+    drawn = pm.draw(vars_to_draw, random_seed=random_seed)
+    if not isinstance(drawn, list):
+        drawn = [drawn]
+
+    result = data.copy()
+    for var, values in zip(endo_order, drawn):
+        result[var] = values
+
+    return result
