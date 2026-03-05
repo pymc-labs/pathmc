@@ -445,7 +445,6 @@ class PathModel:
         shift: dict[str, float] | None = None,
         kind: str = "mean",
         simulate_over: str | None = None,
-        panel_engine: str = "numpy",
     ) -> DoResult:
         """Simulate an intervention using the do-operator.
 
@@ -469,10 +468,6 @@ class PathModel:
         simulate_over : str | None
             ``"time"`` to activate time-forward panel simulation.
             Requires the model to have been fitted with ``panel=``.
-        panel_engine : str
-            Deprecated — ignored. Panel do() now uses the scan-compiled
-            generative model for all temporal propagation. Passing any
-            value other than the default emits a ``DeprecationWarning``.
 
         Returns
         -------
@@ -485,7 +480,7 @@ class PathModel:
         RuntimeError
             If called before ``.sample()``.
         ValueError
-            If ``simulate_over="time"`` without panel, or unknown engine.
+            If ``simulate_over="time"`` without panel.
         """
         if self._idata is None:
             raise RuntimeError(
@@ -497,14 +492,6 @@ class PathModel:
                 raise ValueError(
                     "simulate_over='time' requires a panel model. "
                     "Pass panel={...} to fit()."
-                )
-
-            if panel_engine != "numpy":
-                warnings.warn(
-                    f"panel_engine='{panel_engine}' is deprecated and ignored. "
-                    f"Panel do() now uses the scan-compiled generative model.",
-                    DeprecationWarning,
-                    stacklevel=2,
                 )
 
             scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)

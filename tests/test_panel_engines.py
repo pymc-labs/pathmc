@@ -1,9 +1,9 @@
 """Panel do() tests.
 
 Tests panel interventions on models with various temporal structures
-(no temporal state, lags, adstock). The ``panel_engine`` parameter is
-deprecated; all panel do() calls go through the unified scan-compiled
-generative model (or cross-sectional fallback for non-temporal models).
+(no temporal state, lags, adstock). All panel do() calls go through the
+unified scan-compiled generative model (or cross-sectional fallback for
+non-temporal models).
 """
 
 import numpy as np
@@ -20,7 +20,7 @@ import pathmc
 
 @pytest.fixture(scope="class")
 def simple_panel():
-    """No temporal state: sales ~ spend.  All engines must agree exactly."""
+    """No temporal state: sales ~ spend."""
     rng = np.random.default_rng(42)
     rows = []
     for region in ["A", "B", "C"]:
@@ -98,69 +98,38 @@ def adstock_panel():
 
 
 # ---------------------------------------------------------------------------
-# Tests: no temporal state — all engines must agree tightly
+# Tests: no temporal state
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.slow
 class TestNoTemporalState:
-    """sales ~ spend: no lags or adstock.  All engines identical."""
+    """sales ~ spend: no lags or adstock."""
 
-    def test_mean_mode_engines_agree(self, simple_panel):
-        results = {}
-        for engine in ("numpy", "batched", "scan"):
-            results[engine] = simple_panel.do(
-                set={"spend": 30.0},
-                simulate_over="time",
-                kind="mean",
-                panel_engine=engine,
-            )
+    def test_mean_mode_is_finite(self, simple_panel):
+        result = simple_panel.do(
+            set={"spend": 30.0},
+            simulate_over="time",
+            kind="mean",
+        )
+        assert np.isfinite(result.mean("sales"))
 
-        np_mean = results["numpy"].mean("sales")
-        bat_mean = results["batched"].mean("sales")
-        scan_mean = results["scan"].mean("sales")
+    def test_predictive_mode_is_finite(self, simple_panel):
+        result = simple_panel.do(
+            set={"spend": 30.0},
+            simulate_over="time",
+            kind="predictive",
+        )
+        assert np.isfinite(result.mean("sales"))
 
-        assert np.isfinite(np_mean)
-        assert np_mean == pytest.approx(bat_mean, abs=0.05)
-        assert np_mean == pytest.approx(scan_mean, abs=0.05)
-
-    def test_predictive_mode_engines_agree(self, simple_panel):
-        results = {}
-        for engine in ("numpy", "batched", "scan"):
-            results[engine] = simple_panel.do(
-                set={"spend": 30.0},
-                simulate_over="time",
-                kind="predictive",
-                panel_engine=engine,
-            )
-
-        np_mean = results["numpy"].mean("sales")
-        bat_mean = results["batched"].mean("sales")
-        scan_mean = results["scan"].mean("sales")
-
-        assert np.isfinite(np_mean)
-        # Predictive adds independent noise, so wider tolerance
-        assert np_mean == pytest.approx(bat_mean, abs=1.0)
-        assert np_mean == pytest.approx(scan_mean, abs=1.0)
-
-    def test_ate_sign_consistent(self, simple_panel):
-        """All engines agree on the sign and approximate magnitude of the ATE."""
-        ates = {}
-        for engine in ("numpy", "batched", "scan"):
-            ates[engine] = simple_panel.ate(
-                "sales",
-                "spend",
-                values=(10.0, 40.0),
-                simulate_over="time",
-                panel_engine=engine,
-            )
-
-        for engine in ("numpy", "batched", "scan"):
-            assert ates[engine].mean("sales") > 0, f"{engine} ATE should be positive"
-
-        np_ate = ates["numpy"].mean("sales")
-        assert np_ate == pytest.approx(ates["batched"].mean("sales"), abs=0.1)
-        assert np_ate == pytest.approx(ates["scan"].mean("sales"), abs=0.1)
+    def test_ate_positive(self, simple_panel):
+        ate = simple_panel.ate(
+            "sales",
+            "spend",
+            values=(10.0, 40.0),
+            simulate_over="time",
+        )
+        assert ate.mean("sales") > 0, "ATE should be positive"
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +218,7 @@ class TestAdstockModel:
 
 @pytest.mark.slow
 class TestKnownDGP:
-    """Verify engines recover the correct causal effect from a known DGP.
+    """Verify recovery of the correct causal effect from a known DGP.
 
     DGP: sales = 50 + 0.5 * spend + noise(sigma=2)
     True ATE(spend 10→40) = 0.5 * 30 = 15.0
@@ -344,20 +313,6 @@ class TestInputValidation:
                 set={"spend": wrong_length},
                 simulate_over="time",
             )
-
-    def test_unknown_engine_emits_deprecation(self, simple_panel):
-        """Unknown panel_engine should emit DeprecationWarning (ignored)."""
-        import warnings as w
-
-        with w.catch_warnings(record=True) as caught:
-            w.simplefilter("always")
-            simple_panel.do(
-                set={"spend": 30.0},
-                simulate_over="time",
-                panel_engine="turbo",
-            )
-        deprecations = [c for c in caught if issubclass(c.category, DeprecationWarning)]
-        assert any("deprecated" in str(c.message) for c in deprecations)
 
     def test_lag_requires_panel(self):
         """lag() terms without panel= should raise ValueError."""
