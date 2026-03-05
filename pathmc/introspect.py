@@ -166,14 +166,22 @@ def build_dag_viz(spec: Spec, graph_info: GraphInfo) -> graphviz.Digraph:
         else:
             dot.node(node, shape="box")
 
+    drawn_edges: set[tuple[str, str]] = set()
     for reg in spec.regressions:
         for term in reg.terms:
+            if term.interaction_of is not None:
+                for var in term.interaction_of:
+                    if (var, reg.lhs) not in drawn_edges:
+                        dot.edge(var, reg.lhs)
+                        drawn_edges.add((var, reg.lhs))
+                continue
             edge_label = term.label or ""
             if term.transform is not None:
                 edge_label = _format_transform(term.transform)
                 if term.label:
                     edge_label = f"{term.label}*{edge_label}"
             dot.edge(term.variable, reg.lhs, label=edge_label)
+            drawn_edges.add((term.variable, reg.lhs))
 
     for rc in spec.residual_covs:
         dot.edge(rc.var1, rc.var2, style="dashed", dir="both", label="~~")
@@ -236,6 +244,11 @@ def _format_term(t: Term) -> str:
         if t.label:
             return f"{t.label}*{expr}"
         return expr
+    if t.interaction_of is not None:
+        expr = " × ".join(t.interaction_of)
+        if t.label:
+            return f"{t.label}*{expr}"
+        return expr
     if t.label:
         return f"{t.label}*{t.variable}"
     return t.variable
@@ -290,6 +303,12 @@ def _format_term_latex(t: Term) -> str:
     """Format a term as LaTeX, including transform expressions."""
     if t.transform is not None:
         expr = _format_transform_latex(t.transform)
+        if t.label:
+            return rf"{_latexify_name(t.label)} \cdot {expr}"
+        return expr
+    if t.interaction_of is not None:
+        parts = [rf"\mathrm{{{v}}}" for v in t.interaction_of]
+        expr = r" \times ".join(parts)
         if t.label:
             return rf"{_latexify_name(t.label)} \cdot {expr}"
         return expr

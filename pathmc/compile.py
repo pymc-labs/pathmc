@@ -73,6 +73,17 @@ def get_predictor_columns(reg: Regression) -> list[str]:
     return cols
 
 
+def _term_base_vars(term: Any) -> list[str]:
+    """Return the base variable names a term depends on.
+
+    For interaction terms, returns the constituent variables.
+    For plain terms, returns a single-element list.
+    """
+    if getattr(term, "interaction_of", None) is not None:
+        return list(term.interaction_of)
+    return [term.variable]
+
+
 def build_design_matrix(reg: Regression, data: pd.DataFrame) -> pd.DataFrame:
     """Build a patsy design matrix for a single regression equation.
 
@@ -91,15 +102,29 @@ def build_design_matrix(reg: Regression, data: pd.DataFrame) -> pd.DataFrame:
         correct column names but NaN for the latent columns.
     """
     rhs_parts = [t.variable for t in reg.terms]
-    missing = [v for v in rhs_parts if v not in data.columns]
+
+    missing: list[str] = []
+    for term in reg.terms:
+        for v in _term_base_vars(term):
+            if v not in data.columns and v not in missing:
+                missing.append(v)
 
     if missing:
         cols = get_predictor_columns(reg)
         dm = pd.DataFrame(index=range(len(data)), columns=cols, dtype=float)
         if reg.has_intercept:
             dm["Intercept"] = 1.0
-        for v in rhs_parts:
-            if v in data.columns:
+        for term in reg.terms:
+            v = term.variable
+            if term.interaction_of is not None:
+                product = np.ones(len(data))
+                for part in term.interaction_of:
+                    if part in data.columns:
+                        product = product * data[part].to_numpy(dtype=float)
+                    else:
+                        product = product * np.nan
+                dm[v] = product
+            elif v in data.columns:
                 dm[v] = data[v].values
             else:
                 dm[v] = np.nan
@@ -313,6 +338,11 @@ def _build_mu_symbolic(
                 endogenous_rvs=endogenous_rvs,
             )
             mu = mu + coef * transformed
+        elif ":" in col:
+            product = _resolve_interaction_symbolic(
+                col, data, data_vars, endogenous_rvs
+            )
+            mu = mu + coef * product
         elif col in endogenous_rvs:
             mu = mu + coef * endogenous_rvs[col]
         elif col in data_vars:
@@ -321,6 +351,35 @@ def _build_mu_symbolic(
             mu = mu + coef * pt.as_tensor_variable(data[col].values.astype(float))
 
     return mu
+
+
+def _resolve_interaction_symbolic(
+    col: str,
+    data: pd.DataFrame,
+    data_vars: dict[str, Any],
+    endogenous_rvs: dict[str, Any],
+) -> Any:
+    """Compute the symbolic product for an interaction column like ``X:Z``.
+
+    Resolves each constituent variable through the generative graph
+    (``pm.Data`` for exogenous, upstream free RV for endogenous) so
+    that ``pm.do()`` interventions propagate correctly.
+    """
+    import pytensor.tensor as pt
+
+    parts = col.split(":")
+    values = []
+    for part in parts:
+        if part in endogenous_rvs:
+            values.append(endogenous_rvs[part])
+        elif part in data_vars:
+            values.append(data_vars[part])
+        else:
+            values.append(pt.as_tensor_variable(data[part].values.astype(float)))
+    product = values[0]
+    for v in values[1:]:
+        product = product * v
+    return product
 
 
 # ---------------------------------------------------------------------------
@@ -976,6 +1035,20 @@ def _compile_scan_panel(
                             tc, raw, new_adstock, ns_map, col
                         )
                         mu = mu + coef * transformed
+                    elif ":" in col:
+                        parts = col.split(":")
+                        vals = []
+                        for part in parts:
+                            if part in new_endo:
+                                vals.append(new_endo[part])
+                            elif part in exog_t:
+                                vals.append(exog_t[part])
+                            else:
+                                vals.append(pt.zeros(n_units))
+                        product = vals[0]
+                        for v in vals[1:]:
+                            product = product * v
+                        mu = mu + coef * product
                     elif col in new_endo:
                         mu = mu + coef * new_endo[col]
                     elif col in exog_t:

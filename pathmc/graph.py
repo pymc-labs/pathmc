@@ -75,8 +75,13 @@ def build_graph(spec: Spec, latent: set[str] | None = None) -> GraphInfo:
     for reg in spec.regressions:
         dag.add_node(reg.lhs)
         for term in reg.terms:
-            dag.add_node(term.variable)
-            dag.add_edge(term.variable, reg.lhs)
+            if term.interaction_of is not None:
+                for var in term.interaction_of:
+                    dag.add_node(var)
+                    dag.add_edge(var, reg.lhs)
+            else:
+                dag.add_node(term.variable)
+                dag.add_edge(term.variable, reg.lhs)
 
     if not nx.is_directed_acyclic_graph(dag):
         cycles = list(nx.simple_cycles(dag))
