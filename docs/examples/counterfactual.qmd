@@ -142,7 +142,7 @@ U_Y &= Y - b \cdot X - c \cdot H = 1.5 - 0.7 \times 0.5 - 0.4 \times 1 = 0.75
 \end{aligned}
 $$
 
-Joe's exogenous factors are both 0.75 — he has above-average inherent homework effort and above-average inherent exam ability, independent of the encouragement program.
+Joe's $U_H$ and $U_Y$ are both 0.75 — he has above-average inherent homework effort and above-average inherent exam ability, independent of the encouragement program.
 
 #### Step 2: Action
 
@@ -252,7 +252,7 @@ The gap between the two estimates reflects the difference between asking about t
 
 ## The counterfactual posterior
 
-@fig-counterfactual-posterior shows the full posterior distribution over Joe's counterfactual score. The distribution is narrow because the coefficient $c$ is well-identified with 2000 observations, but wider datasets or weaker identification would produce greater uncertainty.
+@fig-counterfactual-posterior shows the full posterior distribution over Joe's counterfactual score. The distribution is narrow because the coefficient $c$ is well-identified with 2000 observations, but smaller samples or weaker identification would produce greater uncertainty.
 
 ```{python}
 #| label: fig-counterfactual-posterior
