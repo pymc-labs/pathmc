@@ -9,7 +9,7 @@ Not every regression coefficient is a causal effect.
 To get from association to causation, you need to identify the right **adjustment set** — the variables to include in your model so that the coefficient on the treatment reflects only the causal path.
 
 pathmc provides tools to check this directly from the DAG, before you look at any data.
-This example walks through the three fundamental DAG structures and shows how pathmc's identification helpers guide adjustment decisions.
+This example walks through the fundamental DAG structures — fork, chain, collider — and shows how pathmc's identification helpers guide adjustment decisions. It closes with the **front-door criterion**, which identifies causal effects through a mediator when confounders are unmeasured.
 
 ## Setup
 
@@ -213,17 +213,74 @@ print(f"ATE of X on Y:  {ate.mean('Y'):.3f}  (true = 0.4)")
 print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
 ```
 
+## When backdoor fails: the front-door criterion
+
+Every example above had a crucial advantage: the confounders were observed. But what if the confounder **cannot be measured**?
+
+Consider advertising (`X`) that drives sales (`Y`) entirely through website visits (`M`). An unmeasured factor — say, seasonal demand (`U`) — inflates both ad spend and sales. Without observing `U`, the backdoor criterion hits a wall.
+
+```{dot}
+//| label: fig-frontdoor-dag
+//| fig-cap: "Front-door structure: U (dashed, unobserved) confounds X and Y. The entire causal effect flows through the observed mediator M, enabling identification despite unmeasured confounding."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  U [style=dashed]
+  U -> X
+  U -> Y
+  X -> M
+  M -> Y
+}
+```
+
+The backdoor criterion does find an adjustment set — but it contains `U`:
+
+```{python}
+from pathmc.graph import build_graph
+from pathmc.identify import adjustment_sets, frontdoor_identifiable
+from pathmc.parse import parse_spec
+
+frontdoor_graph = build_graph(parse_spec("X ~ U\nM ~ X\nY ~ M + U"))
+print(f"Adjustment sets: {adjustment_sets(frontdoor_graph, 'X', 'Y')}")
+```
+
+If `U` is unobserved, that set is useless. The **front-door criterion** [@pearl2009causality] offers an alternative: when every directed path from treatment to outcome passes through a mediator that satisfies specific conditions, the causal effect is identified *without* measuring the confounder.
+
+```{python}
+identifiable, message = frontdoor_identifiable(frontdoor_graph, "X", "M", "Y")
+print(f"Front-door identifiable? {identifiable}")
+print(message)
+```
+
+The three conditions `frontdoor_identifiable` checks are:
+
+1. `M` intercepts **all** directed paths from `X` to `Y` (complete mediation)
+2. No unblocked backdoor path from `X` to `M` (the treatment–mediator link is unconfounded)
+3. All backdoor paths from `M` to `Y` are blocked by conditioning on `X`
+
+If any condition fails, the diagnostic message explains which one and why.
+
+::: {.callout-tip}
+## From identification to estimation
+
+The front-door criterion tells you the effect *can* be identified — but the estimation strategy requires care. In pathmc, front-door identification is implemented as mediation analysis: estimate the `X → M` and `M → Y` path coefficients (including `X` in the `Y` equation to block the `M → Y` backdoor), then compute the indirect effect `a × b`. See the [front-door example](front_door.qmd) for the full workflow.
+:::
+
+
 ## Summary
 
 - **Confounders** (common causes) must be adjusted for. `.adjustment_sets()` identifies them.
 - **Mediators** are descendants of treatment — they are automatically excluded from backdoor sets.
 - **Colliders** must *not* be adjusted for. `.collider_warnings()` flags them.
-- **`.is_identifiable()`** tells you whether any valid adjustment set exists before you run a single MCMC sample.
+- **`.is_identifiable()`** tells you whether any valid backdoor adjustment set exists before you run a single MCMC sample.
+- **Unmeasured confounding** blocks the backdoor criterion, but the **front-door criterion** can still identify the effect when all causal paths flow through a measured mediator. `.frontdoor_identifiable()` checks the three required conditions and reports which one fails if identification is not possible.
 - **The DAG encodes your assumptions.** pathmc's identification helpers check the logical consequences of those assumptions, but the DAG itself must come from domain knowledge.
 
 ::: {.callout-note}
 ## Reflection
 
-In your own analysis, which variables might be colliders?
-A common example: "customer satisfaction" is caused by both product quality and marketing — conditioning on it when estimating the effect of marketing on retention could introduce collider bias.
+Which variables in your analysis might be colliders — or unmeasured confounders?
+
+- **Collider trap**: "customer satisfaction" is caused by both product quality and marketing — conditioning on it when estimating the effect of marketing on retention could introduce collider bias.
+- **Front-door opportunity**: if a confounder is unmeasured but the treatment affects the outcome entirely through a measurable mediator (e.g. ad spend → clicks → purchases, with seasonal demand confounding ad spend and purchases), the front-door criterion may rescue identification.
 :::

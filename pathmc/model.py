@@ -24,6 +24,7 @@ from pathmc.graph import GraphInfo, build_graph
 from pathmc.identify import (
     adjustment_sets as _adjustment_sets,
     collider_warnings as _collider_warnings,
+    frontdoor_identifiable as _frontdoor_identifiable,
     is_identifiable as _is_identifiable,
 )
 from pathmc.introspect import (
@@ -413,6 +414,40 @@ class PathModel:
             True if at least one valid adjustment set exists.
         """
         return _is_identifiable(self._graph_info, treatment, outcome)
+
+    def frontdoor_identifiable(
+        self,
+        treatment: str,
+        mediator: str,
+        outcome: str,
+    ) -> tuple[bool, str]:
+        """Check whether the front-door criterion identifies the causal
+        effect of *treatment* on *outcome* through *mediator*.
+
+        .. note::
+
+            This checks the DAG derived from the model spec. If the spec
+            includes adjustment variables that add edges absent from the
+            true causal DAG, the check may report false negatives. Build a
+            separate ``GraphInfo`` from the causal structure for an
+            accurate check in that case.
+
+        Parameters
+        ----------
+        treatment : str
+            Treatment variable name.
+        mediator : str
+            Mediator variable name.
+        outcome : str
+            Outcome variable name.
+
+        Returns
+        -------
+        tuple[bool, str]
+            ``(identifiable, message)`` where *message* explains the
+            result or describes which condition fails.
+        """
+        return _frontdoor_identifiable(self._graph_info, treatment, mediator, outcome)
 
     def collider_warnings(
         self,
