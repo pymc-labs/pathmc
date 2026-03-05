@@ -47,6 +47,8 @@ $$
 
 with $a = 0.5$, $b = 0.7$, $c = 0.4$, and all $U$ terms mutually independent. Because encouragement is randomized, $X$ has no structural parents — it is determined entirely by the exogenous factor $U_X$.
 
+The $U$ terms will turn out to be the key to answering Joe's counterfactual question. Their interpretation is different from what you may expect if you're used to thinking of residuals as noise — we'll return to this after seeing what the `do()` operator can and cannot tell us.
+
 ## Simulate data
 
 We generate a large sample from the known data-generating process so that the Bayesian model can recover the true coefficients precisely.
@@ -116,11 +118,46 @@ print(f"94% HDI:          {do_result.hdi('Y', prob=0.94)}")
 
 This is a valid causal quantity, but it answers the wrong question for Joe. The do-operator tells us about the *average* student under the intervention, not about Joe specifically. Joe is not average — he has above-average encouragement ($X = 0.5 > 0$) and (as we will see) above-average inherent exam ability.
 
+## The residual is not noise
+
+If you come from a Bayesian or frequentist statistics background, you probably read the $U$ terms in the structural equations as **noise** — zero-mean, normally distributed error terms that represent the part of the data your model can't explain. In standard regression, the residual for observation $i$ is exchangeable with every other residual. You wouldn't try to "preserve" a specific individual's residual, because it carries no meaningful information — it's just estimation error.
+
+In a structural causal model, the $U$ terms play a fundamentally different role. They *look* like regression residuals — across the population, they're zero-mean and normally distributed. But for any specific individual, $U_Y$ encodes **everything about that person that causally affects $Y$ but isn't captured by the measured variables**.
+
+For Joe, $U_Y = 0.75$ is not noise. It is his natural test-taking ability, his sleep quality the night before, his intrinsic motivation, his breakfast that morning — every unmeasured factor that pushes his exam score above what his encouragement and homework levels alone would predict. These are real causal inputs, not estimation artifacts. The structural equation $Y = b \cdot X + c \cdot H + U_Y$ says: "Joe's exam score is determined by his encouragement, his homework, *and everything else about Joe that matters*."
+
+This reinterpretation — from "discardable error" to "signal about the individual" — is the conceptual shift that enables counterfactual reasoning.
+
+::: {.callout-important}
+## The dual nature of $U$
+
+Across the population, $U_Y$ behaves like noise: $U_Y \sim \text{Normal}(0, \sigma)$, independent of the other variables. This is why fitting the model with standard regression works perfectly well.
+
+For a *specific individual*, $U_Y$ is a **fixed property** — it characterizes everything about that person that the model doesn't measure. Two students with the same $X$ and $H$ can have different exam scores because they have different $U_Y$ values, which reflect genuinely different (but unmeasured) causal factors.
+
+The same quantity plays both roles, and which interpretation matters depends on whether you're asking a population question or an individual one.
+:::
+
+### Why holding $U$ fixed makes sense
+
+When we ask "what would Joe's score have been with more homework?", we're asking about a hypothetical change to *one variable* while keeping *everything else about Joe the same*. Changing Joe's homework doesn't change his innate ability, his sleep quality, or his motivation — those are properties of Joe, not consequences of his homework level. In the structural model, this means $U_Y$ stays fixed at 0.75 when we hypothetically set $H = 2$.
+
+This is exactly what the `do()` operator *doesn't* do. When pathmc computes `do(H = 2)`, it uses the population mean for all exogenous variables: $U_Y \approx 0$, $X \approx 0$. That's correct for a policy question ("what happens to the average student?") but wrong for a counterfactual about Joe, because it replaces Joe's actual characteristics with the average person's.
+
+### The link to posterior predictive checks
+
+If you've done Bayesian modeling, this distinction might remind you of the difference between:
+
+- **Posterior predictive for a new observation**: "What score would a *new, random* student get if we set their homework to 2?" — uses $U_Y \sim \text{Normal}(0, \sigma)$, averaging over possible individuals.
+- **Posterior predictive for a *specific, observed* individual**: "What score would *Joe* get if we changed his homework to 2, given that we've already observed his actual score?" — requires conditioning on Joe's data first to infer his $U_Y$.
+
+Standard Bayesian prediction doesn't typically make this second move, because in a pure prediction context there's no reason to — the residual really is just noise. But when the model represents causal mechanisms, the residual carries individual-level information that matters for counterfactual questions. The abduction step (inferring $U_Y$ from Joe's data) is what bridges prediction and counterfactual reasoning.
+
 ## The counterfactual question: what about Joe?
 
 Joe's observed values are $X = 0.5$, $H = 1$, $Y = 1.5$. We want to know what his score *would have been* had he doubled his homework to $H = 2$, keeping everything else about Joe — his encouragement level, his inherent ability, his other personal characteristics — fixed.
 
-The `do()` operator cannot answer this because it doesn't condition on Joe's observed data. It averages over all possible individuals, not just those who look like Joe.
+Now the logic should be clear: we need to (1) recover Joe's personal $U$ values from his observed data, (2) modify the model to set $H = 2$, and (3) predict Joe's score in the modified model using his personal $U$ values — not the population average.
 
 ### The three-step procedure
 
@@ -311,9 +348,10 @@ The counterfactual change depends only on the **direct effect** of the intervene
 
 ## Summary
 
+- **The $U$ terms are not noise** — they are everything about a specific individual that causally affects the outcome but isn't measured. Across the population, they behave like zero-mean residuals; for a specific person, they encode real, fixed characteristics. This reinterpretation is the conceptual foundation of counterfactual reasoning.
 - **Counterfactuals** answer questions about specific individuals under hypothetical conditions — "what *would have happened* to this person?" — by conditioning on observed evidence before intervening [@pearl2016primer, §4.2.3].
-- **Pearl's three-step procedure** — abduction, action, prediction — turns a structural causal model into a counterfactual engine. The abduction step is what distinguishes counterfactuals from interventions: it uses the individual's data to infer their exogenous characteristics.
-- **`do()` answers a different question**: the population-level average effect of an intervention. For Joe, `do(H = 2)` predicts a score of $\approx 0.8$ (the average student); the counterfactual predicts $\approx 1.9$ (Joe specifically).
+- **Pearl's three-step procedure** — abduction, action, prediction — turns a structural causal model into a counterfactual engine. The abduction step recovers the individual's $U$ values from their observed data; the prediction step holds those values fixed while simulating the hypothetical change.
+- **`do()` answers a different question**: the population-level average effect of an intervention, using $U \approx 0$ (the average person). For Joe, `do(H = 2)` predicts a score of $\approx 0.8$; the counterfactual predicts $\approx 1.9$ — the gap is entirely due to Joe's above-average $U$ values.
 - **In a Bayesian framework**, the three-step procedure yields a full posterior over the counterfactual, naturally propagating coefficient uncertainty into the individual prediction.
 - **In linear SEMs**, the counterfactual simplifies: the change in $Y$ equals the direct effect coefficient times the change in the intervened variable, because all other pathways cancel.
 
