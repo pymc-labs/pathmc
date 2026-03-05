@@ -45,6 +45,7 @@ The table below compares pathmc against five packages that Python practitioners 
 | **Standardized effects (stdyx)** | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | **Path-specific effects** | ✅ `effect("X→M→Y")` | ❌ | ❌ | ✅ indirect effects | ❌ | ❌ |
 | **Probabilistic queries** | ✅ `prob("Y>0")` | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Data simulation from model** | ✅ `simulate()` | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ## Package-by-package comparison
 
