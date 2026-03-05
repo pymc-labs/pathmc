@@ -183,13 +183,24 @@ H_NEW = 2.0
 a_draws = idata.posterior["beta_H"].sel(H_predictors="X").values.flatten()
 b_draws = idata.posterior["beta_Y"].sel(Y_predictors="X").values.flatten()
 c_draws = idata.posterior["beta_Y"].sel(Y_predictors="H").values.flatten()
+intercept_H = idata.posterior["beta_H"].sel(H_predictors="Intercept").values.flatten()
+intercept_Y = idata.posterior["beta_Y"].sel(Y_predictors="Intercept").values.flatten()
 ```
 
-```{python}
-u_h = JOE_H - a_draws * JOE_X
-u_y = JOE_Y - b_draws * JOE_X - c_draws * JOE_H
+**Abduction**: infer Joe's exogenous characteristics from the fitted model.
 
-y_counterfactual = b_draws * JOE_X + c_draws * H_NEW + u_y
+```{python}
+u_h = JOE_H - intercept_H - a_draws * JOE_X
+u_y = JOE_Y - intercept_Y - b_draws * JOE_X - c_draws * JOE_H
+
+print(f"U_H posterior mean: {u_h.mean():.3f}  (analytical = 0.75)")
+print(f"U_Y posterior mean: {u_y.mean():.3f}  (analytical = 0.75)")
+```
+
+**Action + Prediction**: replace $H = 2$ and compute $Y$.
+
+```{python}
+y_counterfactual = intercept_Y + b_draws * JOE_X + c_draws * H_NEW + u_y
 ```
 
 ```{python}
