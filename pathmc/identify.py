@@ -1,7 +1,8 @@
 """Causal identification helpers for pathmc structural models.
 
-Provides backdoor adjustment set computation, collider warnings,
-and identifiability checks using the DAG stored in GraphInfo.
+Provides backdoor adjustment set computation, front-door criterion checks,
+collider warnings, and identifiability checks using the DAG stored in
+GraphInfo.
 """
 
 from __future__ import annotations
@@ -96,6 +97,109 @@ def is_identifiable(
         (including the empty set, meaning no adjustment is needed).
     """
     return len(adjustment_sets(graph_info, treatment, outcome)) > 0
+
+
+def frontdoor_identifiable(
+    graph_info: GraphInfo,
+    treatment: str,
+    mediator: str,
+    outcome: str,
+) -> tuple[bool, str]:
+    """Check whether the front-door criterion identifies the causal effect
+    of *treatment* on *outcome* through *mediator*.
+
+    The front-door criterion (Pearl, 2009) requires three conditions:
+
+    1. *mediator* intercepts all directed paths from *treatment* to *outcome*.
+    2. There is no unblocked backdoor path from *treatment* to *mediator*.
+    3. All backdoor paths from *mediator* to *outcome* are blocked by
+       conditioning on *treatment*.
+
+    This function checks the criterion on the DAG as represented in
+    *graph_info*. If the estimation spec includes adjustment variables
+    that create edges absent from the true causal DAG (e.g. including
+    treatment in the outcome equation to block a backdoor), build a
+    separate ``GraphInfo`` from the causal structure for this check.
+
+    Parameters
+    ----------
+    graph_info : GraphInfo
+        DAG from the structural model.
+    treatment : str
+        Treatment variable name.
+    mediator : str
+        Mediator variable name.
+    outcome : str
+        Outcome variable name.
+
+    Returns
+    -------
+    tuple[bool, str]
+        ``(identifiable, message)`` where *message* explains the result
+        or describes which condition fails.
+    """
+    dag = graph_info._dag
+
+    for name, role in [
+        (treatment, "Treatment"),
+        (mediator, "Mediator"),
+        (outcome, "Outcome"),
+    ]:
+        if name not in dag.nodes:
+            raise ValueError(
+                f"{role} '{name}' not in DAG. Available nodes: {sorted(dag.nodes)}"
+            )
+
+    if treatment == mediator or mediator == outcome or treatment == outcome:
+        raise ValueError(
+            "Treatment, mediator, and outcome must be three distinct "
+            f"variables. Got treatment='{treatment}', mediator='{mediator}', "
+            f"outcome='{outcome}'."
+        )
+
+    directed_paths = list(nx.all_simple_paths(dag, treatment, outcome))
+    if not directed_paths:
+        return (
+            False,
+            f"No directed path from '{treatment}' to '{outcome}' exists "
+            f"in the DAG. The front-door criterion requires the mediator "
+            f"to carry the causal effect.",
+        )
+
+    for path in directed_paths:
+        if mediator not in path:
+            bypass = " \u2192 ".join(path)
+            return (
+                False,
+                f"Condition 1 fails: directed path {bypass} does not pass "
+                f"through '{mediator}'. The front-door criterion requires "
+                f"all directed paths to be fully mediated.",
+            )
+
+    if not _blocks_all_backdoor_paths(dag, dag, treatment, mediator, set()):
+        return (
+            False,
+            f"Condition 2 fails: there is an unblocked backdoor path from "
+            f"'{treatment}' to '{mediator}'. The front-door criterion "
+            f"requires the treatment\u2013mediator relationship to be "
+            f"unconfounded.",
+        )
+
+    if not _blocks_all_backdoor_paths(dag, dag, mediator, outcome, {treatment}):
+        return (
+            False,
+            f"Condition 3 fails: not all backdoor paths from '{mediator}' "
+            f"to '{outcome}' are blocked by conditioning on '{treatment}'. "
+            f"The front-door criterion requires treatment to block all "
+            f"mediator\u2013outcome confounding.",
+        )
+
+    return (
+        True,
+        f"Front-door criterion satisfied: the causal effect of "
+        f"'{treatment}' on '{outcome}' is identified through "
+        f"'{mediator}'.",
+    )
 
 
 def collider_warnings(

@@ -340,7 +340,8 @@ The `PathModel` methods fall into natural groups:
 **Identification:**
 
 - `adjustment_sets(treatment, outcome)` → valid backdoor sets
-- `is_identifiable(treatment, outcome)` → boolean check
+- `is_identifiable(treatment, outcome)` → boolean check (backdoor criterion)
+- `frontdoor_identifiable(treatment, mediator, outcome)` → front-door criterion check with diagnostic message
 - `collider_warnings(adjustment_vars, treatment, outcome)` → bias warnings
 
 
@@ -450,10 +451,11 @@ The LaTeX rendering enables rich display in Jupyter notebooks and Quarto documen
 
 ## Causal identification (`identify.py`)
 
-This module implements the backdoor criterion over the DAG stored in `GraphInfo`:
+This module implements identification criteria over the DAG stored in `GraphInfo`:
 
 - **`adjustment_sets()`**: finds all valid minimal backdoor adjustment sets by enumerating candidate subsets (non-descendants of treatment), checking d-separation on the mutilated graph, and filtering to minimal sets.
-- **`is_identifiable()`**: returns `True` if at least one valid adjustment set exists.
+- **`is_identifiable()`**: returns `True` if at least one valid backdoor adjustment set exists.
+- **`frontdoor_identifiable()`**: checks whether the front-door criterion (Pearl, 2009) identifies the causal effect of treatment on outcome through a given mediator. Verifies three conditions: complete mediation, no treatment–mediator confounding, and treatment blocking all mediator–outcome backdoor paths. Returns a boolean and a diagnostic message explaining which condition fails (if any).
 - **`collider_warnings()`**: checks if any variable in a proposed adjustment set is a collider on a path between treatment and outcome — conditioning on a collider opens a spurious path.
 
 These helpers don't perform inference. They use the DAG structure alone to reason about what can and cannot be identified from observational data.

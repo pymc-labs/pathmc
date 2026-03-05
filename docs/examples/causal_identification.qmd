@@ -218,7 +218,8 @@ print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
 - **Confounders** (common causes) must be adjusted for. `.adjustment_sets()` identifies them.
 - **Mediators** are descendants of treatment — they are automatically excluded from backdoor sets.
 - **Colliders** must *not* be adjusted for. `.collider_warnings()` flags them.
-- **`.is_identifiable()`** tells you whether any valid adjustment set exists before you run a single MCMC sample.
+- **`.is_identifiable()`** tells you whether any valid backdoor adjustment set exists before you run a single MCMC sample.
+- **`.frontdoor_identifiable()`** checks whether the [front-door criterion](front_door.qmd) identifies the effect through a mediator — useful when backdoor identification fails due to unmeasured confounding.
 - **The DAG encodes your assumptions.** pathmc's identification helpers check the logical consequences of those assumptions, but the DAG itself must come from domain knowledge.
 
 ::: {.callout-note}
