@@ -84,3 +84,4 @@ pytest tests/test_compile.py::TestDesignMatrix -x -v
 - Use global state or module-level mutable variables.
 - Suppress warnings without documenting the reason.
 - Write "clever" code — prefer clear, boring implementations.
+- Commit temporary/scratch files (e.g., draft issue text, PR summary scaffolds). Files intended to be persistent parts of the repo (docs, config, source) are fine to commit.

@@ -174,9 +174,16 @@ The validity of any causal claim depends on assumptions that pathmc cannot verif
 2. **No unmeasured confounders.** The do-operator assumes that all common causes of the treatment and outcome are observed and included in the model.
 If there are unobserved confounders, the `do()` results are biased.
 
-3. **No model misspecification.** pathmc uses linear structural equations (with optional transforms for nonlinearity) and supports Gaussian, Bernoulli, Poisson, NegBinomial, and StudentT families. If the true data-generating process differs substantially, the model may be a poor approximation.
+3. **Consistency (well-defined interventions).** If a unit actually receives treatment value $x$, their observed outcome equals the potential outcome $Y(x)$.
+This rules out "multiple versions of treatment" — e.g., if `do(X = 1)` could mean different real-world interventions with different effects, the causal quantity is ill-defined.
 
-4. **Positivity.** Interventional queries at values far outside the observed data range are extrapolations and should be interpreted with caution.
+4. **No interference (SUTVA).** One unit's treatment assignment does not affect another unit's outcome.
+This is particularly relevant for panel models where units may interact — e.g., treating one region's advertising spend may spill over into neighboring regions.
+pathmc's structural equations assume each observation is generated independently given its parents in the DAG.
+
+5. **No model misspecification.** pathmc uses linear structural equations (with optional transforms for nonlinearity) and supports Gaussian, Bernoulli, Poisson, NegBinomial, and StudentT families. If the true data-generating process differs substantially, the model may be a poor approximation.
+
+6. **Positivity.** Interventional queries at values far outside the observed data range are extrapolations and should be interpreted with caution.
 
 pathmc provides the identification helpers above to assist with checking the backdoor criterion, but the analyst is ultimately responsible for specifying the correct DAG and defending the causal assumptions.
 
