@@ -37,6 +37,8 @@ website:
       - href: examples/index.qmd
         text: Examples
 
+bibliography: references.bib
+
 format:
   html:
     theme: cosmo

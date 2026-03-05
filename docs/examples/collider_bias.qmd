@@ -1,0 +1,260 @@
+---
+title: "Collider Bias"
+description: "The birth-weight paradox — conditioning on a collider makes a harmful exposure appear protective. Use pathmc's collider warnings to detect the trap."
+categories: [Fundamentals, Causal Inference]
+jupyter: pathmc
+---
+
+Among low-birth-weight babies, maternal smoking appears to *reduce* infant mortality. Taken at face value, this would suggest smoking is protective — an absurd conclusion. The explanation is **collider bias**: conditioning on birth weight, which is caused by *both* smoking and birth defects, opens a spurious path that reverses the true harmful effect of smoking.
+
+This is the **birth-weight paradox** [@pearl2016primer, §3.7; @pearl2018why, Ch. 6; @hernandez2006birth], one of the most counterintuitive results in causal inference. It demonstrates why "control for everything you can measure" is dangerous advice — adding a variable to your model can *create* bias rather than remove it.
+
+## The causal structure
+
+Four causal relationships define the problem:
+
+1. Smoking lowers birth weight
+2. Birth defects lower birth weight
+3. Smoking increases mortality
+4. Birth defects increase mortality
+
+Birth weight is a **collider** — it has two incoming arrows (from smoking and birth defects) but no direct effect on mortality. Conditioning on it creates a spurious negative association between its causes, making smoking look protective.
+
+```{dot}
+//| label: fig-collider-dag
+//| fig-cap: "Birth-weight paradox: birth_weight is a collider with two incoming arrows. Conditioning on it induces a spurious association between smoking and birth_defect, biasing the smoking → mortality estimate."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  smoking -> birth_weight
+  birth_defect -> birth_weight
+  smoking -> mortality
+  birth_defect -> mortality
+}
+```
+
+The key insight: among low-birth-weight babies, knowing that a baby does *not* have birth defects makes it more likely the mother smoked (the low weight has to come from somewhere). This "explaining away" effect induces a negative association between smoking and birth defects within the low-birth-weight stratum. Since birth defects strongly increase mortality, non-smoking low-birth-weight babies have *higher* mortality — not because smoking is protective, but because they are more likely to have birth defects.
+
+## Simulate data
+
+We generate binary mortality from a logistic DGP where smoking truly *increases* the probability of death. Birth weight has no direct effect on mortality — it serves purely as a collider.
+
+```{python}
+import numpy as np
+import pandas as pd
+import pathmc
+
+rng = np.random.default_rng(42)
+n = 2000
+
+smoking = rng.choice([0.0, 1.0], size=n, p=[0.7, 0.3])
+birth_defect = rng.choice([0.0, 1.0], size=n, p=[0.90, 0.10])
+
+birth_weight = (
+    3.5
+    - 0.5 * smoking
+    - 1.5 * birth_defect
+    + rng.normal(scale=0.4, size=n)
+)
+
+TRUE_SMOKING_EFFECT = 0.5
+logit_mortality = (
+    -3.0
+    + TRUE_SMOKING_EFFECT * smoking
+    + 4.0 * birth_defect
+)
+p_mortality = 1 / (1 + np.exp(-logit_mortality))
+mortality = rng.binomial(1, p_mortality).astype(float)
+
+df = pd.DataFrame({
+    "smoking": smoking,
+    "birth_defect": birth_defect,
+    "birth_weight": birth_weight,
+    "mortality": mortality,
+})
+print(f"Mortality rate: {mortality.mean():.2%}")
+print(f"Mortality | smoking:     {df.query('smoking == 1')['mortality'].mean():.2%}")
+print(f"Mortality | no smoking:  {df.query('smoking == 0')['mortality'].mean():.2%}")
+```
+
+## The collider trap, visualized
+
+Before fitting models, we can see collider bias operating in the raw data. @fig-collider-scatter splits the sample at the median birth weight. In the full population, smoking raises mortality (as expected). But among low-birth-weight babies, the pattern reverses — smoking appears *protective*.
+
+The mechanism: among low-birth-weight babies who do not smoke, the low weight is more likely explained by birth defects. Birth defects strongly increase mortality, so the non-smoking low-birth-weight group has an elevated mortality rate. Among low-birth-weight babies who smoke, the low weight is partly explained by smoking itself, so fewer of them have birth defects — and their mortality rate is lower.
+
+```{python}
+#| label: fig-collider-scatter
+#| fig-cap: "Mortality rates by smoking status, stratified by birth weight. In the full population (left), smoking raises mortality. Among low-birth-weight babies (right), the relationship reverses — conditioning on the collider creates a spurious protective signal."
+#| code-fold: true
+import matplotlib.pyplot as plt
+
+FIG_WIDTH = 7
+FIG_HEIGHT = 3.5
+COLOR_FULL = "#4575b4"
+COLOR_LOW_BW = "#d73027"
+
+bw_median = df["birth_weight"].median()
+low_bw = df[df["birth_weight"] < bw_median]
+
+fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT), sharey=True)
+
+for ax, subset, title, color in [
+    (axes[0], df, "Full population", COLOR_FULL),
+    (axes[1], low_bw, "Low birth weight only", COLOR_LOW_BW),
+]:
+    rates = subset.groupby("smoking")["mortality"].mean()
+    bars = ax.bar([0, 1], [rates.get(0, 0), rates.get(1, 0)], color=color, alpha=0.7,
+                  width=0.5, edgecolor=color)
+    for bar, val in zip(bars, [rates.get(0, 0), rates.get(1, 0)]):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005,
+                f"{val:.1%}", ha="center", fontsize=10, fontweight="bold")
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(["No smoking", "Smoking"])
+    ax.set_title(title)
+
+ymax = max(
+    df.groupby("smoking")["mortality"].mean().max(),
+    low_bw.groupby("smoking")["mortality"].mean().max(),
+) * 1.3
+axes[0].set_ylim(0, ymax)
+axes[0].set_ylabel("Mortality rate")
+plt.tight_layout()
+plt.show()
+```
+
+In the left panel, smoking increases mortality — consistent with the true DGP. In the right panel, restricting to low-birth-weight babies reverses the pattern: smokers have *lower* mortality than non-smokers. This is the birth-weight paradox in action.
+
+## The correct model (without conditioning on the collider)
+
+The full structural model includes the causal arrows in @fig-collider-dag. Importantly, we do *not* condition on birth weight when estimating the total effect of smoking on mortality — pathmc's structural specification keeps all paths active.
+
+```{python}
+spec = """
+birth_weight ~ smoking + birth_defect
+mortality ~ b_smoking*smoking + birth_defect
+"""
+
+model = pathmc.fit(spec, data=df, families={"mortality": "bernoulli"})
+model.graph()
+```
+
+### Collider warnings
+
+Before fitting, pathmc can check whether a proposed adjustment set contains colliders.
+
+```{python}
+warnings = model.collider_warnings({"birth_weight"}, "smoking", "mortality")
+for w in warnings:
+    print(w)
+```
+
+pathmc flags `birth_weight` as a collider on the path between `smoking` and `mortality`. The message warns us that conditioning on it (e.g., by stratifying on low birth weight) would open a spurious association.
+
+### Identification check
+
+```{python}
+print(f"Identifiable?    {model.is_identifiable('smoking', 'mortality')}")
+print(f"Adjustment sets: {model.adjustment_sets('smoking', 'mortality')}")
+```
+
+### Fit the correct model
+
+```{python}
+model.sample(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+pathmc's `do()` operator performs graph surgery on the fitted structural model, propagating intervention values through the causal chain using posterior draws. The code below manually contrasts two interventions; the equivalent one-liner is `model.ate("mortality", "smoking", values=(0.0, 1.0))`. See [Causal Inference](../concepts/causal_inference.qmd) for the full interventional API.
+
+```{python}
+r0 = model.do(set={"smoking": 0.0}, kind="mean")
+r1 = model.do(set={"smoking": 1.0}, kind="mean")
+
+ate = r1 - r0
+print(f"P(mortality | do(smoking=0)): {r0.mean('mortality'):.3f}")
+print(f"P(mortality | do(smoking=1)): {r1.mean('mortality'):.3f}")
+print(f"ATE (risk difference):       {ate.mean('mortality'):.3f}")
+print(f"94% HDI:                     {ate.hdi('mortality', prob=0.94)}")
+```
+
+The ATE is positive — smoking increases mortality, as expected.
+
+## The biased analysis (conditioning on the collider)
+
+To demonstrate collider bias computationally, we fit a model that uses birth weight and smoking to predict mortality, without accounting for birth defects. By conditioning on birth weight (the collider), this model opens the spurious path `smoking - - birth_weight - - birth_defect → mortality`.
+
+```{python}
+biased_model = pathmc.fit(
+    "mortality ~ b_smoking_biased*smoking + birth_weight",
+    data=df,
+    families={"mortality": "bernoulli"},
+)
+biased_model.sample(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+```{python}
+biased_ate = biased_model.ate("mortality", "smoking", values=(0.0, 1.0))
+print(f"Biased ATE: {biased_ate.mean('mortality'):.3f}")
+print(f"94% HDI:    {biased_ate.hdi('mortality', prob=0.94)}")
+```
+
+## Comparing the two estimates
+
+@fig-collider-comparison shows the core result: the correct model recovers the true harmful effect of smoking, while the biased model (conditioning on the collider) attenuates it toward zero or reverses its sign.
+
+```{python}
+#| label: fig-collider-comparison
+#| fig-cap: "Correct vs biased ATE estimates. The correct model (including birth defects, not conditioning on the collider) recovers the true harmful effect. The biased model (conditioning on birth weight without birth defects) attenuates the effect toward zero."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.7))
+
+correct_val = ate.mean("mortality")
+correct_hdi = ate.hdi("mortality", prob=0.94)
+biased_val = biased_ate.mean("mortality")
+biased_hdi = biased_ate.hdi("mortality", prob=0.94)
+
+ax.errorbar(
+    biased_val, 1,
+    xerr=[[biased_val - biased_hdi[0]], [biased_hdi[1] - biased_val]],
+    fmt="o", color="C3", capsize=5, label="Biased (conditions on collider)",
+)
+ax.errorbar(
+    correct_val, 0,
+    xerr=[[correct_val - correct_hdi[0]], [correct_hdi[1] - correct_val]],
+    fmt="o", color="C0", capsize=5, label="Correct (full DAG)",
+)
+ax.axvline(0, color="gray", linestyle=":", alpha=0.5)
+ax.set_yticks([0, 1])
+ax.set_yticklabels(["Correct model", "Biased model"])
+ax.set_xlabel("ATE of smoking on mortality (risk difference)")
+ax.legend(loc="best", fontsize=9)
+plt.tight_layout()
+plt.show()
+```
+
+::: {.callout-warning}
+## Collider bias in action
+
+The biased model — which conditions on birth weight without accounting for birth defects — attenuates or reverses the harmful effect of smoking. This is exactly the birth-weight paradox: among babies of similar birth weight, smokers' babies appear healthier because the non-smoking low-weight babies are more likely to have birth defects.
+
+"Control for everything" is dangerous in causal inference. pathmc's `collider_warnings()` helps catch this before it leads to wrong conclusions.
+:::
+
+## Summary
+
+- **Collider bias** arises when you condition on a variable caused by both the treatment and another cause of the outcome [@pearl2016primer, §3.7]. Unlike confounding, it is *created* by analysis choices, not present in the raw data.
+- **The birth-weight paradox** [@hernandez2006birth] is the canonical example: smoking appears protective among low-birth-weight babies because conditioning on birth weight opens a spurious path through birth defects. @fig-collider-scatter makes the reversal visible in the raw mortality rates.
+- **`collider_warnings()`** detects when a proposed adjustment set contains a collider, flagging the risk before you fit a model.
+- **`do()`** computes the interventional effect without requiring manual reasoning about which variables to condition on — the structural model handles it.
+- **Binary outcomes** work naturally with `families={"mortality": "bernoulli"}`, and `do()` returns probabilities on the (0, 1) scale.
+
+::: {.callout-note}
+## Reflection
+
+Where might collider bias lurk in your work?
+
+- **Hiring**: "Top university" and "strong portfolio" both cause "getting hired." Among hired employees, university prestige and portfolio quality will appear negatively correlated — conditioning on the collider.
+- **E-commerce**: "Ad exposure" and "organic interest" both cause "site visit." Among visitors, ad-exposed users may appear less interested — but that's collider bias, not a real pattern.
+- **Clinical trials**: Analyzing outcomes conditional on a post-treatment variable (like hospital admission) that is caused by both treatment and disease severity.
+:::
