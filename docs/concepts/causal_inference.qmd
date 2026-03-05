@@ -19,13 +19,44 @@ pathmc's **estimator** is [g-computation](https://en.wikipedia.org/wiki/G-comput
 Rather than reweighting observed data (as in IPW or matching), g-computation forward-simulates the structural model under the intervention, propagating uncertainty through the full Bayesian posterior.
 The **estimate** is the resulting posterior distribution — not a single point estimate, but a full distribution over the causal effect, with uncertainty quantified by the model.
 
-::: {.callout-tip}
-## For potential-outcomes practitioners
+## Pearl ↔ Potential Outcomes
 
-pathmc's g-computation is the structural analog of standardization in the potential outcomes tradition.
-Under the same identification assumptions, `E[Y | do(X=1)] - E[Y | do(X=0)]` (Pearl) equals `E[Y(1) - Y(0)]` (Rubin).
-Similarly, the backdoor criterion corresponds to conditional ignorability (unconfoundedness).
-If you are coming from the DoWhy workflow, pathmc's `ate()` and `cate()` produce the same estimands — the difference is that pathmc computes them via a generative structural model rather than a generic estimator API.
+Causal inference has two dominant formal frameworks: Pearl's **Structural Causal Model (SCM)** framework and the **Potential Outcomes (PO)** framework associated with Rubin, Imbens, and Robins.
+pathmc is built on Pearl's SCM framework — DAGs, structural equations, and the do-operator — but the quantities it computes are meaningful in both traditions.
+This section maps the key concepts so that readers from either background can locate pathmc in their conceptual vocabulary.
+
+### Term mapping
+
+| Pearl / SCM | Potential Outcomes / Epidemiology | pathmc API |
+|---|---|---|
+| $P(Y \mid do(X = x))$ | $E[Y(x)]$ (mean potential outcome) | `model.do(set={"X": x})` |
+| $E[Y \mid do(X=1)] - E[Y \mid do(X=0)]$ | $E[Y(1) - Y(0)]$ (ATE) | `model.ate("Y", "X", values=(0, 1))` |
+| Backdoor criterion | Conditional ignorability (unconfoundedness) | `model.adjustment_sets("X", "Y")` |
+| G-computation / truncated factorization | Standardization / G-formula | `do()` forward-simulates through the structural model |
+| Graph surgery (remove edges into $X$) | — (no graphical analog) | Internal mechanism behind `do()` |
+| Consistency ($Y = Y(x)$ when $X = x$) | SUTVA component: well-defined interventions | Assumed; see [Causal assumptions](#causal-assumptions-and-limitations) |
+| No interference | SUTVA component: no spillovers | Assumed; see [Causal assumptions](#causal-assumptions-and-limitations) |
+
+### Key equivalences
+
+**ATE.** Under the same identification assumptions (correct DAG, no unmeasured confounders, consistency, positivity), the Pearlian ATE and the PO ATE are numerically identical:
+
+$$E[Y \mid do(X=1)] - E[Y \mid do(X=0)] \;=\; E[Y(1) - Y(0)]$$
+
+pathmc computes the left-hand side via g-computation on the structural model. The result is the same quantity that PO-tradition methods (IPW, AIPW, matching) target — the difference is the estimation strategy, not the estimand.
+
+**Identification.** The backdoor criterion (Pearl) and conditional ignorability (PO) are two expressions of the same identification condition. When pathmc's `adjustment_sets("X", "Y")` returns a valid set $\mathbf{Z}$, that set satisfies both:
+
+- *Pearl*: $\mathbf{Z}$ blocks all backdoor paths from $X$ to $Y$
+- *PO*: $Y(x) \perp\!\!\!\perp X \mid \mathbf{Z}$ (potential outcomes are independent of treatment assignment, given $\mathbf{Z}$)
+
+**Estimation.** pathmc's `do()` implements g-computation (Robins, 1986) — the structural analog of standardization (the G-formula) in the epidemiology tradition. Rather than reweighting observed data (IPW) or matching units, g-computation forward-simulates the fitted structural model under the intervention, propagating Bayesian posterior uncertainty through the full causal chain.
+
+::: {.callout-tip}
+## Coming from DoWhy?
+
+pathmc's `ate()` and `cate()` produce the same estimands as DoWhy's estimation step — the difference is that pathmc computes them via a generative structural model rather than a generic estimator API.
+Where DoWhy emphasizes a flexible pipeline (model → identify → estimate → refute) with many pluggable estimators, pathmc provides a single coherent Bayesian model of the entire system that you can query with `do()`.
 :::
 
 ## The do-operator
