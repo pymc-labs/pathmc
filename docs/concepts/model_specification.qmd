@@ -53,6 +53,49 @@ Y ~ b*M + c*X
 - **Labeled coefficients** like `a*X` give names to regression weights, making them available for downstream calculations.
 - **Intercepts** are included by default. Suppress them with `0 +` on the right-hand side: `Y ~ 0 + X1 + X2`.
 
+### Interaction terms
+
+Interaction terms capture **effect modification** — when the effect of one variable depends on another. Use the `:` operator to create interactions:
+
+```python
+spec = """
+Y ~ a*X + b*Z + c*X:Z
+"""
+```
+
+Here `X:Z` is the product $X \cdot Z$. The coefficient `c` captures how the effect of `X` on `Y` changes per unit of `Z`.
+
+| Syntax | Meaning |
+|--------|---------|
+| `X:Z` | Two-way interaction (product of X and Z) |
+| `X:Z:W` | Three-way interaction (product of X, Z, and W) |
+| `c*X:Z` | Labeled interaction coefficient |
+
+Interaction terms appear in equations as `X × Z` (plain text) or $\mathrm{X} \times \mathrm{Z}$ (LaTeX).
+
+Including both main effects alongside the interaction is typical:
+
+```python
+# Main effects + interaction (recommended)
+spec = "Y ~ a*X + b*Z + c*X:Z"
+```
+
+An interaction-only model (no main effects) is syntactically valid but rarely appropriate — it constrains the effect of `X` to be exactly zero when $Z = 0$:
+
+```python
+# Interaction only (use with caution)
+spec = "Y ~ c*X:Z"
+```
+
+::: {.callout-warning}
+## Unsupported syntax
+
+- **`X*Z` shorthand** is not supported. In pathmc's DSL, `*` is the label operator (`a*X` labels the coefficient on `X` as `a`), so `X*Z` would be parsed as "label the coefficient `X` on predictor `Z`". Use `X:Z` for interactions.
+- **Transforms inside interactions** (e.g., `adstock(X):Z`) are not supported. Apply transforms to the constituent variables before fitting, or use separate transformed columns.
+:::
+
+For a full worked example of moderation analysis with interaction terms, see [Moderation (Effect Modification)](../examples/moderation.qmd).
+
 ### Defined parameters
 
 The `:=` operator creates derived quantities evaluated over posterior draws:

@@ -9,7 +9,7 @@ Does a training program improve performance equally for everyone, or does it hel
 
 These are **moderation** questions: the causal effect of treatment $X$ on outcome $Y$ depends on the level of a third variable $Z$ — the moderator. The effect is not a single number but a function of context.
 
-In a linear model, moderation is captured by an **interaction term** $X \cdot Z$. pathmc does not yet parse interaction syntax (`X:Z`) in the DSL, but the same analysis is straightforward using a precomputed interaction column. This notebook shows the pattern and explains the one place where manual care is needed: recomputing the interaction term inside `do()` calls.
+In a linear model, moderation is captured by an **interaction term** $X \cdot Z$. pathmc's DSL supports interaction terms natively with the `X:Z` syntax, and the `do()` operator automatically recomputes the interaction product when you intervene on a constituent variable — no manual column construction needed.
 
 
 ## The causal structure
@@ -26,14 +26,13 @@ When $\beta_{XZ} = 0$, the effect of $X$ does not depend on $Z$ and there is no 
 
 ```{dot}
 //| label: fig-dag
-//| fig-cap: "Moderation DAG: both X and Z cause Y, and their interaction XZ captures how Z modifies the strength of the X → Y effect. The dashed arrow from Z to the X → Y edge represents the effect modification that the interaction term encodes."
+//| fig-cap: "Moderation DAG: both X and Z cause Y, and the X:Z interaction captures how Z modifies the strength of the X → Y effect."
 //| fig-width: 4
 digraph {
   rankdir=LR
   node [shape=box, style=rounded]
   X -> Y
   Z -> Y
-  XZ -> Y [label=" interaction"]
 }
 ```
 
@@ -87,24 +86,15 @@ So $X$ has a strong positive effect when $Z$ is high, and a *negative* effect wh
 
 ## Specify and fit the model
 
-pathmc's DSL does not currently parse interaction syntax like `X:Z` or `X*Z`.
-The workaround is to create the interaction column in the data and include it as a regular predictor:
+The `X:Z` syntax in pathmc's DSL creates an interaction term — the element-wise product of `X` and `Z`. There is no need to precompute an interaction column in the data.
 
 ```{python}
-df["XZ"] = df["X"] * df["Z"]
-
 spec = """
-Y ~ a*X + b*Z + c*XZ
+Y ~ a*X + b*Z + c*X:Z
 """
 
 model = pathmc.fit(spec, data=df)
 ```
-
-::: {.callout-note}
-## Future: DSL-native interactions
-
-A planned DSL extension ([#50](https://github.com/pymc-labs/pathmc/issues/50)) will support `Y ~ a*X + b*Z + c*X:Z` directly, removing the need for manual column creation and the `do()` workaround described below.
-:::
 
 ### Inspect the model
 
@@ -115,6 +105,8 @@ model.graph()
 ```{python}
 model.equations()
 ```
+
+Interaction terms render as `X × Z` in the equation display. In the DAG, both `X` and `Z` appear as parents of `Y` — there is no separate node for the interaction, since it is a function of existing variables rather than an independent cause.
 
 ```{python}
 model.priors()
@@ -145,44 +137,19 @@ The three labeled coefficients have distinct interpretations in a moderation mod
 ::: {.callout-important}
 ## Main effects are conditional, not marginal
 
-In a model with interactions, the coefficient on $X$ is *not* the average effect of $X$. It is the effect **when $Z = 0$**. If $Z$ is not centered, this may not correspond to any meaningful subgroup. Centering $Z$ before creating the interaction term ensures that the main effect of $X$ corresponds to the effect at the sample mean of $Z$.
+In a model with interactions, the coefficient on $X$ is *not* the average effect of $X$. It is the effect **when $Z = 0$**. If $Z$ is not centered, this may not correspond to any meaningful subgroup. Centering $Z$ before fitting ensures that the main effect of $X$ corresponds to the effect at the sample mean of $Z$.
 :::
 
 
-## Conditional effects via `do()`
+## Conditional effects via `cate()`
 
-### Why interaction terms need special handling
+### The CATE at specific moderator levels
 
-When pathmc computes `do(set={"X": 1.0})`, it replaces `X` with 1.0 in the generative model but leaves `XZ` at its observed data values — because `XZ` is a separate exogenous column that the model does not know is derived from `X` and `Z`. The interaction term is not automatically recomputed.
-
-This means a naive `ate()` call computes:
-
-$$\text{do}(X{=}1) - \text{do}(X{=}0) = \beta_X \cdot (1 - 0) = \beta_X$$
-
-The $\beta_{XZ} \cdot XZ$ terms cancel because `XZ` is the same in both scenarios. The result equals the main effect coefficient $\beta_X$, ignoring the interaction entirely.
+The `cate()` method computes the **conditional average treatment effect** — the causal effect of `X` on `Y` holding the moderator `Z` fixed at a specified value. Because pathmc knows that `X:Z` is a function of `X` and `Z`, it automatically recomputes the interaction product in both intervention scenarios.
 
 ```{python}
-naive_ate = model.ate("Y", "X", values=(0.0, 1.0))
-print(f"Naive ATE (main effect only): {naive_ate.mean('Y'):.3f}")
-print(f"True main effect β_X:         {TRUE_MAIN_X}")
-```
-
-This is the correct ATE only when $\mathbb{E}[Z] = 0$, because the true ATE is $\beta_X + \beta_{XZ} \cdot \mathbb{E}[Z]$. But it misses the point of moderation analysis: we want to know how the effect *varies* with $Z$.
-
-
-### Computing the CATE at a specific Z level
-
-To compute the **conditional average treatment effect** (CATE) at $Z = z$, set `X`, `Z`, and `XZ` together so the interaction is consistent:
-
-```{python}
-def cate_at_z(model, z_val):
-    """Compute CATE of X on Y at Z = z_val, with correct interaction."""
-    r0 = model.do(set={"X": 0.0, "Z": z_val, "XZ": 0.0 * z_val})
-    r1 = model.do(set={"X": 1.0, "Z": z_val, "XZ": 1.0 * z_val})
-    return r1 - r0
-
 for z_val in [-1.0, 0.0, 1.0]:
-    cate = cate_at_z(model, z_val)
+    cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": z_val})
     true_cate = TRUE_MAIN_X + TRUE_INTER * z_val
     print(
         f"CATE at Z={z_val:+.0f}:  {cate.mean('Y'):.3f}  "
@@ -190,12 +157,12 @@ for z_val in [-1.0, 0.0, 1.0]:
     )
 ```
 
-The pattern is: `XZ` must equal $X \times Z$ in both the baseline and treatment scenarios. When $X = 0$, `XZ = 0` regardless of $Z$. When $X = 1$, `XZ = Z$.
+The estimated CATEs track the true values closely. At $Z = 1$, the treatment effect is strongly positive (1.3); at $Z = -1$, it is slightly negative (−0.3).
 
 
 ### Effect heterogeneity: how the CATE varies with Z
 
-The conditional effect $\beta_X + \beta_{XZ} \cdot Z$ is a linear function of $Z$. We can trace out the full CATE curve by evaluating it at many moderator levels and comparing to the true function:
+The conditional effect $\beta_X + \beta_{XZ} \cdot Z$ is a linear function of $Z$. We can trace out the full CATE curve by evaluating it at many moderator levels:
 
 ```{python}
 #| label: fig-cate-curve
@@ -208,7 +175,7 @@ cate_lower = []
 cate_upper = []
 
 for z_val in z_grid:
-    cate = cate_at_z(model, z_val)
+    cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": z_val})
     cate_means.append(cate.mean("Y"))
     hdi = cate.hdi("Y", prob=0.94)
     cate_lower.append(hdi[0])
@@ -237,24 +204,44 @@ The estimated CATE tracks the true function closely, with posterior uncertainty 
 
 ### Reading the CATE directly from coefficients
 
-Because the model is linear, the CATE is a simple function of the posterior draws for `a` and `c`. We can verify that the `do()`-based computation matches the algebraic formula:
+Because the model is linear, the CATE is a simple function of the posterior draws for `a` and `c`. We can verify that the `cate()`-based computation matches the algebraic formula:
 
 ```{python}
 import arviz as az
 
 posterior = model._idata.posterior.stack(sample=("chain", "draw"))
 a_draws = posterior["beta_Y"].sel(Y_predictors="X").values
-c_draws = posterior["beta_Y"].sel(Y_predictors="XZ").values
+c_draws = posterior["beta_Y"].sel(Y_predictors="X:Z").values
 
 z_check = 1.0
 cate_from_coeffs = a_draws + c_draws * z_check
-cate_from_do = cate_at_z(model, z_check)
+cate_from_cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": z_check})
 
 print(f"CATE at Z=1 from coefficients: {np.mean(cate_from_coeffs):.4f}")
-print(f"CATE at Z=1 from do():         {cate_from_do.mean('Y'):.4f}")
+print(f"CATE at Z=1 from cate():       {cate_from_cate.mean('Y'):.4f}")
 ```
 
-Both methods agree. The coefficient approach is faster (no model evaluation needed), but `do()` generalizes to nonlinear models and more complex causal structures where the CATE cannot be read directly from coefficients.
+Both methods agree. The coefficient approach is faster (no model evaluation needed), but `cate()` generalizes to nonlinear models and more complex causal structures where the CATE cannot be read directly from coefficients.
+
+
+## Why the symbolic approach matters for `do()`
+
+An alternative to the `X:Z` syntax is to precompute the interaction column manually:
+
+```python
+df["XZ"] = df["X"] * df["Z"]
+model_manual = pathmc.fit("Y ~ a*X + b*Z + c*XZ", data=df)
+```
+
+This works for estimation but creates a problem for interventions: pathmc treats `XZ` as an independent exogenous variable with no knowledge that it derives from `X` and `Z`. When you call `do(set={"X": 1.0})`, the model replaces `X` with 1.0 but leaves `XZ` at its observed data values. The interaction is not recomputed, so the CATE is wrong.
+
+With the `X:Z` syntax, pathmc's compiler knows the interaction is a product of `X` and `Z`. The `do()` engine symbolically reconstructs `X * Z` from the intervened values, so interventions propagate correctly through the interaction — no manual bookkeeping required.
+
+::: {.callout-tip}
+## Rule of thumb
+
+Use `X:Z` in the spec whenever the interaction involves variables you might intervene on with `do()`. Reserve the precomputed-column approach for interactions between strictly exogenous variables that will never be intervention targets.
+:::
 
 
 ## Visualizing the raw data
@@ -281,11 +268,11 @@ plt.show()
 ## Summary
 
 - **Moderation** (effect modification) means the causal effect of $X$ on $Y$ depends on a third variable $Z$. In a linear model, this is captured by an interaction term $X \cdot Z$.
+- pathmc's DSL supports interactions natively with the **`X:Z` syntax**. The compiler builds the product column automatically and the `do()` operator recomputes it correctly under interventions.
 - The **conditional effect** of $X$ at moderator level $Z = z$ is $\beta_X + \beta_{XZ} \cdot z$. The coefficient $\beta_{XZ}$ quantifies how much the effect changes per unit of $Z$.
 - In a model with interactions, the **main effect coefficient** $\beta_X$ is the effect of $X$ when $Z = 0$, not the overall average effect. Center $Z$ if you want $\beta_X$ to represent the effect at the sample mean.
-- Because pathmc treats the interaction column `XZ` as an independent exogenous variable, **`do()` does not automatically recompute** `XZ` when you intervene on `X`. Set both `X` and `XZ` in the `do()` call to maintain consistency.
-- The `do()`-based CATE agrees with the algebraic formula $\beta_X + \beta_{XZ} \cdot Z$ for linear models, but `do()` generalizes to nonlinear settings where the CATE cannot be read from coefficients.
-- A future DSL extension ([#50](https://github.com/pymc-labs/pathmc/issues/50)) will handle interaction terms natively, removing the need for manual column creation and `do()` workarounds.
+- Use `model.cate("Y", "X", condition={"Z": z_val})` to compute the CATE at specific moderator levels. The `do()`-based CATE agrees with the algebraic formula for linear models, but generalizes to nonlinear settings.
+- Prefer `X:Z` in the spec over precomputed interaction columns when the constituent variables may be intervention targets — the symbolic approach ensures `do()` propagates correctly.
 
 ::: {.callout-note}
 ## Reflection
