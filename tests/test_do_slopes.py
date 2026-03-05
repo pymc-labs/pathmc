@@ -49,7 +49,7 @@ def slope_model(panel_df):
         panel={"unit": "region", "time": "week"},
         pooling={"intercept": True, "slopes": ["spend"]},
     )
-    model.sample(draws=200, tune=200, chains=2, random_seed=42)
+    model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
     return model
 
 

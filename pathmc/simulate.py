@@ -268,8 +268,28 @@ def run_do_pymc(
         if var in latent and var not in set
     ]
     if latent_det_names:
+        posterior_ds = idata.posterior  # type: ignore[attr-defined]
+        missing_rv_names = [
+            rv.name for rv in do_model.free_RVs if rv.name not in posterior_ds
+        ]
+        if missing_rv_names:
+            import xarray as xr
+
+            n_chains = posterior_ds.sizes["chain"]
+            n_draws = posterior_ds.sizes["draw"]
+            fill_vars: dict[str, xr.DataArray] = {}
+            for name in missing_rv_names:
+                rv = do_model[name]
+                var_shape = tuple(s for s in rv.type.shape if s is not None) or (N,)
+                dummy = np.zeros((n_chains, n_draws, *var_shape), dtype=rv.dtype)
+                dims = ["chain", "draw"] + [
+                    f"{name}_dim_{i}" for i in range(len(var_shape))
+                ]
+                fill_vars[name] = xr.DataArray(dummy, dims=dims)
+            posterior_ds = posterior_ds.assign(fill_vars)
+
         latent_det = pm.compute_deterministics(
-            idata.posterior,  # type: ignore[attr-defined]
+            posterior_ds,
             model=do_model,
             var_names=latent_det_names,
             progressbar=False,
