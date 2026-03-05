@@ -256,7 +256,7 @@ def compile_to_pymc(
                 mu = mu + _compile_random_intercept(var, unit_idx)
 
             if slope_vars and panel_info is not None and unit_idx is not None:
-                mu = mu + _compile_random_slopes(reg, slope_vars, data, unit_idx)
+                mu = mu + _compile_random_slopes(reg, slope_vars, data_vars, unit_idx)
 
             mu_det = pm.Deterministic(f"mu_{var}", mu)
 
@@ -361,10 +361,14 @@ def _compile_random_intercept(var: str, unit_idx: np.ndarray) -> Any:
 def _compile_random_slopes(
     reg: Regression,
     slope_vars: list[str],
-    data: pd.DataFrame,
+    data_vars: dict[str, Any],
     unit_idx: np.ndarray,
 ) -> Any:
-    """Emit hierarchical random slopes for specified predictors."""
+    """Emit hierarchical random slopes for specified predictors.
+
+    Uses the symbolic ``pm.Data`` variables so that ``pm.do()``
+    interventions propagate through the random slope terms.
+    """
     import pymc as pm
 
     contribution = 0
@@ -380,8 +384,8 @@ def _compile_random_slopes(
             sigma=sigma_slope,
             dims="unit",
         )
-        x_vals = data[svar].values
-        contribution = contribution + slope[unit_idx] * x_vals
+        x_symbolic = data_vars[svar]
+        contribution = contribution + slope[unit_idx] * x_symbolic
     return contribution
 
 
