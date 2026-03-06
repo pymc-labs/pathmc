@@ -46,6 +46,7 @@ Y = 0.4 * X + 0.8 * Z + rng.normal(scale=0.5, size=n)
 df_fork = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
 
 fork_model = pathmc.fit("X ~ Z\nY ~ X + Z", data=df_fork)
+fork_model.model_equations()
 ```
 
 ### Identification check
@@ -89,6 +90,7 @@ Y = 0.5 * M + rng.normal(scale=0.5, size=n)
 df_chain = pd.DataFrame({"X": X, "M": M, "Y": Y})
 
 chain_model = pathmc.fit("M ~ X\nY ~ M", data=df_chain)
+chain_model.model_equations()
 ```
 
 ```{python}
@@ -131,6 +133,7 @@ C = 0.6 * X + 0.4 * Y + rng.normal(scale=0.5, size=n)
 df_collider = pd.DataFrame({"X": X, "Y": Y, "C": C})
 
 collider_model = pathmc.fit("C ~ X + Y", data=df_collider)
+collider_model.model_equations()
 ```
 
 ### Identification check
@@ -189,6 +192,7 @@ C = 0.3 * X + 0.5 * Y + rng.normal(scale=0.5, size=n)
 df_mixed = pd.DataFrame({"X": X, "Y": Y, "Z": Z, "C": C})
 
 mixed_model = pathmc.fit("X ~ Z\nY ~ X + Z\nC ~ X + Y", data=df_mixed)
+mixed_model.model_equations()
 ```
 
 ```{python}

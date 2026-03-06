@@ -90,6 +90,10 @@ model.graph()
 ```
 
 ```{python}
+model.model_equations()
+```
+
+```{python}
 idata = model.sample(draws=1000, tune=1000, chains=4, random_seed=42)
 ```
 

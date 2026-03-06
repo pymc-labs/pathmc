@@ -119,6 +119,10 @@ A simple regression of recovery on drug — without adjusting for gender — con
 
 ```{python}
 naive_model = pathmc.fit("recovery ~ drug", data=df)
+naive_model.model_equations()
+```
+
+```{python}
 naive_model.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
@@ -142,6 +146,10 @@ recovery ~ b_drug*drug + gender
 
 model = pathmc.fit(spec, data=df)
 model.graph()
+```
+
+```{python}
+model.model_equations()
 ```
 
 ### Identification check

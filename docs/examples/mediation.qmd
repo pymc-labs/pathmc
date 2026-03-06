@@ -75,7 +75,7 @@ model.graph()
 ```
 
 ```{python}
-model.equations()
+model.model_equations()
 ```
 
 The design matrix for each equation shows which predictors (including the intercept) are included:
@@ -86,12 +86,6 @@ model.design("M")
 
 ```{python}
 model.design("Y")
-```
-
-The prior table summarizes the default priors assigned to all parameters:
-
-```{python}
-model.priors()
 ```
 
 ### PyMC model graph

@@ -286,13 +286,7 @@ The parameter names passed to `simulate()` must match the PyMC variable names in
 spec = "M ~ X\nY ~ M + X"
 placeholder = pd.DataFrame({"X": [0.0], "M": [0.0], "Y": [0.0]})
 tmp = pathmc.fit(spec, data=placeholder)
-tmp.priors()
-```
-
-The "Parameter" column shows the exact names to use in the `params` dict. The coefficient dimensions (predictors per equation) are visible via `equations()`:
-
-```{python}
-tmp.equations()
+tmp.model_equations()
 ```
 
 

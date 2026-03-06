@@ -167,7 +167,7 @@ model_cs.graph()
 ```
 
 ```{python}
-model_cs.equations()
+model_cs.model_equations()
 ```
 
 ### Identification check
@@ -412,11 +412,7 @@ Notice how the pathmc-generated DAG now shows `lag(promo)` as an additional exog
 This is the temporal edge that the cross-sectional model lacks.
 
 ```{python}
-model_panel.equations()
-```
-
-```{python}
-model_panel.priors()
+model_panel.model_equations()
 ```
 
 ### Sample

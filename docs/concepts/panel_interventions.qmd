@@ -260,7 +260,7 @@ model = pathmc.fit(
     panel={"unit": "region", "time": "week"},
     pooling="partial",
 )
-model.sample(draws=500, tune=500, chains=2, random_seed=42)
+model.sample(draws=500, tune=500, chains=2, random_seed=42, nuts_sampler="nutpie")
 ```
 
 Now we intervene: boost `x` by 25% during weeks 8–18, then return to baseline.

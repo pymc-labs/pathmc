@@ -103,14 +103,10 @@ model.graph()
 ```
 
 ```{python}
-model.equations()
+model.model_equations()
 ```
 
 Interaction terms render as `X × Z` in the equation display. In the DAG, both `X` and `Z` appear as parents of `Y` — there is no separate node for the interaction, since it is a function of existing variables rather than an independent cause.
-
-```{python}
-model.priors()
-```
 
 
 ## Sample from the posterior
