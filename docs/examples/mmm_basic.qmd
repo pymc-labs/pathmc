@@ -183,18 +183,20 @@ idata = model.predict()
 #| fig-cap: "Posterior predictive check by region: observed sales (points) vs posterior predictive mean (line). Close agreement indicates the model captures the data-generating process."
 #| code-fold: true
 
+pp_var = "sales_obs" if "sales_obs" in idata.posterior_predictive else "sales"
+pp = idata.posterior_predictive[pp_var]
+pp_mean_2d = pp.mean(dim=("chain", "draw")).values  # (n_times, n_units)
+sorted_regions = sorted(regions)
+
 fig, axes = plt.subplots(2, 2, figsize=(FIG_WIDTH, FIG_HEIGHT * 1.5), sharex=True, sharey=True)
 for ax, region in zip(axes.flat, regions):
-    mask = df["region"] == region
-    obs = df.loc[mask, "sales"].values
-    weeks = df.loc[mask, "week"].values
-
-    pp_var = "sales_obs" if "sales_obs" in idata.posterior_predictive else "sales"
-    pp = idata.posterior_predictive[pp_var]
-    pp_mean = pp.mean(dim=("chain", "draw")).values[mask]
+    obs = df.loc[df["region"] == region, "sales"].values
+    weeks = df.loc[df["region"] == region, "week"].values
+    r_idx = sorted_regions.index(region)
+    pp_region = pp_mean_2d[:, r_idx]
 
     ax.scatter(weeks, obs, s=20, alpha=0.6, color=REGION_COLORS[region], zorder=3, label="Observed")
-    ax.plot(weeks, pp_mean, "-", alpha=0.8, color=REGION_COLORS[region], lw=2, zorder=4, label="Predicted mean")
+    ax.plot(weeks, pp_region, "-", alpha=0.8, color=REGION_COLORS[region], lw=2, zorder=4, label="Predicted mean")
     ax.set_title(region, fontweight="bold")
     ax.legend(fontsize=7, loc="lower right")
 
@@ -226,11 +228,11 @@ fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 1.2))
 weeks = np.arange(1, n_weeks + 1)
 avg_obs = df.groupby("week")["sales"].mean().values
 
-# PPC mean averaged across regions
+# PPC mean averaged across regions (PPC shape is (n_times, n_units) for scan models)
 pp_var = "sales_obs" if "sales_obs" in idata.posterior_predictive else "sales"
 pp = idata.posterior_predictive[pp_var]
-pp_all = pp.mean(dim=("chain", "draw")).values
-pp_avg = np.array([pp_all[df["week"] == w].mean() for w in weeks])
+pp_mean_2d = pp.mean(dim=("chain", "draw")).values
+pp_avg = pp_mean_2d.mean(axis=1) if pp_mean_2d.ndim == 2 else pp_mean_2d
 
 ax.scatter(weeks, avg_obs, s=30, color="black", alpha=0.5, zorder=5, label="Observed (region avg)")
 ax.plot(weeks, pp_avg, "-", color="black", lw=2, zorder=4, label="Model fit (PPC mean)")
