@@ -152,6 +152,79 @@ print(f"Predictive draws  - 94% HDI: [{hdi_pred[0]:.3f}, {hdi_pred[1]:.3f}]  wid
 The predictive HDI is wider because it includes residual variation around the regression line.
 Use `kind="mean"` when you want to isolate the causal effect (parameter uncertainty only), and `kind="predictive"` when you want to predict the actual distribution of outcomes under an intervention.
 
+## Subgroup treatment effects: ATT and ATU
+
+The ATE averages the treatment effect over the **entire** covariate distribution. But when effect modification is present — the treatment effect depends on a covariate — different subgroups experience different effects. The **ATT** (average treatment effect on the treated) and **ATU** (average treatment effect on the untreated) average over the covariate distributions of the treated and untreated subgroups respectively.
+
+This section uses a binary treatment with confounding and effect modification to demonstrate when and why these estimands diverge.
+
+```{python}
+seed = sum(map(ord, "att atu"))
+rng_att = np.random.default_rng(seed=seed)
+n_att = 500
+
+truth = {
+    "treatment_effect": 0.5,    # main effect of T on Y
+    "confounder_effect": 0.3,   # X → Y
+    "confounder_on_trt": 0.8,   # X → T (confounding strength, logit scale)
+    "interaction_effect": 0.4,  # T:X interaction (effect modification)
+}
+
+X_att = rng_att.normal(size=n_att)
+prob_T = 1 / (1 + np.exp(-truth["confounder_on_trt"] * X_att))
+T_att = (rng_att.uniform(size=n_att) < prob_T).astype(float)
+
+def expected_y(T_val, X_val):
+    return (
+        truth["treatment_effect"] * T_val
+        + truth["confounder_effect"] * X_val
+        + truth["interaction_effect"] * T_val * X_val
+    )
+
+noise_att = rng_att.normal(scale=0.5, size=n_att)
+Y_att = expected_y(T_att, X_att) + noise_att
+
+df_att = pd.DataFrame({"X": X_att, "T": T_att, "Y": Y_att})
+
+truth["true_ate"] = (expected_y(1, X_att) - expected_y(0, X_att)).mean()
+truth["true_att"] = (expected_y(1, X_att[T_att == 1]) - expected_y(0, X_att[T_att == 1])).mean()
+truth["true_atu"] = (expected_y(1, X_att[T_att == 0]) - expected_y(0, X_att[T_att == 0])).mean()
+
+print(f"True ATE: {truth['true_ate']:.3f}")
+print(f"True ATT: {truth['true_att']:.3f}")
+print(f"True ATU: {truth['true_atu']:.3f}")
+print(f"\nE[X | T=1] = {X_att[T_att == 1].mean():.2f}")
+print(f"E[X | T=0] = {X_att[T_att == 0].mean():.2f}")
+```
+
+Because `X` positively affects both treatment probability and the treatment effect size (via the interaction), the treated subgroup has higher `X` on average, making ATT > ATE > ATU.
+
+```{python}
+model_att = pathmc.fit("Y ~ T + X + T:X", data=df_att)
+model_att.sample(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+```{python}
+ate = model_att.ate("Y", "T", values=(0.0, 1.0))
+att = model_att.att("Y", "T", values=(0.0, 1.0), treated_value=1.0)
+atu = model_att.atu("Y", "T", values=(0.0, 1.0), untreated_value=0.0)
+
+print(f"{'Estimand':<12} {'Estimate':>10} {'True':>10}")
+print(f"{'ATE':<12} {ate.mean('Y'):>10.3f} {truth['true_ate']:>10.3f}")
+print(f"{'ATT':<12} {att.mean('Y'):>10.3f} {truth['true_att']:>10.3f}")
+print(f"{'ATU':<12} {atu.mean('Y'):>10.3f} {truth['true_atu']:>10.3f}")
+```
+
+::: {.callout-tip}
+## When to use ATT vs ATU vs ATE
+
+- **ATT**: "How much did the treatment help those who received it?" — useful for evaluating an existing policy or program.
+- **ATU**: "How much would the treatment help those who haven't received it yet?" — useful for decisions about expanding a program.
+- **ATE**: "What is the average effect across the whole population?" — useful when the policy will be applied uniformly.
+
+In a linear model without interactions, all three are equal. They diverge when the treatment effect is heterogeneous and treatment assignment is correlated with the source of heterogeneity.
+:::
+
 ## When do() is not enough
 
 Remember that `do()` assumes the DAG is correctly specified and all confounders are measured.

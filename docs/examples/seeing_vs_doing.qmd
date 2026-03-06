@@ -242,6 +242,7 @@ plt.show()
 - **When $X$ is randomized** (no confounders), seeing = doing. The association *is* the causal effect — this is why randomized experiments are the gold standard [@pearl2018why, Ch. 4].
 - **pathmc's `do()` operator** automates graph surgery, giving you the interventional distribution without manual adjustment reasoning.
 - **The practical question**: "Would changing $X$ change $Y$?" is answered by `do()`, not by filtering the data.
+- **Subgroup-specific effects**: when the treatment is binary and the effect varies with covariates, `att()` and `atu()` answer "how much did the treatment help *those who received it*?" and "how much would it help *those who didn't*?" — see [do() queries](do_queries.qmd) for worked examples.
 
 ::: {.callout-note}
 ## Reflection
