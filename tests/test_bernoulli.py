@@ -82,6 +82,24 @@ class TestBernoulliSampling:
         y_mean = result.mean("Y")
         assert 0 < y_mean < 1, f"Expected probability in (0,1), got {y_mean}"
 
+    def test_do_on_bernoulli_treatment(self, binary_data):
+        """do() on a Bernoulli variable itself must cast float values to int."""
+        rng = np.random.default_rng(99)
+        n = 200
+        Z = rng.normal(size=n)
+        T = rng.binomial(1, 1 / (1 + np.exp(-Z))).astype(float)
+        Y = rng.binomial(1, 1 / (1 + np.exp(-(0.5 * T + 0.3 * Z)))).astype(float)
+        df = pd.DataFrame({"Z": Z, "T": T, "Y": Y})
+
+        model = pathmc.fit(
+            "T ~ Z\nY ~ T + Z",
+            data=df,
+            families={"T": "bernoulli", "Y": "bernoulli"},
+        )
+        model.sample(draws=100, tune=100, chains=1, random_seed=42)
+        ate = model.ate("Y", "T", values=(0.0, 1.0))
+        assert np.isfinite(ate.mean("Y"))
+
     def test_do_higher_x_higher_prob(self, binary_data):
         """Positive coefficient means higher X should give higher P(Y=1)."""
         model = pathmc.fit("Y ~ X", data=binary_data, families={"Y": "bernoulli"})
