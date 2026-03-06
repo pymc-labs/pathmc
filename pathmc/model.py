@@ -22,10 +22,14 @@ from pathmc.effects import (
 )
 from pathmc.graph import GraphInfo, build_graph
 from pathmc.identify import (
+    ConditionalIndependence,
+    ImplicationTestResult,
     adjustment_sets as _adjustment_sets,
     collider_warnings as _collider_warnings,
     frontdoor_identifiable as _frontdoor_identifiable,
+    implied_independences as _implied_independences,
     is_identifiable as _is_identifiable,
+    test_implications as _test_implications,
 )
 from pathmc.introspect import (
     EquationList,
@@ -481,6 +485,51 @@ class PathModel:
             Warning strings for problematic variables.
         """
         return _collider_warnings(self._graph_info, adjustment_vars, treatment, outcome)
+
+    def implied_independences(self) -> list[ConditionalIndependence]:
+        """List all conditional independences implied by the DAG.
+
+        For each pair of non-adjacent nodes, returns the independence
+        statement with the conditioning set derived from the basis set
+        method (Shipley, 2000). Works before sampling — only the graph
+        structure is needed.
+
+        Returns
+        -------
+        list[ConditionalIndependence]
+            Implied independence statements, sorted alphabetically.
+        """
+        return _implied_independences(self._graph_info)
+
+    def test_implications(
+        self,
+        alpha: float = 0.05,
+    ) -> ImplicationTestResult:
+        """Test all DAG-implied conditional independences against the data.
+
+        For each implied independence X ⊥⊥ Y | Z, computes the partial
+        correlation between X and Y controlling for Z and tests whether
+        it is significantly different from zero.
+
+        A significant result flags a *violation*: the data show an
+        association that the DAG says should not exist, suggesting a
+        missing edge or incorrect structure.
+
+        Works before sampling — uses the observed data, not the posterior.
+
+        Parameters
+        ----------
+        alpha : float
+            Significance level for flagging violations (default 0.05).
+
+        Returns
+        -------
+        ImplicationTestResult
+            Test results with ``.violations``, ``.to_dataframe()``, and
+            rich display in Jupyter via ``_repr_html_()``.
+        """
+        indeps = self.implied_independences()
+        return _test_implications(indeps, self._data, alpha=alpha)
 
     def do(
         self,

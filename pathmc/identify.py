@@ -1,15 +1,19 @@
 """Causal identification helpers for pathmc structural models.
 
 Provides backdoor adjustment set computation, front-door criterion checks,
-collider warnings, and identifiability checks using the DAG stored in
-GraphInfo.
+collider warnings, identifiability checks, and implied conditional
+independence enumeration and testing using the DAG stored in GraphInfo.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from itertools import combinations
 
 import networkx as nx
+import numpy as np
+import pandas as pd
+from scipy import stats
 
 from pathmc.graph import GraphInfo
 
@@ -253,6 +257,325 @@ def collider_warnings(
                     )
 
     return warnings_list
+
+
+@dataclass(frozen=True)
+class ConditionalIndependence:
+    """An implied conditional independence statement from a DAG.
+
+    Represents the testable implication X ⊥⊥ Y | Z, meaning X and Y
+    are conditionally independent given the conditioning set Z.
+
+    Parameters
+    ----------
+    x : str
+        First variable.
+    y : str
+        Second variable.
+    conditioning_set : frozenset[str]
+        Variables to condition on. Empty frozenset for marginal independence.
+    """
+
+    x: str
+    y: str
+    conditioning_set: frozenset[str]
+
+    def __str__(self) -> str:
+        if self.conditioning_set:
+            cond = ", ".join(sorted(self.conditioning_set))
+            return f"{self.x} ⊥⊥ {self.y} | {{{cond}}}"
+        return f"{self.x} ⊥⊥ {self.y}"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
+@dataclass
+class ImplicationTestResult:
+    """Results of testing implied conditional independences against data.
+
+    Each row corresponds to one implied independence statement from the
+    DAG, tested via partial correlation. A low p-value indicates that the
+    data are inconsistent with the independence — suggesting the DAG may
+    be missing an edge.
+
+    Parameters
+    ----------
+    results : pd.DataFrame
+        One row per independence test with columns: ``x``, ``y``,
+        ``conditioning_set``, ``partial_corr``, ``p_value``, ``significant``.
+    alpha : float
+        Significance level used for the ``significant`` column.
+    """
+
+    results: pd.DataFrame
+    alpha: float
+
+    @property
+    def n_tests(self) -> int:
+        """Total number of implied independences tested."""
+        return len(self.results)
+
+    @property
+    def n_violations(self) -> int:
+        """Number of independence violations (significant partial correlations)."""
+        return int(self.results["significant"].sum())
+
+    @property
+    def violations(self) -> pd.DataFrame:
+        """Subset of results where the independence is violated."""
+        return self.results[self.results["significant"]].copy()
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Return the full results as a DataFrame."""
+        return self.results.copy()
+
+    def __repr__(self) -> str:
+        lines = [
+            f"ImplicationTestResult: {self.n_tests} tests, "
+            f"{self.n_violations} violations (α = {self.alpha})",
+            "",
+        ]
+        if self.n_violations == 0:
+            lines.append("All implied independences are consistent with the data.")
+        else:
+            lines.append("Violated independences (data suggests a missing edge):")
+            for _, row in self.violations.iterrows():
+                cond = row["conditioning_set"]
+                cond_str = f" | {{{cond}}}" if cond else ""
+                lines.append(
+                    f"  {row['x']} ⊥⊥ {row['y']}{cond_str}  "
+                    f"r = {row['partial_corr']:.3f}, p = {row['p_value']:.4f}"
+                )
+        return "\n".join(lines)
+
+    def _repr_html_(self) -> str:
+        """Rich HTML display for Jupyter notebooks."""
+        if self.n_violations == 0:
+            status = (
+                '<span style="color: green; font-weight: bold;">✓ All '
+                "implied independences are consistent with the data.</span>"
+            )
+        else:
+            status = (
+                f'<span style="color: red; font-weight: bold;">✗ '
+                f"{self.n_violations} of {self.n_tests} implied "
+                f"independences violated.</span>"
+            )
+
+        header = f"<h4>DAG Implication Tests (α = {self.alpha})</h4><p>{status}</p>"
+
+        rows = []
+        for _, row in self.results.iterrows():
+            cond = row["conditioning_set"]
+            cond_str = f" | {{{cond}}}" if cond else ""
+            statement = f"{row['x']} ⊥⊥ {row['y']}{cond_str}"
+
+            if pd.isna(row["p_value"]):
+                style = ""
+                sig_mark = "—"
+            elif row["significant"]:
+                style = ' style="background-color: #ffe0e0;"'
+                sig_mark = "✗"
+            else:
+                style = ""
+                sig_mark = "✓"
+
+            r_str = (
+                f"{row['partial_corr']:.3f}"
+                if not pd.isna(row["partial_corr"])
+                else "—"
+            )
+            p_str = f"{row['p_value']:.4f}" if not pd.isna(row["p_value"]) else "—"
+
+            rows.append(
+                f"<tr{style}>"
+                f"<td>{statement}</td>"
+                f"<td>{r_str}</td>"
+                f"<td>{p_str}</td>"
+                f"<td>{sig_mark}</td>"
+                f"</tr>"
+            )
+
+        table = (
+            "<table>"
+            "<thead><tr>"
+            "<th>Independence</th>"
+            "<th>Partial r</th>"
+            "<th>p-value</th>"
+            "<th>Pass</th>"
+            "</tr></thead>"
+            "<tbody>" + "".join(rows) + "</tbody>"
+            "</table>"
+        )
+
+        return header + table
+
+
+def implied_independences(
+    graph_info: GraphInfo,
+) -> list[ConditionalIndependence]:
+    """Enumerate conditional independences implied by the DAG.
+
+    For each pair of non-adjacent nodes (X, Y), computes the conditioning
+    set Z = pa(X) ∪ pa(Y) \\ {X, Y} and verifies d-separation. This is
+    the *basis set* approach (Shipley, 2000): one testable implication per
+    missing edge.
+
+    Parameters
+    ----------
+    graph_info : GraphInfo
+        DAG from the structural model.
+
+    Returns
+    -------
+    list[ConditionalIndependence]
+        Implied independence statements, sorted by (x, y) alphabetically.
+    """
+    dag = graph_info._dag
+    nodes = sorted(dag.nodes)
+    result: list[ConditionalIndependence] = []
+
+    for i, x in enumerate(nodes):
+        for y in nodes[i + 1 :]:
+            if dag.has_edge(x, y) or dag.has_edge(y, x):
+                continue
+
+            parents_x = set(dag.predecessors(x))
+            parents_y = set(dag.predecessors(y))
+            conditioning = (parents_x | parents_y) - {x, y}
+
+            if nx.is_d_separator(dag, {x}, {y}, conditioning):
+                result.append(
+                    ConditionalIndependence(
+                        x=x,
+                        y=y,
+                        conditioning_set=frozenset(conditioning),
+                    )
+                )
+
+    return result
+
+
+def test_implications(
+    independences: list[ConditionalIndependence],
+    data: pd.DataFrame,
+    alpha: float = 0.05,
+) -> ImplicationTestResult:
+    """Test implied conditional independences against observed data.
+
+    Uses partial correlation to test each independence statement. For
+    an independence X ⊥⊥ Y | Z, regresses both X and Y on Z, then
+    tests whether the correlation between residuals is significantly
+    different from zero.
+
+    A significant result (p < alpha) indicates a *violation*: the data
+    show an association that the DAG says should not exist, suggesting
+    a missing edge or incorrect structure.
+
+    Parameters
+    ----------
+    independences : list[ConditionalIndependence]
+        Independence statements to test (from :func:`implied_independences`).
+    data : pd.DataFrame
+        Observed data. Must contain columns for all variables referenced
+        in the independence statements.
+    alpha : float
+        Significance level for flagging violations (default 0.05).
+
+    Returns
+    -------
+    ImplicationTestResult
+        Test results with partial correlations and p-values.
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing from *data*.
+    """
+    rows: list[dict] = []
+
+    for ci in independences:
+        all_vars = {ci.x, ci.y} | set(ci.conditioning_set)
+        missing = all_vars - set(data.columns)
+        if missing:
+            raise ValueError(
+                f"Columns {sorted(missing)} required by independence "
+                f"'{ci}' are not in the data. Available columns: "
+                f"{sorted(data.columns)}"
+            )
+
+        r, p, n = _partial_correlation_test(
+            data, ci.x, ci.y, sorted(ci.conditioning_set)
+        )
+
+        cond_str = ", ".join(sorted(ci.conditioning_set))
+        rows.append(
+            {
+                "x": ci.x,
+                "y": ci.y,
+                "conditioning_set": cond_str,
+                "partial_corr": r,
+                "p_value": p,
+                "n_obs": n,
+                "significant": (not np.isnan(p)) and p < alpha,
+            }
+        )
+
+    if rows:
+        df = pd.DataFrame(rows)
+    else:
+        df = pd.DataFrame(
+            columns=[
+                "x",
+                "y",
+                "conditioning_set",
+                "partial_corr",
+                "p_value",
+                "n_obs",
+                "significant",
+            ]
+        )
+    return ImplicationTestResult(results=df, alpha=alpha)
+
+
+def _partial_correlation_test(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    z_vars: list[str],
+) -> tuple[float, float, int]:
+    """Test conditional independence via partial correlation.
+
+    Returns (partial_r, p_value, n_obs). If there are insufficient
+    observations for the test, returns (nan, nan, n_obs).
+    """
+    cols = [x, y, *z_vars]
+    sub = data[cols].dropna()
+    n = len(sub)
+    k = len(z_vars)
+
+    if n < k + 3:
+        return np.nan, np.nan, n
+
+    x_vals = sub[x].to_numpy(dtype=float)
+    y_vals = sub[y].to_numpy(dtype=float)
+
+    if not z_vars:
+        r, p = stats.pearsonr(x_vals, y_vals)
+        return float(r), float(p), n
+
+    z_mat = sub[z_vars].to_numpy(dtype=float)
+    z_with_intercept = np.column_stack([np.ones(n), z_mat])
+
+    beta_x, _, _, _ = np.linalg.lstsq(z_with_intercept, x_vals, rcond=None)
+    resid_x = x_vals - z_with_intercept @ beta_x
+
+    beta_y, _, _, _ = np.linalg.lstsq(z_with_intercept, y_vals, rcond=None)
+    resid_y = y_vals - z_with_intercept @ beta_y
+
+    r, p = stats.pearsonr(resid_x, resid_y)
+    return float(r), float(p), n
 
 
 def _blocks_all_backdoor_paths(
