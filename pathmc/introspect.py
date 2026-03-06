@@ -125,6 +125,44 @@ class PriorTable:
         return f"$$\n\\begin{{aligned}}\n{inner}\n\\end{{aligned}}\n$$"
 
 
+class ModelEquations:
+    """Combined structural equations and prior specifications.
+
+    Provides a unified ``__str__`` for plain text and ``_repr_latex_``
+    for rich LaTeX rendering in Jupyter / Quarto notebooks.
+    """
+
+    def __init__(self, equations: EquationList, priors: PriorTable) -> None:
+        self._equations = equations
+        self._priors = priors
+
+    def __str__(self) -> str:
+        return f"{self._equations}\n\n{self._priors}"
+
+    def __repr__(self) -> str:
+        return f"ModelEquations(equations={self._equations!r}, priors={self._priors!r})"
+
+    def _repr_latex_(self) -> str:
+        """LaTeX rendering combining equations and priors."""
+        eq_sep = " \\\\\n"
+        eq_inner = eq_sep.join(self._equations._latex_lines)
+
+        prior_lines: list[str] = []
+        for name, prior_str in self._priors._entries.items():
+            lhs = _latexify_name(name)
+            rhs = _latexify_prior(prior_str)
+            prior_lines.append(rf"{lhs} &\sim {rhs}")
+        pr_inner = eq_sep.join(prior_lines)
+
+        return (
+            f"$$\n\\begin{{aligned}}\n"
+            f"{eq_inner}\n"
+            f"\\\\[6pt]\n"
+            f"{pr_inner}\n"
+            f"\\end{{aligned}}\n$$"
+        )
+
+
 def _latexify_prior(prior_str: str) -> str:
     r"""Convert a prior string like ``Normal(0, 10)`` to LaTeX.
 
