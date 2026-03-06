@@ -738,6 +738,208 @@ class PathModel:
         r_hi = self.do(set=set_hi, **do_kwargs)
         return r_hi - r_lo
 
+    def att(
+        self,
+        outcome: str,
+        treatment: str,
+        values: tuple[float, float] = (0.0, 1.0),
+        treated_value: float = 1.0,
+        kind: str = "mean",
+    ) -> DoResult:
+        """Compute the average treatment effect on the treated (ATT).
+
+        Estimates ``E[Y(hi) - Y(lo) | T = treated_value]`` using
+        subgroup-aware empirical integration over the covariate
+        distribution of the treated subgroup.
+
+        Unlike :meth:`ate`, which averages over the full covariate
+        distribution, ``att()`` restricts to rows where the treatment
+        variable equals *treated_value*. In linear models without
+        interactions, ATT equals ATE; they diverge with effect
+        modification or nonlinear link functions.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name (used for documentation; the contrast
+            is computed over all endogenous variables).
+        treatment : str
+            Treatment variable to intervene on.
+        values : tuple[float, float]
+            ``(lo, hi)`` intervention values. Default ``(0.0, 1.0)``.
+        treated_value : float
+            Value of the treatment variable identifying the treated
+            subgroup (default ``1.0``).
+        kind : str
+            ``"mean"`` for deterministic propagation, ``"predictive"``
+            to include residual noise.
+
+        Returns
+        -------
+        DoResult
+            Contrast ``do(treatment=hi) - do(treatment=lo)`` integrated
+            over the treated subgroup's covariate distribution.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.sample()``.
+        NotImplementedError
+            If the model is a panel model (not yet supported).
+        ValueError
+            If no observations match *treated_value*.
+
+        Examples
+        --------
+        >>> model = pathmc.fit("Y ~ T + X", data=df)
+        >>> model.sample(draws=1000, tune=1000)
+        >>> att = model.att("Y", "T")
+        >>> att.mean("Y")  # E[Y(1) - Y(0) | T=1]
+        """
+        if self._idata is None:
+            raise RuntimeError(
+                "No posterior samples available. Call .sample() before .att()."
+            )
+        if self._panel_info is not None:
+            raise NotImplementedError(
+                "att() is not yet supported for panel models. "
+                "Use do() with manual subgroup selection instead."
+            )
+
+        mask = np.isclose(
+            np.asarray(self._data[treatment].values, dtype=float), treated_value
+        )
+        subgroup_idx = np.where(mask)[0]
+        if len(subgroup_idx) == 0:
+            raise ValueError(
+                f"No observations with {treatment} ≈ {treated_value}. "
+                f"Check the treated_value parameter or data values."
+            )
+
+        lo, hi = values
+        r_lo = run_do_pymc(
+            gen_model=self._gen_model,
+            graph_info=self._graph_info,
+            idata=self._idata,
+            data=self._data,
+            set={treatment: lo},
+            kind=kind,
+            families=self._families,
+            subgroup_indices=subgroup_idx,
+        )
+        r_hi = run_do_pymc(
+            gen_model=self._gen_model,
+            graph_info=self._graph_info,
+            idata=self._idata,
+            data=self._data,
+            set={treatment: hi},
+            kind=kind,
+            families=self._families,
+            subgroup_indices=subgroup_idx,
+        )
+        return r_hi - r_lo
+
+    def atu(
+        self,
+        outcome: str,
+        treatment: str,
+        values: tuple[float, float] = (0.0, 1.0),
+        untreated_value: float = 0.0,
+        kind: str = "mean",
+    ) -> DoResult:
+        """Compute the average treatment effect on the untreated (ATU).
+
+        Estimates ``E[Y(hi) - Y(lo) | T = untreated_value]`` using
+        subgroup-aware empirical integration over the covariate
+        distribution of the untreated subgroup.
+
+        Unlike :meth:`ate`, which averages over the full covariate
+        distribution, ``atu()`` restricts to rows where the treatment
+        variable equals *untreated_value*. In linear models without
+        interactions, ATU equals ATE; they diverge with effect
+        modification or nonlinear link functions.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name (used for documentation; the contrast
+            is computed over all endogenous variables).
+        treatment : str
+            Treatment variable to intervene on.
+        values : tuple[float, float]
+            ``(lo, hi)`` intervention values. Default ``(0.0, 1.0)``.
+        untreated_value : float
+            Value of the treatment variable identifying the untreated
+            subgroup (default ``0.0``).
+        kind : str
+            ``"mean"`` for deterministic propagation, ``"predictive"``
+            to include residual noise.
+
+        Returns
+        -------
+        DoResult
+            Contrast ``do(treatment=hi) - do(treatment=lo)`` integrated
+            over the untreated subgroup's covariate distribution.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.sample()``.
+        NotImplementedError
+            If the model is a panel model (not yet supported).
+        ValueError
+            If no observations match *untreated_value*.
+
+        Examples
+        --------
+        >>> model = pathmc.fit("Y ~ T + X", data=df)
+        >>> model.sample(draws=1000, tune=1000)
+        >>> atu = model.atu("Y", "T")
+        >>> atu.mean("Y")  # E[Y(1) - Y(0) | T=0]
+        """
+        if self._idata is None:
+            raise RuntimeError(
+                "No posterior samples available. Call .sample() before .atu()."
+            )
+        if self._panel_info is not None:
+            raise NotImplementedError(
+                "atu() is not yet supported for panel models. "
+                "Use do() with manual subgroup selection instead."
+            )
+
+        mask = np.isclose(
+            np.asarray(self._data[treatment].values, dtype=float), untreated_value
+        )
+        subgroup_idx = np.where(mask)[0]
+        if len(subgroup_idx) == 0:
+            raise ValueError(
+                f"No observations with {treatment} ≈ {untreated_value}. "
+                f"Check the untreated_value parameter or data values."
+            )
+
+        lo, hi = values
+        r_lo = run_do_pymc(
+            gen_model=self._gen_model,
+            graph_info=self._graph_info,
+            idata=self._idata,
+            data=self._data,
+            set={treatment: lo},
+            kind=kind,
+            families=self._families,
+            subgroup_indices=subgroup_idx,
+        )
+        r_hi = run_do_pymc(
+            gen_model=self._gen_model,
+            graph_info=self._graph_info,
+            idata=self._idata,
+            data=self._data,
+            set={treatment: hi},
+            kind=kind,
+            families=self._families,
+            subgroup_indices=subgroup_idx,
+        )
+        return r_hi - r_lo
+
     def sensitivity(
         self,
         outcome: str,

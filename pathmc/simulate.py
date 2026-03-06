@@ -150,6 +150,7 @@ def run_do_pymc(
     set: dict[str, float | np.ndarray] | None = None,
     kind: str = "mean",
     families: dict[str, str] | None = None,
+    subgroup_indices: np.ndarray | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -179,6 +180,11 @@ def run_do_pymc(
     families : dict[str, str] | None
         Per-variable distribution families (e.g. ``{"Y": "bernoulli"}``).
         Used to apply the inverse link function for ``kind="mean"``.
+    subgroup_indices : np.ndarray | None
+        Row indices for subgroup-aware empirical integration. When
+        provided, endogenous variable draws are averaged over only
+        these rows (e.g., the treated subgroup for ATT). ``None``
+        (default) uses all rows.
 
     Returns
     -------
@@ -247,11 +253,18 @@ def run_do_pymc(
                 values[var] = np.full(n_samples, set[var])
             elif var in graph_info.exogenous:
                 if var in data.columns:
-                    values[var] = np.full(n_samples, float(data[var].mean()))
+                    if subgroup_indices is not None:
+                        fill = float(data[var].iloc[subgroup_indices].mean())
+                    else:
+                        fill = float(data[var].mean())
+                    values[var] = np.full(n_samples, fill)
                 else:
                     values[var] = np.zeros(n_samples)
             else:
-                mu_vals = det[f"mu_{var}"].values.flatten()
+                mu_raw = det[f"mu_{var}"].values
+                if subgroup_indices is not None and mu_raw.ndim >= 3:
+                    mu_raw = mu_raw[:, :, subgroup_indices]
+                mu_vals = mu_raw.flatten()
                 values[var] = _apply_inverse_link(mu_vals, families.get(var, ""))
 
         return DoResult(values=values)
@@ -307,15 +320,28 @@ def run_do_pymc(
             values[var] = np.full(n_samples, set[var])
         elif var in graph_info.exogenous:
             if var in data.columns:
-                values[var] = np.full(n_samples, float(data[var].mean()))
+                if subgroup_indices is not None:
+                    fill = float(data[var].iloc[subgroup_indices].mean())
+                else:
+                    fill = float(data[var].mean())
+                values[var] = np.full(n_samples, fill)
             else:
                 values[var] = np.zeros(n_samples)
         elif var in ppc.posterior_predictive:
-            values[var] = ppc.posterior_predictive[var].values.flatten()
+            raw = ppc.posterior_predictive[var].values
+            if subgroup_indices is not None and raw.ndim >= 3:
+                raw = raw[:, :, subgroup_indices]
+            values[var] = raw.flatten()
         elif f"mu_{var}" in ppc.posterior_predictive:
-            values[var] = ppc.posterior_predictive[f"mu_{var}"].values.flatten()
+            raw = ppc.posterior_predictive[f"mu_{var}"].values
+            if subgroup_indices is not None and raw.ndim >= 3:
+                raw = raw[:, :, subgroup_indices]
+            values[var] = raw.flatten()
         elif latent_det is not None and f"mu_{var}" in latent_det:
-            values[var] = latent_det[f"mu_{var}"].values.flatten()
+            raw = latent_det[f"mu_{var}"].values
+            if subgroup_indices is not None and raw.ndim >= 3:
+                raw = raw[:, :, subgroup_indices]
+            values[var] = raw.flatten()
 
     return DoResult(values=values)
 
