@@ -33,6 +33,7 @@ from pathmc.identify import (
 )
 from pathmc.introspect import (
     EquationList,
+    ModelEquations,
     PriorTable,
     build_dag_viz,
     build_equations,
@@ -210,6 +211,13 @@ class PathModel:
             pooling=self._pooling,
             latent=self._latent,
         )
+
+    def model_equations(self) -> ModelEquations:
+        """Return structural equations and priors as a single display object.
+
+        Works before sampling. Renders as combined LaTeX in Jupyter / Quarto.
+        """
+        return ModelEquations(self.equations(), self.priors())
 
     def summary(self) -> pd.DataFrame:
         """Return a posterior summary table.
