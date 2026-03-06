@@ -72,3 +72,9 @@ Build the static site to `docs/_site/`:
 ```bash
 quarto render docs/
 ```
+
+Full rebuild from scratch (clears all caches):
+
+```bash
+rm -rf docs/_freeze docs/.quarto && quarto render docs/
+```
