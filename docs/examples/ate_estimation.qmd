@@ -434,6 +434,48 @@ print(f"True ATE:                     {true_ate_conf:.3f}")
 
 By modelling the full DAG — including `T ~ Z` — pathmc adjusts for confounding through the structural equations and computes the ATE on the probability scale via g-computation.
 
+## ATT and ATU: subgroup-specific effects under nonlinearity
+
+With a logistic link, the treatment effect varies across individuals because the same shift in log-odds produces different changes in probability depending on baseline risk. When treatment assignment is confounded — treated units have systematically different baseline risk than untreated units — the ATT and ATU diverge from the ATE.
+
+```{python}
+true_att_conf = (
+    expit(true_b0_log + true_bT_log + true_bZ_log * Z_conf[T_conf == 1])
+    - expit(true_b0_log + true_bZ_log * Z_conf[T_conf == 1])
+).mean()
+
+true_atu_conf = (
+    expit(true_b0_log + true_bT_log + true_bZ_log * Z_conf[T_conf == 0])
+    - expit(true_b0_log + true_bZ_log * Z_conf[T_conf == 0])
+).mean()
+
+print(f"True ATE:  {true_ate_conf:.3f}  (average over all units)")
+print(f"True ATT:  {true_att_conf:.3f}  (average over treated units)")
+print(f"True ATU:  {true_atu_conf:.3f}  (average over untreated units)")
+print(f"\nE[Z | T=1] = {Z_conf[T_conf == 1].mean():.2f}")
+print(f"E[Z | T=0] = {Z_conf[T_conf == 0].mean():.2f}")
+```
+
+Treated units have higher `Z` on average (because `Z` drives treatment assignment), which means higher baseline probability of $Y{=}1$. On the logistic curve, these units are in a region with smaller marginal effects — so the ATT is slightly smaller than the ATU.
+
+```{python}
+att_conf = model_conf.att("Y", "T", values=(0.0, 1.0))
+atu_conf = model_conf.atu("Y", "T", values=(0.0, 1.0))
+
+print(f"{'Estimand':<12} {'Estimate':>10} {'True':>10}")
+print(f"{'ATE':<12} {ate_conf.mean('Y'):>10.3f} {true_ate_conf:>10.3f}")
+print(f"{'ATT':<12} {att_conf.mean('Y'):>10.3f} {true_att_conf:>10.3f}")
+print(f"{'ATU':<12} {atu_conf.mean('Y'):>10.3f} {true_atu_conf:>10.3f}")
+```
+
+::: {.callout-note}
+## Why ATT ≠ ATU in logistic models
+
+Even without an explicit interaction term, the logistic link function creates implicit effect modification: the treatment effect on the probability scale depends on baseline risk, which varies with covariates. When treatment is confounded with those covariates, the treated and untreated groups occupy different regions of the response curve — and experience different average effects.
+
+This is a second reason (beyond explicit interactions) why `att()` and `atu()` are important: nonlinear link functions make the treatment effect heterogeneous even when the structural equation has no interaction terms.
+:::
+
 ## Summary
 
 - In **linear models**, the ATE equals the coefficient on the treatment variable. The individual treatment effect is constant, and the covariate terms cancel in the counterfactual contrast.
@@ -451,5 +493,5 @@ In your own analyses:
 
 - When you fit a logistic regression for a binary outcome, do you report coefficients, odds ratios, or risk differences? Are your stakeholders interpreting them correctly?
 - If a clinical trial reports "the treatment doubled the odds of recovery" (OR = 2.0), how large is that effect on the probability of recovery? It depends on the baseline rate — the same nonlinearity issue this notebook demonstrates.
-- Could the treatment effects in your models vary across subgroups with different baseline risk? If so, the ATE might mask important heterogeneity worth examining with `cate()`.
+- Could the treatment effects in your models vary across subgroups with different baseline risk? If so, the ATE might mask important heterogeneity worth examining with `cate()`, `att()`, or `atu()`.
 :::

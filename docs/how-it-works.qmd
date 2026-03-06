@@ -370,9 +370,10 @@ The `PathModel` methods fall into natural groups:
 
 - `do(set=..., kind=..., simulate_over=...)` → `DoResult`
 - `ate(outcome, treatment, values)` → convenience wrapper around two `do()` calls
+- `att(outcome, treatment, values, treated_value)` → ATT: ATE restricted to treated subgroup's covariate distribution
+- `atu(outcome, treatment, values, untreated_value)` → ATU: ATE restricted to untreated subgroup's covariate distribution
 - `cate(outcome, treatment, values, condition)` → conditional ATE
 - `prob(expr, set=...)` → P(expr | do(set)) from predictive draws
-- `att(...)`, `atu(...)` → not currently in API (planned feature)
 
 **Identification:**
 

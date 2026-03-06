@@ -31,6 +31,8 @@ This section maps the key concepts so that readers from either background can lo
 |---|---|---|
 | $P(Y \mid do(X = x))$ | $E[Y(x)]$ (mean potential outcome) | `model.do(set={"X": x})` |
 | $E[Y \mid do(X=1)] - E[Y \mid do(X=0)]$ | $E[Y(1) - Y(0)]$ (ATE) | `model.ate("Y", "X", values=(0, 1))` |
+| — | $E[Y(1) - Y(0) \mid T{=}1]$ (ATT) | `model.att("Y", "T")` |
+| — | $E[Y(1) - Y(0) \mid T{=}0]$ (ATU) | `model.atu("Y", "T")` |
 | Backdoor criterion | Conditional ignorability (unconfoundedness) | `model.adjustment_sets("X", "Y")` |
 | G-computation / truncated factorization | Standardization / G-formula | `do()` forward-simulates through the structural model |
 | Graph surgery (remove edges into $X$) | — (no graphical analog) | Internal mechanism behind `do()` |
@@ -145,6 +147,41 @@ ate.hdi("Y")        # 94% HDI of the ATE
 cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": 2.0})
 cate.mean("Y")      # ATE of X on Y, with Z fixed at 2
 ```
+
+### Average treatment effect on the treated (ATT)
+
+`.att()` computes the treatment effect averaged over the covariate distribution of the **treated** subgroup — the units that actually received treatment:
+
+```python
+att = model.att("Y", "T", values=(0.0, 1.0), treated_value=1.0)
+att.mean("Y")       # E[Y(1) - Y(0) | T = 1]
+```
+
+ATT answers: *"Among those who were treated, what was the average effect of the treatment?"* This is a natural estimand for evaluating a policy that has already been deployed — you want to know how much it helped the people it actually reached, not a hypothetical random population.
+
+### Average treatment effect on the untreated (ATU)
+
+`.atu()` computes the treatment effect averaged over the covariate distribution of the **untreated** subgroup:
+
+```python
+atu = model.atu("Y", "T", values=(0.0, 1.0), untreated_value=0.0)
+atu.mean("Y")       # E[Y(1) - Y(0) | T = 0]
+```
+
+ATU answers: *"If we extended the treatment to those who did not receive it, what effect would we expect?"* This is useful for policy expansion decisions.
+
+::: {.callout-note}
+## When do ATE, ATT, and ATU differ?
+
+In a linear model without interactions, `ATE = ATT = ATU` — the treatment effect is constant across individuals.
+
+They diverge when the treatment effect varies with covariates (effect modification), which can happen due to:
+
+- **Interaction terms**: `Y ~ T + X + T:X` where the effect of `T` depends on `X`
+- **Nonlinear link functions**: logistic or Poisson models where the marginal effect depends on baseline risk
+
+When treatment assignment is correlated with these effect-modifying covariates (as in most observational studies), the treated and untreated groups have different covariate distributions, leading to different average effects.
+:::
 
 ### Probability queries
 

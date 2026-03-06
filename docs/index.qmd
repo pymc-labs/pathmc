@@ -33,7 +33,7 @@ ate = (r1 - r0).mean("Y")       # average treatment effect
 - **Formula DSL** with regression (`~`), residual covariance (`~~`), labeled coefficients, and defined parameters (`:=`)
 - **Automatic compilation** to PyMC models with sensible default priors
 - **Introspection** before sampling: `graph()`, `equations()`, `design()`, `priors()`
-- **do-operator** for interventional simulation with full posterior uncertainty
+- **do-operator** for interventional simulation with full posterior uncertainty — including ATE, ATT, ATU, CATE, and probability queries
 - **Effects API** for labeled coefficients, defined parameters, and path-specific effects
 
 ## Getting started

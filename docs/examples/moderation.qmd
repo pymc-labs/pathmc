@@ -240,6 +240,58 @@ Use `X:Z` in the spec whenever the interaction involves variables you might inte
 :::
 
 
+## ATT and ATU under moderation
+
+When the treatment is binary and moderated by a covariate, `att()` and `atu()` provide subgroup-specific average effects that account for the different covariate distributions of the treated and untreated groups.
+
+To demonstrate, we create a binary treatment version of the moderation model where treatment assignment depends on the moderator (confounding + effect modification):
+
+```{python}
+seed = sum(map(ord, "moderation att atu"))
+rng_att = np.random.default_rng(seed=seed)
+n_att = 500
+
+Z_att = rng_att.normal(size=n_att)
+prob_T = 1 / (1 + np.exp(-0.8 * Z_att))
+T_att = (rng_att.uniform(size=n_att) < prob_T).astype(float)
+
+Y_att = (
+    TRUE_MAIN_X * T_att
+    + TRUE_MAIN_Z * Z_att
+    + TRUE_INTER * T_att * Z_att
+    + rng_att.normal(scale=0.5, size=n_att)
+)
+
+df_att = pd.DataFrame({"T": T_att, "Z": Z_att, "Y": Y_att})
+
+true_att = (TRUE_MAIN_X + TRUE_INTER * Z_att[T_att == 1]).mean()
+true_atu = (TRUE_MAIN_X + TRUE_INTER * Z_att[T_att == 0]).mean()
+
+print(f"E[Z | T=1] = {Z_att[T_att == 1].mean():.2f},  True ATT = {true_att:.3f}")
+print(f"E[Z | T=0] = {Z_att[T_att == 0].mean():.2f},  True ATU = {true_atu:.3f}")
+```
+
+Treated units have higher `Z` on average, and higher `Z` amplifies the treatment effect (positive interaction), so ATT > ATU.
+
+```{python}
+model_att = pathmc.fit("Y ~ a*T + b*Z + c*T:Z", data=df_att)
+model_att.sample(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+```{python}
+att = model_att.att("Y", "T")
+atu = model_att.atu("Y", "T")
+ate = model_att.ate("Y", "T")
+
+print(f"{'Estimand':<12} {'Estimate':>10} {'True':>10}")
+print(f"{'ATE':<12} {ate.mean('Y'):>10.3f} {(TRUE_MAIN_X + TRUE_INTER * Z_att.mean()):>10.3f}")
+print(f"{'ATT':<12} {att.mean('Y'):>10.3f} {true_att:>10.3f}")
+print(f"{'ATU':<12} {atu.mean('Y'):>10.3f} {true_atu:>10.3f}")
+```
+
+The ATT and ATU diverge because the treated group has higher `Z`, where the interaction amplifies the treatment effect. The `cate()` method fixes `Z` at a single value; `att()`/`atu()` average over each subgroup's actual covariate distribution — a natural complement when treatment assignment is non-random.
+
+
 ## Visualizing the raw data
 
 The interaction is visible in the raw data: the slope of $Y$ on $X$ is steeper when $Z$ is high than when $Z$ is low.
