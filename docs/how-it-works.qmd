@@ -520,9 +520,8 @@ import pathmc
 model = pathmc.fit("M ~ a*X; Y ~ b*M + c*X; indirect := a*b", data=df)
 
 # 2. Inspect before sampling
-model.graph()       # graphviz DAG
-model.equations()   # M ~ 1 + a*X, Y ~ 1 + b*M + c*X, indirect := a*b
-model.priors()      # beta_M ~ Normal(0, 10), sigma_M ~ HalfNormal(1), ...
+model.graph()              # graphviz DAG
+model.model_equations()    # equations + priors in one LaTeX block
 
 # 3. Check identification
 model.is_identifiable("X", "Y")   # True

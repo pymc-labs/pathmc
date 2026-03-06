@@ -80,7 +80,10 @@ model = pathmc.fit(
     panel={"unit": "region", "time": "week"},
     pooling="partial",
 )
+model.model_equations()
+```
 
+```{python}
 model.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 

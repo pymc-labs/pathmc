@@ -207,11 +207,7 @@ model.graph()
 ```
 
 ```{python}
-model.equations()
-```
-
-```{python}
-model.priors()
+model.model_equations()
 ```
 
 ### PyMC model graph

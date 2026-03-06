@@ -125,6 +125,10 @@ A naive regression of `Y` on `X` (ignoring both the mediator and the confounder)
 
 ```{python}
 naive = pathmc.fit("Y ~ b_naive*X", data=df)
+naive.model_equations()
+```
+
+```{python}
 naive.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
@@ -154,6 +158,10 @@ indirect := a*b
 
 model = pathmc.fit(spec, data=df)
 model.graph()
+```
+
+```{python}
+model.model_equations()
 ```
 
 ::: {.callout-important}

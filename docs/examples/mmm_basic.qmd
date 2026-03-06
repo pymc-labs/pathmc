@@ -131,11 +131,7 @@ model.graph()
 ```
 
 ```{python}
-model.equations()
-```
-
-```{python}
-model.priors()
+model.model_equations()
 ```
 
 ### PyMC model graph
@@ -155,7 +151,7 @@ pm.model_to_graphviz(model.pymc_model)
      reparameterization, or a non-centered saturation formulation. -->
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.sample(draws=500, tune=500, chains=4, random_seed=42, nuts_sampler="nutpie")
 ```
 
 ## Results

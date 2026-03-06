@@ -97,6 +97,10 @@ The ATE is simply the coefficient, regardless of the distribution of `Z`.
 
 ```{python}
 model_lin = pathmc.fit("Y ~ bT*T + bZ*Z", data=df_linear)
+model_lin.model_equations()
+```
+
+```{python}
 model_lin.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
@@ -168,6 +172,10 @@ model_log = pathmc.fit(
     data=df_logistic,
     families={"Y": "bernoulli"},
 )
+model_log.model_equations()
+```
+
+```{python}
 model_log.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
@@ -411,6 +419,10 @@ model_conf = pathmc.fit(
     data=df_conf,
     families={"T": "bernoulli", "Y": "bernoulli"},
 )
+model_conf.model_equations()
+```
+
+```{python}
 model_conf.sample(draws=500, tune=500, chains=4, random_seed=42)
 
 ate_conf = model_conf.ate("Y", "T", values=(0.0, 1.0))

@@ -225,13 +225,7 @@ model.graph()
 ```
 
 ```{python}
-model.equations()
-```
-
-The priors table shows the different treatment by family: `engagement` gets a sigma parameter (Gaussian residual scale), while `activated` and `converted` do not (Bernoulli has no residual scale — the variance is determined by the probability).
-
-```{python}
-model.priors()
+model.model_equations()
 ```
 
 ### PyMC model graph

@@ -126,11 +126,7 @@ model = pathmc.fit(
 ```
 
 ```{python}
-model.equations()
-```
-
-```{python}
-model.priors()
+model.model_equations()
 ```
 
 ### PyMC model graph
@@ -144,7 +140,7 @@ pm.model_to_graphviz(model.pymc_model)
 ## Sample
 
 ```{python}
-idata = model.sample(draws=1000, tune=1000, chains=4, random_seed=42)
+idata = model.sample(draws=1000, tune=1000, chains=4, random_seed=42, nuts_sampler="nutpie")
 ```
 
 ## Results

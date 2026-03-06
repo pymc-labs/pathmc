@@ -115,6 +115,10 @@ Y ~ X + Z
 """
 
 model = pathmc.fit(spec, data=df)
+model.model_equations()
+```
+
+```{python}
 model.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
@@ -181,6 +185,10 @@ df_rand = pd.DataFrame({"X": X_rand, "Y": Y_rand})
 
 ```{python}
 model_rand = pathmc.fit("Y ~ X", data=df_rand)
+model_rand.model_equations()
+```
+
+```{python}
 model_rand.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 

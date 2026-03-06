@@ -49,6 +49,10 @@ model.graph()
 ```
 
 ```{python}
+model.model_equations()
+```
+
+```{python}
 model.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 

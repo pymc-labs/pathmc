@@ -70,7 +70,7 @@ model.graph()
 Note that `M` gets a Gaussian likelihood (with a sigma parameter) while `Y` gets a Bernoulli-logit likelihood (no sigma).
 
 ```{python}
-model.priors()
+model.model_equations()
 ```
 
 ## Sample

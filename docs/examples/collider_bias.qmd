@@ -139,6 +139,10 @@ model = pathmc.fit(spec, data=df, families={"mortality": "bernoulli"})
 model.graph()
 ```
 
+```{python}
+model.model_equations()
+```
+
 ### Collider warnings
 
 Before fitting, pathmc can check whether a proposed adjustment set contains colliders.
@@ -189,6 +193,10 @@ biased_model = pathmc.fit(
     data=df,
     families={"mortality": "bernoulli"},
 )
+biased_model.model_equations()
+```
+
+```{python}
 biased_model.sample(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
