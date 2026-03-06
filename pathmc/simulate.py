@@ -197,7 +197,9 @@ def run_do_pymc(
     replacements: dict[str, Any] = {}
     for var, val in set.items():
         key = f"mu_{var}" if var in latent else var
-        replacements[key] = np.full(N, val)
+        arr = np.full(N, val)
+        target_dtype = gen_model[key].dtype
+        replacements[key] = arr.astype(target_dtype)
 
     if kind == "mean":
         non_float_endo: list[str] = []
@@ -370,7 +372,8 @@ def run_do_panel_unified(
         else:
             mat = np.full((n_times, n_units), val)
         key = f"mu_{var}" if var in latent else var
-        replacements[key] = mat
+        target_dtype = gen_model[key].dtype
+        replacements[key] = mat.astype(target_dtype)
 
     if kind == "mean":
         for var in graph_info.topological_order:
