@@ -10,21 +10,36 @@ This page walks through the internals of pathmc — from the high-level API down
 ```{mermaid}
 %%{init: {'theme': 'default', 'themeVariables': {'fontSize': '18px'}}}%%
 flowchart LR
-    A["spec string"] --> B["NetworkX<br/>DAG"]
-    B --> C["generative<br/>pm.Model"]
-    C -->|"pm.observe()"| D["estimation<br/>→ MCMC"]
-    C -->|"pm.do()"| E["causal effects<br/>(g-computation)"]
-    B --> F["identification<br/>& sensitivity"]
+    A["spec string"] --> PM
+    D["data"] --> PM
+
+    subgraph PM [" PathModel "]
+        B["NetworkX<br/>DAG"] --> C["generative<br/>pm.Model"]
+        M["LaTeX<br/>equations"]
+        C -->|"pm.observe()"| E["estimation<br/>model → MCMC"]
+        C -->|"pm.do()"| F["intervention<br/>model"]
+    end
+
+    E --> H["summaries, effects<br/>& simulation"]
+    F --> G["causal effects<br/>(g-computation)"]
+    B --> K["causal<br/>diagnostics"]
+    B --> L["CausalDAG<br/>plot"]
+
+    style PM fill:none,stroke:#888,stroke-dasharray:5 5
 ```
 
-pathmc compiles a lavaan-style spec string into a NetworkX DAG and then into a **generative** `pm.Model` — a PyMC model where endogenous variables are free random variables wired through their structural equations. That generative model is the central artifact:
+The user provides a spec string and data; `pathmc.fit()` returns a **`PathModel`** — a single object holding the NetworkX DAG, the data, and a **generative** `pm.Model` where exogenous variables are observed data nodes and endogenous variables are free random variables wired through their structural equations. The DAG also generates a LaTeX representation of the structural equations and priors, rendered automatically in Jupyter and Quarto. The generative model gives rise to two derived PyMC models, both held inside the PathModel:
 
-- **Estimation**: `pm.observe()` conditions on data, creating the model you sample with MCMC.
-- **Intervention**: `pm.do()` applies graph surgery on the *same* generative model, replacing a variable with a constant and forward-simulating to compute causal effects (ATE, CATE, counterfactuals) with full posterior uncertainty.
+**Estimation → summaries, effects & simulation.** `pm.observe()` conditions the free endogenous variables on their observed values, producing the estimation model that is sampled with MCMC. After sampling, the PathModel exposes posterior summaries, labeled coefficients, path-specific effects, and stdyx-standardized coefficients — all computed from posterior draws with full uncertainty. The fitted model can also forward-simulate new observations via posterior predictive sampling, useful for model checking and forecasting.
 
-The DAG also enables **identification checks** (backdoor/front-door criteria, adjustment sets, collider warnings) and **sensitivity analysis** for unmeasured confounding — both work from graph structure alone, without sampling.
+**Intervention → causal effects.** `pm.do()` applies graph surgery on the generative model, replacing an endogenous variable's structural equation with a fixed constant — severing its incoming edges. Forward-simulating through the modified model computes causal effects (ATE, CATE, counterfactuals) via g-computation with full posterior uncertainty.
 
-Everything is accessed through a single `PathModel` object returned by `pathmc.fit()`.
+**Causal diagnostics.** The DAG and data together power a suite of checks that help you validate, refine, and stress-test your causal model before trusting its conclusions:
+
+- **Identification**: backdoor and front-door criteria determine whether a causal effect is estimable from observational data. pathmc finds all minimal adjustment sets and flags when no valid set exists.
+- **Collider warnings**: conditioning on the wrong variable can *create* spurious associations. pathmc checks proposed adjustment sets for collider bias before you estimate anything.
+- **Implied independence testing**: every DAG encodes conditional independence claims. pathmc extracts these from the graph structure (the basis set; Shipley, 2000) and tests them against your data via partial correlations — violations suggest missing edges or structural misspecification.
+- **Sensitivity analysis**: causal conclusions rest on untestable assumptions about unmeasured confounding. pathmc quantifies how strong an unmeasured confounder would need to be to nullify a finding, reporting tipping points and contour plots.
 
 
 ## Pipeline details
