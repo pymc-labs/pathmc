@@ -445,7 +445,7 @@ def implied_independences(
             parents_y = set(dag.predecessors(y))
             conditioning = (parents_x | parents_y) - {x, y}
 
-            if nx.d_separated(dag, {x}, {y}, conditioning):
+            if nx.is_d_separator(dag, {x}, {y}, conditioning):
                 result.append(
                     ConditionalIndependence(
                         x=x,
