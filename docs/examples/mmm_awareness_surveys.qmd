@@ -5,14 +5,6 @@ categories: [Marketing, Panel Data]
 jupyter: pathmc
 ---
 
-::: {.callout-important}
-## Feature preview
-
-This example demonstrates a planned extension to pathmc: **stochastic latent nodes with sparse measurement equations** ([GitHub issue #4](https://github.com/pymc-labs/pathmc/issues/4)).
-The data simulation and visualization cells run today; model specification cells are marked `eval: false` to illustrate the desired API.
-For the current deterministic latent awareness model (no observations needed), see [MMM with Brand Awareness Dynamics](mmm_awareness.qmd).
-:::
-
 The [brand awareness example](mmm_awareness.qmd) shows how a latent AR(1) mediator captures upper-funnel's persistent, compounding effect on sales.
 That model infers the entire awareness trajectory from the sales signal alone — a powerful but indirect identification strategy.
 When the only downstream observable is noisy, posteriors on the awareness path can be wide.
@@ -67,6 +59,8 @@ Awareness evolves as a stochastic AR(1) process with process noise, and brand tr
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import arviz as az
+import pathmc
 
 FIG_WIDTH = 8
 FIG_HEIGHT = 4
@@ -210,20 +204,11 @@ plt.tight_layout()
 plt.show()
 ```
 
-## Model specification (desired API)
-
-::: {.callout-warning}
-## Not yet implemented
-
-The syntax below illustrates the **target API** from [issue #4](https://github.com/pymc-labs/pathmc/issues/4).
-It extends the current DSL to support stochastic latent nodes and measurement equations.
-:::
+## Specify and fit the model
 
 The model has three equations: a stochastic state equation for awareness, a measurement equation linking surveys to the latent state, and the sales outcome equation.
 
 ```{python}
-#| eval: false
-
 spec = """
 awareness ~ a_uf*upper_funnel + rho*lag(awareness)
 sales ~ b_aw*awareness + c_uf*upper_funnel + d_lf*lower_funnel
@@ -239,56 +224,41 @@ model = pathmc.fit(
 )
 ```
 
-Three additions compared to the [current deterministic latent API](mmm_awareness.qmd):
-
-| Current (deterministic) | Proposed (stochastic + measured) |
-|------------------------|----------------------------------|
-| `latent=["awareness"]` compiles to `pm.Deterministic` | `families={"awareness": "latent_normal"}` compiles to a `pm.Normal` state with process noise $\sigma_\text{state}$ |
-| Awareness inferred only from sales likelihood | `awareness_survey ~ awareness` adds a measurement likelihood at observed survey weeks |
-| No missing data handling needed | Rows where `awareness_survey` is `NaN` are masked — no measurement likelihood for those weeks |
-
 ::: {.callout-tip collapse="true"}
-## How the compiler would handle this
+## What the three arguments do together
 
-1. **State equation**: `awareness` is compiled as a `pm.Normal` random variable (not `pm.Deterministic`) at each time step, with mean from the structural equation and variance $\sigma_\text{state}^2$.
-2. **Measurement equation**: `awareness_survey ~ awareness` becomes a `pm.Normal` likelihood with mean equal to the latent awareness and variance $\sigma_\text{meas}^2$. Rows where `awareness_survey` is `NaN` are masked using PyMC's missing data support.
-3. **Scan compilation**: The panel scan propagates the stochastic awareness state forward through time as a carry variable, just like the deterministic version, but with added process noise.
-4. **Introspection**: `model.graph()` would show `awareness` with a dashed border (latent) and `awareness_survey` as an observed node connected by the measurement equation.
+- **`latent=["awareness"]`** — awareness has no observed data column; the model must infer its trajectory
+- **`families={"awareness": "latent_normal"}`** — awareness gets process noise $\sigma_\text{state}$ (stochastic, not deterministic)
+- **`awareness_survey ~ awareness`** — a measurement equation with NaN for unsurveyed weeks; PyMC automatically masks missing positions
+
+The compiler pre-generates standard-normal innovations for each time step, passes them through the scan, and scales by $\sigma_\text{state}$.
+The measurement equation is compiled as a masked likelihood — only weeks with survey data contribute to the log-probability.
 :::
 
-### Alternative DSL options
-
-The issue discusses several possible syntaxes. A more explicit form:
-
 ```{python}
-#| eval: false
-
-spec_explicit = """
-awareness ~ latent_normal(
-    mu = a_uf*upper_funnel + rho*lag(awareness),
-    sigma = sigma_state
-)
-sales ~ b_aw*awareness + c_uf*upper_funnel + d_lf*lower_funnel
-awareness_survey ~ normal_measurement(awareness, sigma=sigma_meas)
-"""
+model.graph()
 ```
 
-The tradeoff is expressiveness vs consistency with the existing DSL. The simpler form (`families={"awareness": "latent_normal"}`) keeps the DSL syntax unchanged and moves the latent/stochastic distinction to the API call, consistent with how `latent=["awareness"]` works today.
+```{python}
+model.model_equations()
+```
 
-## Expected behavior
-
-Once implemented, the model with sparse survey observations would produce:
-
-- **Tighter posteriors on awareness coefficients** ($a$, $\rho$, $b$) compared to the fully latent model, because the measurement equation provides direct evidence about the latent state.
-- **Narrower posterior on the awareness-mediated effect** $a \times b / (1 - \rho)$, the key quantity for upper-funnel ROI.
-- **Inferred awareness trajectory** that tracks the true state more closely, especially near survey weeks.
-- **Process noise estimate** $\sigma_\text{state}$ that captures the stochastic drift in awareness not explained by upper-funnel spend.
-- **Measurement noise estimate** $\sigma_\text{meas}$ that reflects survey quality.
+## Sample
 
 ```{python}
-#| eval: false
+idata = model.sample(
+    draws=500, tune=500, chains=4, random_seed=42,
+    target_accept=0.95, nuts_sampler="nutpie",
+)
+```
 
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+## Results
+
+```{python}
+model.summary()
+```
+
+```{python}
 model.effects_summary()
 ```
 
@@ -301,21 +271,18 @@ Plotting the posterior mean and HDI band against the true trajectory and survey 
 #| label: fig-inferred-awareness
 #| fig-cap: "Inferred latent awareness trajectory (posterior mean and 94% HDI band) compared to the true awareness state (black dashed) and sparse survey observations (red points). The HDI band narrows near survey weeks, where measurement data directly constrains the latent state."
 #| code-fold: true
-#| eval: false
 
-import arviz as az
-
-idata = model.idata
-awareness_draws = idata.posterior["awareness"].values  # (chains, draws, time)
-awareness_flat = awareness_draws.reshape(-1, awareness_draws.shape[-1])  # (samples, time)
+awareness_draws = idata.posterior["awareness"].values
+awareness_flat = awareness_draws.reshape(-1, awareness_draws.shape[-2])
 
 post_mean = awareness_flat.mean(axis=0)
-hdi = az.hdi(awareness_draws, hdi_prob=0.94)
+post_lo = np.percentile(awareness_flat, 3, axis=0)
+post_hi = np.percentile(awareness_flat, 97, axis=0)
 
 weeks = df["week"].values
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-ax.fill_between(weeks, hdi[:, 0], hdi[:, 1], alpha=0.25, color=COLOR_AWARENESS, label="94% HDI")
+ax.fill_between(weeks, post_lo, post_hi, alpha=0.25, color=COLOR_AWARENESS, label="94% HDI")
 ax.plot(weeks, post_mean, color=COLOR_AWARENESS, lw=2, label="Posterior mean")
 ax.plot(weeks, df["awareness_true"], color="black", ls="--", lw=1.5, label="True awareness")
 
@@ -333,20 +300,6 @@ ax.legend(fontsize=8)
 plt.tight_layout()
 plt.show()
 ```
-
-### Interventional queries
-
-The `do()` operator would work the same way as in the deterministic case, but with the stochastic state equation:
-
-```{python}
-#| eval: false
-
-r_baseline = model.do(set={"upper_funnel": 15.0}, simulate_over="time", kind="mean")
-r_boosted = model.do(set={"upper_funnel": 30.0}, simulate_over="time", kind="mean")
-lift = r_boosted - r_baseline
-```
-
-The survey observations do not affect the interventional distribution directly — `do()` simulates forward from the state equation — but they improve the posterior on the structural parameters that govern the simulation.
 
 ## Practical considerations for survey design
 
@@ -390,8 +343,13 @@ With $\rho = 0.75$ (the value in our simulation), a single survey observation re
 - **The payoff is tighter posteriors** on the awareness-mediated effect — the quantity that determines whether upper-funnel spend is worth the investment.
 
 ::: {.callout-note}
-## Next steps
+## Extensions
 
-This example will be updated with working model code once stochastic latent nodes and measurement equations are implemented ([issue #4](https://github.com/pymc-labs/pathmc/issues/4)).
-In the meantime, the [deterministic latent awareness model](mmm_awareness.qmd) provides a working approximation that captures the core dynamics without survey data.
+This model can be extended in several directions:
+
+- **Saturation on upper-funnel spend**: `awareness ~ logistic_saturation(upper_funnel, lam=lam_uf) + rho*lag(awareness)` — capturing diminishing returns on awareness-building
+- **Multiple geos**: add regions with `pooling="partial"` to estimate region-varying effects
+- **Multiple survey instruments**: different brand tracking studies as separate measurement equations, each with its own measurement noise
+
+See the [deterministic latent awareness model](mmm_awareness.qmd) for a simpler version without survey data, and the [Autoregressive Panel Models](autoregressive.qmd) example for a basic introduction to `lag()` dynamics.
 :::
