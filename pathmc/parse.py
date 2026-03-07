@@ -31,13 +31,19 @@ class TransformCall:
 
 @dataclass
 class Term:
-    """A single predictor term in a regression equation."""
+    """A single predictor term in a regression equation.
+
+    When ``fixed_value`` is set, the coefficient is pinned to that
+    numeric constant and no free parameter is created.  The syntax
+    ``1*awareness`` produces ``Term(variable="awareness", fixed_value=1.0)``.
+    """
 
     variable: str
     label: str | None = None
     transform: TransformCall | None = None
     lag_of: str | None = None
     interaction_of: tuple[str, ...] | None = None
+    fixed_value: float | None = None
 
 
 @dataclass
@@ -209,32 +215,51 @@ def _parse_regression(stmt: str) -> Regression:
 
 
 def _parse_term(raw: str) -> Term:
-    """Parse a single term, optionally with a coefficient label and/or transform."""
+    """Parse a single term, optionally with a coefficient label and/or transform.
+
+    Numeric labels (e.g. ``1*X``, ``0.5*X``) are treated as fixed
+    coefficient values rather than free parameter names.
+    """
     raw = raw.strip()
     label: str | None = None
+    fixed_value: float | None = None
 
     if "*" in raw:
         star_pos = _find_top_level_star(raw)
         if star_pos is not None:
-            label = raw[:star_pos].strip()
+            label_str = raw[:star_pos].strip()
             raw = raw[star_pos + 1 :].strip()
-            if not label:
+            if not label_str:
                 raise ParseError(f"Malformed labeled term: '{raw}'.")
+            try:
+                fixed_value = float(label_str)
+                label = None
+            except ValueError:
+                label = label_str
 
     if "(" in raw:
         transform = _parse_transform_expr(raw)
         if transform.name == "lag":
-            return _make_lag_term(transform, raw, label)
+            term = _make_lag_term(transform, raw, label)
+            term.fixed_value = fixed_value
+            return term
         variable = _extract_leaf_variable(transform)
-        return Term(variable=variable, label=label, transform=transform)
+        return Term(
+            variable=variable,
+            label=label,
+            transform=transform,
+            fixed_value=fixed_value,
+        )
 
     if ":" in raw:
-        return _parse_interaction_term(raw, label)
+        term = _parse_interaction_term(raw, label)
+        term.fixed_value = fixed_value
+        return term
 
     variable = raw.strip()
     if not variable:
         raise ParseError("Empty variable name in term.")
-    return Term(variable=variable, label=label)
+    return Term(variable=variable, label=label, fixed_value=fixed_value)
 
 
 def _make_lag_term(tc: TransformCall, raw: str, label: str | None) -> Term:

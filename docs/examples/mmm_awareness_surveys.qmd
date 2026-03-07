@@ -212,7 +212,7 @@ The model has three equations: a stochastic state equation for awareness, a meas
 spec = """
 awareness ~ a_uf*upper_funnel + rho*lag(awareness)
 sales ~ b_aw*awareness + c_uf*upper_funnel + d_lf*lower_funnel
-awareness_survey ~ awareness
+awareness_survey ~ 0 + 1*awareness
 """
 
 model = pathmc.fit(
@@ -229,7 +229,7 @@ model = pathmc.fit(
 
 - **`latent=["awareness"]`** — awareness has no observed data column; the model must infer its trajectory
 - **`families={"awareness": "latent_normal"}`** — awareness gets process noise $\sigma_\text{state}$ (stochastic, not deterministic)
-- **`awareness_survey ~ awareness`** — a measurement equation with NaN for unsurveyed weeks; PyMC automatically masks missing positions
+- **`awareness_survey ~ 0 + 1*awareness`** — a measurement equation with fixed loading (1) and no intercept, so `survey = awareness + noise`. NaN entries for unsurveyed weeks are automatically masked by PyMC
 
 The compiler pre-generates standard-normal innovations for each time step, passes them through the scan, and scales by $\sigma_\text{state}$.
 The measurement equation is compiled as a masked likelihood — only weeks with survey data contribute to the log-probability.
@@ -248,9 +248,17 @@ model.model_equations()
 ```{python}
 idata = model.sample(
     draws=500, tune=500, chains=4, random_seed=42,
-    target_accept=0.95, nuts_sampler="nutpie",
+    target_accept=0.95,
 )
 ```
+
+::: {.callout-tip}
+## Sampler compatibility with sparse observations
+
+Models with sparse measurement equations use PyMC's masked array imputation internally — missing (`NaN`) positions become free random variables while observed positions contribute to the likelihood.
+This works seamlessly with PyMC's built-in NUTS sampler, but **nutpie** (`nuts_sampler="nutpie"`) currently fails because the masked array splitting creates unnamed shared variables that nutpie's numba backend cannot compile.
+If you need nutpie's speed for other models, note that this limitation applies specifically to models with `NaN`-containing observed columns.
+:::
 
 ## Results
 
@@ -296,6 +304,34 @@ ax.errorbar(
 )
 ax.set_xlabel("Week")
 ax.set_ylabel("Awareness")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+### Predicted vs observed sales
+
+The sales equation `sales ~ b*awareness + c*uf + d*lf` propagates uncertainty from the latent awareness trajectory into sales predictions.
+Comparing the model's posterior predictive against observed sales is a basic check that the latent structure is producing sensible downstream fit.
+
+```{python}
+#| label: fig-predicted-sales
+#| fig-cap: "Posterior predictive sales (mean and 94% HDI) vs observed sales. The model fits through the latent awareness mediator — good coverage of the observed data indicates that the inferred awareness trajectory is consistent with the downstream sales signal."
+#| code-fold: true
+
+mu_sales = idata.posterior["mu_sales"].values
+mu_sales_flat = mu_sales.reshape(-1, mu_sales.shape[-2])
+
+sales_mean = mu_sales_flat.mean(axis=0)
+sales_lo = np.percentile(mu_sales_flat, 3, axis=0)
+sales_hi = np.percentile(mu_sales_flat, 97, axis=0)
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.fill_between(weeks, sales_lo, sales_hi, alpha=0.25, color=COLOR_SALES, label="94% HDI")
+ax.plot(weeks, sales_mean, color=COLOR_SALES, lw=2, label="Posterior mean")
+ax.scatter(weeks, df["sales"], color="black", s=15, zorder=3, label="Observed sales")
+ax.set_xlabel("Week")
+ax.set_ylabel("Sales")
 ax.legend(fontsize=8)
 plt.tight_layout()
 plt.show()

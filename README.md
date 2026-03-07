@@ -73,6 +73,17 @@ Build the static site to `docs/_site/`:
 quarto render docs/
 ```
 
+### Rendering after code changes
+
+The docs site uses `freeze: auto` to cache notebook outputs. If you change Python source code that affects notebook results, **you must clear the freeze cache** — otherwise Quarto will serve stale outputs from a previous render.
+
+Clear the cache for a single notebook:
+
+```bash
+rm -rf docs/_freeze/examples/<notebook_name> docs/.quarto/_freeze/examples/<notebook_name>
+quarto render docs/examples/<notebook_name>.qmd
+```
+
 Full rebuild from scratch (clears all caches):
 
 ```bash
