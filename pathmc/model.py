@@ -134,6 +134,8 @@ class PathModel:
             if var in block_vars:
                 continue
             if var not in self._latent and var in data.columns:
+                if data[var].isna().any():
+                    continue
                 family = self._families.get(var, "gaussian")
                 vals = data[var].values
                 if family in ("bernoulli", "poisson", "negbinomial"):
