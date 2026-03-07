@@ -292,6 +292,48 @@ model.sample(draws=500, tune=500, chains=4, random_seed=42)
 model.effects_summary()
 ```
 
+### Inferred awareness trajectory
+
+Because `awareness` is a latent variable, the posterior contains draws of its value at every time step.
+Plotting the posterior mean and HDI band against the true trajectory and survey observations shows how well the model recovers the latent state — and where the surveys tighten the estimate.
+
+```{python}
+#| label: fig-inferred-awareness
+#| fig-cap: "Inferred latent awareness trajectory (posterior mean and 94% HDI band) compared to the true awareness state (black dashed) and sparse survey observations (red points). The HDI band narrows near survey weeks, where measurement data directly constrains the latent state."
+#| code-fold: true
+#| eval: false
+
+import arviz as az
+
+idata = model.idata
+awareness_draws = idata.posterior["awareness"].values  # (chains, draws, time)
+awareness_flat = awareness_draws.reshape(-1, awareness_draws.shape[-1])  # (samples, time)
+
+post_mean = awareness_flat.mean(axis=0)
+hdi = az.hdi(awareness_draws, hdi_prob=0.94)
+
+weeks = df["week"].values
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.fill_between(weeks, hdi[:, 0], hdi[:, 1], alpha=0.25, color=COLOR_AWARENESS, label="94% HDI")
+ax.plot(weeks, post_mean, color=COLOR_AWARENESS, lw=2, label="Posterior mean")
+ax.plot(weeks, df["awareness_true"], color="black", ls="--", lw=1.5, label="True awareness")
+
+survey_mask = df["awareness_survey"].notna()
+ax.errorbar(
+    df.loc[survey_mask, "week"],
+    df.loc[survey_mask, "awareness_survey"],
+    yerr=true_sigma_meas,
+    fmt="o", color=COLOR_SURVEY, ms=6, capsize=3,
+    label=f"Survey (σ_meas = {true_sigma_meas})", zorder=4,
+)
+ax.set_xlabel("Week")
+ax.set_ylabel("Awareness")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
 ### Interventional queries
 
 The `do()` operator would work the same way as in the deterministic case, but with the stochastic state equation:
