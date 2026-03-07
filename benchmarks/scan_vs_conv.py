@@ -7,10 +7,10 @@ Compares pytensor.scan-based generative models against convolution-based
 2. **Adstock + AR**: sales ~ adstock(spend, decay=theta) + lag(sales)
 3. **Multi-equation**: awareness ~ adstock(spend, decay=theta); sales ~ awareness + lag(sales)
 
-Gate criteria (from docs/dev/archive/scan_unification_plan.md):
-- ≤3x slower → proceed to Phase 2
-- 3–5x slower → proceed with note about future convolution fast-path
-- >5x slower → abort; promote current scan engine as sole panel engine
+Gate criteria:
+- ≤3x slower → acceptable overhead
+- 3–5x slower → acceptable, but consider convolution fast-path for large models
+- >5x slower → investigate performance bottleneck
 
 Usage:
     python benchmarks/scan_vs_conv.py
