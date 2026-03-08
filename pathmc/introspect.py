@@ -178,7 +178,11 @@ def _latexify_prior(prior_str: str) -> str:
     return rf"\text{{{dist_name}}}({args_latex})"
 
 
-def build_dag_viz(spec: Spec, graph_info: GraphInfo) -> graphviz.Digraph:
+def build_dag_viz(
+    spec: Spec,
+    graph_info: GraphInfo,
+    families: dict[str, str] | None = None,
+) -> graphviz.Digraph:
     """Build a graphviz Digraph from the model's DAG.
 
     Parameters
@@ -187,6 +191,10 @@ def build_dag_viz(spec: Spec, graph_info: GraphInfo) -> graphviz.Digraph:
         Parsed specification.
     graph_info : GraphInfo
         Graph with edge information and latent set.
+    families : dict[str, str] | None
+        Per-variable distribution families. Stochastic latent nodes
+        (``"latent_normal"``) are drawn with dashed + bold borders;
+        deterministic latent nodes use dashed borders only.
 
     Returns
     -------
@@ -194,12 +202,18 @@ def build_dag_viz(spec: Spec, graph_info: GraphInfo) -> graphviz.Digraph:
         Renderable DAG for notebook display. Latent nodes are drawn
         with dashed borders to distinguish them from observed nodes.
     """
+    if families is None:
+        families = {}
+
     dot = graphviz.Digraph(format="svg")
     dot.attr(rankdir="LR")
 
     for node in graph_info.topological_order:
         if node in graph_info.latent:
-            dot.node(node, shape="ellipse", style="dashed")
+            if families.get(node) == "latent_normal":
+                dot.node(node, shape="ellipse", style="dashed,bold")
+            else:
+                dot.node(node, shape="ellipse", style="dashed")
         elif node in graph_info.endogenous:
             dot.node(node, shape="ellipse")
         else:
@@ -236,7 +250,11 @@ def build_dag_viz(spec: Spec, graph_info: GraphInfo) -> graphviz.Digraph:
     return dot
 
 
-def build_equations(spec: Spec, latent: set[str] | None = None) -> EquationList:
+def build_equations(
+    spec: Spec,
+    latent: set[str] | None = None,
+    families: dict[str, str] | None = None,
+) -> EquationList:
     """Build human-readable equations from the parsed specification.
 
     Parameters
@@ -244,8 +262,13 @@ def build_equations(spec: Spec, latent: set[str] | None = None) -> EquationList:
     spec : Spec
         Parsed specification.
     latent : set[str] | None
-        Latent variable names. Equations for these are annotated with
-        ``[deterministic]`` to indicate no likelihood.
+        Latent variable names. Deterministic latent equations are
+        annotated ``[deterministic]``; stochastic latent (family
+        ``latent_normal``) are annotated ``[stochastic]``.
+    families : dict[str, str] | None
+        Per-variable distribution families, used to distinguish
+        stochastic latent nodes (``"latent_normal"``) from
+        deterministic latent nodes.
 
     Returns
     -------
@@ -254,6 +277,8 @@ def build_equations(spec: Spec, latent: set[str] | None = None) -> EquationList:
     """
     if latent is None:
         latent = set()
+    if families is None:
+        families = {}
 
     lines: list[str] = []
     latex_lines: list[str] = []
@@ -267,10 +292,20 @@ def build_equations(spec: Spec, latent: set[str] | None = None) -> EquationList:
             terms.append(_format_term(t))
             latex_terms.append(_format_term_latex(t))
 
-        suffix = " [deterministic]" if reg.lhs in latent else ""
+        is_stochastic_latent = (
+            reg.lhs in latent and families.get(reg.lhs) == "latent_normal"
+        )
+        is_deterministic_latent = reg.lhs in latent and not is_stochastic_latent
+
+        if is_stochastic_latent:
+            suffix = " [stochastic]"
+        elif is_deterministic_latent:
+            suffix = " [deterministic]"
+        else:
+            suffix = ""
         lines.append(f"{reg.lhs} ~ {' + '.join(terms)}{suffix}")
 
-        if reg.lhs in latent:
+        if is_deterministic_latent:
             latex_lines.extend(
                 _build_equation_latex(reg.lhs, latex_terms, deterministic=True)
             )
@@ -454,8 +489,11 @@ def build_priors(
         if get_free_predictor_columns(reg):
             entries[f"beta_{reg.lhs}"] = "Normal(0, 10)"
 
-        if reg.lhs not in latent:
-            family = families.get(reg.lhs, "gaussian")
+        family = families.get(reg.lhs, "gaussian")
+        if reg.lhs in latent:
+            if family == "latent_normal":
+                entries[f"sigma_{reg.lhs}"] = "HalfNormal(1)"
+        else:
             if family not in ("bernoulli", "poisson", "negbinomial"):
                 entries[f"sigma_{reg.lhs}"] = "HalfNormal(1)"
             if family == "negbinomial":
