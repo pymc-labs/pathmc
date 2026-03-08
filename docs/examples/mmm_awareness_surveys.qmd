@@ -248,7 +248,7 @@ model.model_equations()
 ```{python}
 idata = model.sample(
     draws=500, tune=500, chains=4, random_seed=42,
-    target_accept=0.95,
+    target_accept=0.99,
 )
 ```
 
