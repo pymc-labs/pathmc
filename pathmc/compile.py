@@ -54,7 +54,9 @@ class PanelScanInfo:
 
 
 def get_predictor_columns(reg: Regression) -> list[str]:
-    """Return predictor column names for a regression equation.
+    """Return *all* predictor column names for a regression equation.
+
+    Includes both free and fixed-coefficient predictors.
 
     Parameters
     ----------
@@ -71,6 +73,23 @@ def get_predictor_columns(reg: Regression) -> list[str]:
         cols.append("Intercept")
     cols.extend(t.variable for t in reg.terms)
     return cols
+
+
+def get_free_predictor_columns(reg: Regression) -> list[str]:
+    """Return predictor column names that have free (estimated) coefficients.
+
+    Fixed-value terms (e.g. ``1*X``) are excluded.
+    """
+    cols: list[str] = []
+    if reg.has_intercept:
+        cols.append("Intercept")
+    cols.extend(t.variable for t in reg.terms if t.fixed_value is None)
+    return cols
+
+
+def get_fixed_coefficients(reg: Regression) -> dict[str, float]:
+    """Return a mapping of predictor name -> fixed coefficient value."""
+    return {t.variable: t.fixed_value for t in reg.terms if t.fixed_value is not None}
 
 
 def _term_base_vars(term: Any) -> list[str]:
@@ -226,13 +245,22 @@ def compile_to_pymc(
 
     coords: dict[str, Any] = {}
     for reg in spec.regressions:
-        coords[f"{reg.lhs}_predictors"] = get_predictor_columns(reg)
+        free_cols = get_free_predictor_columns(reg)
+        if free_cols:
+            coords[f"{reg.lhs}_predictors"] = free_cols
 
     if has_random_intercepts and panel_info is not None:
         coords["unit"] = panel_info.unit_labels
         unit_idx = _build_unit_index(data, panel_info)
 
     transform_map = _build_transform_map(spec)
+
+    sparse_data: dict[str, np.ma.MaskedArray] = {}
+    for reg in spec.regressions:
+        v = reg.lhs
+        if v not in latent and v in data.columns and data[v].isna().any():
+            vals = np.asarray(data[v].values, dtype=float)
+            sparse_data[v] = np.ma.masked_invalid(vals)
 
     with pm.Model(coords=coords) as pymc_model:
         transform_param_rvs = _emit_transform_priors(spec, transform_map)
@@ -253,13 +281,17 @@ def compile_to_pymc(
             reg = reg_by_lhs[var]
             family = families.get(var, "gaussian")
             cols = get_predictor_columns(reg)
+            free_cols = get_free_predictor_columns(reg)
+            fixed_coeffs = get_fixed_coefficients(reg)
 
-            beta = pm.Normal(
-                f"beta_{var}",
-                mu=0,
-                sigma=10,
-                dims=f"{var}_predictors",
-            )
+            beta = None
+            if free_cols:
+                beta = pm.Normal(
+                    f"beta_{var}",
+                    mu=0,
+                    sigma=10,
+                    dims=f"{var}_predictors",
+                )
 
             mu = _build_mu_symbolic(
                 reg,
@@ -271,6 +303,7 @@ def compile_to_pymc(
                 transform_map,
                 transform_param_rvs,
                 panel_info,
+                fixed_coefficients=fixed_coeffs,
             )
 
             if (
@@ -285,7 +318,7 @@ def compile_to_pymc(
 
             mu_det = pm.Deterministic(f"mu_{var}", mu)
 
-            rv = _emit_free_rv(var, mu_det, family, latent)
+            rv = _emit_free_rv(var, mu_det, family, latent, sparse_data)
             endogenous_rvs[var] = rv
 
         for block in blocks:
@@ -311,20 +344,31 @@ def _build_mu_symbolic(
     transform_map: dict[str, TransformCall],
     transform_param_rvs: dict[str, Any],
     panel_info: PanelInfo | None,
+    fixed_coefficients: dict[str, float] | None = None,
 ) -> Any:
     """Build linear predictor wired through the generative graph.
 
     Exogenous parents use ``pm.Data``. Endogenous parents use the
     upstream free RV, so ``pm.do()`` on any ancestor naturally
     propagates through the causal chain.
+
+    Fixed-coefficient terms use their pinned value directly; free
+    terms index into *beta*.
     """
     import pytensor.tensor as pt
 
+    fixed = fixed_coefficients or {}
     n_obs = len(data)
     mu = pt.zeros(n_obs)
 
-    for i, col in enumerate(cols):
-        coef = beta[i]
+    free_idx = 0
+    for col in cols:
+        if col in fixed:
+            coef: Any = fixed[col]
+        else:
+            coef = beta[free_idx]
+            free_idx += 1
+
         if col == "Intercept":
             mu = mu + coef
         elif col in transform_map:
@@ -522,16 +566,34 @@ def _identify_residual_blocks(spec: Spec) -> tuple[set[str], list[set[str]]]:
 # ---------------------------------------------------------------------------
 
 
-def _emit_free_rv(var: str, mu: Any, family: str, latent: set[str]) -> Any:
+def _emit_free_rv(
+    var: str,
+    mu: Any,
+    family: str,
+    latent: set[str],
+    sparse_data: dict[str, np.ma.MaskedArray] | None = None,
+) -> Any:
     """Emit a free random variable for an endogenous variable.
 
-    Latent variables are emitted as ``pm.Deterministic`` (no noise).
-    Observed variables are emitted as free RVs (conditioned on data
-    externally via ``pm.observe()``).
+    Latent variables are emitted as ``pm.Deterministic`` (no noise)
+    unless ``family="latent_normal"``, in which case they get a
+    ``pm.Normal`` with process noise.
+
+    Sparse measurement variables (present in *sparse_data*) are emitted
+    as observed ``pm.Normal`` with a masked array so PyMC automatically
+    handles missing positions.
 
     Returns the RV tensor so downstream equations can wire through it.
     """
     if var in latent:
+        if family == "latent_normal":
+            sigma = pm.HalfNormal(f"sigma_{var}", sigma=1)
+            return pm.Normal(var, mu=mu, sigma=sigma)
+        return mu
+
+    if sparse_data is not None and var in sparse_data:
+        sigma = pm.HalfNormal(f"sigma_{var}", sigma=1)
+        pm.Normal(var, mu=mu, sigma=sigma, observed=sparse_data[var])
         return mu
 
     if family == "bernoulli":
@@ -844,10 +906,27 @@ def _compile_scan_panel(
 
     adstock_cols = [col for col, tc in transform_map.items() if _has_adstock(tc)]
 
+    stochastic_latent = sorted(
+        v for v in latent if families.get(v, "gaussian") == "latent_normal"
+    )
+    stochastic_latent_set = set(stochastic_latent)
+
+    sparse_panel_data: dict[str, np.ma.MaskedArray] = {}
+    for reg in spec.regressions:
+        v = reg.lhs
+        if v not in latent and v in data.columns and data[v].isna().any():
+            raw = np.asarray(data_sorted[v].values, dtype=float)
+            panel_vals = raw.reshape(n_units, n_times).T
+            sparse_panel_data[v] = np.ma.masked_invalid(panel_vals)
+
     # --- coords ---
     coords: dict[str, Any] = {}
+    fixed_coeffs_by_var: dict[str, dict[str, float]] = {}
     for reg in spec.regressions:
-        coords[f"{reg.lhs}_predictors"] = get_predictor_columns(reg)
+        free_cols = get_free_predictor_columns(reg)
+        if free_cols:
+            coords[f"{reg.lhs}_predictors"] = free_cols
+        fixed_coeffs_by_var[reg.lhs] = get_fixed_coefficients(reg)
     if has_ri:
         coords["unit"] = units
 
@@ -864,9 +943,13 @@ def _compile_scan_panel(
         sigma_rvs: dict[str, Any] = {}
         for var in endogenous_order:
             family = families.get(var, "gaussian")
-            beta_rvs[var] = pm.Normal(
-                f"beta_{var}", mu=0, sigma=10, dims=f"{var}_predictors"
-            )
+            free_cols = get_free_predictor_columns(reg_by_lhs[var])
+            if free_cols:
+                beta_rvs[var] = pm.Normal(
+                    f"beta_{var}", mu=0, sigma=10, dims=f"{var}_predictors"
+                )
+            else:
+                beta_rvs[var] = None
             if var not in latent:
                 if family in ("gaussian", "studentt"):
                     sigma_rvs[var] = pm.HalfNormal(f"sigma_{var}", sigma=1)
@@ -874,6 +957,8 @@ def _compile_scan_panel(
                     pm.Gamma(f"nu_{var}", alpha=2, beta=0.1)
                 if family == "negbinomial":
                     pm.HalfNormal(f"alpha_disp_{var}", sigma=1)
+            elif family == "latent_normal":
+                sigma_rvs[var] = pm.HalfNormal(f"sigma_{var}", sigma=1)
 
         # --- random effects ---
         alpha_rvs: dict[str, Any] = {}
@@ -947,7 +1032,15 @@ def _compile_scan_panel(
             col: np.zeros(n_units, dtype="float64") for col in adstock_keys
         }
 
-        sequences = [exog_data_nodes[k] for k in exog_keys]
+        innovation_nodes: dict[str, Any] = {}
+        for var in stochastic_latent:
+            innovation_nodes[var] = pm.Normal(
+                f"innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
+            )
+
+        sequences = [exog_data_nodes[k] for k in exog_keys] + [
+            innovation_nodes[k] for k in stochastic_latent
+        ]
 
         def _init_carry(arr: np.ndarray) -> Any:
             """Convert init array to tensor for scan carry state.
@@ -971,8 +1064,9 @@ def _compile_scan_panel(
         non_seq_list: list[Any] = []
         non_seq_names: list[str] = []
         for var in endo_keys:
-            non_seq_list.append(beta_rvs[var])
-            non_seq_names.append(f"beta_{var}")
+            if beta_rvs[var] is not None:
+                non_seq_list.append(beta_rvs[var])
+                non_seq_names.append(f"beta_{var}")
         for name, rv in tparam_rvs.items():
             non_seq_list.append(rv)
             non_seq_names.append(name)
@@ -984,8 +1078,12 @@ def _compile_scan_panel(
             for svar, srv in slope_rvs.get(var, {}).items():
                 non_seq_list.append(srv)
                 non_seq_names.append(f"slope_{var}_{svar}")
+        for var in stochastic_latent:
+            non_seq_list.append(sigma_rvs[var])
+            non_seq_names.append(f"sigma_{var}")
 
         n_seq = len(sequences)
+        n_exog_seq = len(exog_keys)
         n_endo = len(endo_keys)
         n_adstock = len(adstock_keys)
         n_exog_lag = len(exog_lag_bases)
@@ -997,6 +1095,9 @@ def _compile_scan_panel(
             ns_args = args[n_seq + n_carry :]
 
             exog_t = {k: seq_args[i] for i, k in enumerate(exog_keys)}
+            innov_t = {
+                k: seq_args[n_exog_seq + i] for i, k in enumerate(stochastic_latent)
+            }
             prev_endo = {k: carry_args[i] for i, k in enumerate(endo_keys)}
             prev_adstock_state = {
                 k: carry_args[n_endo + i] for i, k in enumerate(adstock_keys)
@@ -1015,11 +1116,18 @@ def _compile_scan_panel(
 
             for var in endo_keys:
                 cols = get_predictor_columns(reg_by_lhs[var])
-                beta = ns_map[f"beta_{var}"]
+                fixed = fixed_coeffs_by_var.get(var, {})
+                beta = ns_map.get(f"beta_{var}")
                 mu = pt.zeros(n_units)
 
-                for ci, col in enumerate(cols):
-                    coef = beta[ci]
+                free_idx = 0
+                for col in cols:
+                    if col in fixed:
+                        coef: Any = fixed[col]
+                    else:
+                        assert beta is not None
+                        coef = beta[free_idx]
+                        free_idx += 1
                     if col == "Intercept":
                         mu = mu + coef
                     elif col in transform_map:
@@ -1074,7 +1182,11 @@ def _compile_scan_panel(
 
                 family = families.get(var, "gaussian")
                 if var in latent:
-                    new_endo[var] = mu
+                    if var in stochastic_latent_set:
+                        sigma_val = ns_map[f"sigma_{var}"]
+                        new_endo[var] = mu + sigma_val * innov_t[var]
+                    else:
+                        new_endo[var] = mu
                 elif family == "bernoulli":
                     new_endo[var] = 1.0 / (1.0 + pt.exp(-mu))
                 elif family in ("poisson", "negbinomial"):
@@ -1101,13 +1213,27 @@ def _compile_scan_panel(
         # --- emit deterministics and free RVs ---
         for i, var in enumerate(endo_keys):
             mu_all = results[i]  # (n_times, n_units)
-            pm.Deterministic(f"mu_{var}", mu_all)
 
             if var in latent:
+                if var in stochastic_latent_set:
+                    pm.Deterministic(var, mu_all)
+                else:
+                    pm.Deterministic(f"mu_{var}", mu_all)
                 continue
 
+            pm.Deterministic(f"mu_{var}", mu_all)
+
             family = families.get(var, "gaussian")
-            if family == "bernoulli":
+
+            if var in sparse_panel_data:
+                sigma = sigma_rvs[var]
+                pm.Normal(
+                    var,
+                    mu=mu_all,
+                    sigma=sigma,
+                    observed=sparse_panel_data[var],
+                )
+            elif family == "bernoulli":
                 pm.Bernoulli(var, p=mu_all, shape=(n_times, n_units))
             elif family == "poisson":
                 pm.Poisson(var, mu=mu_all, shape=(n_times, n_units))

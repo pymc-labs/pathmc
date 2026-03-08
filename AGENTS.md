@@ -43,6 +43,34 @@ pathmc/
 
 Additional internal helpers and submodules can be organized freely, but the imports used in the test files must resolve.
 
+## Environment
+
+All commands (tests, scripts, quarto render) **must** run in the `pathmc` conda environment:
+
+```bash
+conda activate pathmc
+```
+
+The Jupyter kernel used by Quarto notebooks is also named `pathmc` and points to this environment's Python (`miniforge3/envs/pathmc/bin/python`). When running Python snippets to verify behavior, always use this environment — **not** the base conda env. If using a full path:
+
+```bash
+/Users/benjamv/miniforge3/envs/pathmc/bin/python -c "..."
+```
+
+### Quarto freeze cache
+
+The docs site uses `execute: freeze: auto` in `docs/_quarto.yml`, which caches notebook outputs. After changing Python source code that affects notebook outputs, **clear the freeze cache** for affected notebooks before re-rendering:
+
+```bash
+# Clear cache for a specific notebook
+rm -rf docs/_freeze/examples/<notebook_name> docs/.quarto/_freeze/examples/<notebook_name>
+
+# Full rebuild from scratch
+rm -rf docs/_freeze docs/.quarto && quarto render docs/
+```
+
+Without this, Quarto will serve stale cached figures/outputs even though the underlying code has changed.
+
 ## Running Tests
 
 ```bash

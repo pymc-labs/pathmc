@@ -214,7 +214,15 @@ def build_dag_viz(spec: Spec, graph_info: GraphInfo) -> graphviz.Digraph:
                         dot.edge(var, reg.lhs)
                         drawn_edges.add((var, reg.lhs))
                 continue
-            edge_label = term.label or ""
+            if term.fixed_value is not None:
+                fv = (
+                    int(term.fixed_value)
+                    if term.fixed_value == int(term.fixed_value)
+                    else term.fixed_value
+                )
+                edge_label = str(fv)
+            else:
+                edge_label = term.label or ""
             if term.transform is not None:
                 edge_label = _format_transform(term.transform)
                 if term.label:
@@ -278,19 +286,20 @@ def build_equations(spec: Spec, latent: set[str] | None = None) -> EquationList:
 
 def _format_term(t: Term) -> str:
     """Format a term for equation display, including transform expressions."""
+    prefix = ""
+    if t.fixed_value is not None:
+        fv = (
+            int(t.fixed_value) if t.fixed_value == int(t.fixed_value) else t.fixed_value
+        )
+        prefix = f"{fv}*"
+    elif t.label:
+        prefix = f"{t.label}*"
+
     if t.transform is not None:
-        expr = _format_transform(t.transform)
-        if t.label:
-            return f"{t.label}*{expr}"
-        return expr
+        return f"{prefix}{_format_transform(t.transform)}"
     if t.interaction_of is not None:
-        expr = " × ".join(t.interaction_of)
-        if t.label:
-            return f"{t.label}*{expr}"
-        return expr
-    if t.label:
-        return f"{t.label}*{t.variable}"
-    return t.variable
+        return f"{prefix}{' × '.join(t.interaction_of)}"
+    return f"{prefix}{t.variable}" if prefix else t.variable
 
 
 _MULTILINE_THRESHOLD = 4
@@ -340,20 +349,24 @@ def _build_equation_latex(
 
 def _format_term_latex(t: Term) -> str:
     """Format a term as LaTeX, including transform expressions."""
+    if t.fixed_value is not None:
+        fv = (
+            int(t.fixed_value) if t.fixed_value == int(t.fixed_value) else t.fixed_value
+        )
+        prefix = rf"{fv} \cdot "
+    elif t.label:
+        prefix = rf"{_latexify_name(t.label)} \cdot "
+    else:
+        prefix = ""
+
     if t.transform is not None:
-        expr = _format_transform_latex(t.transform)
-        if t.label:
-            return rf"{_latexify_name(t.label)} \cdot {expr}"
-        return expr
+        return f"{prefix}{_format_transform_latex(t.transform)}"
     if t.interaction_of is not None:
         parts = [rf"\mathrm{{{v}}}" for v in t.interaction_of]
         expr = r" \times ".join(parts)
-        if t.label:
-            return rf"{_latexify_name(t.label)} \cdot {expr}"
-        return expr
-    if t.label:
-        return rf"{_latexify_name(t.label)} \cdot \mathrm{{{t.variable}}}"
-    return rf"\mathrm{{{t.variable}}}"
+        return f"{prefix}{expr}"
+    var_expr = rf"\mathrm{{{t.variable}}}"
+    return f"{prefix}{var_expr}" if prefix else var_expr
 
 
 def _format_transform(tc: TransformCall) -> str:
@@ -433,10 +446,13 @@ def build_priors(
     if isinstance(pooling, dict):
         slope_vars = list(pooling.get("slopes", []))
 
+    from pathmc.compile import get_free_predictor_columns
+
     entries: dict[str, str] = {}
     seen_transform_params: set[str] = set()
     for reg in spec.regressions:
-        entries[f"beta_{reg.lhs}"] = "Normal(0, 10)"
+        if get_free_predictor_columns(reg):
+            entries[f"beta_{reg.lhs}"] = "Normal(0, 10)"
 
         if reg.lhs not in latent:
             family = families.get(reg.lhs, "gaussian")
