@@ -1,11 +1,29 @@
 ---
-title: "How pathmc Works"
+title: "Overview"
 subtitle: "Birds-eye architecture overview"
 ---
 
-This page gives you the big picture of what happens when you call `pathmc.fit()`. For implementation details, see the source code and docstrings.
+## What pathmc does
 
-## Quick overview
+PyMC already provides the primitives for Bayesian structural causal modeling — `pm.observe()` conditions free random variables on data for estimation, and `pm.do()` applies graph surgery for causal intervention. The hard part is building the generative model correctly: wiring each endogenous variable's linear predictor through its structural parents (not the data columns), respecting the topological order of the DAG, handling multiple likelihood families, correlated residuals, transforms, and panel structure.
+
+That's what pathmc does. You write a lavaan-style spec string; pathmc compiles it into a correctly-structured generative `pm.Model` where PyMC's `observe` and `do` just work. On top of that compiled model, pathmc provides:
+
+- **Introspection** — rendered DAGs, LaTeX equations, prior tables, and design matrices, all before sampling.
+- **Labeled effects** — path-specific coefficients, defined parameters, and stdyx-standardized estimates with full posterior uncertainty.
+- **Causal queries** — `ate()`, `cate()`, `prob()`, and time-forward `simulate()` via g-computation ([Robins, 1986](https://en.wikipedia.org/wiki/G-computation)).
+- **Identification diagnostics** — adjustment sets, collider warnings, implied independence tests, and sensitivity analysis, all derived from the DAG structure.
+
+
+## How it works
+
+The pipeline has three stages.
+
+1. **Parsing** converts the lavaan-style spec string into a typed AST of dataclasses — pure, no data, no PyMC — so structural errors surface immediately.
+2. **Graph construction** converts the AST into a NetworkX DAG, providing topological ordering, exogenous/endogenous classification, and cycle detection.
+3. **Compilation** combines the AST, graph, and user data to emit a generative `pm.Model`. Everything is wrapped in a `PathModel` at `fit()` time so that compilation errors surface immediately — not minutes later when sampling starts.
+
+The public API is deliberately tiny: `pathmc.fit()` returns a `PathModel`, and everything else lives as methods on that object.
 
 ```{mermaid}
 %%{init: {'theme': 'default', 'themeVariables': {'fontSize': '18px'}}}%%
@@ -28,53 +46,22 @@ flowchart LR
     style PM fill:none,stroke:#888,stroke-dasharray:5 5
 ```
 
-The user provides a spec string and data; `pathmc.fit()` returns a **`PathModel`** — a single object holding the NetworkX DAG, the data, and a **generative** `pm.Model` where exogenous variables are observed data nodes and endogenous variables are free random variables wired through their structural equations. The DAG also generates a LaTeX representation of the structural equations and priors, rendered automatically in Jupyter and Quarto. The generative model gives rise to two derived PyMC models, both held inside the PathModel:
+The generative model holds free random variables for every endogenous variable, wired through their structural equations. This single model gives rise to two derived PyMC models:
 
-**Estimation → summaries, effects & simulation.** `pm.observe()` conditions the free endogenous variables on their observed values, producing the estimation model that is sampled with MCMC. After sampling, the PathModel exposes posterior summaries, labeled coefficients, path-specific effects, and stdyx-standardized coefficients — all computed from posterior draws with full uncertainty. The fitted model can also forward-simulate new observations via posterior predictive sampling, useful for model checking and forecasting.
+**Estimation → summaries, effects & simulation.** `pm.observe()` conditions the free endogenous variables on their observed values, producing the estimation model that is sampled with MCMC. After sampling, the PathModel exposes posterior summaries, labeled coefficients, path-specific effects, and stdyx-standardized coefficients — all computed from posterior draws with full uncertainty.
 
 **Intervention → causal effects.** `pm.do()` applies graph surgery on the generative model, replacing an endogenous variable's structural equation with a fixed constant — severing its incoming edges. Forward-simulating through the modified model computes causal effects (ATE, CATE, counterfactuals) via g-computation with full posterior uncertainty.
 
 **Causal diagnostics.** The DAG and data together power a suite of checks that help you validate, refine, and stress-test your causal model before trusting its conclusions:
 
 - **Identification**: backdoor and front-door criteria determine whether a causal effect is estimable from observational data. pathmc finds all minimal adjustment sets and flags when no valid set exists.
-- **Collider warnings**: conditioning on the wrong variable can *create* spurious associations. pathmc checks proposed adjustment sets for collider bias before you estimate anything.
+- **Collider warnings**: conditioning on the wrong variable can create spurious associations. pathmc checks proposed adjustment sets for collider bias before you estimate anything.
 - **Implied independence testing**: every DAG encodes conditional independence claims. pathmc extracts these from the graph structure (the basis set; Shipley, 2000) and tests them against your data via partial correlations — violations suggest missing edges or structural misspecification.
 - **Sensitivity analysis**: causal conclusions rest on untestable assumptions about unmeasured confounding. pathmc quantifies how strong an unmeasured confounder would need to be to nullify a finding, reporting tipping points and contour plots.
 
+### Module architecture
 
-## The pipeline
-
-```{mermaid}
-flowchart LR
-    spec["spec string"] --> Parse
-    Parse --> Graph
-    Graph --> Compile
-    data["data"] --> Compile
-    Compile --> gen["generative<br/>pm.Model"]
-    gen -->|"pm.observe()"| sample[".sample()"]
-    gen -->|"pm.do()"| do["causal<br/>effects"]
-```
-
-The pipeline has four stages, each adding a layer of information. **Parsing** converts the lavaan-style spec string into a typed AST of dataclasses — pure, no data, no PyMC — so structural errors surface immediately. **Graph construction** converts the AST into a NetworkX DAG, providing topological ordering, exogenous/endogenous classification, and cycle detection — all before touching any data. **Compilation** combines the AST, graph, and user data to emit a generative `pm.Model` where endogenous variables are free random variables wired through their structural equations. Finally, `pm.observe()` conditions the free RVs on observed data to create the **estimation model** used for MCMC. Everything is wrapped in a `PathModel` at `fit()` time so that compilation errors surface immediately — not minutes later when sampling starts.
-
-The public API is deliberately tiny: `pathmc.fit()` returns a `PathModel`, and everything else — introspection, sampling, causal queries, identification — lives as methods on that object.
-
-
-## What pathmc automates
-
-PyMC already provides the primitives for this workflow — `pm.observe()` conditions free RVs on data for estimation, and `pm.do()` applies graph surgery for causal intervention. The hard part is building the generative model correctly: wiring each endogenous variable's linear predictor through its structural parents (not the data columns), respecting the topological order of the DAG, handling multiple likelihood families, correlated residuals, transforms, and panel structure.
-
-That's what pathmc does. You write a lavaan-style spec string; pathmc compiles it into a correctly-structured generative `pm.Model` where PyMC's `observe` and `do` just work. On top of that compiled model, pathmc provides:
-
-- **Introspection** — rendered DAGs, LaTeX equations, prior tables, and design matrices, all before sampling.
-- **Labeled effects** — path-specific coefficients, defined parameters, and stdyx-standardized estimates with full posterior uncertainty.
-- **Causal queries** — `ate()`, `cate()`, `prob()`, and time-forward `simulate()` via g-computation ([Robins, 1986](https://en.wikipedia.org/wiki/G-computation)).
-- **Identification diagnostics** — adjustment sets, collider warnings, implied independence tests, and sensitivity analysis, all derived from the DAG structure.
-
-
-## Architecture
-
-The codebase is organized as a core pipeline — parse → graph → compile → model — with simulation, effects, introspection, and identification as lateral modules that `PathModel` orchestrates:
+The codebase is organized as a core pipeline with simulation, effects, introspection, and identification as lateral modules that `PathModel` orchestrates:
 
 - **Core pipeline**: `parse.py` → `graph.py` → `compile.py` → `model.py`
 - **Lateral modules**: `simulate.py`, `effects.py`, `introspect.py`, `identify.py`, `sensitivity.py`
