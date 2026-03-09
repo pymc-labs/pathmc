@@ -71,6 +71,9 @@ class PathModel:
         Pooling specification for hierarchical panel models.
     latent : set[str] | None
         Endogenous variables with no observed data column.
+    priors : dict | None
+        Custom prior configuration mapping parameter names to ``Prior``
+        objects from ``pymc_extras``. Overrides are merged with defaults.
     """
 
     def __init__(
@@ -82,7 +85,10 @@ class PathModel:
         panel_info: PanelInfo | None = None,
         pooling: str | dict | None = None,
         latent: set[str] | None = None,
+        priors: dict[str, Any] | None = None,
     ) -> None:
+        from pathmc.priors import default_priors, merge_priors
+
         self._spec = spec
         self._graph_info = graph_info
         self._data = data
@@ -109,35 +115,48 @@ class PathModel:
                 self._design_matrices[reg.lhs] = build_design_matrix(reg, data)
 
         self._families: dict[str, str] = families if families is not None else {}
-        self._gen_model: pm.Model = compile_to_pymc(
+        defaults = default_priors(
             spec,
-            data,
-            self._design_matrices,
-            families=families,
-            panel_info=panel_info,
+            families=self._families,
             pooling=pooling,
             latent=self._latent,
-            graph_info=graph_info,
+        )
+        self._priors = merge_priors(defaults, priors)
+
+        self._compile()
+
+    def _compile(self) -> None:
+        """Compile the generative PyMC model and attach observations."""
+        self._gen_model: pm.Model = compile_to_pymc(
+            self._spec,
+            self._data,
+            self._design_matrices,
+            families=self._families,
+            panel_info=self._panel_info,
+            pooling=self._pooling,
+            latent=self._latent,
+            graph_info=self._graph_info,
+            priors=self._priors,
         )
 
         block_vars = (
-            set().union(*graph_info.residual_blocks)
-            if graph_info.residual_blocks
+            set().union(*self._graph_info.residual_blocks)
+            if self._graph_info.residual_blocks
             else set()
         )
 
         scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
 
         observations: dict[str, Any] = {}
-        for reg in spec.regressions:
+        for reg in self._spec.regressions:
             var = reg.lhs
             if var in block_vars:
                 continue
-            if var not in self._latent and var in data.columns:
-                if data[var].isna().any():
+            if var not in self._latent and var in self._data.columns:
+                if self._data[var].isna().any():
                     continue
                 family = self._families.get(var, "gaussian")
-                vals = data[var].values
+                vals = self._data[var].values
                 if family in ("bernoulli", "poisson", "negbinomial"):
                     vals = vals.astype(int)
 
@@ -205,14 +224,65 @@ class PathModel:
     def priors(self) -> PriorTable:
         """Return a summary of prior distributions for all parameters.
 
-        Works before sampling.
+        Works before sampling. The table reflects any custom priors
+        set via ``set_priors()`` or the ``priors`` argument to
+        :func:`pathmc.fit`.
         """
         return build_priors(
             self._spec,
             families=self._families,
             pooling=self._pooling,
             latent=self._latent,
+            prior_config=self._priors,
         )
+
+    def set_priors(self, overrides: dict[str, Any]) -> None:
+        """Update prior distributions and recompile the model.
+
+        Only the specified priors are changed; all others keep their
+        current values. Any existing posterior samples are invalidated.
+
+        Parameters
+        ----------
+        overrides : dict[str, Prior]
+            Mapping from parameter name to ``Prior`` object. Use
+            ``.priors()`` to see available parameter names.
+
+        Raises
+        ------
+        ValueError
+            If a key does not match any model parameter.
+        """
+        from pathmc.priors import merge_priors
+
+        had_samples = self._idata is not None
+        self._priors = merge_priors(self._priors, overrides)
+        self._compile()
+        if had_samples:
+            warnings.warn(
+                "Priors changed — previous posterior samples have been "
+                "discarded. Call .sample() again.",
+                stacklevel=2,
+            )
+
+    def sample_prior_predictive(self, **kwargs: Any) -> az.InferenceData:
+        """Draw samples from the prior predictive distribution.
+
+        Useful for checking whether default or custom priors generate
+        plausible data ranges before running MCMC.
+
+        Parameters
+        ----------
+        **kwargs
+            Forwarded to ``pm.sample_prior_predictive()``.
+
+        Returns
+        -------
+        az.InferenceData
+            Prior predictive samples.
+        """
+        with self._gen_model:
+            return pm.sample_prior_predictive(**kwargs)
 
     def model_equations(self) -> ModelEquations:
         """Return structural equations and priors as a single display object.
@@ -1079,6 +1149,7 @@ def fit(
     panel: dict[str, str] | None = None,
     pooling: str | dict | None = None,
     latent: list[str] | None = None,
+    priors: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> PathModel:
     """Parse a specification and compile a Bayesian path model.
@@ -1102,6 +1173,21 @@ def fit(
         Variables to treat as latent deterministic mediators. These must
         appear as LHS of a regression but need not have a data column.
         The model compiles without a likelihood for these variables.
+    priors : dict[str, Prior] | None
+        Custom prior specifications mapping parameter names to ``Prior``
+        objects from ``pymc_extras``. Only the specified parameters are
+        overridden; all others use sensible defaults. Call
+        ``.priors()`` on the returned model to see all parameter names.
+
+        Example::
+
+            from pymc_extras.prior import Prior
+
+            m = pathmc.fit(
+                spec, data,
+                priors={"beta_Y": Prior("Normal", mu=0, sigma=2)},
+            )
+
     **kwargs
         Reserved for future options.
 
@@ -1150,6 +1236,7 @@ def fit(
         panel_info=panel_info,
         pooling=pooling,
         latent=latent_set,
+        priors=priors,
     )
 
 

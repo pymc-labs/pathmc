@@ -290,6 +290,7 @@ def compile_to_pymc(
     pooling: str | dict | None = None,
     latent: set[str] | None = None,
     graph_info: GraphInfo | None = None,
+    priors: dict[str, Any] | None = None,
 ) -> pm.Model:
     """Compile a structural specification into a generative PyMC model.
 
@@ -321,6 +322,11 @@ def compile_to_pymc(
         Endogenous variables with no observed data (deterministic mediators).
     graph_info : GraphInfo | None
         Pre-built graph info. If ``None``, built from *spec*.
+    priors : dict[str, Any] | None
+        Custom prior configuration mapping parameter names to ``Prior``
+        objects from ``pymc_extras``. If ``None``, sensible defaults are
+        used. See :func:`pathmc.priors.default_priors` for the full
+        list of parameter keys.
 
     Returns
     -------
@@ -333,10 +339,15 @@ def compile_to_pymc(
     ValueError
         If ``~~`` is used between non-Gaussian variables.
     """
+    from pathmc.priors import _ensure_dims, default_priors
+
     if families is None:
         families = {}
     if latent is None:
         latent = set()
+
+    if priors is None:
+        priors = default_priors(spec, families, pooling, latent)
 
     if graph_info is None:
         from pathmc.graph import build_graph
@@ -355,6 +366,7 @@ def compile_to_pymc(
             pooling=pooling,
             latent=latent,
             graph_info=graph_info,
+            priors=priors,
         )
 
     block_vars, blocks = _identify_residual_blocks(spec)
@@ -389,7 +401,7 @@ def compile_to_pymc(
     with pm.Model(coords=coords) as pymc_model:
         import pytensor.tensor as pt
 
-        transform_param_rvs = _emit_transform_priors(spec, transform_map)
+        transform_param_rvs = _emit_transform_priors(spec, transform_map, priors)
 
         data_vars: dict[str, Any] = {}
         for var in graph_info.topological_order:
@@ -410,12 +422,8 @@ def compile_to_pymc(
 
             beta = None
             if free_cols:
-                beta = pm.Normal(
-                    f"beta_{var}",
-                    mu=0,
-                    sigma=10,
-                    dims=f"{var}_predictors",
-                )
+                beta_prior = _ensure_dims(priors[f"beta_{var}"], f"{var}_predictors")
+                beta = beta_prior.create_variable(f"beta_{var}")
 
             resolver = _make_cross_sectional_resolver(
                 data,
@@ -432,14 +440,16 @@ def compile_to_pymc(
                 and panel_info is not None
                 and unit_idx is not None
             ):
-                mu = mu + _compile_random_intercept(var, unit_idx)
+                mu = mu + _compile_random_intercept(var, unit_idx, priors)
 
             if slope_vars and panel_info is not None and unit_idx is not None:
-                mu = mu + _compile_random_slopes(reg, slope_vars, data_vars, unit_idx)
+                mu = mu + _compile_random_slopes(
+                    reg, slope_vars, data_vars, unit_idx, priors
+                )
 
             mu_det = pm.Deterministic(f"mu_{var}", mu)
 
-            rv = _emit_free_rv(var, mu_det, family, latent, sparse_data)
+            rv = _emit_free_rv(var, mu_det, family, latent, sparse_data, priors)
             endogenous_rvs[var] = rv
 
         for block in blocks:
@@ -452,6 +462,7 @@ def compile_to_pymc(
                 transform_map,
                 transform_param_rvs,
                 panel_info,
+                priors,
             )
 
     return pymc_model
@@ -639,10 +650,14 @@ def _build_unit_index(data: pd.DataFrame, panel_info: PanelInfo) -> np.ndarray:
     return data[panel_info.unit].map(label_to_idx).to_numpy()
 
 
-def _compile_random_intercept(var: str, unit_idx: np.ndarray) -> Any:
+def _compile_random_intercept(
+    var: str,
+    unit_idx: np.ndarray,
+    priors: dict[str, Any],
+) -> Any:
     """Emit hierarchical random intercept for *var*, return alpha[unit_idx]."""
-    mu_alpha = pm.Normal(f"mu_alpha_{var}", mu=0, sigma=10)
-    sigma_alpha = pm.HalfNormal(f"sigma_alpha_{var}", sigma=1)
+    mu_alpha = priors[f"mu_alpha_{var}"].create_variable(f"mu_alpha_{var}")
+    sigma_alpha = priors[f"sigma_alpha_{var}"].create_variable(f"sigma_alpha_{var}")
     alpha = pm.Normal(f"alpha_{var}", mu=mu_alpha, sigma=sigma_alpha, dims="unit")
     return alpha[unit_idx]
 
@@ -652,6 +667,7 @@ def _compile_random_slopes(
     slope_vars: list[str],
     data_vars: dict[str, Any],
     unit_idx: np.ndarray,
+    priors: dict[str, Any],
 ) -> Any:
     """Emit hierarchical random slopes for specified predictors.
 
@@ -665,8 +681,12 @@ def _compile_random_slopes(
     for svar in slope_vars:
         if svar not in term_variables:
             continue
-        mu_slope = pm.Normal(f"mu_slope_{reg.lhs}_{svar}", mu=0, sigma=10)
-        sigma_slope = pm.HalfNormal(f"sigma_slope_{reg.lhs}_{svar}", sigma=1)
+        mu_slope = priors[f"mu_slope_{reg.lhs}_{svar}"].create_variable(
+            f"mu_slope_{reg.lhs}_{svar}"
+        )
+        sigma_slope = priors[f"sigma_slope_{reg.lhs}_{svar}"].create_variable(
+            f"sigma_slope_{reg.lhs}_{svar}"
+        )
         slope = pm.Normal(
             f"slope_{reg.lhs}_{svar}",
             mu=mu_slope,
@@ -692,6 +712,7 @@ def _compile_residual_block(
     transform_map: dict[str, TransformCall],
     transform_param_rvs: dict[str, Any],
     panel_info: PanelInfo | None = None,
+    priors: dict[str, Any] | None = None,
 ) -> None:
     """Compile a residual-covariance block as a single MvNormal.
 
@@ -702,6 +723,8 @@ def _compile_residual_block(
     """
     import pytensor.tensor as pt
 
+    from pathmc.priors import _ensure_dims
+
     block_sorted = sorted(block)
     k = len(block_sorted)
 
@@ -711,12 +734,16 @@ def _compile_residual_block(
         has_free = any(s.coeff_type == "free" for s in ms.slots)
         beta = None
         if has_free:
-            beta = pm.Normal(
-                f"beta_{var}",
-                mu=0,
-                sigma=10,
-                dims=f"{var}_predictors",
-            )
+            if priors and f"beta_{var}" in priors:
+                beta_prior = _ensure_dims(priors[f"beta_{var}"], f"{var}_predictors")
+                beta = beta_prior.create_variable(f"beta_{var}")
+            else:
+                beta = pm.Normal(
+                    f"beta_{var}",
+                    mu=0,
+                    sigma=10,
+                    dims=f"{var}_predictors",
+                )
         resolver = _make_cross_sectional_resolver(
             data,
             data_vars,
@@ -766,6 +793,7 @@ def _emit_free_rv(
     family: str,
     latent: set[str],
     sparse_data: dict[str, np.ma.MaskedArray] | None = None,
+    priors: dict[str, Any] | None = None,
 ) -> Any:
     """Emit a free random variable for an endogenous variable.
 
@@ -781,12 +809,12 @@ def _emit_free_rv(
     """
     if var in latent:
         if family == "latent_normal":
-            sigma = pm.HalfNormal(f"sigma_{var}", sigma=1)
+            sigma = _create_prior_var(priors, f"sigma_{var}")
             return pm.Normal(var, mu=mu, sigma=sigma)
         return mu
 
     if sparse_data is not None and var in sparse_data:
-        sigma = pm.HalfNormal(f"sigma_{var}", sigma=1)
+        sigma = _create_prior_var(priors, f"sigma_{var}")
         pm.Normal(var, mu=mu, sigma=sigma, observed=sparse_data[var])
         return mu
 
@@ -795,15 +823,22 @@ def _emit_free_rv(
     if family == "poisson":
         return pm.Poisson(var, mu=pm.math.exp(mu))
     if family == "negbinomial":
-        alpha_disp = pm.HalfNormal(f"alpha_disp_{var}", sigma=1)
+        alpha_disp = _create_prior_var(priors, f"alpha_disp_{var}")
         return pm.NegativeBinomial(var, mu=pm.math.exp(mu), alpha=alpha_disp)
     if family == "studentt":
-        sigma = pm.HalfNormal(f"sigma_{var}", sigma=1)
-        nu = pm.Gamma(f"nu_{var}", alpha=2, beta=0.1)
+        sigma = _create_prior_var(priors, f"sigma_{var}")
+        nu = _create_prior_var(priors, f"nu_{var}")
         return pm.StudentT(var, nu=nu, mu=mu, sigma=sigma)
 
-    sigma = pm.HalfNormal(f"sigma_{var}", sigma=1)
+    sigma = _create_prior_var(priors, f"sigma_{var}")
     return pm.Normal(var, mu=mu, sigma=sigma)
+
+
+def _create_prior_var(priors: dict[str, Any] | None, name: str) -> Any:
+    """Create a PyMC variable from a Prior in the config, or fall back to default."""
+    if priors and name in priors:
+        return priors[name].create_variable(name)
+    return pm.HalfNormal(name, sigma=1)
 
 
 # ---------------------------------------------------------------------------
@@ -824,29 +859,34 @@ def _build_transform_map(spec: Spec) -> dict[str, TransformCall]:
 def _emit_transform_priors(
     spec: Spec,
     transform_map: dict[str, TransformCall],
+    priors: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Emit PyMC priors for all transform parameters. Returns name->RV mapping."""
     emitted: dict[str, Any] = {}
     for reg in spec.regressions:
         for term in reg.terms:
             if term.transform is not None:
-                _emit_transform_call_priors(term.transform, emitted)
+                _emit_transform_call_priors(term.transform, emitted, priors)
     return emitted
 
 
 def _emit_transform_call_priors(
     tc: TransformCall,
     emitted: dict[str, Any],
+    priors: dict[str, Any] | None = None,
 ) -> None:
     """Recursively emit priors for a (possibly nested) TransformCall."""
     if isinstance(tc.input_expr, TransformCall):
-        _emit_transform_call_priors(tc.input_expr, emitted)
+        _emit_transform_call_priors(tc.input_expr, emitted, priors)
 
     transform = get_transform(tc.name)
     for param_key, param_name in tc.params.items():
         if param_name not in emitted:
-            spec = transform.param_specs[param_key]
-            emitted[param_name] = transform.emit_prior(param_name, spec)
+            if priors and param_name in priors:
+                emitted[param_name] = priors[param_name].create_variable(param_name)
+            else:
+                pspec = transform.param_specs[param_key]
+                emitted[param_name] = transform.emit_prior(param_name, pspec)
 
 
 def _apply_transform_chain(
@@ -1024,6 +1064,7 @@ def _compile_scan_panel(
     pooling: str | dict | None,
     latent: set[str],
     graph_info: GraphInfo,
+    priors: dict[str, Any] | None = None,
 ) -> pm.Model:
     """Compile a panel model with temporal deps using ``pytensor.scan``.
 
@@ -1033,6 +1074,11 @@ def _compile_scan_panel(
     """
     import pytensor
     import pytensor.tensor as pt
+
+    from pathmc.priors import _ensure_dims, default_priors
+
+    if priors is None:
+        priors = default_priors(spec, families, pooling, latent)
 
     reg_by_lhs = {r.lhs: r for r in spec.regressions}
     transform_map = _build_transform_map(spec)
@@ -1120,7 +1166,7 @@ def _compile_scan_panel(
         for reg in spec.regressions:
             for term in reg.terms:
                 if term.transform is not None:
-                    _emit_transform_call_priors(term.transform, tparam_rvs)
+                    _emit_transform_call_priors(term.transform, tparam_rvs, priors)
 
         # --- regression parameter priors ---
         beta_rvs: dict[str, Any] = {}
@@ -1129,28 +1175,29 @@ def _compile_scan_panel(
             family = families.get(var, "gaussian")
             free_cols = get_free_predictor_columns(reg_by_lhs[var])
             if free_cols:
-                beta_rvs[var] = pm.Normal(
-                    f"beta_{var}", mu=0, sigma=10, dims=f"{var}_predictors"
-                )
+                beta_prior = _ensure_dims(priors[f"beta_{var}"], f"{var}_predictors")
+                beta_rvs[var] = beta_prior.create_variable(f"beta_{var}")
             else:
                 beta_rvs[var] = None
             if var not in latent:
                 if family in ("gaussian", "studentt"):
-                    sigma_rvs[var] = pm.HalfNormal(f"sigma_{var}", sigma=1)
+                    sigma_rvs[var] = _create_prior_var(priors, f"sigma_{var}")
                 if family == "studentt":
-                    pm.Gamma(f"nu_{var}", alpha=2, beta=0.1)
+                    _create_prior_var(priors, f"nu_{var}")
                 if family == "negbinomial":
-                    pm.HalfNormal(f"alpha_disp_{var}", sigma=1)
+                    _create_prior_var(priors, f"alpha_disp_{var}")
             elif family == "latent_normal":
-                sigma_rvs[var] = pm.HalfNormal(f"sigma_{var}", sigma=1)
+                sigma_rvs[var] = _create_prior_var(priors, f"sigma_{var}")
 
         # --- random effects ---
         alpha_rvs: dict[str, Any] = {}
         slope_rvs: dict[str, dict[str, Any]] = {}
         if has_ri:
             for var in endogenous_order:
-                mu_a = pm.Normal(f"mu_alpha_{var}", mu=0, sigma=10)
-                sig_a = pm.HalfNormal(f"sigma_alpha_{var}", sigma=1)
+                mu_a = priors[f"mu_alpha_{var}"].create_variable(f"mu_alpha_{var}")
+                sig_a = priors[f"sigma_alpha_{var}"].create_variable(
+                    f"sigma_alpha_{var}"
+                )
                 alpha_rvs[var] = pm.Normal(
                     f"alpha_{var}", mu=mu_a, sigma=sig_a, dims="unit"
                 )
@@ -1160,10 +1207,17 @@ def _compile_scan_panel(
             slope_rvs[var] = {}
             for svar in slope_vars:
                 if svar in term_variables:
-                    mu_s = pm.Normal(f"mu_slope_{var}_{svar}", mu=0, sigma=10)
-                    sig_s = pm.HalfNormal(f"sigma_slope_{var}_{svar}", sigma=1)
+                    mu_s = priors[f"mu_slope_{var}_{svar}"].create_variable(
+                        f"mu_slope_{var}_{svar}"
+                    )
+                    sig_s = priors[f"sigma_slope_{var}_{svar}"].create_variable(
+                        f"sigma_slope_{var}_{svar}"
+                    )
                     slope_rvs[var][svar] = pm.Normal(
-                        f"slope_{var}_{svar}", mu=mu_s, sigma=sig_s, dims="unit"
+                        f"slope_{var}_{svar}",
+                        mu=mu_s,
+                        sigma=sig_s,
+                        dims="unit",
                     )
 
         # --- exogenous data as pm.Data (n_times, n_units) ---

@@ -445,11 +445,20 @@ def _latexify_expression(expr: str) -> str:
     return "".join(parts)
 
 
+def _prior_to_str(prior: object) -> str:
+    """Format a ``Prior`` object as a compact string for display."""
+    dist = getattr(prior, "distribution", "?")
+    params = getattr(prior, "parameters", {})
+    parts = ", ".join(f"{k}={v}" for k, v in params.items())
+    return f"{dist}({parts})"
+
+
 def build_priors(
     spec: Spec,
     families: dict[str, str] | None = None,
     pooling: str | dict | None = None,
     latent: set[str] | None = None,
+    prior_config: dict[str, object] | None = None,
 ) -> PriorTable:
     """Build a prior summary table from the model specification.
 
@@ -463,6 +472,9 @@ def build_priors(
         Pooling specification for panel models.
     latent : set[str] | None
         Latent variables (no sigma/likelihood priors emitted).
+    prior_config : dict[str, Prior] | None
+        Resolved prior configuration. If provided, entries are
+        formatted from the actual ``Prior`` objects.
 
     Returns
     -------
@@ -483,38 +495,57 @@ def build_priors(
 
     from pathmc.compile import get_free_predictor_columns
 
+    def _entry(key: str, default_str: str) -> str:
+        if prior_config and key in prior_config:
+            return _prior_to_str(prior_config[key])
+        return default_str
+
     entries: dict[str, str] = {}
     seen_transform_params: set[str] = set()
     for reg in spec.regressions:
         if get_free_predictor_columns(reg):
-            entries[f"beta_{reg.lhs}"] = "Normal(0, 10)"
+            entries[f"beta_{reg.lhs}"] = _entry(f"beta_{reg.lhs}", "Normal(0, 10)")
 
         family = families.get(reg.lhs, "gaussian")
         if reg.lhs in latent:
             if family == "latent_normal":
-                entries[f"sigma_{reg.lhs}"] = "HalfNormal(1)"
+                entries[f"sigma_{reg.lhs}"] = _entry(
+                    f"sigma_{reg.lhs}", "HalfNormal(1)"
+                )
         else:
             if family not in ("bernoulli", "poisson", "negbinomial"):
-                entries[f"sigma_{reg.lhs}"] = "HalfNormal(1)"
+                entries[f"sigma_{reg.lhs}"] = _entry(
+                    f"sigma_{reg.lhs}", "HalfNormal(1)"
+                )
             if family == "negbinomial":
-                entries[f"alpha_disp_{reg.lhs}"] = "HalfNormal(1)"
+                entries[f"alpha_disp_{reg.lhs}"] = _entry(
+                    f"alpha_disp_{reg.lhs}", "HalfNormal(1)"
+                )
             if family == "studentt":
-                entries[f"nu_{reg.lhs}"] = "Gamma(2, 0.1)"
+                entries[f"nu_{reg.lhs}"] = _entry(f"nu_{reg.lhs}", "Gamma(2, 0.1)")
 
         if has_intercepts:
-            entries[f"mu_alpha_{reg.lhs}"] = "Normal(0, 10)"
-            entries[f"sigma_alpha_{reg.lhs}"] = "HalfNormal(1)"
+            entries[f"mu_alpha_{reg.lhs}"] = _entry(
+                f"mu_alpha_{reg.lhs}", "Normal(0, 10)"
+            )
+            entries[f"sigma_alpha_{reg.lhs}"] = _entry(
+                f"sigma_alpha_{reg.lhs}", "HalfNormal(1)"
+            )
             entries[f"alpha_{reg.lhs}"] = "Normal(mu_alpha, sigma_alpha)"
         for svar in slope_vars:
             term_variables = {t.variable for t in reg.terms}
             if svar in term_variables:
-                entries[f"mu_slope_{reg.lhs}_{svar}"] = "Normal(0, 10)"
-                entries[f"sigma_slope_{reg.lhs}_{svar}"] = "HalfNormal(1)"
+                entries[f"mu_slope_{reg.lhs}_{svar}"] = _entry(
+                    f"mu_slope_{reg.lhs}_{svar}", "Normal(0, 10)"
+                )
+                entries[f"sigma_slope_{reg.lhs}_{svar}"] = _entry(
+                    f"sigma_slope_{reg.lhs}_{svar}", "HalfNormal(1)"
+                )
                 entries[f"slope_{reg.lhs}_{svar}"] = "Normal(mu_slope, sigma_slope)"
         for term in reg.terms:
             if term.transform is not None:
                 _collect_transform_priors(
-                    term.transform, entries, seen_transform_params
+                    term.transform, entries, seen_transform_params, prior_config
                 )
     return PriorTable(entries)
 
@@ -523,16 +554,20 @@ def _collect_transform_priors(
     tc: TransformCall,
     entries: dict[str, str],
     seen: set[str],
+    prior_config: dict[str, object] | None = None,
 ) -> None:
     """Recursively add transform parameter priors to the entries dict."""
     from pathmc.transforms import get_transform
 
     if isinstance(tc.input_expr, TransformCall):
-        _collect_transform_priors(tc.input_expr, entries, seen)
+        _collect_transform_priors(tc.input_expr, entries, seen, prior_config)
 
     transform = get_transform(tc.name)
     for param_key, param_name in tc.params.items():
         if param_name not in seen:
             seen.add(param_name)
-            pspec = transform.param_specs[param_key]
-            entries[param_name] = pspec.default_prior
+            if prior_config and param_name in prior_config:
+                entries[param_name] = _prior_to_str(prior_config[param_name])
+            else:
+                pspec = transform.param_specs[param_key]
+                entries[param_name] = pspec.default_prior
