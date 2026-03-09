@@ -57,7 +57,7 @@ model.graph()
 
 ```{python}
 #| echo: false
-model.equations()
+model.model_equations()
 ```
 
 
