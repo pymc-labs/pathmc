@@ -95,7 +95,7 @@ model.design("Y")
 pm.model_to_graphviz(model.pymc_model)
 ```
 
-The PyMC graph shows the estimation model — the generative model conditioned on observed data via `pm.observe()`. The causal DAG for intervention reasoning is shown by `model.graph()`. Interventions use `pm.do()` on the generative model to apply graph surgery.
+The PyMC graph shows the estimation model — the generative model conditioned on observed data via `pm.observe()`. The causal DAG for intervention reasoning is shown by `model.graph()`. Interventions use `pm.do()` on the generative model to apply graph surgery. See [Causal DAG vs estimation graph](../how-it-works.qmd#causal-dag-vs-estimation-graph) for when to inspect each representation.
 
 ## Sample from the posterior
 
@@ -232,4 +232,6 @@ If an omitted variable drives both the mediator and the outcome, the coefficient
 This assumption, called *sequential ignorability* (Imai et al., 2010), is untestable from data alone.
 
 In this example the DGP satisfies it by construction, but in real applications you should ask: "could anything cause both M and Y that I haven't measured?" If yes, report the total effect and treat the decomposition with caution.
+
+See [Causal Inference](../concepts/causal_inference.qmd) for the full API reference (ATE/ATT/ATU, identification helpers, and causal assumptions).
 :::

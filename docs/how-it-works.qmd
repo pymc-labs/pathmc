@@ -59,6 +59,74 @@ The generative model holds free random variables for every endogenous variable, 
 - **Implied independence testing**: every DAG encodes conditional independence claims. pathmc extracts these from the graph structure (the basis set; Shipley, 2000) and tests them against your data via partial correlations — violations suggest missing edges or structural misspecification.
 - **Sensitivity analysis**: causal conclusions rest on untestable assumptions about unmeasured confounding. pathmc quantifies how strong an unmeasured confounder would need to be to nullify a finding, reporting tipping points and contour plots.
 
+### From structural equations to the generative model
+
+Each regression in a pathmc spec defines a **structural equation** — a statement about how one variable is generated from its causal parents plus noise.
+Consider a mediation model:
+
+$$
+M = \alpha_M + a \cdot X + \varepsilon_M, \quad \varepsilon_M \sim \text{Normal}(0, \sigma_M)
+$$
+
+$$
+Y = \alpha_Y + b \cdot M + c \cdot X + \varepsilon_Y, \quad \varepsilon_Y \sim \text{Normal}(0, \sigma_Y)
+$$
+
+These two equations, together with the distribution of the exogenous variable $X$, define the **joint distribution** of all variables in the system.
+The joint factorizes along the DAG — each variable is generated conditional on its parents:
+
+$$
+p(X, M, Y) \;=\; p(X) \;\cdot\; p(M \mid X) \;\cdot\; p(Y \mid X, M)
+$$
+
+Each factor on the right-hand side corresponds to exactly one structural equation.
+This is Pearl's **truncated factorization formula** — the mathematical basis for the do-operator.
+
+pathmc compiles these structural equations into a single generative PyMC model that encodes the full joint distribution.
+Exogenous variables ($X$) enter as `pm.Data`; endogenous variables ($M$, $Y$) become free random variables wired through their structural equations in topological order.
+All parameters ($a$, $b$, $c$, $\sigma_M$, $\sigma_Y$) are estimated simultaneously via MCMC on the joint likelihood.
+
+This generative structure is what makes the `do()` operator work.
+When you call `model.do(set={"X": 1.0})`, PyMC performs graph surgery on the generative model — replacing $X$'s value with the constant 1.0, removing its incoming edges, and forward-simulating through the structural equations for $M$ and $Y$ using posterior draws.
+The result is the interventional distribution $p(M, Y \mid do(X = 1))$, computed via g-computation with full Bayesian uncertainty.
+
+::: {.callout-note}
+## Why not fit each equation separately?
+
+For linear Gaussian models, fitting each equation independently gives the same coefficient estimates as the joint model — the joint likelihood decomposes into independent terms.
+But pathmc always compiles the full generative model for two reasons:
+
+1. **Interventions require the graph structure.** The `do()` operator needs to know which equations to replace and how downstream variables depend on the intervened node. Separate regressions lose this wiring.
+2. **Non-Gaussian families don't decompose.** When equations use Bernoulli, Poisson, or other families, or when residuals are correlated (`~~`), joint estimation captures dependencies that equation-by-equation fitting would miss.
+:::
+
+
+### Causal DAG vs estimation graph {#causal-dag-vs-estimation-graph}
+
+pathmc works with two graph representations that serve different purposes.
+Understanding which to inspect — and what each shows — prevents confusion when interpreting model structure.
+
+**The causal DAG** (`model.graph()`) shows the abstract causal story: which variables cause which, with directed edges representing structural relationships. This is the graph that determines identification (backdoor sets, collider warnings) and defines what `do()` means. It has one node per variable and one edge per causal path.
+
+**The PyMC estimation graph** (`pm.model_to_graphviz(model.pymc_model)`) shows the concrete statistical model: the random variables, priors, scale parameters, observed data, and how they are wired together in the PyMC computational graph. It has more nodes than the causal DAG because it includes the intercepts, sigmas, and other parameters that the DAG abstracts away.
+
+For the mediation model above, `model.graph()` shows three nodes (`X → M → Y`, `X → Y`) while the PyMC graph shows the full Bayesian model with priors on all coefficients and scale parameters, and `pm.observe()` plates over the data.
+
+::: {.callout-tip}
+## Which graph should I inspect?
+
+| Question | Tool | What it shows |
+|----------|------|---------------|
+| Does my causal story make sense? | `model.graph()` | Causal DAG — edges, directions, exogenous/endogenous classification |
+| What is my model actually estimating? | `pm.model_to_graphviz(model.pymc_model)` | PyMC estimation graph — priors, likelihoods, observed data |
+| Is the causal effect identifiable? | `model.adjustment_sets("X", "Y")` | Valid adjustment sets derived from the causal DAG |
+| What are the structural equations? | `model.model_equations()` | LaTeX-rendered equations with all coefficients |
+
+For causal reasoning, work with the causal DAG. For debugging estimation or understanding priors, inspect the PyMC graph.
+See the [mediation example](examples/mediation.qmd) for both graphs side by side.
+:::
+
+
 ### Module architecture
 
 The codebase is organized as a core pipeline with simulation, effects, introspection, and identification as lateral modules that `PathModel` orchestrates:
