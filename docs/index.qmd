@@ -4,10 +4,9 @@ title: "pathmc"
 
 ![](assets/logo.png){width=75% fig-align="center"}
 
-**Structural causal models with Bayesian estimation and interventional simulation via a concise DSL.**
+**Specify your causal assumptions as equations. Fit with full Bayesian inference. Simulate interventions and ask "what if?"**
 
-pathmc compiles a lavaan-inspired formula language into PyMC models.
-Specify a system of structural equations, fit with MCMC, and reason about causal effects using the do-operator.
+pathmc compiles a concise formula language into a generative Bayesian model where every variable is wired through its structural parents in the DAG. One call to `fit()` gives you a single object that handles estimation, introspection, causal queries, identification checking, and sensitivity analysis — all with full posterior uncertainty.
 
 ```python
 import pathmc
@@ -22,23 +21,90 @@ model = pathmc.fit(spec, data=df)
 model.sample(draws=1000, chains=2)
 
 model.effects_summary()          # labeled coefficients + defined params
-
-r0 = model.do(set={"X": 0})
-r1 = model.do(set={"X": 1})
-ate = (r1 - r0).mean("Y")       # average treatment effect
+model.ate("Y", "X", values=(0, 1))   # average treatment effect via do-operator
+model.adjustment_sets("X", "Y")  # check identification from the DAG
 ```
 
-## Features
 
-- **Formula DSL** with regression (`~`), residual covariance (`~~`), labeled coefficients, and defined parameters (`:=`)
-- **Automatic compilation** to PyMC models with sensible default priors
-- **Introspection** before sampling: `graph()`, `equations()`, `design()`, `priors()`
-- **do-operator** for interventional simulation with full posterior uncertainty — including ATE, ATT, ATU, CATE, and probability queries
-- **Effects API** for labeled coefficients, defined parameters, and path-specific effects
+## One spec, five capabilities
+
+A single spec string unlocks the full causal analysis toolkit.
+
+**Introspection** — inspect the model before spending any time sampling. Render the causal DAG, display structural equations with LaTeX, review default priors, and check the design matrix for any equation.
+
+```python
+model.graph()          # causal DAG plot
+model.equations()      # LaTeX structural equations
+model.priors()         # prior table
+model.design("Y")     # design matrix for the Y equation
+```
+
+**Estimation** — fit the structural model with MCMC. Get posterior summaries, labeled coefficients with uncertainty, path-specific effects, and stdyx-standardized coefficients for comparing effect sizes across variables on different scales.
+
+```python
+model.sample()
+model.effects_summary()                  # labeled coefficients + defined params
+model.standardized()                     # stdyx-standardized effects
+model.effect("X -> M -> Y")             # indirect effect through M
+```
+
+**Causal queries** — simulate interventions via the do-operator and ask counterfactual questions. pathmc uses g-computation: it forward-simulates through the structural model under the intervention, propagating full posterior uncertainty through the causal chain.
+
+```python
+model.ate("Y", "X", values=(0, 1))       # average treatment effect
+model.cate("Y", "X", condition={"Z": 2}) # conditional ATE given Z=2
+model.prob("Y > 0", set={"X": 1})        # P(Y > 0) under intervention
+```
+
+**Identification** — before trusting a causal estimate, verify it is identifiable. pathmc finds valid adjustment sets, checks for collider bias, and tests the DAG's conditional independence claims against your data.
+
+```python
+model.adjustment_sets("X", "Y")    # valid backdoor adjustment sets
+model.collider_warnings({"C"}, "X", "Y")
+model.test_implications()          # check DAG against data
+```
+
+**Sensitivity analysis** — causal conclusions rest on untestable assumptions about unmeasured confounding. pathmc quantifies how strong an unmeasured confounder would need to be to overturn your finding.
+
+```python
+model.sensitivity("X", "Y")       # tipping point analysis
+```
+
+
+## Applied use cases
+
+pathmc isn't just for textbook examples. The [examples gallery](examples/index.qmd) covers real problems across industries:
+
+[**Marketing mix modeling**](examples/mmm_basic.qmd) — Estimate channel-level ROI with adstock and saturation transforms that capture carry-over effects and diminishing returns. Panel mode handles geo-level data with hierarchical random effects.
+
+[**Vaccine surrogate endpoints**](examples/vaccine_surrogates.qmd) — Assess whether a biomarker is a valid surrogate for clinical outcomes using mediation analysis and the do-operator. Quantify what fraction of the treatment effect flows through the measured pathway.
+
+[**SaaS conversion funnels**](examples/saas_funnel.qmd) — Model a multi-stage funnel as a causal chain to find which stage has the highest leverage on paid conversion. Simulate "what if we improve onboarding?" scenarios that respect the full causal structure.
+
+[**Dynamic pricing**](examples/dynamic_pricing.qmd) — Estimate true price elasticity from observational data where price and demand are confounded. Panel structure with regional hierarchical effects separates the causal signal from common-cause noise.
+
+
+## Built-in guardrails
+
+pathmc doesn't just compute causal effects — it helps you check whether you should trust them.
+
+- **Identification checks** verify that your causal effect is estimable from observational data before you spend time sampling.
+- **Collider warnings** flag adjustment sets that would *create* spurious associations rather than remove them.
+- **Implied independence tests** check the conditional independence claims encoded in your DAG against the data — violations suggest missing edges or structural misspecification.
+- **Sensitivity analysis** quantifies how robust your conclusions are to unmeasured confounding, reporting tipping points and contour plots.
+
+The goal is responsible causal inference: make it easy to ask hard questions about your own assumptions.
+
 
 ## Getting started
 
-- [Concepts](concepts/model_specification.qmd) — DSL syntax, DAGs, transforms, causal queries, and panel data
-- [Mediation analysis](examples/mediation.qmd) — labels, defined parameters, and indirect effects
-- [Correlated residuals](examples/correlated_residuals.qmd) — the `~~` operator for shared unobserved causes
-- [do() queries](examples/do_queries.qmd) — interventional reasoning and contrast arithmetic
+- [Overview](how-it-works.qmd) — how pathmc works, from spec to causal insight
+- [Model specification](concepts/model_specification.qmd) — DSL syntax: `~`, `~~`, `:=`, labels, transforms
+- [Causal inference](concepts/causal_inference.qmd) — the do-operator, g-computation, identification
+- [Examples](examples/index.qmd) — worked notebooks across mediation, MMM, panel data, and more
+
+::: {.callout-tip}
+## Coming from lavaan?
+
+pathmc speaks the same language — `~` for regression, `~~` for residual covariance, `:=` for defined parameters, labeled coefficients like `a*X`. The difference: pathmc adds full Bayesian inference and a built-in do-operator for interventional simulation.
+:::
