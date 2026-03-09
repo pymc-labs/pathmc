@@ -150,3 +150,25 @@ class TestPathModelIntegration:
         model = pathmc.fit("C ~ X + Y", data=df)
         warnings = model.collider_warnings({"C"}, "X", "Y")
         assert len(warnings) > 0
+
+
+class TestTemporalEdgesIdentification:
+    """Temporal edges must not change identification results (#16)."""
+
+    def test_lag_model_identifiable(self):
+        g = _graph("sales ~ spend + lag(sales)")
+        assert is_identifiable(g, "spend", "sales")
+
+    def test_lag_adjustment_sets_unchanged(self):
+        """Adjustment sets for spend -> sales should be the same
+        with or without lag(sales)."""
+        g_lag = _graph("sales ~ spend + lag(sales)")
+        g_no_lag = _graph("sales ~ spend")
+        sets_lag = adjustment_sets(g_lag, "spend", "sales")
+        sets_no_lag = adjustment_sets(g_no_lag, "spend", "sales")
+        assert sets_lag == sets_no_lag
+
+    def test_lag_no_collider_warnings(self):
+        g = _graph("sales ~ spend + lag(sales)")
+        warnings = collider_warnings(g, {"lag(sales)"}, "spend", "sales")
+        assert len(warnings) == 0
