@@ -43,6 +43,27 @@ class GraphInfo:
         """Return True if a directed edge exists from *source* to *target*."""
         return self._dag.has_edge(source, target)
 
+    @property
+    def temporal_edges(self) -> list[tuple[str, str]]:
+        """Temporal edges as ``(source, lag_node)`` pairs."""
+        return [
+            (u, v) for u, v, d in self._dag.edges(data=True) if d.get("temporal", False)
+        ]
+
+    @property
+    def contemporaneous_dag(self) -> nx.DiGraph:
+        """Subgraph with only contemporaneous (non-temporal) edges.
+
+        Preserves all nodes from the full DAG so that isolated lag
+        variables remain visible for classification and ordering.
+        """
+        g = nx.DiGraph()
+        g.add_nodes_from(self._dag.nodes)
+        g.add_edges_from(
+            (u, v) for u, v, d in self._dag.edges(data=True) if not d.get("temporal")
+        )
+        return g
+
 
 def build_graph(spec: Spec, latent: set[str] | None = None) -> GraphInfo:
     """Build a DAG from a parsed specification.
@@ -83,8 +104,19 @@ def build_graph(spec: Spec, latent: set[str] | None = None) -> GraphInfo:
                 dag.add_node(term.variable)
                 dag.add_edge(term.variable, reg.lhs)
 
-    if not nx.is_directed_acyclic_graph(dag):
-        cycles = list(nx.simple_cycles(dag))
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.lag_of is not None:
+                dag.add_edge(term.lag_of, term.variable, temporal=True)
+
+    contemp_dag = nx.DiGraph()
+    contemp_dag.add_nodes_from(dag.nodes)
+    contemp_dag.add_edges_from(
+        (u, v) for u, v, d in dag.edges(data=True) if not d.get("temporal")
+    )
+
+    if not nx.is_directed_acyclic_graph(contemp_dag):
+        cycles = list(nx.simple_cycles(contemp_dag))
         cycle_str = " -> ".join(cycles[0] + [cycles[0][0]]) if cycles else "unknown"
         raise CycleError(
             f"Cycle detected: {cycle_str}. "
@@ -92,7 +124,7 @@ def build_graph(spec: Spec, latent: set[str] | None = None) -> GraphInfo:
             "Remove or reverse an edge to break the cycle."
         )
 
-    topological_order = list(nx.topological_sort(dag))
+    topological_order = list(nx.topological_sort(contemp_dag))
 
     endogenous = {reg.lhs for reg in spec.regressions}
     exogenous = set(dag.nodes) - endogenous

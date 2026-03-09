@@ -116,3 +116,58 @@ class TestCycleDetection:
     def test_acyclic_spec_does_not_raise(self):
         spec = parse_spec(PARALLEL_MEDIATORS_SPEC)
         build_graph(spec)  # should not raise
+
+
+class TestTemporalEdges:
+    """Temporal edges for lag() syntax (#16)."""
+
+    def test_lag_creates_temporal_edge(self):
+        spec = parse_spec("sales ~ spend + lag(sales)")
+        info = build_graph(spec)
+        assert ("sales", "lag(sales)") in info.temporal_edges
+
+    def test_lag_no_contemporaneous_cycle(self):
+        """sales ~ lag(sales) should not raise CycleError."""
+        spec = parse_spec("sales ~ lag(sales)")
+        info = build_graph(spec)
+        assert "lag(sales)" in info.exogenous
+        assert "sales" in info.endogenous
+
+    def test_lag_topological_order_unchanged(self):
+        spec = parse_spec("sales ~ spend + lag(sales)")
+        info = build_graph(spec)
+        order = info.topological_order
+        assert order.index("lag(sales)") < order.index("sales")
+        assert order.index("spend") < order.index("sales")
+
+    def test_lag_exogenous_classification_unchanged(self):
+        spec = parse_spec("sales ~ spend + lag(sales)")
+        info = build_graph(spec)
+        assert "lag(sales)" in info.exogenous
+        assert "spend" in info.exogenous
+        assert "sales" in info.endogenous
+
+    def test_contemporaneous_dag_excludes_temporal(self):
+        spec = parse_spec("sales ~ spend + lag(sales)")
+        info = build_graph(spec)
+        cdag = info.contemporaneous_dag
+        assert not cdag.has_edge("sales", "lag(sales)")
+        assert cdag.has_edge("lag(sales)", "sales")
+        assert cdag.has_edge("spend", "sales")
+
+    def test_contemporaneous_dag_preserves_all_nodes(self):
+        spec = parse_spec("sales ~ spend + lag(sales)")
+        info = build_graph(spec)
+        cdag = info.contemporaneous_dag
+        assert set(cdag.nodes) == set(info._dag.nodes)
+
+    def test_no_temporal_edges_without_lags(self):
+        spec = parse_spec(MEDIATION_SPEC)
+        info = build_graph(spec)
+        assert info.temporal_edges == []
+
+    def test_multiple_lag_terms(self):
+        spec = parse_spec("Y ~ lag(X)\nX ~ lag(X)")
+        info = build_graph(spec)
+        assert ("X", "lag(X)") in info.temporal_edges
+        assert len(info.temporal_edges) == 1

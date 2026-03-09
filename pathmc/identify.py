@@ -47,7 +47,7 @@ def adjustment_sets(
         alphabetically. Empty list if no valid set exists or if
         the effect is already identified without adjustment.
     """
-    dag = graph_info._dag
+    dag = graph_info.contemporaneous_dag
     latent = graph_info.latent
 
     if treatment not in dag.nodes:
@@ -143,7 +143,7 @@ def frontdoor_identifiable(
         ``(identifiable, message)`` where *message* explains the result
         or describes which condition fails.
     """
-    dag = graph_info._dag
+    dag = graph_info.contemporaneous_dag
 
     for name, role in [
         (treatment, "Treatment"),
@@ -235,7 +235,7 @@ def collider_warnings(
     list[str]
         Human-readable warning strings. Empty if no issues found.
     """
-    dag = graph_info._dag
+    dag = graph_info.contemporaneous_dag
     latent = graph_info.latent
     warnings_list: list[str] = []
 
@@ -440,7 +440,7 @@ def implied_independences(
     list[ConditionalIndependence]
         Implied independence statements, sorted by (x, y) alphabetically.
     """
-    dag = graph_info._dag
+    dag = graph_info.contemporaneous_dag
     nodes = sorted(dag.nodes)
     result: list[ConditionalIndependence] = []
 
