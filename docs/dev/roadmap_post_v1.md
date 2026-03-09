@@ -24,7 +24,7 @@ See [prd_v1.md](prd_v1.md) for the v1 scope and requirements.
   Bayesian alternative to SEM modification indices. Posterior predictive residual correlation diagnostics. Rank candidate additions: suggested `~~` edges, suggested directed edges (subject to acyclicity). Must be clearly labeled exploratory.
 
 - **Residual structure objects (beyond pairwise `~~`)**
-  Low-rank residual factors (a small number of latent shocks inducing residual correlation). Group/time shocks for panel data (shared disturbances by time period or cluster). Useful when many outcomes share a few unmodeled common causes.
+  Phase 1 is complete: a `ResidualStructure` protocol and `LKJResidual` implementation exist in `pathmc/residuals.py`, with `mu_{var}` deterministics and `endogenous_rvs` wiring so `do()` propagates through block variables. Remaining: Phase 2 adds alternative structures (diagonal, low-rank), a `residual_structure=` parameter on `fit()`, and full prior customization for LKJ `eta`/`sd_dist`. Phase 3 adds panel `~~` support. See #89 for details.
 
 ## Lower priority
 
@@ -44,4 +44,4 @@ These roadmap items suggest the following design-time considerations:
 - The **graph layer** already exposes d-separation queries, adjustment set computation (`identify.py`), and topological utilities. DAG compatibility checks and sensitivity analysis can build on this foundation.
 - The **prior system** should accept per-edge or per-group prior specs, making graph-aware priors a configuration change rather than a refactor.
 - The **`do()` simulator** is already modular (separate planner via topological order, separate executor in `simulate.py`). Policy optimization and counterfactual queries can layer on top.
-- The **residual covariance** implementation should use an abstraction (e.g., a residual structure object) rather than hardcoding LKJ, so low-rank and group-shock variants can slot in later.
+- The **residual covariance** uses a `ResidualStructure` protocol so alternative covariance parameterizations (low-rank, group-shock) can slot in without modifying the compiler.

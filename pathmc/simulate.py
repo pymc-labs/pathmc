@@ -256,7 +256,7 @@ def run_do_pymc(
         det_names = [
             f"mu_{var}"
             for var in graph_info.topological_order
-            if var in graph_info.endogenous
+            if var in graph_info.endogenous and var not in set
         ]
         det = pm.compute_deterministics(
             posterior_ds, model=do_model, var_names=det_names, progressbar=False
