@@ -82,18 +82,18 @@ The codebase is organized as a core pipeline — parse → graph → compile →
 ```{mermaid}
 %%{init: {'theme': 'default', 'themeVariables': {'fontSize': '16px'}}}%%
 flowchart TD
-    parse["parse.py"] --> graph["graph.py"]
-    graph --> compile["compile.py"]
-    compile --> model["model.py"]
+    P["parse.py"] --> G["graph.py"]
+    G --> C["compile.py"]
+    C --> M["model.py"]
 
-    model --> simulate["simulate.py"]
-    model --> effects["effects.py"]
-    model --> introspect["introspect.py"]
-    model --> identify["identify.py"]
-    model --> sensitivity["sensitivity.py"]
+    M --> sim["simulate.py"]
+    M --> eff["effects.py"]
+    M --> intr["introspect.py"]
+    M --> ident["identify.py"]
+    M --> sens["sensitivity.py"]
 
-    compile --> transforms["transforms.py"]
-    compile --> panel["panel.py"]
+    C --> trn["transforms.py"]
+    C --> pnl["panel.py"]
 ```
 
 Each layer can be tested independently. The parser is pure (no data, no PyMC). The graph layer works from the AST alone. The compiler brings in data and PyMC but knows nothing about simulation or effects. This separation means the graph structure can be inspected, and identification queries answered, without ever compiling a model.
