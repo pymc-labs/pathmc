@@ -555,6 +555,19 @@ def build_priors(
                 _collect_transform_priors(
                     term.transform, entries, seen_transform_params, prior_config
                 )
+
+    if spec.residual_covs:
+        import networkx as nx
+
+        ug = nx.Graph()
+        for rc in spec.residual_covs:
+            ug.add_edge(rc.var1, rc.var2)
+        for component in nx.connected_components(ug):
+            block_name = "_".join(sorted(component))
+            entries[f"chol_{block_name}"] = (
+                "LKJCholeskyCov(eta=2, sd_dist=HalfNormal(1))"
+            )
+
     return PriorTable(entries)
 
 

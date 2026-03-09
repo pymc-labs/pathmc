@@ -200,9 +200,21 @@ def run_do_pymc(
     N = len(data)
     latent = graph_info.latent
 
+    free_rv_names = {rv.name for rv in gen_model.free_RVs}
+    det_names_set = {d.name for d in gen_model.deterministics}
+
+    block_vars = {
+        var
+        for var in graph_info.topological_order
+        if var in graph_info.endogenous
+        and var not in free_rv_names
+        and var not in latent
+        and f"mu_{var}" in det_names_set
+    }
+
     replacements: dict[str, Any] = {}
     for var, val in set.items():
-        key = f"mu_{var}" if var in latent else var
+        key = f"mu_{var}" if (var in latent or var in block_vars) else var
         arr = np.full(N, val)
         target_dtype = gen_model[key].dtype
         replacements[key] = arr.astype(target_dtype)
@@ -211,10 +223,10 @@ def run_do_pymc(
         non_float_endo: list[str] = []
         for var in graph_info.topological_order:
             if var in graph_info.endogenous and var not in set:
-                is_deterministic_latent = var in latent and var not in {
-                    rv.name for rv in gen_model.free_RVs
-                }
+                is_deterministic_latent = var in latent and var not in free_rv_names
                 if is_deterministic_latent:
+                    continue
+                if var in block_vars:
                     continue
                 model_var = gen_model[var]
                 if model_var.dtype.startswith("float"):
@@ -244,7 +256,7 @@ def run_do_pymc(
         det_names = [
             f"mu_{var}"
             for var in graph_info.topological_order
-            if var in graph_info.endogenous
+            if var in graph_info.endogenous and var not in set
         ]
         det = pm.compute_deterministics(
             posterior_ds, model=do_model, var_names=det_names, progressbar=False
@@ -282,12 +294,12 @@ def run_do_pymc(
         with do_model:
             ppc = pm.sample_posterior_predictive(idata, progressbar=False)
 
-    latent_det_names = [
+    extra_det_names = [
         f"mu_{var}"
         for var in graph_info.topological_order
-        if var in latent and var not in set
+        if var not in set and (var in latent or var in block_vars)
     ]
-    if latent_det_names:
+    if extra_det_names:
         posterior_ds = idata.posterior  # type: ignore[attr-defined]
         missing_rv_names = [
             rv.name for rv in do_model.free_RVs if rv.name not in posterior_ds
@@ -308,14 +320,14 @@ def run_do_pymc(
                 fill_vars[name] = xr.DataArray(dummy, dims=dims)
             posterior_ds = posterior_ds.assign(fill_vars)
 
-        latent_det = pm.compute_deterministics(
+        extra_det = pm.compute_deterministics(
             posterior_ds,
             model=do_model,
-            var_names=latent_det_names,
+            var_names=extra_det_names,
             progressbar=False,
         )
     else:
-        latent_det = None
+        extra_det = None
 
     stacked = idata.posterior.stack(sample=("chain", "draw"))  # type: ignore[attr-defined]
     n_samples = stacked.sizes["sample"]
@@ -342,8 +354,8 @@ def run_do_pymc(
             if subgroup_indices is not None and raw.ndim >= 3:
                 raw = raw[:, :, subgroup_indices]
             values[var] = raw.flatten()
-        elif latent_det is not None and f"mu_{var}" in latent_det:
-            raw = latent_det[f"mu_{var}"].values
+        elif extra_det is not None and f"mu_{var}" in extra_det:
+            raw = extra_det[f"mu_{var}"].values
             if subgroup_indices is not None and raw.ndim >= 3:
                 raw = raw[:, :, subgroup_indices]
             values[var] = raw.flatten()
