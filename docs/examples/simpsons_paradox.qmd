@@ -7,7 +7,7 @@ jupyter: pathmc
 
 A new drug is tested across a population. The overall data suggests the drug *lowers* recovery rates — yet within every subgroup (male, female), the drug *raises* them. Should the hospital prescribe it or not?
 
-This is **Simpson's Paradox** [@simpson1951interpretation; @pearl2016primer, §1.5]: a confounding variable can reverse the sign of an association, making a beneficial treatment look harmful (or vice versa). The paradox disappears once we think causally — and the resolution turns on a three-variable DAG that we can fit, interrogate, and simulate with pathmc.
+This is **Simpson's Paradox** [@simpson1951interpretation; @pearl2016primer, §1.2]: a confounding variable can reverse the sign of an association, making a beneficial treatment look harmful (or vice versa). The paradox disappears once we think causally — and the resolution turns on a three-variable DAG that we can fit, interrogate, and simulate with pathmc.
 
 ## The causal structure
 
