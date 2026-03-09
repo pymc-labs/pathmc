@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, Literal
 
 import networkx as nx
 import numpy as np
@@ -51,6 +51,38 @@ class PanelScanInfo:
     n_times: int
     unit_labels: list[str] = field(default_factory=list)
     time_values: list = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PredictorSlot:
+    """One slot in a linear predictor (one column of the design matrix).
+
+    Classifies each predictor term by its structural kind so that the
+    shared ``build_mu`` loop can delegate tensor resolution to a
+    path-specific resolver.
+    """
+
+    name: str
+    coeff_type: Literal["free", "fixed"]
+    coeff_value: float | None = None
+    kind: Literal["intercept", "plain", "interaction", "transform", "lag"] = "plain"
+    lag_of: str | None = None
+    interaction_parts: tuple[str, ...] | None = None
+    transform: TransformCall | None = None
+
+
+@dataclass
+class MuSpec:
+    """Symbolic description of a linear predictor for one equation.
+
+    A pure representation of the linear-predictor structure that
+    decouples equation logic from tensor resolution.  Both the
+    cross-sectional and scan compilation paths consume ``MuSpec``
+    via ``build_mu``, each providing their own resolver.
+    """
+
+    lhs: str
+    slots: list[PredictorSlot]
 
 
 def get_predictor_columns(reg: Regression) -> list[str]:
@@ -101,6 +133,97 @@ def _term_base_vars(term: Any) -> list[str]:
     if getattr(term, "interaction_of", None) is not None:
         return list(term.interaction_of)
     return [term.variable]
+
+
+# ---------------------------------------------------------------------------
+# Lag detection (needed early for build_mu_specs)
+# ---------------------------------------------------------------------------
+
+_LAG_RE = re.compile(r"^(.+)_lag(\d+)$")
+
+
+def _parse_lag(col: str) -> tuple[str, int] | None:
+    """Parse ``"var_lag1"`` → ``("var", 1)``, or ``None``."""
+    m = _LAG_RE.match(col)
+    if m:
+        return m.group(1), int(m.group(2))
+    return None
+
+
+# ---------------------------------------------------------------------------
+# MuSpec construction
+# ---------------------------------------------------------------------------
+
+
+def build_mu_specs(spec: Spec) -> dict[str, MuSpec]:
+    """Convert Spec regressions into MuSpec intermediate representations.
+
+    Pure transformation with no PyMC dependency.  Each ``Regression``
+    becomes a ``MuSpec`` whose ``PredictorSlot`` list classifies every
+    predictor column by structural kind (intercept, plain variable,
+    interaction, transform, or lag).
+
+    Parameters
+    ----------
+    spec : Spec
+        Parsed model specification.
+
+    Returns
+    -------
+    dict[str, MuSpec]
+        Mapping from endogenous variable name to its ``MuSpec``.
+    """
+    result: dict[str, MuSpec] = {}
+
+    for reg in spec.regressions:
+        slots: list[PredictorSlot] = []
+
+        if reg.has_intercept:
+            slots.append(
+                PredictorSlot(
+                    name="Intercept",
+                    coeff_type="free",
+                    kind="intercept",
+                )
+            )
+
+        for term in reg.terms:
+            coeff_type: Literal["free", "fixed"] = (
+                "fixed" if term.fixed_value is not None else "free"
+            )
+
+            lag_of = term.lag_of
+            if lag_of is None:
+                parsed = _parse_lag(term.variable)
+                if parsed is not None:
+                    lag_of = parsed[0]
+
+            if term.transform is not None:
+                kind: Literal[
+                    "intercept", "plain", "interaction", "transform", "lag"
+                ] = "transform"
+            elif term.interaction_of is not None:
+                kind = "interaction"
+            elif lag_of is not None:
+                kind = "lag"
+            else:
+                kind = "plain"
+
+            slots.append(
+                PredictorSlot(
+                    name=term.variable,
+                    coeff_type=coeff_type,
+                    coeff_value=term.fixed_value,
+                    kind=kind,
+                    lag_of=lag_of,
+                    interaction_parts=term.interaction_of,
+                    transform=term.transform,
+                )
+            )
+
+        result[reg.lhs] = MuSpec(lhs=reg.lhs, slots=slots)
+
+    return result
 
 
 def build_design_matrix(reg: Regression, data: pd.DataFrame) -> pd.DataFrame:
@@ -254,6 +377,7 @@ def compile_to_pymc(
         unit_idx = _build_unit_index(data, panel_info)
 
     transform_map = _build_transform_map(spec)
+    mu_specs = build_mu_specs(spec)
 
     sparse_data: dict[str, np.ma.MaskedArray] = {}
     for reg in spec.regressions:
@@ -263,6 +387,8 @@ def compile_to_pymc(
             sparse_data[v] = np.ma.masked_invalid(vals)
 
     with pm.Model(coords=coords) as pymc_model:
+        import pytensor.tensor as pt
+
         transform_param_rvs = _emit_transform_priors(spec, transform_map)
 
         data_vars: dict[str, Any] = {}
@@ -280,9 +406,7 @@ def compile_to_pymc(
 
             reg = reg_by_lhs[var]
             family = families.get(var, "gaussian")
-            cols = get_predictor_columns(reg)
             free_cols = get_free_predictor_columns(reg)
-            fixed_coeffs = get_fixed_coefficients(reg)
 
             beta = None
             if free_cols:
@@ -293,18 +417,15 @@ def compile_to_pymc(
                     dims=f"{var}_predictors",
                 )
 
-            mu = _build_mu_symbolic(
-                reg,
-                cols,
-                beta,
+            resolver = _make_cross_sectional_resolver(
                 data,
                 data_vars,
                 endogenous_rvs,
                 transform_map,
                 transform_param_rvs,
                 panel_info,
-                fixed_coefficients=fixed_coeffs,
             )
+            mu = build_mu(mu_specs[var], resolver, beta, pt.zeros(len(data)))
 
             if (
                 has_random_intercepts
@@ -323,57 +444,100 @@ def compile_to_pymc(
 
         for block in blocks:
             _compile_residual_block(
-                block, spec, data, design_matrices, pymc_model, endogenous_rvs
+                block,
+                data,
+                mu_specs,
+                data_vars,
+                endogenous_rvs,
+                transform_map,
+                transform_param_rvs,
+                panel_info,
             )
 
     return pymc_model
 
 
 # ---------------------------------------------------------------------------
-# Helpers: mu computation
+# Helpers: unified mu construction (shared by cross-sectional and scan paths)
 # ---------------------------------------------------------------------------
 
 
-def _build_mu_symbolic(
-    reg: Regression,
-    cols: list[str],
-    beta: Any,
+def build_mu(
+    mu_spec: MuSpec,
+    resolver: Callable[[PredictorSlot], Any],
+    beta: Any | None,
+    zero: Any,
+) -> Any:
+    """Build a linear predictor from a ``MuSpec`` and a resolver.
+
+    The shared coefficient loop handles free/fixed indexing and
+    intercept logic.  The path-specific *resolver* maps each
+    non-intercept ``PredictorSlot`` to its tensor value.
+
+    Parameters
+    ----------
+    mu_spec : MuSpec
+        Symbolic linear predictor description.
+    resolver : Callable[[PredictorSlot], Any]
+        Maps a ``PredictorSlot`` to a tensor variable.
+    beta : Any | None
+        Free coefficient vector (indexed for free slots).  ``None``
+        when all coefficients are fixed.
+    zero : Any
+        Initial accumulator (e.g. ``pt.zeros(n_obs)``).
+
+    Returns
+    -------
+    Any
+        PyTensor expression for the linear predictor.
+    """
+    mu = zero
+    free_idx = 0
+
+    for slot in mu_spec.slots:
+        if slot.coeff_type == "fixed":
+            coef: Any = slot.coeff_value
+        else:
+            assert beta is not None
+            coef = beta[free_idx]
+            free_idx += 1
+
+        if slot.kind == "intercept":
+            mu = mu + coef
+        else:
+            tensor = resolver(slot)
+            mu = mu + coef * tensor
+
+    return mu
+
+
+def _make_cross_sectional_resolver(
     data: pd.DataFrame,
     data_vars: dict[str, Any],
     endogenous_rvs: dict[str, Any],
     transform_map: dict[str, TransformCall],
     transform_param_rvs: dict[str, Any],
     panel_info: PanelInfo | None,
-    fixed_coefficients: dict[str, float] | None = None,
-) -> Any:
-    """Build linear predictor wired through the generative graph.
+) -> Callable[[PredictorSlot], Any]:
+    """Create a resolver for cross-sectional mu construction.
 
-    Exogenous parents use ``pm.Data``. Endogenous parents use the
-    upstream free RV, so ``pm.do()`` on any ancestor naturally
-    propagates through the causal chain.
-
-    Fixed-coefficient terms use their pinned value directly; free
-    terms index into *beta*.
+    Resolves tensors through ``pm.Data`` for exogenous inputs and
+    upstream free RVs for endogenous inputs, enabling ``pm.do()``
+    propagation.
     """
     import pytensor.tensor as pt
 
-    fixed = fixed_coefficients or {}
-    n_obs = len(data)
-    mu = pt.zeros(n_obs)
+    def _resolve_var(name: str) -> Any:
+        if name in endogenous_rvs:
+            return endogenous_rvs[name]
+        if name in data_vars:
+            return data_vars[name]
+        return pt.as_tensor_variable(data[name].values.astype(float))
 
-    free_idx = 0
-    for col in cols:
-        if col in fixed:
-            coef: Any = fixed[col]
-        else:
-            coef = beta[free_idx]
-            free_idx += 1
-
-        if col == "Intercept":
-            mu = mu + coef
-        elif col in transform_map:
-            tc = transform_map[col]
-            transformed = _apply_transform_chain(
+    def resolve(slot: PredictorSlot) -> Any:
+        if slot.kind == "transform":
+            tc = transform_map[slot.name]
+            return _apply_transform_chain(
                 tc,
                 data,
                 transform_param_rvs,
@@ -381,49 +545,71 @@ def _build_mu_symbolic(
                 data_vars=data_vars,
                 endogenous_rvs=endogenous_rvs,
             )
-            mu = mu + coef * transformed
-        elif ":" in col:
-            product = _resolve_interaction_symbolic(
-                col, data, data_vars, endogenous_rvs
-            )
-            mu = mu + coef * product
-        elif col in endogenous_rvs:
-            mu = mu + coef * endogenous_rvs[col]
-        elif col in data_vars:
-            mu = mu + coef * data_vars[col]
-        else:
-            mu = mu + coef * pt.as_tensor_variable(data[col].values.astype(float))
+        if slot.kind == "interaction":
+            assert slot.interaction_parts is not None
+            product = _resolve_var(slot.interaction_parts[0])
+            for part in slot.interaction_parts[1:]:
+                product = product * _resolve_var(part)
+            return product
+        return _resolve_var(slot.name)
 
-    return mu
+    return resolve
 
 
-def _resolve_interaction_symbolic(
-    col: str,
-    data: pd.DataFrame,
-    data_vars: dict[str, Any],
-    endogenous_rvs: dict[str, Any],
-) -> Any:
-    """Compute the symbolic product for an interaction column like ``X:Z``.
+def _make_scan_resolver(
+    exog_t: dict[str, Any],
+    new_endo: dict[str, Any],
+    prev_endo: dict[str, Any],
+    prev_exog: dict[str, Any],
+    transform_map: dict[str, TransformCall],
+    ns_map: dict[str, Any],
+    adstock_state: dict[str, Any],
+    n_units: int,
+) -> Callable[[PredictorSlot], Any]:
+    """Create a resolver for scan-panel mu construction.
 
-    Resolves each constituent variable through the generative graph
-    (``pm.Data`` for exogenous, upstream free RV for endogenous) so
-    that ``pm.do()`` interventions propagate correctly.
+    Resolves tensors from per-step scan arguments: current-step
+    exogenous slices, already-computed endogenous values, and
+    previous-step carry state for lags.
+
+    Side effect: transform slots update *adstock_state* in-place.
     """
     import pytensor.tensor as pt
 
-    parts = col.split(":")
-    values = []
-    for part in parts:
-        if part in endogenous_rvs:
-            values.append(endogenous_rvs[part])
-        elif part in data_vars:
-            values.append(data_vars[part])
-        else:
-            values.append(pt.as_tensor_variable(data[part].values.astype(float)))
-    product = values[0]
-    for v in values[1:]:
-        product = product * v
-    return product
+    def _resolve_var(name: str) -> Any:
+        if name in new_endo:
+            return new_endo[name]
+        if name in exog_t:
+            return exog_t[name]
+        return pt.zeros(n_units)
+
+    def resolve(slot: PredictorSlot) -> Any:
+        if slot.kind == "transform":
+            tc = transform_map[slot.name]
+            inp_name = _get_adstock_input(tc)
+            raw = _resolve_var(inp_name)
+            transformed, updated = _apply_step_transform(
+                tc, raw, adstock_state, ns_map, slot.name
+            )
+            adstock_state.update(updated)
+            return transformed
+        if slot.kind == "interaction":
+            assert slot.interaction_parts is not None
+            product = _resolve_var(slot.interaction_parts[0])
+            for part in slot.interaction_parts[1:]:
+                product = product * _resolve_var(part)
+            return product
+        if slot.kind == "lag":
+            base_var = slot.lag_of
+            if base_var is not None:
+                if base_var in prev_endo:
+                    return prev_endo[base_var]
+                if base_var in prev_exog:
+                    return prev_exog[base_var]
+            return pt.zeros(n_units)
+        return _resolve_var(slot.name)
+
+    return resolve
 
 
 # ---------------------------------------------------------------------------
@@ -499,39 +685,47 @@ def _compile_random_slopes(
 
 def _compile_residual_block(
     block: set[str],
-    spec: Spec,
     data: pd.DataFrame,
-    design_matrices: dict[str, pd.DataFrame],
-    pymc_model: pm.Model,
-    endogenous_rvs: dict[str, Any] | None = None,
+    mu_specs: dict[str, MuSpec],
+    data_vars: dict[str, Any],
+    endogenous_rvs: dict[str, Any],
+    transform_map: dict[str, TransformCall],
+    transform_param_rvs: dict[str, Any],
+    panel_info: PanelInfo | None = None,
 ) -> None:
     """Compile a residual-covariance block as a single MvNormal.
 
-    Residual blocks use data-based design matrices (not symbolic wiring)
-    and are emitted as observed MvNormal. This is kept as observed because
-    MvNormal blocks cannot easily be split into separate free RVs for
-    ``pm.observe``.
+    Uses ``MuSpec`` + resolver so that endogenous predictors wire
+    through upstream free RVs, enabling ``pm.do()`` propagation.
+    Emitted as observed MvNormal because MvNormal blocks cannot
+    easily be split into separate free RVs for ``pm.observe``.
     """
-    if endogenous_rvs is None:
-        endogenous_rvs = {}
+    import pytensor.tensor as pt
 
     block_sorted = sorted(block)
     k = len(block_sorted)
 
-    reg_by_lhs = {r.lhs: r for r in spec.regressions}
-    block_regs = [reg_by_lhs[v] for v in block_sorted]
-
     mus = []
-    for reg in block_regs:
-        dm = design_matrices[reg.lhs]
-        X = dm.values
-        beta = pm.Normal(
-            f"beta_{reg.lhs}",
-            mu=0,
-            sigma=10,
-            dims=f"{reg.lhs}_predictors",
+    for var in block_sorted:
+        ms = mu_specs[var]
+        has_free = any(s.coeff_type == "free" for s in ms.slots)
+        beta = None
+        if has_free:
+            beta = pm.Normal(
+                f"beta_{var}",
+                mu=0,
+                sigma=10,
+                dims=f"{var}_predictors",
+            )
+        resolver = _make_cross_sectional_resolver(
+            data,
+            data_vars,
+            endogenous_rvs,
+            transform_map,
+            transform_param_rvs,
+            panel_info,
         )
-        mus.append(pm.math.dot(X, beta))
+        mus.append(build_mu(ms, resolver, beta, pt.zeros(len(data))))
 
     mu_stacked = pm.math.stack(mus, axis=1)
     y_stacked = np.column_stack([data[v].to_numpy() for v in block_sorted])
@@ -714,17 +908,6 @@ def _validate_residual_cov_families(spec: Spec, families: dict[str, str]) -> Non
 # ---------------------------------------------------------------------------
 
 
-_LAG_RE = re.compile(r"^(.+)_lag(\d+)$")
-
-
-def _parse_lag(col: str) -> tuple[str, int] | None:
-    """Parse ``"var_lag1"`` → ``("var", 1)``, or ``None``."""
-    m = _LAG_RE.match(col)
-    if m:
-        return m.group(1), int(m.group(2))
-    return None
-
-
 def _build_lag_map(spec: Spec) -> dict[str, str]:
     """Map lag term variable names to their base variables.
 
@@ -853,6 +1036,7 @@ def _compile_scan_panel(
 
     reg_by_lhs = {r.lhs: r for r in spec.regressions}
     transform_map = _build_transform_map(spec)
+    mu_specs = build_mu_specs(spec)
     has_ri = _has_random_intercepts(pooling)
     slope_vars = _get_slope_vars(pooling)
 
@@ -1115,62 +1299,19 @@ def _compile_scan_panel(
             new_adstock = dict(prev_adstock_state)
 
             for var in endo_keys:
-                cols = get_predictor_columns(reg_by_lhs[var])
-                fixed = fixed_coeffs_by_var.get(var, {})
                 beta = ns_map.get(f"beta_{var}")
-                mu = pt.zeros(n_units)
 
-                free_idx = 0
-                for col in cols:
-                    if col in fixed:
-                        coef: Any = fixed[col]
-                    else:
-                        assert beta is not None
-                        coef = beta[free_idx]
-                        free_idx += 1
-                    if col == "Intercept":
-                        mu = mu + coef
-                    elif col in transform_map:
-                        tc = transform_map[col]
-                        inp_name = _get_adstock_input(tc)
-                        if inp_name in new_endo:
-                            raw = new_endo[inp_name]
-                        elif inp_name in exog_t:
-                            raw = exog_t[inp_name]
-                        else:
-                            raw = pt.zeros(n_units)
-                        transformed, new_adstock = _apply_step_transform(
-                            tc, raw, new_adstock, ns_map, col
-                        )
-                        mu = mu + coef * transformed
-                    elif ":" in col:
-                        parts = col.split(":")
-                        vals = []
-                        for part in parts:
-                            if part in new_endo:
-                                vals.append(new_endo[part])
-                            elif part in exog_t:
-                                vals.append(exog_t[part])
-                            else:
-                                vals.append(pt.zeros(n_units))
-                        product = vals[0]
-                        for v in vals[1:]:
-                            product = product * v
-                        mu = mu + coef * product
-                    elif col in new_endo:
-                        mu = mu + coef * new_endo[col]
-                    elif col in exog_t:
-                        mu = mu + coef * exog_t[col]
-                    else:
-                        lag = _parse_lag(col)
-                        if lag is None and col in lag_map:
-                            lag = (lag_map[col], 1)
-                        if lag is not None:
-                            base_var, _lag_k = lag
-                            if base_var in prev_endo:
-                                mu = mu + coef * prev_endo[base_var]
-                            elif base_var in prev_exog:
-                                mu = mu + coef * prev_exog[base_var]
+                resolver = _make_scan_resolver(
+                    exog_t,
+                    new_endo,
+                    prev_endo,
+                    prev_exog,
+                    transform_map,
+                    ns_map,
+                    new_adstock,
+                    n_units,
+                )
+                mu = build_mu(mu_specs[var], resolver, beta, pt.zeros(n_units))
 
                 if f"alpha_{var}" in ns_map:
                     mu = mu + ns_map[f"alpha_{var}"]
