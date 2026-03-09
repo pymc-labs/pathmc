@@ -210,7 +210,12 @@ def run_do_pymc(
     if kind == "mean":
         non_float_endo: list[str] = []
         for var in graph_info.topological_order:
-            if var in graph_info.endogenous and var not in set and var not in latent:
+            if var in graph_info.endogenous and var not in set:
+                is_deterministic_latent = var in latent and var not in {
+                    rv.name for rv in gen_model.free_RVs
+                }
+                if is_deterministic_latent:
+                    continue
                 model_var = gen_model[var]
                 if model_var.dtype.startswith("float"):
                     replacements[var] = gen_model[f"mu_{var}"] * 1

@@ -190,17 +190,17 @@ class PathModel:
         """Return a graphviz DAG of the structural model.
 
         Works before sampling. Exogenous nodes are drawn as boxes,
-        endogenous nodes as ellipses. Latent nodes get dashed borders.
-        Labeled coefficients appear on edges.
+        endogenous nodes as ellipses. Latent nodes get dashed borders
+        (bold for stochastic latent). Labeled coefficients appear on edges.
         """
-        return build_dag_viz(self._spec, self._graph_info)
+        return build_dag_viz(self._spec, self._graph_info, families=self._families)
 
     def equations(self) -> EquationList:
         """Return human-readable structural equations.
 
         Works before sampling.
         """
-        return build_equations(self._spec, latent=self._latent)
+        return build_equations(self._spec, latent=self._latent, families=self._families)
 
     def priors(self) -> PriorTable:
         """Return a summary of prior distributions for all parameters.
@@ -1158,6 +1158,7 @@ def simulate(
     data: pd.DataFrame,
     params: dict[str, Any],
     families: dict[str, str] | None = None,
+    latent: list[str] | set[str] | None = None,
     random_seed: int | np.random.Generator | None = None,
 ) -> pd.DataFrame:
     """Simulate data from a pathmc model with known parameter values.
@@ -1193,14 +1194,22 @@ def simulate(
     families : dict[str, str] | None
         Per-variable distribution families (default ``"gaussian"``).
         Supports the same families as :func:`fit`: ``"gaussian"``,
-        ``"bernoulli"``, ``"poisson"``, ``"negbinomial"``, ``"studentt"``.
+        ``"bernoulli"``, ``"poisson"``, ``"negbinomial"``,
+        ``"studentt"``, ``"latent_normal"``.
+    latent : list[str] | set[str] | None
+        Variables to treat as latent (unobserved). These are compiled
+        without a likelihood and their simulated values are included
+        in the output. Deterministic latent nodes have no ``sigma``
+        parameter; stochastic latent nodes (``families={"M":
+        "latent_normal"}``) do.
     random_seed : int | np.random.Generator | None
         Random seed for reproducibility.
 
     Returns
     -------
     pd.DataFrame
-        Copy of *data* with simulated endogenous columns appended.
+        Copy of *data* with simulated endogenous columns appended
+        (including latent variables).
 
     Raises
     ------
@@ -1226,6 +1235,7 @@ def simulate(
     ['X', 'Y']
     """
     spec = parse_spec(spec_string)
+    latent_set = set(latent) if latent else set()
 
     if spec.residual_covs:
         raise NotImplementedError(
@@ -1233,7 +1243,7 @@ def simulate(
             "Use numpy-based simulation for models with correlated residuals."
         )
 
-    graph_info = build_graph(spec)
+    graph_info = build_graph(spec, latent=latent_set)
 
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
@@ -1253,6 +1263,7 @@ def simulate(
         design_matrices,
         families=families,
         graph_info=graph_info,
+        latent=latent_set,
     )
 
     all_rv_names = {rv.name for rv in gen_model.free_RVs}
@@ -1280,14 +1291,27 @@ def simulate(
     fixed_model = pm.do(gen_model, do_dict)
 
     endo_order = [v for v in graph_info.topological_order if v in endo_rv_names]
-    vars_to_draw = [fixed_model[var] for var in endo_order]
 
-    drawn = pm.draw(vars_to_draw, random_seed=random_seed)
+    det_names = {d.name for d in gen_model.deterministics}
+    latent_det_vars = [
+        v
+        for v in graph_info.topological_order
+        if v in latent_set and v not in endo_rv_names and f"mu_{v}" in det_names
+    ]
+
+    vars_to_draw = [fixed_model[var] for var in endo_order]
+    latent_det_tensors = [fixed_model[f"mu_{v}"] for v in latent_det_vars]
+
+    all_to_draw = vars_to_draw + latent_det_tensors
+    drawn = pm.draw(all_to_draw, random_seed=random_seed)
     if not isinstance(drawn, list):
         drawn = [drawn]
 
     result = data.copy()
-    for var, values in zip(endo_order, drawn):
+    n_endo = len(endo_order)
+    for var, values in zip(endo_order, drawn[:n_endo]):
+        result[var] = values
+    for var, values in zip(latent_det_vars, drawn[n_endo:]):
         result[var] = values
 
     return result

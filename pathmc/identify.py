@@ -48,6 +48,7 @@ def adjustment_sets(
         the effect is already identified without adjustment.
     """
     dag = graph_info._dag
+    latent = graph_info.latent
 
     if treatment not in dag.nodes:
         raise ValueError(
@@ -59,7 +60,7 @@ def adjustment_sets(
         )
 
     descendants = nx.descendants(dag, treatment)
-    candidates = set(dag.nodes) - {treatment, outcome} - descendants
+    candidates = set(dag.nodes) - {treatment, outcome} - descendants - latent
 
     mutilated = dag.copy()
     mutilated.remove_edges_from(list(dag.in_edges(treatment)))
@@ -235,10 +236,17 @@ def collider_warnings(
         Human-readable warning strings. Empty if no issues found.
     """
     dag = graph_info._dag
+    latent = graph_info.latent
     warnings_list: list[str] = []
 
     for var in adjustment_vars:
         if var not in dag.nodes:
+            continue
+        if var in latent:
+            warnings_list.append(
+                f"'{var}' is an unobserved (latent) variable and cannot be "
+                f"conditioned on. Remove it from the adjustment set."
+            )
             continue
         parents = list(dag.predecessors(var))
         if len(parents) >= 2:
