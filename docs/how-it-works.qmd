@@ -46,17 +46,12 @@ The user provides a spec string and data; `pathmc.fit()` returns a **`PathModel`
 
 ```{mermaid}
 flowchart LR
-    A["spec string"] --> B["parse_spec()"]
-    B --> C["Spec AST"]
-    C --> D["build_graph()"]
-    D --> E["GraphInfo"]
-    C --> F["compile_to_pymc()"]
-    E --> F
-    F --> G["Generative pm.Model"]
-    G --> H["pm.observe() → Estimation model"]
-    H --> I["PathModel"]
-    I --> J[".sample()"]
-    J --> K[".do() via pm.do()"]
+    A["spec string"] --> B["Parse"]
+    B --> C["Graph"]
+    C --> D["Compile"]
+    D --> E["PathModel"]
+    E --> F[".sample()"]
+    E --> G[".do()"]
 ```
 
 The pipeline has four stages, each adding a layer of information. **Parsing** converts the lavaan-style spec string into a typed AST of dataclasses — pure, no data, no PyMC — so structural errors surface immediately. **Graph construction** converts the AST into a NetworkX DAG, providing topological ordering, exogenous/endogenous classification, cycle detection, and residual covariance blocks — all before touching any data. **Compilation** combines the AST, graph, and user data to emit a generative `pm.Model` where endogenous variables are free random variables wired through their structural equations. Finally, `pm.observe()` conditions the free RVs on observed data to create the **estimation model** used for MCMC. Everything is wrapped in a `PathModel` at `fit()` time so that compilation errors surface immediately — not minutes later when sampling starts.
@@ -78,37 +73,27 @@ Both operations work on the same compiled model. This is what makes pathmc diffe
 
 ## Architecture
 
-The codebase is organized as a core pipeline — parse → graph → compile → model — with simulation, effects, introspection, and identification as lateral modules that `PathModel` orchestrates.
+The codebase is organized as a core pipeline — parse → graph → compile → model — with simulation, effects, introspection, and identification as lateral modules that `PathModel` orchestrates:
+
+- **Core pipeline**: `parse.py` → `graph.py` → `compile.py` → `model.py`
+- **Lateral modules**: `simulate.py`, `effects.py`, `introspect.py`, `identify.py`, `sensitivity.py`
+- **Support**: `transforms.py`, `panel.py`, `exceptions.py`
 
 ```{mermaid}
 %%{init: {'theme': 'default', 'themeVariables': {'fontSize': '16px'}}}%%
 flowchart TD
-    subgraph pipeline ["Core pipeline"]
-        direction LR
-        parse["parse.py<br/>DSL → AST"] --> graph["graph.py<br/>AST → DAG"]
-        graph --> compile["compile.py<br/>DAG + data → pm.Model"]
-        compile --> model["model.py<br/>PathModel facade"]
-    end
+    parse["parse.py"] --> graph["graph.py"]
+    graph --> compile["compile.py"]
+    compile --> model["model.py"]
 
-    subgraph lateral ["Lateral modules"]
-        direction LR
-        simulate["simulate.py<br/>do operator"]
-        effects["effects.py<br/>coefficients, stdyx"]
-        introspect["introspect.py<br/>DAG viz, equations"]
-        identify["identify.py<br/>identification, CI tests"]
-    end
+    model --> simulate["simulate.py"]
+    model --> effects["effects.py"]
+    model --> introspect["introspect.py"]
+    model --> identify["identify.py"]
+    model --> sensitivity["sensitivity.py"]
 
-    subgraph support ["Support"]
-        direction LR
-        transforms["transforms.py<br/>adstock, saturation"]
-        panel["panel.py<br/>panel data"]
-        sensitivity["sensitivity.py<br/>unmeasured confounding"]
-    end
-
-    model --> lateral
-    model --> support
-    compile --> transforms
-    compile --> panel
+    compile --> transforms["transforms.py"]
+    compile --> panel["panel.py"]
 ```
 
 Each layer can be tested independently. The parser is pure (no data, no PyMC). The graph layer works from the AST alone. The compiler brings in data and PyMC but knows nothing about simulation or effects. This separation means the graph structure can be inspected, and identification queries answered, without ever compiling a model.
