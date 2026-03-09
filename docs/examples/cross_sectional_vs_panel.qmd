@@ -408,7 +408,7 @@ model_panel = pathmc.fit(
 model_panel.graph()
 ```
 
-Notice how the pathmc-generated DAG now shows `lag(promo)` as a gray dashed box with a gray dashed temporal arrow from `promo`, making the autoregressive relationship visible.
+Notice how the pathmc-generated DAG shows a **dashed edge** from `promo` to `revenue` labeled "b_lag (t−1)" alongside the solid contemporaneous edge.
 This temporal edge is what the cross-sectional model lacks.
 
 ```{python}

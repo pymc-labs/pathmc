@@ -212,7 +212,7 @@ def build_dag_viz(
 
     for node in graph_info.topological_order:
         if node in lag_nodes:
-            dot.node(node, shape="box", style="dashed", color="gray", fontcolor="gray")
+            continue
         elif node in graph_info.latent:
             if families.get(node) == "latent_normal":
                 dot.node(node, shape="ellipse", style="dashed,bold")
@@ -245,19 +245,12 @@ def build_dag_viz(
                 edge_label = _format_transform(term.transform)
                 if term.label:
                     edge_label = f"{term.label}*{edge_label}"
-            dot.edge(term.variable, reg.lhs, label=edge_label)
+            if term.lag_of is not None:
+                lag_label = f"{edge_label} (t\u22121)" if edge_label else "t\u22121"
+                dot.edge(term.lag_of, reg.lhs, label=lag_label, style="dashed")
+            else:
+                dot.edge(term.variable, reg.lhs, label=edge_label)
             drawn_edges.add((term.variable, reg.lhs))
-
-    for u, v in graph_info.temporal_edges:
-        dot.edge(
-            u,
-            v,
-            style="dashed",
-            color="gray",
-            constraint="false",
-            label="t\u22121",
-            fontcolor="gray",
-        )
 
     for rc in spec.residual_covs:
         dot.edge(rc.var1, rc.var2, style="dashed", dir="both", label="~~")

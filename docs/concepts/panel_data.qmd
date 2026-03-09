@@ -21,8 +21,9 @@ The `lag()` term is a structural part of the formula, not a data preprocessing s
 pathmc computes lag-1 values from the previous time step *within the same unit* — never from a different unit.
 The first time step of each unit has no valid lag and is dropped.
 
-When you call `model.graph()`, lag nodes appear as **gray dashed boxes** connected to their base variable by a **gray dashed arrow** labeled "t−1".
-This temporal edge is visual metadata — it shows which variable the lag derives from but does not affect cycle detection, topological ordering, or causal identification.
+When you call `model.graph()`, lagged terms appear as **dashed edges** labeled with their coefficient and **(t−1)**.
+A self-lag like `lag(Y)` in `Y ~ lag(Y)` renders as a dashed self-loop on Y.
+A cross-variable lag like `lag(X)` in `Y ~ lag(X)` renders as a dashed edge from X to Y, alongside any contemporaneous edge.
 
 ```{dot}
 //| label: fig-panel-lags
