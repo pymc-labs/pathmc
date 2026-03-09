@@ -7,7 +7,7 @@ jupyter: pathmc
 
 Among low-birth-weight babies, maternal smoking appears to *reduce* infant mortality. Taken at face value, this would suggest smoking is protective — an absurd conclusion. The explanation is **collider bias**: conditioning on birth weight, which is caused by *both* smoking and birth defects, opens a spurious path that reverses the true harmful effect of smoking.
 
-This is the **birth-weight paradox** [@pearl2016primer, §3.7; @pearl2018why, Ch. 6; @hernandez2006birth], one of the most counterintuitive results in causal inference. It demonstrates why "control for everything you can measure" is dangerous advice — adding a variable to your model can *create* bias rather than remove it.
+This is the **birth-weight paradox** [@pearl2016primer, §2.3; @pearl2018why, Ch. 6; @hernandez2006birth], one of the most counterintuitive results in causal inference. It demonstrates why "control for everything you can measure" is dangerous advice — adding a variable to your model can *create* bias rather than remove it.
 
 ## The causal structure
 
@@ -251,7 +251,7 @@ The biased model — which conditions on birth weight without accounting for bir
 
 ## Summary
 
-- **Collider bias** arises when you condition on a variable caused by both the treatment and another cause of the outcome [@pearl2016primer, §3.7]. Unlike confounding, it is *created* by analysis choices, not present in the raw data.
+- **Collider bias** arises when you condition on a variable caused by both the treatment and another cause of the outcome [@pearl2016primer, §2.3]. Unlike confounding, it is *created* by analysis choices, not present in the raw data.
 - **The birth-weight paradox** [@hernandez2006birth] is the canonical example: smoking appears protective among low-birth-weight babies because conditioning on birth weight opens a spurious path through birth defects. @fig-collider-scatter makes the reversal visible in the raw mortality rates.
 - **`collider_warnings()`** detects when a proposed adjustment set contains a collider, flagging the risk before you fit a model.
 - **`do()`** computes the interventional effect without requiring manual reasoning about which variables to condition on — the structural model handles it.
