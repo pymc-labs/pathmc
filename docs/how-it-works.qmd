@@ -46,29 +46,30 @@ The user provides a spec string and data; `pathmc.fit()` returns a **`PathModel`
 
 ```{mermaid}
 flowchart LR
-    A["spec string"] --> B["Parse"]
-    B --> C["Graph"]
-    C --> D["Compile"]
-    D --> E["PathModel"]
-    E --> F[".sample()"]
-    E --> G[".do()"]
+    spec["spec string"] --> Parse
+    Parse --> Graph
+    Graph --> Compile
+    data["data"] --> Compile
+    Compile --> gen["generative<br/>pm.Model"]
+    gen -->|"pm.observe()"| sample[".sample()"]
+    gen -->|"pm.do()"| do["causal<br/>effects"]
 ```
 
-The pipeline has four stages, each adding a layer of information. **Parsing** converts the lavaan-style spec string into a typed AST of dataclasses — pure, no data, no PyMC — so structural errors surface immediately. **Graph construction** converts the AST into a NetworkX DAG, providing topological ordering, exogenous/endogenous classification, cycle detection, and residual covariance blocks — all before touching any data. **Compilation** combines the AST, graph, and user data to emit a generative `pm.Model` where endogenous variables are free random variables wired through their structural equations. Finally, `pm.observe()` conditions the free RVs on observed data to create the **estimation model** used for MCMC. Everything is wrapped in a `PathModel` at `fit()` time so that compilation errors surface immediately — not minutes later when sampling starts.
+The pipeline has four stages, each adding a layer of information. **Parsing** converts the lavaan-style spec string into a typed AST of dataclasses — pure, no data, no PyMC — so structural errors surface immediately. **Graph construction** converts the AST into a NetworkX DAG, providing topological ordering, exogenous/endogenous classification, and cycle detection — all before touching any data. **Compilation** combines the AST, graph, and user data to emit a generative `pm.Model` where endogenous variables are free random variables wired through their structural equations. Finally, `pm.observe()` conditions the free RVs on observed data to create the **estimation model** used for MCMC. Everything is wrapped in a `PathModel` at `fit()` time so that compilation errors surface immediately — not minutes later when sampling starts.
 
 The public API is deliberately tiny: `pathmc.fit()` returns a `PathModel`, and everything else — introspection, sampling, causal queries, identification — lives as methods on that object.
 
 
-## The generative model pattern
+## What pathmc automates
 
-The central architectural idea in pathmc is the **generative model**: the compiler emits a `pm.Model` where endogenous variables are *free* random variables (not yet conditioned on data). When building the linear predictor for a downstream variable like `Y ~ b*M + c*X`, the compiler references the free RV for `M` — not the data column. This means the generative model faithfully represents the causal chain `X → M → Y` as a computation graph.
+PyMC already provides the primitives for this workflow — `pm.observe()` conditions free RVs on data for estimation, and `pm.do()` applies graph surgery for causal intervention. The hard part is building the generative model correctly: wiring each endogenous variable's linear predictor through its structural parents (not the data columns), respecting the topological order of the DAG, handling multiple likelihood families, correlated residuals, transforms, and panel structure.
 
-This single generative model supports two derived views:
+That's what pathmc does. You write a lavaan-style spec string; pathmc compiles it into a correctly-structured generative `pm.Model` where PyMC's `observe` and `do` just work. On top of that compiled model, pathmc provides:
 
-- **Estimation**: `pm.observe()` conditions the free RVs on observed data, producing a model that can be sampled with MCMC.
-- **Intervention**: `pm.do()` replaces a variable with a constant (graph surgery), and forward-simulating through the modified graph computes causal effects via [g-computation](https://en.wikipedia.org/wiki/G-computation) (Robins, 1986) with full posterior uncertainty.
-
-Both operations work on the same compiled model. This is what makes pathmc different from just calling PyMC directly: one compilation, two uses.
+- **Introspection** — rendered DAGs, LaTeX equations, prior tables, and design matrices, all before sampling.
+- **Labeled effects** — path-specific coefficients, defined parameters, and stdyx-standardized estimates with full posterior uncertainty.
+- **Causal queries** — `ate()`, `cate()`, `prob()`, and time-forward `simulate()` via g-computation ([Robins, 1986](https://en.wikipedia.org/wiki/G-computation)).
+- **Identification diagnostics** — adjustment sets, collider warnings, implied independence tests, and sensitivity analysis, all derived from the DAG structure.
 
 
 ## Architecture
