@@ -103,7 +103,7 @@ model.test_implications()          # check DAG against data
 **Sensitivity analysis** — causal conclusions rest on untestable assumptions about unmeasured confounding. pathmc quantifies how strong an unmeasured confounder would need to be to overturn your finding.
 
 ```python
-model.sensitivity("X", "Y")       # tipping point analysis
+model.sensitivity("Y", "X")       # tipping point analysis
 ```
 
 
