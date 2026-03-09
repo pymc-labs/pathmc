@@ -410,10 +410,40 @@ def compile_to_pymc(
 
         endogenous_rvs: dict[str, Any] = {}
 
+        var_to_block_idx: dict[str, int] = {}
+        for idx, block in enumerate(blocks):
+            for v in block:
+                var_to_block_idx[v] = idx
+        block_members_seen: dict[int, set[str]] = {i: set() for i in range(len(blocks))}
+        compiled_blocks: set[int] = set()
+
         for var in graph_info.topological_order:
             if var not in reg_by_lhs:
                 continue
+
             if var in block_vars:
+                bidx = var_to_block_idx[var]
+                block_members_seen[bidx].add(var)
+                if (
+                    block_members_seen[bidx] == blocks[bidx]
+                    and bidx not in compiled_blocks
+                ):
+                    block_topo = [
+                        v for v in graph_info.topological_order if v in blocks[bidx]
+                    ]
+                    _compile_residual_block(
+                        blocks[bidx],
+                        data,
+                        mu_specs,
+                        data_vars,
+                        endogenous_rvs,
+                        transform_map,
+                        transform_param_rvs,
+                        panel_info,
+                        priors,
+                        topological_order=block_topo,
+                    )
+                    compiled_blocks.add(bidx)
                 continue
 
             reg = reg_by_lhs[var]
@@ -451,19 +481,6 @@ def compile_to_pymc(
 
             rv = _emit_free_rv(var, mu_det, family, latent, sparse_data, priors)
             endogenous_rvs[var] = rv
-
-        for block in blocks:
-            _compile_residual_block(
-                block,
-                data,
-                mu_specs,
-                data_vars,
-                endogenous_rvs,
-                transform_map,
-                transform_param_rvs,
-                panel_info,
-                priors,
-            )
 
     return pymc_model
 
@@ -713,23 +730,40 @@ def _compile_residual_block(
     transform_param_rvs: dict[str, Any],
     panel_info: PanelInfo | None = None,
     priors: dict[str, Any] | None = None,
+    topological_order: list[str] | None = None,
 ) -> None:
-    """Compile a residual-covariance block as a single MvNormal.
+    """Compile a residual-covariance block.
 
     Uses ``MuSpec`` + resolver so that endogenous predictors wire
     through upstream free RVs, enabling ``pm.do()`` propagation.
-    Emitted as observed MvNormal because MvNormal blocks cannot
-    easily be split into separate free RVs for ``pm.observe``.
+    Creates ``mu_{var}`` deterministics and registers block variables
+    in *endogenous_rvs* so downstream equations wire through the model
+    graph (enabling ``pm.do()`` propagation through block variables).
+
+    Delegates the covariance parameterization and likelihood emission
+    to an :class:`~pathmc.residuals.LKJResidual`.
+
+    Parameters
+    ----------
+    topological_order : list[str] | None
+        Block members in topological order.  When provided, variables
+        are processed in this order to ensure correct wiring when one
+        block member depends on another.
     """
     import pytensor.tensor as pt
 
     from pathmc.priors import _ensure_dims
+    from pathmc.residuals import LKJResidual
 
+    process_order = (
+        topological_order if topological_order is not None else sorted(block)
+    )
     block_sorted = sorted(block)
-    k = len(block_sorted)
 
-    mus = []
-    for var in block_sorted:
+    mu_dict: dict[str, Any] = {}
+    data_dict: dict[str, np.ndarray] = {}
+
+    for var in process_order:
         ms = mu_specs[var]
         has_free = any(s.coeff_type == "free" for s in ms.slots)
         beta = None
@@ -752,20 +786,15 @@ def _compile_residual_block(
             transform_param_rvs,
             panel_info,
         )
-        mus.append(build_mu(ms, resolver, beta, pt.zeros(len(data))))
+        mu = build_mu(ms, resolver, beta, pt.zeros(len(data)))
 
-    mu_stacked = pm.math.stack(mus, axis=1)
-    y_stacked = np.column_stack([data[v].to_numpy() for v in block_sorted])
+        mu_det = pm.Deterministic(f"mu_{var}", mu)
+        endogenous_rvs[var] = mu_det
+        mu_dict[var] = mu
+        data_dict[var] = data[var].to_numpy()
 
-    block_name = "_".join(block_sorted)
-    chol, _, _ = pm.LKJCholeskyCov(
-        f"chol_{block_name}",
-        n=k,
-        eta=2.0,
-        sd_dist=pm.HalfNormal.dist(1.0),
-        compute_corr=True,
-    )
-    pm.MvNormal(f"{block_name}_obs", mu=mu_stacked, chol=chol, observed=y_stacked)
+    structure = LKJResidual()
+    structure.emit(block_sorted, mu_dict, data_dict, priors)
 
 
 def _identify_residual_blocks(spec: Spec) -> tuple[set[str], list[set[str]]]:
