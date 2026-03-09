@@ -1,5 +1,6 @@
 ---
 title: "pathmc"
+jupyter: pathmc
 ---
 
 ![](assets/logo.png){width=75% fig-align="center"}
@@ -23,6 +24,38 @@ model.sample(draws=1000, chains=2)
 model.effects_summary()          # labeled coefficients + defined params
 model.ate("Y", "X", values=(0, 1))   # average treatment effect via do-operator
 model.adjustment_sets("X", "Y")  # check identification from the DAG
+```
+
+```{python}
+#| echo: false
+import numpy as np
+import pandas as pd
+import pathmc
+
+rng = np.random.default_rng(42)
+n = 500
+X = rng.normal(size=n)
+M = 0.5 * X + rng.normal(scale=0.5, size=n)
+Y = 0.8 * M + 0.3 * X + rng.normal(scale=0.5, size=n)
+df = pd.DataFrame({"X": X, "M": M, "Y": Y})
+
+spec = """
+M ~ a*X
+Y ~ b*M + c*X
+indirect := a*b
+"""
+
+model = pathmc.fit(spec, data=df)
+```
+
+```{python}
+#| echo: false
+model.graph()
+```
+
+```{python}
+#| echo: false
+model.equations()
 ```
 
 
