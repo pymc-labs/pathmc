@@ -73,15 +73,65 @@ model.sensitivity("X", "Y")       # tipping point analysis
 
 ## Applied use cases
 
-pathmc isn't just for textbook examples. The [examples gallery](examples/index.qmd) covers real problems across industries:
+pathmc isn't just for textbook examples. The [examples gallery](examples/index.qmd) covers real problems across industries.
 
-[**Marketing mix modeling**](examples/mmm_basic.qmd) — Estimate channel-level ROI with adstock and saturation transforms that capture carry-over effects and diminishing returns. Panel mode handles geo-level data with hierarchical random effects.
+::: {.panel-tabset}
 
-[**Vaccine surrogate endpoints**](examples/vaccine_surrogates.qmd) — Assess whether a biomarker is a valid surrogate for clinical outcomes using mediation analysis and the do-operator. Quantify what fraction of the treatment effect flows through the measured pathway.
+### Marketing mix modeling
 
-[**SaaS conversion funnels**](examples/saas_funnel.qmd) — Model a multi-stage funnel as a causal chain to find which stage has the highest leverage on paid conversion. Simulate "what if we improve onboarding?" scenarios that respect the full causal structure.
+Estimate channel-level ROI with adstock and saturation transforms that capture carry-over effects and diminishing returns. Panel mode handles geo-level data with hierarchical random effects. [Full example &rarr;](examples/mmm_basic.qmd)
 
-[**Dynamic pricing**](examples/dynamic_pricing.qmd) — Estimate true price elasticity from observational data where price and demand are confounded. Panel structure with regional hierarchical effects separates the causal signal from common-cause noise.
+```python
+spec = """
+sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
+      + b_dig*logistic_saturation(adstock(digital, decay=theta_dig), lam=lam_dig)
+      + trend
+"""
+```
+
+`adstock(x, decay=param)` models carry-over effects; `logistic_saturation(x, lam=param)` captures diminishing returns. Both transform parameters are estimated from data alongside the regression coefficients.
+
+### Vaccine surrogates
+
+Assess whether a biomarker is a valid surrogate for clinical outcomes using mediation analysis and the do-operator. Quantify what fraction of the treatment effect flows through the measured pathway. [Full example &rarr;](examples/vaccine_surrogates.qmd)
+
+```python
+spec = """
+antibody     ~ a*vaccine + age
+hospitalized ~ b*antibody + c*vaccine + age + comorbidity
+"""
+```
+
+Labeled coefficients (`a*`, `b*`, `c*`) let you decompose the total effect into indirect (`a*b`, through antibodies) and direct (`c`, bypassing antibodies) pathways.
+
+### SaaS conversion funnels
+
+Model a multi-stage funnel as a causal chain to find which stage has the highest leverage on paid conversion. Simulate "what if we improve onboarding?" scenarios that respect the full causal structure. [Full example &rarr;](examples/saas_funnel.qmd)
+
+```python
+spec = """
+engagement ~ e_ch*channel_quality + e_on*onboarding_score
+activated  ~ a_eng*engagement + a_ch*channel_quality
+converted  ~ c_act*activated + c_eng*engagement
+"""
+```
+
+Each equation models one stage. Multiple equations form the causal chain — effects propagate through the system, so improving onboarding lifts engagement, which lifts activation, which lifts conversion.
+
+### Dynamic pricing
+
+Estimate true price elasticity from observational data where price and demand are confounded. Panel structure with regional hierarchical effects separates the causal signal from common-cause noise. [Full example &rarr;](examples/dynamic_pricing.qmd)
+
+```python
+spec = """
+demand ~ b_price*price + b_lag*lag(price)
+       + b_comp*competitor_price + b_season*season + trend
+"""
+```
+
+`lag(price)` creates the previous period's value automatically in panel mode. Random slopes on `price` (specified at `fit()` time) let each region have its own elasticity, partially pooled toward a population mean.
+
+:::
 
 
 ## Built-in guardrails
