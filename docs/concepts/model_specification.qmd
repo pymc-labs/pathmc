@@ -23,7 +23,7 @@ For a mediation graph `M = aX + ε_M, Y = cX + bM + ε_Y`, the compiler emits `X
 `pm.observe()` conditions on observed data for estimation.
 `pm.do()` replaces variables with constants for interventional reasoning — Pearl's do-operator as PyMC graph surgery.
 
-See [How pathmc Works](../how-it-works.qmd) for the birds-eye architecture overview.
+See the [Overview](../how-it-works.qmd) for the birds-eye architecture overview.
 :::
 
 ## The DSL

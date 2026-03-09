@@ -18,6 +18,8 @@ website:
     left:
       - href: index.qmd
         text: Home
+      - href: how-it-works.qmd
+        text: Overview
       - text: Concepts
         menu:
           - href: concepts/model_specification.qmd
@@ -30,8 +32,8 @@ website:
             text: Panel Data
           - href: concepts/panel_interventions.qmd
             text: Time-Forward Panel Simulation
-      - href: how-it-works.qmd
-        text: How It Works
+          - href: concepts/standardized_effects.qmd
+            text: Standardized Effects
       - href: comparison.qmd
         text: Comparison
       - href: examples/index.qmd
