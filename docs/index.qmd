@@ -5,7 +5,9 @@ jupyter: pathmc
 
 ![](assets/logo.png){width=75% fig-align="center"}
 
-**Specify your causal assumptions as equations. Fit with full Bayesian inference. Simulate interventions and ask "what if?"**
+**Structural causal models, made simple.**
+
+Specify your causal assumptions as equations. Fit with full Bayesian inference. Simulate interventions and ask "what if?"
 
 pathmc compiles a concise formula language into a generative Bayesian model where every variable is wired through its structural parents in the DAG. One call to `fit()` gives you a single object that handles estimation, introspection, causal queries, identification checking, and sensitivity analysis — all with full posterior uncertainty.
 
