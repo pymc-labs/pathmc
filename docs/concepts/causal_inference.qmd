@@ -3,6 +3,7 @@ title: "Causal Inference"
 ---
 
 pathmc implements Pearl's do-operator for **interventional reasoning** and provides tools to check whether causal effects are identifiable from the DAG structure.
+For how pathmc compiles structural equations into a generative PyMC model — and the distinction between the causal DAG and the estimation graph — see the [architecture overview](../how-it-works.qmd#from-structural-equations-to-the-generative-model).
 
 ## Estimand, estimator, estimate
 
@@ -278,3 +279,13 @@ The `do()` operator computes the mechanical consequence of an intervention *give
 Whether that computation has a valid causal interpretation depends entirely on the assumptions encoded in the DAG.
 Always state and defend your causal assumptions before interpreting `do()` results as causal effects.
 :::
+
+## Worked examples
+
+For hands-on demonstrations of the concepts on this page, see:
+
+- [Mediation Analysis](../examples/mediation.qmd) — direct/indirect effects, path-specific contrasts, and the link from manual `do()` to `.ate()`
+- [Do Queries](../examples/do_queries.qmd) — ATE, CATE, ATT/ATU, and contrast arithmetic
+- [Seeing vs Doing](../examples/seeing_vs_doing.qmd) — why conditioning ≠ intervention
+- [Moderation](../examples/moderation.qmd) — interaction terms, CATE, and when ATT ≠ ATU
+- [Simpson's Paradox](../examples/simpsons_paradox.qmd) — confounding and the do-operator
