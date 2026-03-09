@@ -304,15 +304,21 @@ class TestSamplePriorPredictive:
         import arviz as az
 
         m = fit("Y ~ X", simple_data)
-        ppc = m.sample_prior_predictive(samples=5, random_seed=42)
+        ppc = m.sample_prior_predictive(draws=5, random_seed=42)
         assert isinstance(ppc, az.InferenceData)
         assert "prior" in ppc.groups()
 
     def test_prior_predictive_has_model_vars(self, simple_data: pd.DataFrame) -> None:
         m = fit("Y ~ X", simple_data)
-        ppc = m.sample_prior_predictive(samples=5, random_seed=42)
+        ppc = m.sample_prior_predictive(draws=5, random_seed=42)
         assert "beta_Y" in ppc.prior.data_vars
         assert "sigma_Y" in ppc.prior.data_vars
+
+    def test_prior_has_outcome_vars(self, simple_data: pd.DataFrame) -> None:
+        """Outcome variables live in the prior group (free RVs in the generative model)."""
+        m = fit("Y ~ X", simple_data)
+        ppc = m.sample_prior_predictive(draws=5, random_seed=42)
+        assert "Y" in ppc.prior.data_vars
 
 
 # ---------------------------------------------------------------------------

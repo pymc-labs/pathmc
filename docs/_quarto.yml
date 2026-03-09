@@ -22,6 +22,8 @@ website:
         text: Overview
       - text: Concepts
         menu:
+          - href: concepts/bayesian_workflow.qmd
+            text: Bayesian Workflow
           - href: concepts/model_specification.qmd
             text: Model Specification
           - href: concepts/transforms_families.qmd

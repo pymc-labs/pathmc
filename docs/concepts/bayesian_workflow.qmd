@@ -1,0 +1,284 @@
+---
+title: "Bayesian Workflow"
+jupyter: pathmc
+---
+
+Bayesian modeling is iterative. You don't write a model, press "run", and accept whatever comes out. You build up confidence through a cycle of **inspection, simulation, and refinement** — before and after fitting to data.
+
+pathmc supports this workflow directly. Every step — from inspecting priors to simulating interventions — is a method call on the same `PathModel` object.
+
+```{dot}
+//| label: fig-workflow
+//| fig-cap: "The Bayesian workflow in pathmc. The inner loop (prior predictive checks) is fast and iterative. The outer loop (model revision) involves rethinking causal structure."
+//| fig-width: 5.5
+digraph {
+  rankdir=TB
+  node [shape=box, style=rounded, fontsize=12]
+  edge [fontsize=10]
+
+  specify [label="1. Specify model\nfit(spec, data)"]
+  inspect [label="2. Inspect structure\ngraph(), priors(), equations()"]
+  ppc [label="3. Prior predictive check\nsample_prior_predictive()"]
+  plausible [label="Plausible?", shape=diamond]
+  refine [label="4. Refine priors\nset_priors()"]
+  sample [label="5. Sample\nsample()"]
+  check [label="6. Posterior checks\nsummary(), predict()"]
+  goodfit [label="Good fit?", shape=diamond]
+  revise [label="Revise model", style="rounded,dashed"]
+  causal [label="7. Causal queries\nate(), do(), prob()"]
+
+  specify -> inspect
+  inspect -> ppc
+  ppc -> plausible
+  plausible -> refine [label="No"]
+  refine -> ppc
+  plausible -> sample [label="Yes"]
+  sample -> check
+  check -> goodfit
+  goodfit -> revise [label="No"]
+  revise -> specify
+  goodfit -> causal [label="Yes"]
+}
+```
+
+Each step is one or two method calls. We walk through the full cycle below on a simple mediation model.
+
+
+## Simulate data
+
+We use synthetic data with known coefficients so we can verify recovery at each stage.
+
+```{python}
+import numpy as np
+import pandas as pd
+
+rng = np.random.default_rng(42)
+n = 500
+
+X = rng.normal(size=n)
+M = 0.5 * X + rng.normal(scale=0.3, size=n)
+Y = 0.8 * M + 0.3 * X + rng.normal(scale=0.3, size=n)
+
+df = pd.DataFrame({"X": X, "M": M, "Y": Y})
+```
+
+True values: $a = 0.5$, $b = 0.8$, $c = 0.3$.
+
+
+## 1. Specify the model
+
+Write causal assumptions as structural equations. `fit()` compiles the spec and data into a `PathModel` — ready for inspection — without sampling.
+
+```{python}
+import pathmc
+from pathmc import Prior
+
+spec = """
+M ~ a*X
+Y ~ b*M + c*X
+indirect := a*b
+"""
+
+model = pathmc.fit(spec, data=df)
+```
+
+
+## 2. Inspect structure
+
+Before spending any compute on sampling, verify that the model encodes what you intend.
+
+```{python}
+model.graph()
+```
+
+```{python}
+model.equations()
+```
+
+`priors()` is particularly important — it shows the exact distribution assigned to every parameter, including defaults you may not have thought about.
+
+```{python}
+model.priors()
+```
+
+The defaults are deliberately vague: `Normal(0, 10)` for regression coefficients and `HalfNormal(1)` for residual scales. These work out of the box, but domain knowledge almost always lets you do better.
+
+
+## 3. Prior predictive check
+
+A prior predictive check asks: *if we generated data from our priors (without seeing real data), would it look remotely plausible?*
+
+```{python}
+ppc_default = model.sample_prior_predictive(draws=500, random_seed=42)
+```
+
+```{python}
+#| label: fig-ppc-default
+#| fig-cap: "Prior predictive distribution of Y under default priors. The tails extend well beyond the observed data range, indicating the model considers extreme outcomes plausible."
+#| code-fold: true
+
+import matplotlib.pyplot as plt
+
+FIG_WIDTH = 7
+FIG_HEIGHT = 3.5
+COLOR_DEFAULT = "#1b9e77"
+COLOR_CUSTOM = "#d95f02"
+
+y_prior = ppc_default.prior["Y"].values.flatten()
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.hist(y_prior, bins=80, density=True, alpha=0.6, color=COLOR_DEFAULT,
+        edgecolor="white", linewidth=0.3, label="Prior predictive (defaults)")
+ax.axvline(df["Y"].mean(), color="black", linestyle="--", linewidth=1.5,
+           label=f"Observed mean = {df['Y'].mean():.2f}")
+ax.set_xlabel("Y")
+ax.set_ylabel("Density")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+The default priors generate Y values spanning a huge range. For this dataset, where Y lives roughly in $[-2, 2]$, coefficients of $\pm 10$ are implausible. We can do better.
+
+
+## 4. Refine priors
+
+`set_priors()` merges overrides into the current configuration and recompiles. Only the parameters you specify change.
+
+```{python}
+model.set_priors({
+    "beta_M": Prior("Normal", mu=0, sigma=2),
+    "beta_Y": Prior("Normal", mu=0, sigma=2),
+    "sigma_M": Prior("HalfNormal", sigma=0.5),
+    "sigma_Y": Prior("HalfNormal", sigma=0.5),
+})
+
+model.priors()
+```
+
+Now re-check: do the refined priors generate plausible data?
+
+```{python}
+ppc_custom = model.sample_prior_predictive(draws=500, random_seed=42)
+```
+
+```{python}
+#| label: fig-ppc-comparison
+#| fig-cap: "Prior predictive distributions under default (green) and refined (orange) priors. The refined priors concentrate mass in the plausible range."
+#| code-fold: true
+
+y_default = ppc_default.prior["Y"].values.flatten()
+y_custom = ppc_custom.prior["Y"].values.flatten()
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+clip = (-15, 15)
+ax.hist(y_default, bins=80, density=True, alpha=0.45, color=COLOR_DEFAULT,
+        edgecolor="white", linewidth=0.3, label="Default priors", range=clip)
+ax.hist(y_custom, bins=80, density=True, alpha=0.55, color=COLOR_CUSTOM,
+        edgecolor="white", linewidth=0.3, label="Refined priors", range=clip)
+ax.axvline(df["Y"].mean(), color="black", linestyle="--", linewidth=1.5,
+           label=f"Observed mean = {df['Y'].mean():.2f}")
+ax.set_xlabel("Y")
+ax.set_ylabel("Density")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+The refined priors concentrate probability mass in the plausible range — much better. The model still allows coefficients up to $\pm 4$--$6$ (generous), but no longer considers coefficients of 10 or 20 as likely.
+
+::: {.callout-tip}
+## This loop is cheap
+
+`sample_prior_predictive()` draws from priors without MCMC — it runs in seconds. Iterate as many times as needed before committing to a full posterior fit.
+:::
+
+
+## 5. Sample
+
+With priors that generate plausible data, run MCMC.
+
+```{python}
+model.sample(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+
+## 6. Posterior checks
+
+### Convergence diagnostics
+
+Check R-hat and effective sample size. All R-hat values should be close to 1.0.
+
+```{python}
+model.summary()
+```
+
+### Effects summary
+
+Do the estimated coefficients match what we expect? With known true values ($a = 0.5$, $b = 0.8$, $c = 0.3$), we can verify recovery.
+
+```{python}
+model.effects_summary()
+```
+
+### Posterior predictive check
+
+Can the fitted model reproduce the observed data?
+
+```{python}
+#| label: fig-ppc-posterior
+#| fig-cap: "Posterior predictive check: distribution of predicted Y values (orange) vs observed Y values (green)."
+#| code-fold: true
+
+pp = model.predict()
+y_pred = pp.posterior_predictive["Y"].values.flatten()
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.hist(df["Y"], bins=40, density=True, alpha=0.5, color=COLOR_DEFAULT,
+        edgecolor="white", linewidth=0.3, label="Observed Y")
+ax.hist(y_pred, bins=40, density=True, alpha=0.5, color=COLOR_CUSTOM,
+        edgecolor="white", linewidth=0.3, label="Posterior predictive Y")
+ax.set_xlabel("Y")
+ax.set_ylabel("Density")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+
+## 7. Causal queries
+
+With a well-checked model, causal queries carry full posterior uncertainty through the structural equations via g-computation.
+
+```{python}
+model.ate("Y", "X", values=(0, 1))
+```
+
+```{python}
+model.effect("X -> M -> Y")
+```
+
+The ATE should be close to the true total effect ($a \times b + c = 0.5 \times 0.8 + 0.3 = 0.7$), and the indirect effect through M should be close to $a \times b = 0.4$.
+
+
+## Summary
+
+| Step | Method | Cost |
+|------|--------|------|
+| Specify | `pathmc.fit(spec, data)` | Instant |
+| Inspect | `graph()`, `equations()`, `priors()` | Instant |
+| Prior predictive check | `sample_prior_predictive()` | Seconds |
+| Refine priors | `set_priors()` | Instant |
+| Sample | `sample()` | Minutes |
+| Posterior checks | `summary()`, `effects_summary()`, `predict()` | Seconds |
+| Causal queries | `ate()`, `do()`, `prob()`, `effect()` | Seconds |
+
+The first four steps form a fast inner loop that you can repeat many times before committing to MCMC. The outer loop — revising the model specification itself — is for when posterior checks reveal structural problems.
+
+
+## Further reading
+
+- [Custom Priors](../examples/custom_priors.qmd) — deeper dive into prior specification with hierarchical priors and different distribution families
+- [Model Specification](model_specification.qmd) — DSL syntax reference
+- [Causal Inference](causal_inference.qmd) — the do-operator and g-computation
+- [Standardized Effects](standardized_effects.qmd) — comparing effect sizes across scales

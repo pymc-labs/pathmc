@@ -91,7 +91,7 @@ Each layer can be tested independently. The parser is pure (no data, no PyMC). T
 
 After `model = pathmc.fit(spec, data=df)`, the `PathModel` object provides methods in five groups:
 
-**Before sampling** — inspect structure without fitting: `graph()` renders the causal DAG, `equations()` and `priors()` display the structural equations and prior distributions (with LaTeX rendering in notebooks), and `design(var)` shows the design matrix for any equation.
+**Before sampling** — inspect structure without fitting: `graph()` renders the causal DAG, `equations()` and `priors()` display the structural equations and prior distributions (with LaTeX rendering in notebooks), and `design(var)` shows the design matrix for any equation. `sample_prior_predictive()` generates data from your priors to verify they encode plausible assumptions, and `set_priors()` lets you refine them — all without MCMC. See [Bayesian Workflow](concepts/bayesian_workflow.qmd) for the full iterative cycle.
 
 **Estimation** — `sample()` runs MCMC on the estimation model and `predict()` generates posterior predictive draws.
 

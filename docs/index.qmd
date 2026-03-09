@@ -65,13 +65,14 @@ model.model_equations()
 
 A single spec string unlocks the full causal analysis toolkit.
 
-**Introspection** — inspect the model before spending any time sampling. Render the causal DAG, display structural equations with LaTeX, review default priors, and check the design matrix for any equation.
+**Introspection** — inspect the model before spending any time sampling. Render the causal DAG, display structural equations with LaTeX, review default priors, run prior predictive checks, and refine priors iteratively — all without MCMC.
 
 ```python
-model.graph()          # causal DAG plot
-model.equations()      # LaTeX structural equations
-model.priors()         # prior table
-model.design("Y")     # design matrix for the Y equation
+model.graph()                           # causal DAG plot
+model.equations()                       # LaTeX structural equations
+model.priors()                          # prior table
+model.sample_prior_predictive()         # simulate data from priors
+model.set_priors({"beta_Y": Prior(...)})  # refine and recompile
 ```
 
 **Estimation** — fit the structural model with MCMC. Get posterior summaries, labeled coefficients with uncertainty, path-specific effects, and stdyx-standardized coefficients for comparing effect sizes across variables on different scales.
@@ -184,6 +185,7 @@ The goal is responsible causal inference: make it easy to ask hard questions abo
 ## Getting started
 
 - [Overview](how-it-works.qmd) — how pathmc works, from spec to causal insight
+- [Bayesian workflow](concepts/bayesian_workflow.qmd) — the iterative cycle of inspect, check, refine, fit, and query
 - [Model specification](concepts/model_specification.qmd) — DSL syntax: `~`, `~~`, `:=`, labels, transforms
 - [Causal inference](concepts/causal_inference.qmd) — the do-operator, g-computation, identification
 - [Examples](examples/index.qmd) — worked notebooks across mediation, MMM, panel data, and more
