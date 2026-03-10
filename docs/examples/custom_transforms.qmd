@@ -1,0 +1,298 @@
+---
+title: "Custom Transforms"
+description: "Define domain-specific nonlinearities with estimable parameters and use them in the pathmc DSL."
+categories: [Transforms, Extensibility]
+jupyter: pathmc
+---
+
+pathmc ships with `adstock` and `logistic_saturation` for marketing mix models, but many domains need different functional forms.
+A pharmacologist modeling dose-response needs a [Hill function](https://en.wikipedia.org/wiki/Hill_equation_(biochemistry)); an ecologist modeling growth needs a Monod curve; a psychophysicist modeling perception needs a Weibull function.
+The transform registry lets you define exactly the nonlinearity your domain requires, with parameters estimated jointly alongside the structural coefficients.
+
+This tutorial walks through the full lifecycle: define a custom transform, register it, use it in the DSL, fit, and verify that `do()` recomputes the transform correctly under interventions.
+
+## The scenario: dose-response with a Hill function
+
+A researcher runs a dose-response experiment: subjects receive different doses of a compound and their response is measured.
+The relationship is nonlinear --- response saturates at high doses --- and the specific shape follows the Hill equation:
+
+$$
+f(x; n, K) = \frac{x^n}{K^n + x^n}
+$$
+
+where $K$ is the dose at which response reaches half its maximum (the **EC50**), and $n$ controls the steepness of the curve (the **Hill coefficient**).
+Neither of pathmc's built-in transforms captures this shape, so we need a custom one.
+
+```{dot}
+//| label: fig-dag
+//| fig-cap: "Causal structure: dose determines response via a Hill-shaped nonlinearity. The transform parameters n and K are estimated from data."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  node [fontsize=11]
+  dose -> response [label="  hill(n, K)"]
+}
+```
+
+## Step 1: Define the transform
+
+A custom transform subclasses `Transform` and provides three things:
+
+- **`name`** --- the identifier used in the DSL
+- **`param_specs`** --- a dict mapping parameter names to `ParamSpec` objects that declare constraints and default priors
+- **`apply_pymc()`** --- the forward computation using PyTensor-compatible operations
+
+```{python}
+from pathmc.transforms import Transform, ParamSpec, register_transform
+
+
+class Hill(Transform):
+    """Hill saturation: f(x; n, K) = x^n / (K^n + x^n)."""
+
+    name = "hill"
+    param_specs = {
+        "n": ParamSpec(constraint="positive", default_prior="HalfNormal(1)"),
+        "K": ParamSpec(constraint="positive", default_prior="HalfNormal(1)"),
+    }
+
+    def apply_pymc(self, x, params, *, panel_info=None, data=None):
+        n = params["n"]
+        K = params["K"]
+        return x**n / (K**n + x**n)
+```
+
+::: {.callout-note}
+## How constraints map to default priors
+
+The `constraint` field in `ParamSpec` determines the automatic prior:
+
+| Constraint | Default prior | Support |
+|---|---|---|
+| `"positive"` | `HalfNormal(sigma=1)` | $(0, \infty)$ |
+| `"unit_interval"` | `Beta(alpha=2, beta=2)` | $(0, 1)$ |
+| anything else | `Normal(mu=0, sigma=10)` | $(-\infty, \infty)$ |
+
+These defaults are reasonable starting points. For domain-specific knowledge, override them via `priors={}` at fit time --- just like any other model parameter (see [Custom Priors](custom_priors.qmd)).
+:::
+
+The Hill transform is **pointwise** --- each observation is transformed independently, with no dependence on previous time steps. That means we can use the default `has_state = False` and `step()` implementations inherited from `Transform`. Transforms that carry state across time (like `adstock`) would override these; see the [built-in Adstock implementation](https://github.com/pymc-labs/pathmc/blob/main/pathmc/transforms.py) for an example.
+
+## Step 2: Register and use in the DSL
+
+Registration makes the transform available by name in the model specification string.
+
+```{python}
+register_transform(Hill())
+```
+
+Once registered, the transform works like any built-in --- same DSL syntax, same prior introspection, same `do()` support.
+
+## Simulate data with known parameters
+
+To verify the transform works correctly, we generate data from a known Hill curve and check that pathmc recovers the true parameters.
+
+```{python}
+import numpy as np
+import pandas as pd
+
+rng = np.random.default_rng(42)
+n_obs = 200
+
+TRUE_N = 2.0
+TRUE_K = 5.0
+TRUE_B = 100.0
+TRUE_SIGMA = 3.0
+
+dose = rng.uniform(0.5, 20, size=n_obs)
+hill_value = dose**TRUE_N / (TRUE_K**TRUE_N + dose**TRUE_N)
+response = TRUE_B * hill_value + rng.normal(0, TRUE_SIGMA, size=n_obs)
+
+df = pd.DataFrame({"dose": dose, "response": response})
+```
+
+True values: $n = 2$, $K = 5$, $b = 100$, $\sigma = 3$.
+
+```{python}
+#| code-fold: true
+import matplotlib.pyplot as plt
+
+FIG_WIDTH = 7
+FIG_HEIGHT = 3.5
+
+COLOR_DATA = "#bdbdbd"
+COLOR_TRUE = "black"
+COLOR_POSTERIOR = "#d95f02"
+```
+
+```{python}
+#| label: fig-data
+#| fig-cap: "Simulated dose-response data (grey) with the true Hill curve (black dashed). The curve saturates near the maximum response of 100 as dose increases."
+#| code-fold: true
+
+dose_grid = np.linspace(0.5, 20, 200)
+true_curve = TRUE_B * dose_grid**TRUE_N / (TRUE_K**TRUE_N + dose_grid**TRUE_N)
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.scatter(df["dose"], df["response"], color=COLOR_DATA, s=15, alpha=0.6,
+           label="Observed data", zorder=2)
+ax.plot(dose_grid, true_curve, color=COLOR_TRUE, linestyle="--", linewidth=2,
+        label="True Hill curve", zorder=3)
+ax.set_xlabel("Dose")
+ax.set_ylabel("Response")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+## Fit the model
+
+The DSL syntax for transforms follows the pattern `transform_name(variable, param1=name1, param2=name2)`. The parameter names on the right-hand side of `=` become the names of the estimated quantities in the posterior.
+
+```{python}
+import pathmc
+from pathmc import Prior
+
+spec = "response ~ b * hill(dose, n=n, K=K)"
+
+model = pathmc.fit(
+    spec,
+    data=df,
+    priors={
+        "n": Prior("HalfNormal", sigma=3),
+        "K": Prior("HalfNormal", sigma=10),
+    },
+)
+```
+
+::: {.callout-tip}
+## Why override the default priors?
+
+The default `HalfNormal(sigma=1)` for both `n` and `K` would concentrate mass near zero --- fine as a generic starting point, but we know that $K$ is measured in dose units (plausibly 1--20) and $n$ is typically 1--4 in pharmacology. Wider priors let the data speak without forcing unrealistically small values.
+:::
+
+```{python}
+model.priors()
+```
+
+The priors table shows both the structural parameters (`b`, `sigma_response`) and the transform parameters (`n`, `K`). Transform parameters are first-class model parameters --- they appear in the posterior, respond to `set_priors()`, and propagate uncertainty through `do()`.
+
+```{python}
+idata = model.sample(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+## Parameter recovery
+
+```{python}
+model.effects_summary()
+```
+
+```{python}
+#| label: fig-posteriors
+#| fig-cap: "Posterior distributions for the Hill parameters n and K, with true values (black dashed). Both parameters are well-recovered."
+#| code-fold: true
+
+import arviz as az
+fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+for ax, var, true_val, label in zip(
+    axes,
+    ["n", "K"],
+    [TRUE_N, TRUE_K],
+    ["n (Hill coefficient)", "K (EC50)"],
+):
+    draws = idata.posterior[var].values.flatten()
+    ax.hist(draws, bins=40, density=True, alpha=0.6, color=COLOR_POSTERIOR,
+            edgecolor="white", linewidth=0.3)
+    ax.axvline(true_val, color=COLOR_TRUE, linestyle="--", linewidth=1.5,
+               label=f"True = {true_val}")
+    ax.set_xlabel(label)
+    ax.set_ylabel("Density")
+    ax.legend(fontsize=9)
+
+plt.tight_layout()
+plt.show()
+```
+
+## Interventional predictions with `do()`
+
+The real payoff of a custom transform is that `do()` recomputes it automatically. When we intervene on `dose`, the Hill function is re-evaluated at the new dose using posterior draws of `n` and `K`, propagating parameter uncertainty through the nonlinearity.
+
+```{python}
+dose_grid_do = np.linspace(0.5, 20, 30)
+
+means = []
+hdis = []
+for d in dose_grid_do:
+    result = model.do(set={"dose": d})
+    means.append(result.mean("response"))
+    hdis.append(result.hdi("response", prob=0.94))
+
+means = np.array(means)
+hdis = np.array(hdis)
+```
+
+```{python}
+#| label: fig-do-curve
+#| fig-cap: "Posterior predictive response curve under do(dose = d) for a range of doses. The orange band shows the 94% HDI; the true curve is recovered with appropriate uncertainty."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+ax.fill_between(dose_grid_do, hdis[:, 0], hdis[:, 1],
+                alpha=0.3, color=COLOR_POSTERIOR, label="94% HDI")
+ax.plot(dose_grid_do, means, color=COLOR_POSTERIOR, linewidth=2,
+        label="Posterior mean", zorder=3)
+ax.plot(dose_grid, true_curve, color=COLOR_TRUE, linestyle="--", linewidth=1.5,
+        label="True curve", zorder=4)
+ax.scatter(df["dose"], df["response"], color=COLOR_DATA, s=10, alpha=0.4,
+           zorder=1)
+ax.set_xlabel("Dose")
+ax.set_ylabel("Response")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+The `do()` curve closely tracks the true Hill function, with the HDI band widening where data is sparse. This is the standard Bayesian behavior: uncertainty grows where the model has less information.
+
+## Answering causal questions
+
+With the fitted model, we can answer dose-comparison questions directly. For example: what is the expected gain in response from increasing dose from 2 to 10?
+
+```{python}
+baseline = model.do(set={"dose": 2})
+increased = model.do(set={"dose": 10})
+contrast = increased - baseline
+
+print(f"Expected response at dose=2:  {baseline.mean('response'):.1f}  "
+      f"{baseline.hdi('response')}")
+print(f"Expected response at dose=10: {increased.mean('response'):.1f}  "
+      f"{increased.hdi('response')}")
+print(f"Causal effect of dose 2→10:   {contrast.mean('response'):.1f}  "
+      f"{contrast.hdi('response')}")
+```
+
+The contrast gives the full posterior distribution of the causal effect, including uncertainty from all model parameters --- the coefficient `b`, the Hill parameters `n` and `K`, and the residual noise.
+
+## Summary
+
+- **Subclass `Transform`** with a `name`, `param_specs` dict, and `apply_pymc()` method. The method receives PyTensor tensors and must return a tensor.
+- **`ParamSpec`** declares the constraint (`"positive"`, `"unit_interval"`) and a human-readable default prior string. The constraint determines the automatic prior distribution.
+- **`register_transform()`** makes the transform available in the DSL. Call it before `pathmc.fit()`.
+- **DSL syntax** is `transform_name(variable, param=name)`. Parameter names become posterior quantities with full uncertainty.
+- **Priors** for transform parameters can be overridden via `priors={}` at fit time, just like structural coefficients.
+- **`do()`** recomputes the transform under interventions automatically --- no extra code needed. Parameter uncertainty propagates through the nonlinearity.
+- **Pointwise transforms** (no temporal dependence) only need `apply_pymc()`. For stateful transforms (carry-over effects), override `has_state` and `step()`.
+
+::: {.callout-note}
+## Bring your own nonlinearity
+
+What functional forms matter in your domain? A few candidates:
+
+- **Pharmacology**: Michaelis-Menten kinetics ($v = V_{\max} \cdot [S] / (K_m + [S])$) --- structurally identical to Hill with $n = 1$.
+- **Ecology**: Monod growth ($\mu = \mu_{\max} \cdot S / (K_s + S)$) for nutrient-limited growth curves.
+- **Psychophysics**: power-law transforms ($y = x^\alpha$) for Stevens' law, where a single estimable exponent captures the perceptual nonlinearity.
+- **Economics**: CES production functions with estimable elasticity of substitution.
+
+Each of these is a few lines of `apply_pymc()` away from a working pathmc transform.
+:::
