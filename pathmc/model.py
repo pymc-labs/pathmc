@@ -436,17 +436,6 @@ class PathModel:
             self._idata = pm.sample(**kwargs)
         return self._idata
 
-    def sample(self, **kwargs: Any) -> az.InferenceData:
-        """Deprecated alias for :meth:`fit`. Will be removed in a future release."""
-        warnings.warn(
-            ".sample() is deprecated. Use .fit() instead — it runs MCMC "
-            "and stores the posterior. .sample() will be removed in a "
-            "future release.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.fit(**kwargs)
-
     def predict(self, **kwargs: Any) -> az.InferenceData:
         """Run posterior predictive sampling.
 
@@ -1247,36 +1236,6 @@ def model(
         pooling=pooling,
         latent=latent_set,
         priors=priors,
-    )
-
-
-def fit(
-    spec_string: str,
-    data: pd.DataFrame,
-    families: dict[str, str] | None = None,
-    panel: dict[str, str] | None = None,
-    pooling: str | dict | None = None,
-    latent: list[str] | None = None,
-    priors: dict[str, Any] | None = None,
-    **kwargs: Any,
-) -> PathModel:
-    """Deprecated alias for :func:`model`. Will be removed in a future release."""
-    warnings.warn(
-        "pathmc.fit() is deprecated. Use pathmc.model() instead — "
-        "it returns a PathModel ready for inspection and fitting. "
-        "pathmc.fit() will be removed in a future release.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return model(
-        spec_string,
-        data,
-        families=families,
-        panel=panel,
-        pooling=pooling,
-        latent=latent,
-        priors=priors,
-        **kwargs,
     )
 
 
