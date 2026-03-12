@@ -30,6 +30,8 @@ website:
             text: Transforms and Families
           - href: concepts/causal_inference.qmd
             text: Causal Inference
+          - href: concepts/estimation_approaches.qmd
+            text: Estimation Approaches
           - href: concepts/panel_data.qmd
             text: Panel Data
           - href: concepts/panel_interventions.qmd
