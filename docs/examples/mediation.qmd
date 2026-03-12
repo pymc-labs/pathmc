@@ -63,7 +63,7 @@ indirect := a*b
 total := c + a*b
 """
 
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 ```
 
 ## Inspect the model
@@ -100,7 +100,7 @@ The PyMC graph shows the estimation model — the generative model conditioned o
 ## Sample from the posterior
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ## Posterior summary

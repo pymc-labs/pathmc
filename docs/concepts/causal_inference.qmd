@@ -107,7 +107,7 @@ digraph {
 ```
 
 ```python
-model.sample(draws=1000, chains=2)
+model.fit(draws=1000, chains=2)
 
 baseline = model.do(set={"X": 0.0})
 treatment = model.do(set={"X": 1.0})

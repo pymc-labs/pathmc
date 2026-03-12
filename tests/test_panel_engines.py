@@ -31,13 +31,13 @@ def simple_panel():
                 {"region": region, "week": week, "spend": spend, "sales": sales}
             )
     df = pd.DataFrame(rows)
-    model = pathmc.fit(
+    model = pathmc.model(
         "sales ~ spend",
         data=df,
         panel={"unit": "region", "time": "week"},
         pooling="partial",
     )
-    model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
     return model
 
 
@@ -54,13 +54,13 @@ def lag_panel():
                 {"region": region, "week": week, "spend": spend, "sales": sales}
             )
     df = pd.DataFrame(rows)
-    model = pathmc.fit(
+    model = pathmc.model(
         "sales ~ spend + lag(sales)",
         data=df,
         panel={"unit": "region", "time": "week"},
         pooling="partial",
     )
-    model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
     return model
 
 
@@ -86,14 +86,14 @@ def adstock_panel():
                 }
             )
     df = pd.DataFrame(rows)
-    model = pathmc.fit(
+    model = pathmc.model(
         "sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)"
         " + trend",
         data=df,
         panel={"unit": "region", "time": "week"},
         pooling="partial",
     )
-    model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
     return model
 
 
@@ -320,4 +320,4 @@ class TestInputValidation:
         n = 50
         df = pd.DataFrame({"X": rng.normal(size=n), "Y": rng.normal(size=n)})
         with pytest.raises(ValueError, match="panel"):
-            pathmc.fit("Y ~ lag(X)", data=df)
+            pathmc.model("Y ~ lag(X)", data=df)

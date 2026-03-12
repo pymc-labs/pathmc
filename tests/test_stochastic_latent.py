@@ -27,7 +27,7 @@ class TestStochasticLatentCompilation:
         return pd.DataFrame({"X": X, "Y": Y})
 
     def test_compiles_with_latent_normal(self, chain_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "M ~ X\nY ~ M",
             data=chain_data,
             latent=["M"],
@@ -36,7 +36,7 @@ class TestStochasticLatentCompilation:
         assert model.pymc_model is not None
 
     def test_latent_normal_has_sigma(self, chain_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "M ~ X\nY ~ M",
             data=chain_data,
             latent=["M"],
@@ -47,7 +47,7 @@ class TestStochasticLatentCompilation:
         assert "sigma_Y" in free_names
 
     def test_latent_normal_is_free_rv(self, chain_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "M ~ X\nY ~ M",
             data=chain_data,
             latent=["M"],
@@ -57,7 +57,7 @@ class TestStochasticLatentCompilation:
         assert "M" in free_names
 
     def test_latent_normal_not_observed(self, chain_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "M ~ X\nY ~ M",
             data=chain_data,
             latent=["M"],
@@ -91,7 +91,7 @@ class TestSparseMeasurement:
         return pd.DataFrame({"X": X, "Y": Y, "M_obs": M_obs})
 
     def test_sparse_compiles(self, sparse_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "M ~ X\nY ~ M\nM_obs ~ 0 + 1*M",
             data=sparse_data,
             latent=["M"],
@@ -99,7 +99,7 @@ class TestSparseMeasurement:
         assert model.pymc_model is not None
 
     def test_sparse_observed_is_masked(self, sparse_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "M ~ X\nY ~ M\nM_obs ~ 0 + 1*M",
             data=sparse_data,
             latent=["M"],
@@ -110,7 +110,7 @@ class TestSparseMeasurement:
 
     def test_sparse_with_latent_normal(self, sparse_data):
         """Stochastic latent + sparse measurement together."""
-        model = pathmc.fit(
+        model = pathmc.model(
             "M ~ X\nY ~ M\nM_obs ~ 0 + 1*M",
             data=sparse_data,
             latent=["M"],
@@ -139,7 +139,7 @@ class TestStochasticLatentIntrospection:
         X = rng.normal(size=n)
         Y = 0.5 * X + rng.normal(scale=0.5, size=n)
         df = pd.DataFrame({"X": X, "Y": Y})
-        return pathmc.fit(
+        return pathmc.model(
             "M ~ X\nY ~ M",
             data=df,
             latent=["M"],
@@ -206,13 +206,13 @@ class TestStochasticLatentDo:
         M_obs[obs_idx] = M_true[obs_idx] + rng.normal(scale=0.2, size=len(obs_idx))
         df = pd.DataFrame({"X": X, "Y": Y, "M_obs": M_obs})
 
-        model = pathmc.fit(
+        model = pathmc.model(
             "M ~ X\nY ~ M\nM_obs ~ 0 + 1*M",
             data=df,
             latent=["M"],
             families={"M": "latent_normal"},
         )
-        model.sample(draws=200, tune=200, chains=2, random_seed=42)
+        model.fit(draws=200, tune=200, chains=2, random_seed=42)
         return model
 
     @pytest.mark.slow

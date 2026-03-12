@@ -81,7 +81,7 @@ indirect2 := a2*b2
 total     := c + a1*b1 + a2*b2
 """
 
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 model.model_equations()
 ```
 
@@ -94,7 +94,7 @@ model.graph()
 ## Sample
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ## Results

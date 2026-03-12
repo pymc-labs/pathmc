@@ -118,12 +118,12 @@ The left panel shows the aggregate trend: the drug group has *lower* mean recove
 A simple regression of recovery on drug — without adjusting for gender — conflates the causal effect with confounding.
 
 ```{python}
-naive_model = pathmc.fit("recovery ~ drug", data=df)
+naive_model = pathmc.model("recovery ~ drug", data=df)
 naive_model.model_equations()
 ```
 
 ```{python}
-naive_model.sample(draws=500, tune=500, chains=4, random_seed=42)
+naive_model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ```{python}
@@ -144,7 +144,7 @@ drug ~ gender
 recovery ~ b_drug*drug + gender
 """
 
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 model.graph()
 ```
 
@@ -164,7 +164,7 @@ print(f"Adjustment sets: {model.adjustment_sets('drug', 'recovery')}")
 pathmc confirms that conditioning on `{gender}` is necessary and sufficient.
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 With the correctly specified DAG, we can now answer the causal question in a single call. The `.ate()` method automates the full interventional pipeline: it performs graph surgery on the fitted structural model, propagates each intervention value through the causal chain using posterior draws, and returns a complete posterior distribution over the treatment contrast. No manual subsetting, no formula derivations — just specify the outcome, treatment, and contrast values. (See [Causal Inference](../concepts/causal_inference.qmd) for the full API, including conditional effects with `.cate()` and probability queries with `.prob()`.)

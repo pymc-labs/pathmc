@@ -138,7 +138,7 @@ These are models that PyMC itself can handle but the pathmc DSL cannot encode. E
 
 #### 1c. Custom priors
 
-**What's missing**: The `fit()` function accepts `**kwargs` for future options, and the transform system has `emit_prior()`, but there is no user-facing API for specifying custom priors on regression coefficients (e.g., `priors={"beta_Y_X": pm.Normal.dist(0, 1)}`).
+**What's missing**: The `model()` function accepts `**kwargs` for future options, and the transform system has `emit_prior()`, but there is no user-facing API for specifying custom priors on regression coefficients (e.g., `priors={"beta_Y_X": pm.Normal.dist(0, 1)}`).
 
 **Why it matters**: Prior specification is fundamental to Bayesian modeling. The current defaults (`Normal(0, 10)` for betas, `HalfNormal(1)` for sigmas) are reasonable but generic. Domain experts need to encode prior knowledge — strong priors for expected effect sizes, informative priors from previous studies, shrinkage priors for variable selection.
 
@@ -315,7 +315,7 @@ These features would most impress PyMC core developers evaluating pathmc as a "c
 Based on this audit, the following issues have been created:
 
 1. **#50 — Feature: Interaction terms in DSL** — Add `X:Z` syntax for interactions; recompute under `do()`
-2. **#52 — Feature: Custom priors API** — Accept user-specified priors via `priors=` kwarg in `fit()`
+2. **#52 — Feature: Custom priors API** — Accept user-specified priors via `priors=` kwarg in `model()`
 3. **#53 — Docs: Count outcome example (Poisson/NegBinomial)** — New example notebook
 4. **#54 — Docs: StudentT heavy-tailed example** — New or extended example
 5. **#55 — Docs: Custom transform tutorial** — Show `register_transform()` end-to-end

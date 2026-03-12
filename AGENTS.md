@@ -27,7 +27,7 @@ The test files import from specific modules. These paths are **fixed**:
 
 ```
 pathmc/
-  __init__.py       # Public API exports: fit(), add_lags() (deprecated)
+  __init__.py       # Public API exports: model(), fit() (deprecated alias), add_lags() (deprecated)
   parse.py          # parse_spec(spec_string) -> Spec
   graph.py          # build_graph(spec) -> GraphInfo
   compile.py        # Compiler -> pm.Model (Gaussian, Bernoulli, Poisson, etc.)
@@ -38,7 +38,7 @@ pathmc/
   identify.py       # Backdoor criterion, adjustment sets, collider warnings
   panel.py          # PanelInfo, add_lags(), panel validation
   exceptions.py     # CycleError, DuplicateEquationError, etc.
-  model.py          # PathModel class (returned by fit())
+  model.py          # PathModel class (returned by model()), model() and fit() entry points
 ```
 
 Additional internal helpers and submodules can be organized freely, but the imports used in the test files must resolve.

@@ -135,7 +135,7 @@ birth_weight ~ smoking + birth_defect
 mortality ~ b_smoking*smoking + birth_defect
 """
 
-model = pathmc.fit(spec, data=df, families={"mortality": "bernoulli"})
+model = pathmc.model(spec, data=df, families={"mortality": "bernoulli"})
 model.graph()
 ```
 
@@ -165,7 +165,7 @@ print(f"Adjustment sets: {model.adjustment_sets('smoking', 'mortality')}")
 ### Fit the correct model
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 pathmc's `do()` operator performs graph surgery on the fitted structural model, propagating intervention values through the causal chain using posterior draws. The code below manually contrasts two interventions; the equivalent one-liner is `model.ate("mortality", "smoking", values=(0.0, 1.0))`. See [Causal Inference](../concepts/causal_inference.qmd) for the full interventional API.
@@ -188,7 +188,7 @@ The ATE is positive — smoking increases mortality, as expected.
 To demonstrate collider bias computationally, we fit a model that uses birth weight and smoking to predict mortality, without accounting for birth defects. By conditioning on birth weight (the collider), this model opens the spurious path `smoking - - birth_weight - - birth_defect → mortality`.
 
 ```{python}
-biased_model = pathmc.fit(
+biased_model = pathmc.model(
     "mortality ~ b_smoking_biased*smoking + birth_weight",
     data=df,
     families={"mortality": "bernoulli"},
@@ -197,7 +197,7 @@ biased_model.model_equations()
 ```
 
 ```{python}
-biased_model.sample(draws=500, tune=500, chains=4, random_seed=42)
+biased_model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ```{python}

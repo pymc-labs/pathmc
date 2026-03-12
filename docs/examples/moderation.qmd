@@ -93,7 +93,7 @@ spec = """
 Y ~ a*X + b*Z + c*X:Z
 """
 
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 ```
 
 ### Inspect the model
@@ -112,7 +112,7 @@ Interaction terms render as `X × Z` in the equation display. In the DAG, both `
 ## Sample from the posterior
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 
@@ -226,7 +226,7 @@ An alternative to the `X:Z` syntax is to precompute the interaction column manua
 
 ```python
 df["XZ"] = df["X"] * df["Z"]
-model_manual = pathmc.fit("Y ~ a*X + b*Z + c*XZ", data=df)
+model_manual = pathmc.model("Y ~ a*X + b*Z + c*XZ", data=df)
 ```
 
 This works for estimation but creates a problem for interventions: pathmc treats `XZ` as an independent exogenous variable with no knowledge that it derives from `X` and `Z`. When you call `do(set={"X": 1.0})`, the model replaces `X` with 1.0 but leaves `XZ` at its observed data values. The interaction is not recomputed, so the CATE is wrong.
@@ -274,8 +274,8 @@ print(f"E[Z | T=0] = {Z_att[T_att == 0].mean():.2f},  True ATU = {true_atu:.3f}"
 Treated units have higher `Z` on average, and higher `Z` amplifies the treatment effect (positive interaction), so ATT > ATU.
 
 ```{python}
-model_att = pathmc.fit("Y ~ a*T + b*Z + c*T:Z", data=df_att)
-model_att.sample(draws=500, tune=500, chains=4, random_seed=42)
+model_att = pathmc.model("Y ~ a*T + b*Z + c*T:Z", data=df_att)
+model_att.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ```{python}

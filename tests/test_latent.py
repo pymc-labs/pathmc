@@ -56,23 +56,23 @@ class TestLatentCompilation:
         return pd.DataFrame({"X": X, "Y": Y})
 
     def test_compiles_with_latent(self, chain_data):
-        model = pathmc.fit("M ~ X\nY ~ M", data=chain_data, latent=["M"])
+        model = pathmc.model("M ~ X\nY ~ M", data=chain_data, latent=["M"])
         assert model.pymc_model is not None
 
     def test_latent_has_no_sigma(self, chain_data):
-        model = pathmc.fit("M ~ X\nY ~ M", data=chain_data, latent=["M"])
+        model = pathmc.model("M ~ X\nY ~ M", data=chain_data, latent=["M"])
         free_names = [rv.name for rv in model.pymc_model.free_RVs]
         assert "sigma_M" not in free_names
         assert "sigma_Y" in free_names
 
     def test_latent_not_observed(self, chain_data):
-        model = pathmc.fit("M ~ X\nY ~ M", data=chain_data, latent=["M"])
+        model = pathmc.model("M ~ X\nY ~ M", data=chain_data, latent=["M"])
         obs_names = {rv.name for rv in model.pymc_model.observed_RVs}
         assert "M" not in obs_names
         assert "Y" in obs_names
 
     def test_mu_deterministics_exist(self, chain_data):
-        model = pathmc.fit("M ~ X\nY ~ M", data=chain_data, latent=["M"])
+        model = pathmc.model("M ~ X\nY ~ M", data=chain_data, latent=["M"])
         det_names = {d.name for d in model.pymc_model.deterministics}
         assert "mu_M" in det_names
         assert "mu_Y" in det_names
@@ -80,7 +80,7 @@ class TestLatentCompilation:
     def test_non_latent_endogenous_must_be_in_data(self):
         df = pd.DataFrame({"X": [1, 2, 3]})
         with pytest.raises(ValueError, match="not found in data"):
-            pathmc.fit("Y ~ X", data=df)
+            pathmc.model("Y ~ X", data=df)
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ class TestLatentIntrospection:
         X = rng.normal(size=n)
         Y = 0.5 * X + rng.normal(scale=0.5, size=n)
         df = pd.DataFrame({"X": X, "Y": Y})
-        return pathmc.fit("M ~ X\nY ~ M", data=df, latent=["M"])
+        return pathmc.model("M ~ X\nY ~ M", data=df, latent=["M"])
 
     def test_equations_annotate_latent(self, latent_model):
         eqs = latent_model.equations()
@@ -134,12 +134,12 @@ class TestLatentDo:
         Y = 0.8 * X + rng.normal(scale=0.5, size=n)
         df = pd.DataFrame({"X": X, "Y": Y})
 
-        model = pathmc.fit(
+        model = pathmc.model(
             "M ~ X\nY ~ M",
             data=df,
             latent=["M"],
         )
-        model.sample(draws=200, tune=200, chains=2, random_seed=42)
+        model.fit(draws=200, tune=200, chains=2, random_seed=42)
         return model
 
     @pytest.mark.slow

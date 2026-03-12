@@ -49,16 +49,16 @@ class TestPoissonCompilation:
     """Poisson family compiles correctly."""
 
     def test_poisson_compiles(self, poisson_data):
-        model = pathmc.fit("Y ~ X", data=poisson_data, families={"Y": "poisson"})
+        model = pathmc.model("Y ~ X", data=poisson_data, families={"Y": "poisson"})
         assert model.pymc_model is not None
 
     def test_no_sigma_for_poisson(self, poisson_data):
-        model = pathmc.fit("Y ~ X", data=poisson_data, families={"Y": "poisson"})
+        model = pathmc.model("Y ~ X", data=poisson_data, families={"Y": "poisson"})
         free_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert "sigma_Y" not in free_names
 
     def test_observed_rv_present(self, poisson_data):
-        model = pathmc.fit("Y ~ X", data=poisson_data, families={"Y": "poisson"})
+        model = pathmc.model("Y ~ X", data=poisson_data, families={"Y": "poisson"})
         obs_names = {rv.name for rv in model.pymc_model.observed_RVs}
         assert "Y" in obs_names
 
@@ -67,18 +67,18 @@ class TestPoissonCompilation:
         poisson_data["Z"] = np.random.default_rng(99).normal(size=len(poisson_data))
         spec = "Y ~ X\nZ ~ X\nY ~~ Z"
         with pytest.raises(ValueError, match="(?i)gaussian"):
-            pathmc.fit(spec, data=poisson_data, families={"Y": "poisson"})
+            pathmc.model(spec, data=poisson_data, families={"Y": "poisson"})
 
 
 class TestNegBinomialCompilation:
     """NegBinomial family compiles with dispersion parameter."""
 
     def test_negbin_compiles(self, negbin_data):
-        model = pathmc.fit("Y ~ X", data=negbin_data, families={"Y": "negbinomial"})
+        model = pathmc.model("Y ~ X", data=negbin_data, families={"Y": "negbinomial"})
         assert model.pymc_model is not None
 
     def test_dispersion_param_exists(self, negbin_data):
-        model = pathmc.fit("Y ~ X", data=negbin_data, families={"Y": "negbinomial"})
+        model = pathmc.model("Y ~ X", data=negbin_data, families={"Y": "negbinomial"})
         free_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert any("alpha" in name and "Y" in name for name in free_names) or any(
             "disp" in name for name in free_names
@@ -89,23 +89,23 @@ class TestNegBinomialCompilation:
         negbin_data["Z"] = np.random.default_rng(99).normal(size=len(negbin_data))
         spec = "Y ~ X\nZ ~ X\nY ~~ Z"
         with pytest.raises(ValueError, match="(?i)gaussian"):
-            pathmc.fit(spec, data=negbin_data, families={"Y": "negbinomial"})
+            pathmc.model(spec, data=negbin_data, families={"Y": "negbinomial"})
 
 
 class TestStudentTCompilation:
     """StudentT family compiles with nu parameter."""
 
     def test_studentt_compiles(self, studentt_data):
-        model = pathmc.fit("Y ~ X", data=studentt_data, families={"Y": "studentt"})
+        model = pathmc.model("Y ~ X", data=studentt_data, families={"Y": "studentt"})
         assert model.pymc_model is not None
 
     def test_nu_param_exists(self, studentt_data):
-        model = pathmc.fit("Y ~ X", data=studentt_data, families={"Y": "studentt"})
+        model = pathmc.model("Y ~ X", data=studentt_data, families={"Y": "studentt"})
         free_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert any("nu" in name for name in free_names)
 
     def test_sigma_exists_for_studentt(self, studentt_data):
-        model = pathmc.fit("Y ~ X", data=studentt_data, families={"Y": "studentt"})
+        model = pathmc.model("Y ~ X", data=studentt_data, families={"Y": "studentt"})
         free_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert "sigma_Y" in free_names
 
@@ -115,22 +115,22 @@ class TestPoissonSampling:
     """Poisson model samples and produces sensible do() results."""
 
     def test_poisson_samples(self, poisson_data):
-        model = pathmc.fit("Y ~ X", data=poisson_data, families={"Y": "poisson"})
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=poisson_data, families={"Y": "poisson"})
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         summary = model.summary()
         assert summary is not None
         assert len(summary) > 0
 
     def test_poisson_do_positive_counts(self, poisson_data):
         """do(kind='mean') should return positive values (exp of linear predictor)."""
-        model = pathmc.fit("Y ~ X", data=poisson_data, families={"Y": "poisson"})
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=poisson_data, families={"Y": "poisson"})
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         result = model.do(set={"X": 1.0})
         assert result.mean("Y") > 0
 
     def test_poisson_do_higher_x_higher_count(self, poisson_data):
-        model = pathmc.fit("Y ~ X", data=poisson_data, families={"Y": "poisson"})
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=poisson_data, families={"Y": "poisson"})
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         r_low = model.do(set={"X": -1.0})
         r_high = model.do(set={"X": 1.0})
         assert r_high.mean("Y") > r_low.mean("Y")
@@ -141,14 +141,14 @@ class TestNegBinSampling:
     """NegBinomial model samples."""
 
     def test_negbin_samples(self, negbin_data):
-        model = pathmc.fit("Y ~ X", data=negbin_data, families={"Y": "negbinomial"})
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=negbin_data, families={"Y": "negbinomial"})
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         summary = model.summary()
         assert summary is not None
 
     def test_negbin_do_positive(self, negbin_data):
-        model = pathmc.fit("Y ~ X", data=negbin_data, families={"Y": "negbinomial"})
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=negbin_data, families={"Y": "negbinomial"})
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         result = model.do(set={"X": 1.0})
         assert result.mean("Y") > 0
 
@@ -158,14 +158,14 @@ class TestStudentTSampling:
     """StudentT model samples."""
 
     def test_studentt_samples(self, studentt_data):
-        model = pathmc.fit("Y ~ X", data=studentt_data, families={"Y": "studentt"})
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=studentt_data, families={"Y": "studentt"})
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         summary = model.summary()
         assert summary is not None
 
     def test_studentt_do_works(self, studentt_data):
-        model = pathmc.fit("Y ~ X", data=studentt_data, families={"Y": "studentt"})
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=studentt_data, families={"Y": "studentt"})
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         r0 = model.do(set={"X": 0.0})
         r1 = model.do(set={"X": 1.0})
         ate = r1 - r0
@@ -177,13 +177,13 @@ class TestPredictiveNewFamilies:
     """do(kind='predictive') works for new families."""
 
     def test_poisson_predictive(self, poisson_data):
-        model = pathmc.fit("Y ~ X", data=poisson_data, families={"Y": "poisson"})
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=poisson_data, families={"Y": "poisson"})
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         result = model.do(set={"X": 1.0}, kind="predictive")
         assert np.isfinite(result.mean("Y"))
 
     def test_studentt_predictive(self, studentt_data):
-        model = pathmc.fit("Y ~ X", data=studentt_data, families={"Y": "studentt"})
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=studentt_data, families={"Y": "studentt"})
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         result = model.do(set={"X": 1.0}, kind="predictive")
         assert np.isfinite(result.mean("Y"))

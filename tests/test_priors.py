@@ -10,7 +10,7 @@ import pytest
 from pymc_extras.prior import Prior
 
 import pathmc
-from pathmc.model import fit
+from pathmc.model import model
 from pathmc.parse import parse_spec
 from pathmc.priors import (
     _ensure_dims,
@@ -190,17 +190,17 @@ class TestEnsureDims:
 
 
 # ---------------------------------------------------------------------------
-# fit() with priors
+# model() with priors
 # ---------------------------------------------------------------------------
 
 
 class TestFitWithPriors:
     def test_fit_default_priors_compiles(self, simple_data: pd.DataFrame) -> None:
-        m = fit("Y ~ X", simple_data)
+        m = model("Y ~ X", simple_data)
         assert m.pymc_model is not None
 
     def test_fit_custom_beta_compiles(self, simple_data: pd.DataFrame) -> None:
-        m = fit(
+        m = model(
             "Y ~ X",
             simple_data,
             priors={"beta_Y": Prior("Normal", mu=0, sigma=2)},
@@ -208,7 +208,7 @@ class TestFitWithPriors:
         assert m.pymc_model is not None
 
     def test_fit_custom_sigma_compiles(self, simple_data: pd.DataFrame) -> None:
-        m = fit(
+        m = model(
             "Y ~ X",
             simple_data,
             priors={"sigma_Y": Prior("Exponential", lam=1)},
@@ -217,7 +217,7 @@ class TestFitWithPriors:
 
     def test_fit_invalid_key_raises(self, simple_data: pd.DataFrame) -> None:
         with pytest.raises(ValueError, match="Unknown prior key"):
-            fit(
+            model(
                 "Y ~ X",
                 simple_data,
                 priors={"nonexistent": Prior("Normal")},
@@ -226,7 +226,7 @@ class TestFitWithPriors:
     def test_custom_prior_reflected_in_priors_table(
         self, simple_data: pd.DataFrame
     ) -> None:
-        m = fit(
+        m = model(
             "Y ~ X",
             simple_data,
             priors={"beta_Y": Prior("Normal", mu=0, sigma=2)},
@@ -239,7 +239,7 @@ class TestFitWithPriors:
         simple_data: pd.DataFrame,
         mediation_spec: str,
     ) -> None:
-        m = fit(
+        m = model(
             mediation_spec,
             simple_data,
             priors={
@@ -258,20 +258,20 @@ class TestFitWithPriors:
 
 class TestSetPriors:
     def test_set_priors_recompiles(self, simple_data: pd.DataFrame) -> None:
-        m = fit("Y ~ X", simple_data)
+        m = model("Y ~ X", simple_data)
         old_model = m.pymc_model
         m.set_priors({"beta_Y": Prior("Normal", mu=0, sigma=2)})
         assert m.pymc_model is not old_model
 
     def test_set_priors_merges(self, simple_data: pd.DataFrame) -> None:
-        m = fit("Y ~ X", simple_data)
+        m = model("Y ~ X", simple_data)
         m.set_priors({"beta_Y": Prior("Normal", mu=0, sigma=2)})
         table_str = str(m.priors())
         assert "sigma=2" in table_str
         assert "sigma_Y" in table_str
 
     def test_set_priors_invalidates_idata(self, simple_data: pd.DataFrame) -> None:
-        m = fit("Y ~ X", simple_data)
+        m = model("Y ~ X", simple_data)
         m._idata = "placeholder"
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
@@ -281,12 +281,12 @@ class TestSetPriors:
         assert m._idata is None
 
     def test_set_priors_invalid_key_raises(self, simple_data: pd.DataFrame) -> None:
-        m = fit("Y ~ X", simple_data)
+        m = model("Y ~ X", simple_data)
         with pytest.raises(ValueError, match="Unknown prior key"):
             m.set_priors({"bad_key": Prior("Normal")})
 
     def test_multiple_set_priors_calls(self, simple_data: pd.DataFrame) -> None:
-        m = fit("Y ~ X", simple_data)
+        m = model("Y ~ X", simple_data)
         m.set_priors({"beta_Y": Prior("Normal", mu=0, sigma=2)})
         m.set_priors({"sigma_Y": Prior("Exponential", lam=0.5)})
         table_str = str(m.priors())
@@ -303,20 +303,20 @@ class TestSamplePriorPredictive:
     def test_returns_inference_data(self, simple_data: pd.DataFrame) -> None:
         import arviz as az
 
-        m = fit("Y ~ X", simple_data)
+        m = model("Y ~ X", simple_data)
         ppc = m.sample_prior_predictive(draws=5, random_seed=42)
         assert isinstance(ppc, az.InferenceData)
         assert "prior" in ppc.groups()
 
     def test_prior_predictive_has_model_vars(self, simple_data: pd.DataFrame) -> None:
-        m = fit("Y ~ X", simple_data)
+        m = model("Y ~ X", simple_data)
         ppc = m.sample_prior_predictive(draws=5, random_seed=42)
         assert "beta_Y" in ppc.prior.data_vars
         assert "sigma_Y" in ppc.prior.data_vars
 
     def test_prior_has_outcome_vars(self, simple_data: pd.DataFrame) -> None:
         """Outcome variables live in the prior group (free RVs in the generative model)."""
-        m = fit("Y ~ X", simple_data)
+        m = model("Y ~ X", simple_data)
         ppc = m.sample_prior_predictive(draws=5, random_seed=42)
         assert "Y" in ppc.prior.data_vars
 
@@ -342,7 +342,7 @@ class TestPriorReexport:
 class TestModelStructure:
     def test_custom_beta_distribution_in_model(self, simple_data: pd.DataFrame) -> None:
         """Custom beta prior should use the specified distribution."""
-        m = fit(
+        m = model(
             "Y ~ X",
             simple_data,
             priors={"beta_Y": Prior("Laplace", mu=0, b=1)},
@@ -354,7 +354,7 @@ class TestModelStructure:
         self, simple_data: pd.DataFrame
     ) -> None:
         """Custom sigma prior should use the specified distribution."""
-        m = fit(
+        m = model(
             "Y ~ X",
             simple_data,
             priors={"sigma_Y": Prior("Exponential", lam=1)},
@@ -364,7 +364,7 @@ class TestModelStructure:
 
     def test_hierarchical_beta_prior(self, simple_data: pd.DataFrame) -> None:
         """Hierarchical Prior creates parent variables."""
-        m = fit(
+        m = model(
             "Y ~ X",
             simple_data,
             priors={

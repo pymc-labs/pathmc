@@ -44,7 +44,7 @@ X ~ Z
 Y ~ X + Z
 """
 
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 model.graph()
 ```
 
@@ -53,7 +53,7 @@ model.model_equations()
 ```
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ## Average treatment effect
@@ -200,8 +200,8 @@ print(f"E[X | T=0] = {X_att[T_att == 0].mean():.2f}")
 Because `X` positively affects both treatment probability and the treatment effect size (via the interaction), the treated subgroup has higher `X` on average, making ATT > ATE > ATU.
 
 ```{python}
-model_att = pathmc.fit("Y ~ T + X + T:X", data=df_att)
-model_att.sample(draws=500, tune=500, chains=4, random_seed=42)
+model_att = pathmc.model("Y ~ T + X + T:X", data=df_att)
+model_att.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ```{python}

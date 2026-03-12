@@ -47,7 +47,7 @@ For the SEM/path analysis community (coming from R's lavaan or Python's semopy):
 
 ### 7. The "one object" API
 
-`pathmc.fit()` returns one object. No pipeline. No separate identify-then-estimate workflow. One object with methods for everything: inspect, sample, query, diagnose. This is a developer experience selling point — it's simple and discoverable.
+`pathmc.model()` returns one object. No pipeline. No separate identify-then-estimate workflow. One object with methods for everything: inspect, fit, query, diagnose. This is a developer experience selling point — it's simple and discoverable.
 
 ## Structural ideas for the homepage
 

@@ -83,8 +83,8 @@ plt.show()
 Fit the model on the simulated data and check that the posterior covers the true values.
 
 ```{python}
-model_simple = pathmc.fit("Y ~ a*X", data=df_simple)
-model_simple.sample(draws=500, tune=500, chains=4, random_seed=42)
+model_simple = pathmc.model("Y ~ a*X", data=df_simple)
+model_simple.fit(draws=500, tune=500, chains=4, random_seed=42)
 model_simple.effects_summary()
 ```
 
@@ -159,8 +159,8 @@ indirect := a*b
 total := c + a*b
 """
 
-model_med = pathmc.fit(spec_med, data=df_med)
-model_med.sample(draws=500, tune=500, chains=4, random_seed=42)
+model_med = pathmc.model(spec_med, data=df_med)
+model_med.fit(draws=500, tune=500, chains=4, random_seed=42)
 model_med.effects_summary()
 ```
 
@@ -270,8 +270,8 @@ plt.show()
 ### Parameter recovery
 
 ```{python}
-model_bin = pathmc.fit("Y ~ X1 + X2", data=df_bin, families={"Y": "bernoulli"})
-model_bin.sample(draws=500, tune=500, chains=4, random_seed=42)
+model_bin = pathmc.model("Y ~ X1 + X2", data=df_bin, families={"Y": "bernoulli"})
+model_bin.fit(draws=500, tune=500, chains=4, random_seed=42)
 model_bin.summary()
 ```
 
@@ -285,7 +285,7 @@ The parameter names passed to `simulate()` must match the PyMC variable names in
 ```{python}
 spec = "M ~ X\nY ~ M + X"
 placeholder = pd.DataFrame({"X": [0.0], "M": [0.0], "Y": [0.0]})
-tmp = pathmc.fit(spec, data=placeholder)
+tmp = pathmc.model(spec, data=placeholder)
 tmp.model_equations()
 ```
 

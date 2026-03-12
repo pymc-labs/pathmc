@@ -171,12 +171,12 @@ class TestInteractionGraph:
 
 class TestInteractionDesignMatrix:
     def test_design_includes_interaction_column(self, interaction_data):
-        model = pathmc.fit(INTERACTION_SPEC, data=interaction_data)
+        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
         dm = model.design("Y")
         assert "X:Z" in dm.columns
 
     def test_interaction_column_is_product(self, interaction_data):
-        model = pathmc.fit(INTERACTION_SPEC, data=interaction_data)
+        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
         dm = model.design("Y")
         expected = interaction_data["X"].values * interaction_data["Z"].values
         np.testing.assert_allclose(dm["X:Z"].values, expected, atol=1e-10)
@@ -188,7 +188,7 @@ class TestInteractionDesignMatrix:
         assert "Intercept" in cols
 
     def test_labeled_interaction_design(self, interaction_data):
-        model = pathmc.fit(LABELED_INTERACTION_SPEC, data=interaction_data)
+        model = pathmc.model(LABELED_INTERACTION_SPEC, data=interaction_data)
         dm = model.design("Y")
         assert "X:Z" in dm.columns
 
@@ -200,26 +200,26 @@ class TestInteractionDesignMatrix:
 
 class TestInteractionCompilation:
     def test_compiles_to_pymc_model(self, interaction_data):
-        model = pathmc.fit(INTERACTION_SPEC, data=interaction_data)
+        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
         assert isinstance(model.pymc_model, pm.Model)
 
     def test_beta_has_interaction_coordinate(self, interaction_data):
-        model = pathmc.fit(INTERACTION_SPEC, data=interaction_data)
+        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
         gen = model._gen_model
         beta = gen["beta_Y"]
         coords = gen.coords["Y_predictors"]
         assert "X:Z" in coords
 
     def test_labeled_interaction_compiles(self, interaction_data):
-        model = pathmc.fit(LABELED_INTERACTION_SPEC, data=interaction_data)
+        model = pathmc.model(LABELED_INTERACTION_SPEC, data=interaction_data)
         assert isinstance(model.pymc_model, pm.Model)
 
     def test_interaction_only_compiles(self, interaction_data):
-        model = pathmc.fit(INTERACTION_ONLY_SPEC, data=interaction_data)
+        model = pathmc.model(INTERACTION_ONLY_SPEC, data=interaction_data)
         assert isinstance(model.pymc_model, pm.Model)
 
     def test_multi_equation_interaction(self, mediation_interaction_data):
-        model = pathmc.fit(MULTI_EQ_INTERACTION, data=mediation_interaction_data)
+        model = pathmc.model(MULTI_EQ_INTERACTION, data=mediation_interaction_data)
         assert isinstance(model.pymc_model, pm.Model)
         coords = model._gen_model.coords["Y_predictors"]
         assert "X:M" in coords
@@ -232,19 +232,19 @@ class TestInteractionCompilation:
 
 class TestInteractionIntrospection:
     def test_equations_show_interaction(self, interaction_data):
-        model = pathmc.fit(INTERACTION_SPEC, data=interaction_data)
+        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
         eqs = model.equations()
         eq_str = str(eqs)
         assert "×" in eq_str or "X:Z" in eq_str
 
     def test_labeled_equations(self, interaction_data):
-        model = pathmc.fit(LABELED_INTERACTION_SPEC, data=interaction_data)
+        model = pathmc.model(LABELED_INTERACTION_SPEC, data=interaction_data)
         eqs = model.equations()
         eq_str = str(eqs)
         assert "c*" in eq_str
 
     def test_dag_renders(self, interaction_data):
-        model = pathmc.fit(INTERACTION_SPEC, data=interaction_data)
+        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
         dot = model.graph()
         src = dot.source
         assert "X" in src
@@ -252,13 +252,13 @@ class TestInteractionIntrospection:
         assert "Y" in src
 
     def test_latex_rendering(self, interaction_data):
-        model = pathmc.fit(INTERACTION_SPEC, data=interaction_data)
+        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
         eqs = model.equations()
         latex = eqs._repr_latex_()
         assert r"\times" in latex
 
     def test_priors_include_interaction_beta(self, interaction_data):
-        model = pathmc.fit(INTERACTION_SPEC, data=interaction_data)
+        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
         priors = model.priors()
         prior_str = str(priors)
         assert "beta_Y" in prior_str
@@ -272,15 +272,15 @@ class TestInteractionIntrospection:
 @pytest.mark.slow
 class TestInteractionSampling:
     def test_fit_and_sample(self, interaction_data):
-        model = pathmc.fit(LABELED_INTERACTION_SPEC, data=interaction_data)
-        model.sample(draws=200, tune=200, chains=1, random_seed=42)
+        model = pathmc.model(LABELED_INTERACTION_SPEC, data=interaction_data)
+        model.fit(draws=200, tune=200, chains=1, random_seed=42)
         summary = model.summary()
         assert "beta_Y" in summary.index[0]
 
     def test_interaction_coefficient_recovery(self, interaction_data):
         """True c (interaction) = 0.8. Check it's in a reasonable range."""
-        model = pathmc.fit(LABELED_INTERACTION_SPEC, data=interaction_data)
-        model.sample(draws=500, tune=500, chains=2, random_seed=42)
+        model = pathmc.model(LABELED_INTERACTION_SPEC, data=interaction_data)
+        model.fit(draws=500, tune=500, chains=2, random_seed=42)
         effects = model.effects_summary()
         assert "c" in effects.index
         c_mean = effects.loc["c", "mean"]
@@ -288,8 +288,8 @@ class TestInteractionSampling:
 
     def test_do_propagates_through_interaction(self, interaction_data):
         """do(X=1) vs do(X=0) with Z held at its mean should differ."""
-        model = pathmc.fit(INTERACTION_SPEC, data=interaction_data)
-        model.sample(draws=200, tune=200, chains=1, random_seed=42)
+        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
+        model.fit(draws=200, tune=200, chains=1, random_seed=42)
         r0 = model.do(set={"X": 0.0})
         r1 = model.do(set={"X": 1.0})
         diff = r1.mean("Y") - r0.mean("Y")
@@ -297,8 +297,8 @@ class TestInteractionSampling:
 
     def test_do_interaction_depends_on_moderator(self, interaction_data):
         """The effect of X on Y should differ at Z=-1 vs Z=+1 (moderation)."""
-        model = pathmc.fit(INTERACTION_SPEC, data=interaction_data)
-        model.sample(draws=200, tune=200, chains=1, random_seed=42)
+        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
+        model.fit(draws=200, tune=200, chains=1, random_seed=42)
         cate_low = model.cate("Y", "X", condition={"Z": -1.0})
         cate_high = model.cate("Y", "X", condition={"Z": 1.0})
         diff_low = cate_low.mean("Y")

@@ -215,7 +215,7 @@ sales ~ b_aw*awareness + c_uf*upper_funnel + d_lf*lower_funnel
 awareness_survey ~ 0 + 1*awareness
 """
 
-model = pathmc.fit(
+model = pathmc.model(
     spec,
     data=df,
     panel={"unit": "country", "time": "week"},
@@ -246,7 +246,7 @@ model.model_equations()
 ## Sample
 
 ```{python}
-idata = model.sample(
+idata = model.fit(
     draws=500, tune=500, chains=4, random_seed=42,
     target_accept=0.99,
 )

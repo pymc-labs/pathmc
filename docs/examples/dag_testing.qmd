@@ -83,7 +83,7 @@ df_chain = pd.DataFrame({"X": X, "M": M, "Y": Y})
 Fit the model and test the DAG's prediction:
 
 ```{python}
-chain_model = pathmc.fit("M ~ X\nY ~ M", data=df_chain)
+chain_model = pathmc.model("M ~ X\nY ~ M", data=df_chain)
 chain_model.model_equations()
 ```
 
@@ -139,7 +139,7 @@ The proposed chain DAG predicts X ⊥⊥ Y | M.
 The data disagrees:
 
 ```{python}
-wrong_model = pathmc.fit("M ~ X\nY ~ M", data=df_direct)
+wrong_model = pathmc.model("M ~ X\nY ~ M", data=df_direct)
 wrong_model.model_equations()
 ```
 
@@ -157,7 +157,7 @@ The DAG is missing the direct X → Y edge.
 Adding the direct edge removes the violated prediction and brings the DAG in line with the data:
 
 ```{python}
-fixed_model = pathmc.fit("M ~ X\nY ~ M + X", data=df_direct)
+fixed_model = pathmc.model("M ~ X\nY ~ M + X", data=df_direct)
 fixed_model.model_equations()
 ```
 
@@ -227,7 +227,7 @@ digraph {
 The DAG has three missing edges, each producing a testable prediction:
 
 ```{python}
-funnel_model = pathmc.fit(
+funnel_model = pathmc.model(
     "Ads ~ Budget\nClicks ~ Ads\nSales ~ Clicks",
     data=df_funnel,
 )
@@ -268,7 +268,7 @@ digraph {
 ```
 
 ```{python}
-fixed_funnel = pathmc.fit(
+fixed_funnel = pathmc.model(
     "Ads ~ Budget\nClicks ~ Ads\nSales ~ Clicks + Budget",
     data=df_funnel,
 )

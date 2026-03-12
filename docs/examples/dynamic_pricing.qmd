@@ -241,7 +241,7 @@ spec = """
 demand ~ b_price*price + b_lag*lag(price) + b_comp*competitor_price + b_season*season + trend
 """
 
-model = pathmc.fit(
+model = pathmc.model(
     spec,
     data=df_raw,
     panel={"unit": "region", "time": "week"},
@@ -268,7 +268,7 @@ pm.model_to_graphviz(model.pymc_model)
 ## Sample
 
 ```{python}
-idata = model.sample(draws=500, tune=500, chains=4, nuts_sampler="nutpie", random_seed=42)
+idata = model.fit(draws=500, tune=500, chains=4, nuts_sampler="nutpie", random_seed=42)
 ```
 
 ## Results

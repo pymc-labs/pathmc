@@ -37,13 +37,13 @@ class TestFullPipeline:
     """End-to-end: fit with lag() -> sample -> summary -> do."""
 
     def test_pipeline_completes(self, full_panel_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "sales ~ lag(spend)",
             data=full_panel_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
         )
-        idata = model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        idata = model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         assert idata is not None
 
         summary = model.summary()
@@ -52,13 +52,13 @@ class TestFullPipeline:
 
     def test_do_time_forward_ate(self, full_panel_data):
         """do(simulate_over='time') produces ATE with correct sign."""
-        model = pathmc.fit(
+        model = pathmc.model(
             "sales ~ lag(spend)",
             data=full_panel_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
         )
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
 
         r_low = model.do(set={"spend": 5.0}, simulate_over="time", kind="mean")
         r_high = model.do(set={"spend": 15.0}, simulate_over="time", kind="mean")
@@ -67,7 +67,7 @@ class TestFullPipeline:
         assert ate.mean("sales") > 0
 
     def test_graph_works(self, full_panel_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "sales ~ lag(spend)",
             data=full_panel_data,
             panel={"unit": "region", "time": "week"},
@@ -93,14 +93,14 @@ class TestPanelBernoulli:
                 rows.append({"region": region, "week": week, "X": x, "Y": y})
         df = pd.DataFrame(rows)
 
-        model = pathmc.fit(
+        model = pathmc.model(
             "Y ~ X",
             data=df,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
             families={"Y": "bernoulli"},
         )
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         r = model.do(set={"X": 1.0})
         assert 0.0 < r.mean("Y") < 1.0
 
@@ -110,13 +110,13 @@ class TestRandomInterceptVariation:
     """Random intercepts produce per-unit variation."""
 
     def test_different_units_different_intercepts(self, full_panel_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "sales ~ lag(spend)",
             data=full_panel_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
         )
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         summary = model.summary()
 
         alpha_rows = [idx for idx in summary.index if "alpha_sales" in str(idx)]

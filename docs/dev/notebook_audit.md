@@ -32,7 +32,7 @@ Seven notebooks access `DoResult._values[var]` to extract raw posterior draws fo
 
 ### 3. Private attribute access: `PathModel._idata`
 
-Three notebooks access `model._idata` instead of capturing the return value of `model.sample()`:
+Three notebooks access `model._idata` instead of capturing the return value of `model.fit()`:
 
 | Notebook | Usage |
 |----------|-------|
@@ -40,7 +40,7 @@ Three notebooks access `model._idata` instead of capturing the return value of `
 | `examples/data_simulation.qmd` | posterior draws for recovery plots |
 | `examples/did.qmd` | `az.plot_posterior()` and `.posterior.stack()` |
 
-**Fix:** Assign `idata = model.sample(...)` and use `idata` instead of `model._idata`.
+**Fix:** Assign `idata = model.fit(...)` and use `idata` instead of `model._idata`.
 
 ### 4. Internal module imports (pedagogically justified)
 

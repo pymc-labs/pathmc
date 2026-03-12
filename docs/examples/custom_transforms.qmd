@@ -154,7 +154,7 @@ from pathmc import Prior
 
 spec = "response ~ b * hill(dose, n=n, K=K)"
 
-model = pathmc.fit(
+model = pathmc.model(
     spec,
     data=df,
     priors={
@@ -177,7 +177,7 @@ model.priors()
 The priors table shows both the structural parameters (`b`, `sigma_response`) and the transform parameters (`n`, `K`). Transform parameters are first-class model parameters --- they appear in the posterior, respond to `set_priors()`, and propagate uncertainty through `do()`.
 
 ```{python}
-idata = model.sample(draws=500, tune=500, chains=4, random_seed=42)
+idata = model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ## Parameter recovery
@@ -278,7 +278,7 @@ The contrast gives the full posterior distribution of the causal effect, includi
 
 - **Subclass `Transform`** with a `name`, `param_specs` dict, and `apply_pymc()` method. The method receives PyTensor tensors and must return a tensor.
 - **`ParamSpec`** declares the constraint (`"positive"`, `"unit_interval"`) and a human-readable default prior string. The constraint determines the automatic prior distribution.
-- **`register_transform()`** makes the transform available in the DSL. Call it before `pathmc.fit()`.
+- **`register_transform()`** makes the transform available in the DSL. Call it before `pathmc.model()`.
 - **DSL syntax** is `transform_name(variable, param=name)`. Parameter names become posterior quantities with full uncertainty.
 - **Priors** for transform parameters can be overridden via `priors={}` at fit time, just like structural coefficients.
 - **`do()`** recomputes the transform under interventions automatically --- no extra code needed. Parameter uncertainty propagates through the nonlinearity.

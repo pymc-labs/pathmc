@@ -1,4 +1,4 @@
-"""PathModel: the primary user-facing object returned by fit()."""
+"""PathModel: the primary user-facing object returned by model()."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ from pathmc.simulate import (
 class PathModel:
     """A compiled Bayesian path model.
 
-    Created by :func:`pathmc.fit`. Holds the parsed specification, graph
+    Created by :func:`pathmc.model`. Holds the parsed specification, graph
     structure, design matrices, and the compiled PyMC model.
 
     Parameters
@@ -226,7 +226,7 @@ class PathModel:
 
         Works before sampling. The table reflects any custom priors
         set via ``set_priors()`` or the ``priors`` argument to
-        :func:`pathmc.fit`.
+        :func:`pathmc.model`.
         """
         return build_priors(
             self._spec,
@@ -261,7 +261,7 @@ class PathModel:
         if had_samples:
             warnings.warn(
                 "Priors changed — previous posterior samples have been "
-                "discarded. Call .sample() again.",
+                "discarded. Call .fit() again.",
                 stacklevel=2,
             )
 
@@ -302,11 +302,11 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.sample()``.
+            If called before ``.fit()``.
         """
         if self._idata is None:
             raise RuntimeError(
-                "No posterior samples available. Call .sample() before .summary()."
+                "No posterior samples available. Call .fit() before .summary()."
             )
         return az.summary(self._idata)
 
@@ -322,12 +322,11 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.sample()``.
+            If called before ``.fit()``.
         """
         if self._idata is None:
             raise RuntimeError(
-                "No posterior samples available. "
-                "Call .sample() before .effects_summary()."
+                "No posterior samples available. Call .fit() before .effects_summary()."
             )
         if not _has_labeled_terms(self._spec) and not self._spec.defined_params:
             warnings.warn(
@@ -354,11 +353,11 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.sample()``.
+            If called before ``.fit()``.
         """
         if self._idata is None:
             raise RuntimeError(
-                "No posterior samples available. Call .sample() before .standardized()."
+                "No posterior samples available. Call .fit() before .standardized()."
             )
         if not _has_labeled_terms(self._spec):
             warnings.warn(
@@ -390,17 +389,17 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.sample()``.
+            If called before ``.fit()``.
         ValueError
             If a node is not endogenous or an edge does not exist.
         """
         if self._idata is None:
             raise RuntimeError(
-                "No posterior samples available. Call .sample() before .effect()."
+                "No posterior samples available. Call .fit() before .effect()."
             )
         return compute_path_effect(path, self._spec, self._idata)
 
-    def sample(self, **kwargs: Any) -> az.InferenceData:
+    def fit(self, **kwargs: Any) -> az.InferenceData:
         """Run MCMC sampling and store the resulting InferenceData.
 
         All keyword arguments are forwarded to ``pm.sample()``.
@@ -437,6 +436,17 @@ class PathModel:
             self._idata = pm.sample(**kwargs)
         return self._idata
 
+    def sample(self, **kwargs: Any) -> az.InferenceData:
+        """Deprecated alias for :meth:`fit`. Will be removed in a future release."""
+        warnings.warn(
+            ".sample() is deprecated. Use .fit() instead — it runs MCMC "
+            "and stores the posterior. .sample() will be removed in a "
+            "future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.fit(**kwargs)
+
     def predict(self, **kwargs: Any) -> az.InferenceData:
         """Run posterior predictive sampling.
 
@@ -456,11 +466,11 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.sample()``.
+            If called before ``.fit()``.
         """
         if self._idata is None:
             raise RuntimeError(
-                "No posterior samples available. Call .sample() before .predict()."
+                "No posterior samples available. Call .fit() before .predict()."
             )
         with self._pymc_model:
             pp = pm.sample_posterior_predictive(self._idata, **kwargs)
@@ -650,13 +660,13 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.sample()``.
+            If called before ``.fit()``.
         ValueError
             If ``simulate_over="time"`` without panel.
         """
         if self._idata is None:
             raise RuntimeError(
-                "No posterior samples available. Call .sample() before .do()."
+                "No posterior samples available. Call .fit() before .do()."
             )
 
         if set:
@@ -686,7 +696,7 @@ class PathModel:
             if self._panel_info is None:
                 raise ValueError(
                     "simulate_over='time' requires a panel model. "
-                    "Pass panel={...} to fit()."
+                    "Pass panel={...} to model()."
                 )
 
             scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
@@ -855,7 +865,7 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.sample()``.
+            If called before ``.fit()``.
         NotImplementedError
             If the model is a panel model (not yet supported).
         ValueError
@@ -863,14 +873,14 @@ class PathModel:
 
         Examples
         --------
-        >>> model = pathmc.fit("Y ~ T + X", data=df)
-        >>> model.sample(draws=1000, tune=1000)
+        >>> model = pathmc.model("Y ~ T + X", data=df)
+        >>> model.fit(draws=1000, tune=1000)
         >>> att = model.att("Y", "T")
         >>> att.mean("Y")  # E[Y(1) - Y(0) | T=1]
         """
         if self._idata is None:
             raise RuntimeError(
-                "No posterior samples available. Call .sample() before .att()."
+                "No posterior samples available. Call .fit() before .att()."
             )
         if self._panel_info is not None:
             raise NotImplementedError(
@@ -956,7 +966,7 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.sample()``.
+            If called before ``.fit()``.
         NotImplementedError
             If the model is a panel model (not yet supported).
         ValueError
@@ -964,14 +974,14 @@ class PathModel:
 
         Examples
         --------
-        >>> model = pathmc.fit("Y ~ T + X", data=df)
-        >>> model.sample(draws=1000, tune=1000)
+        >>> model = pathmc.model("Y ~ T + X", data=df)
+        >>> model.fit(draws=1000, tune=1000)
         >>> atu = model.atu("Y", "T")
         >>> atu.mean("Y")  # E[Y(1) - Y(0) | T=0]
         """
         if self._idata is None:
             raise RuntimeError(
-                "No posterior samples available. Call .sample() before .atu()."
+                "No posterior samples available. Call .fit() before .atu()."
             )
         if self._panel_info is not None:
             raise NotImplementedError(
@@ -1060,13 +1070,13 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.sample()``.
+            If called before ``.fit()``.
         ValueError
             If the ranges are invalid or ``n_grid < 2``.
         """
         if self._idata is None:
             raise RuntimeError(
-                "No posterior samples available. Call .sample() before .sensitivity()."
+                "No posterior samples available. Call .fit() before .sensitivity()."
             )
 
         all_vars = self._graph_info.exogenous | self._graph_info.endogenous
@@ -1142,7 +1152,7 @@ class PathModel:
         return float(np.mean(mask))
 
 
-def fit(
+def model(
     spec_string: str,
     data: pd.DataFrame,
     families: dict[str, str] | None = None,
@@ -1183,7 +1193,7 @@ def fit(
 
             from pymc_extras.prior import Prior
 
-            m = pathmc.fit(
+            m = pathmc.model(
                 spec, data,
                 priors={"beta_Y": Prior("Normal", mu=0, sigma=2)},
             )
@@ -1194,7 +1204,7 @@ def fit(
     Returns
     -------
     PathModel
-        Compiled model ready for sampling and introspection.
+        Compiled model ready for inspection and fitting.
 
     Raises
     ------
@@ -1212,7 +1222,7 @@ def fit(
     if has_lag_terms and panel is None:
         raise ValueError(
             "lag() terms require a panel model. Pass panel={'unit': ..., "
-            "'time': ...} to fit()."
+            "'time': ...} to model()."
         )
 
     endogenous_lhs = {reg.lhs for reg in spec.regressions}
@@ -1240,6 +1250,36 @@ def fit(
     )
 
 
+def fit(
+    spec_string: str,
+    data: pd.DataFrame,
+    families: dict[str, str] | None = None,
+    panel: dict[str, str] | None = None,
+    pooling: str | dict | None = None,
+    latent: list[str] | None = None,
+    priors: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> PathModel:
+    """Deprecated alias for :func:`model`. Will be removed in a future release."""
+    warnings.warn(
+        "pathmc.fit() is deprecated. Use pathmc.model() instead — "
+        "it returns a PathModel ready for inspection and fitting. "
+        "pathmc.fit() will be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return model(
+        spec_string,
+        data,
+        families=families,
+        panel=panel,
+        pooling=pooling,
+        latent=latent,
+        priors=priors,
+        **kwargs,
+    )
+
+
 def simulate(
     spec_string: str,
     data: pd.DataFrame,
@@ -1257,7 +1297,7 @@ def simulate(
     This is useful for:
 
     - **Simulate-and-recover** workflows: generate data from known
-      parameters, fit the model, and verify that the posterior
+      parameters, build and fit the model, and verify that the posterior
       concentrates around the truth.
     - **Teaching**: create pedagogical datasets with exact causal
       structure matching the model DAG.
@@ -1276,11 +1316,11 @@ def simulate(
     params : dict[str, Any]
         True parameter values keyed by PyMC variable name. Typical
         keys are ``"beta_{var}"`` (coefficient vector) and
-        ``"sigma_{var}"`` (residual std). Use ``pathmc.fit(...).priors()``
+        ``"sigma_{var}"`` (residual std). Use ``pathmc.model(...).priors()``
         on a dummy dataset to discover expected names and shapes.
     families : dict[str, str] | None
         Per-variable distribution families (default ``"gaussian"``).
-        Supports the same families as :func:`fit`: ``"gaussian"``,
+        Supports the same families as :func:`model`: ``"gaussian"``,
         ``"bernoulli"``, ``"poisson"``, ``"negbinomial"``,
         ``"studentt"``, ``"latent_normal"``.
     latent : list[str] | set[str] | None

@@ -38,7 +38,7 @@ These topics are where pathmc's DAG-first design, `do()` operator, and structura
 **pathmc advantage:** No other single package lets you specify the DAG *and* fit it *and* query identification from the same object.
 
 ```python
-model = pathmc.fit("Y ~ X + Z", data=df)
+model = pathmc.model("Y ~ X + Z", data=df)
 model.graph()                          # visualise the DAG
 model.adjustment_sets("X", "Y")        # backdoor criterion
 model.is_identifiable("X", "Y")        # identifiability check
@@ -67,7 +67,7 @@ M ~ a*X
 Y ~ b*M + c*X
 indirect := a*b
 """
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 model.effects_summary()           # posterior summaries for a, b, c, indirect
 model.effect("X -> M -> Y")       # path-traced indirect effect
 model.ate("Y", "X", values=(0, 1))  # total effect via g-computation
@@ -181,7 +181,7 @@ awareness ~ lag(awareness) + adstock(tv_spend, decay=theta_tv)
 sales ~ a*awareness + b*adstock(digital_spend, decay=theta_d)
 indirect_tv := a * 1  # TV effect mediated through awareness
 """
-model = pathmc.fit(spec, data=df, panel={"unit": "region", "time": "week"})
+model = pathmc.model(spec, data=df, panel={"unit": "region", "time": "week"})
 model.do(set={"tv_spend": 150}, simulate_over="time")
 ```
 
@@ -277,7 +277,7 @@ spec = """
 price ~ cost_shock + demand_shock
 quantity ~ price + demand_shock
 """
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 model.instruments("price", "quantity")
 # → {"cost_shock"} — cost_shock is a valid instrument for price→quantity
 ```

@@ -159,7 +159,7 @@ promo ~ foot_traffic
 revenue ~ b_promo*promo + foot_traffic
 """
 
-model_cs = pathmc.fit(spec_cs, data=df_cs)
+model_cs = pathmc.model(spec_cs, data=df_cs)
 ```
 
 ```{python}
@@ -185,7 +185,7 @@ Inside the `revenue` equation, `foot_traffic` is already a predictor, blocking t
 ### Sample
 
 ```{python}
-idata_cs = model_cs.sample(draws=500, tune=500, chains=2, random_seed=42)
+idata_cs = model_cs.fit(draws=500, tune=500, chains=2, random_seed=42)
 ```
 
 ### Results
@@ -396,7 +396,7 @@ promo ~ foot_traffic
 revenue ~ b_contemp*promo + b_lag*lag(promo) + foot_traffic
 """
 
-model_panel = pathmc.fit(
+model_panel = pathmc.model(
     spec_panel,
     data=df_raw,
     panel={"unit": "store", "time": "week"},
@@ -418,7 +418,7 @@ model_panel.model_equations()
 ### Sample
 
 ```{python}
-idata_panel = model_panel.sample(draws=500, tune=500, chains=2, random_seed=42)
+idata_panel = model_panel.fit(draws=500, tune=500, chains=2, random_seed=42)
 ```
 
 ### Results
@@ -518,13 +518,13 @@ promo ~ foot_traffic
 revenue ~ b_naive*promo + foot_traffic
 """
 
-model_no_lag = pathmc.fit(
+model_no_lag = pathmc.model(
     spec_no_lag,
     data=df_raw,
     panel={"unit": "store", "time": "week"},
     pooling="partial",
 )
-idata_no_lag = model_no_lag.sample(draws=500, tune=500, chains=2, random_seed=42)
+idata_no_lag = model_no_lag.fit(draws=500, tune=500, chains=2, random_seed=42)
 ```
 
 ```{python}

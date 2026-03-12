@@ -52,7 +52,7 @@ The DSL supports **user-defined transformations with estimable parameters**, ena
 
 - Users can:
   - specify a path model in ≤20 lines
-  - fit it via `pathmc.fit()`
+  - fit it via `pathmc.model()`
   - inspect graph and equations
   - compute causal effects via `do()` and effect helpers
   - use transformations with estimable parameters and simulate counterfactual scenarios
@@ -159,7 +159,7 @@ spec = """
 X ~ Z
 Y ~ X + Z
 """
-fit = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 ```
 
 #### Chain (mediation)
@@ -172,7 +172,7 @@ M ~ a*X
 Y ~ b*M + c*X
 indirect := a*b
 """
-fit = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 ```
 
 #### Collider
@@ -183,7 +183,7 @@ fit = pathmc.fit(spec, data=df)
 spec = """
 C ~ X + Y
 """
-fit = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 ```
 
 #### Multiple mediators with correlated residuals
@@ -202,7 +202,7 @@ indirect1 := a1*b1
 indirect2 := a2*b2
 total     := c + a1*b1 + a2*b2
 """
-fit = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 ```
 
 #### Panel mode with lagged effects
@@ -213,7 +213,7 @@ Weekly sales driven by advertising spend with a one-period lag, fit per unit ove
 spec = """
 sales ~ lag(sales) + lag(spend) + trend
 """
-fit = pathmc.fit(
+model = pathmc.model(
     spec,
     data=df,
     panel={"unit": "region", "time": "week"},
@@ -225,32 +225,32 @@ fit = pathmc.fit(
 ### Model construction & fitting
 
 ```python
-fit = pathmc.fit(spec, data=df, families=..., priors=..., panel=..., pooling=...)
-idata = fit.sample(draws=..., tune=..., chains=..., target_accept=...)
+model = pathmc.model(spec, data=df, families=..., priors=..., panel=..., pooling=...)
+idata = model.fit(draws=..., tune=..., chains=..., target_accept=...)
 ```
 
 ### Introspection
 
 ```python
-fit.graph()          # DAG and residual/bidirected edges
-fit.equations()      # resolved equations (expanded terms)
-fit.design("y")      # design matrix columns + metadata
-fit.priors()         # resolved priors per parameter
-fit.pymc_model       # underlying pm.Model
+model.graph()          # DAG and residual/bidirected edges
+model.equations()      # resolved equations (expanded terms)
+model.design("y")      # design matrix columns + metadata
+model.priors()         # resolved priors per parameter
+model.pymc_model       # underlying pm.Model
 ```
 
 ### Summaries
 
 ```python
-fit.summary()
-fit.effects_summary()        # includes := params
+model.summary()
+model.effects_summary()        # includes := params
 ```
 
 ### `do()` operator
 
 ```python
-baseline = fit.do(kind="mean")
-scenario = fit.do(set={"x": 1}, kind="mean")
+baseline = model.do(kind="mean")
+scenario = model.do(set={"x": 1}, kind="mean")
 contrast = scenario - baseline
 contrast.mean("y")
 contrast.hdi("y", 0.95)
@@ -259,7 +259,7 @@ contrast.hdi("y", 0.95)
 #### Panel `do()`
 
 ```python
-scenario = fit.do(
+scenario = model.do(
   set={"spend": 120},
   simulate_over="time",
   init_from="observed",
@@ -270,31 +270,31 @@ scenario = fit.do(
 ### Effects API
 
 ```python
-fit.effect("x -> y")
-fit.effect("x -> m -> y")
-fit.effects_summary()    # includes := defined params like indirect := a*b
+model.effect("x -> y")
+model.effect("x -> m -> y")
+model.effects_summary()    # includes := defined params like indirect := a*b
 ```
 
 ### Causal queries (v0.4)
 
 ```python
-fit.ate("y", "x", values=(0.0, 1.0))
-fit.cate("y", "x", values=(0.0, 1.0), condition={"z": 2.0})
-fit.prob("y > 0", set={"x": 1.0})
+model.ate("y", "x", values=(0.0, 1.0))
+model.cate("y", "x", values=(0.0, 1.0), condition={"z": 2.0})
+model.prob("y > 0", set={"x": 1.0})
 ```
 
 ### Identification (v0.4)
 
 ```python
-fit.adjustment_sets("x", "y")
-fit.is_identifiable("x", "y")
-fit.collider_warnings({"c"}, "x", "y")
+model.adjustment_sets("x", "y")
+model.is_identifiable("x", "y")
+model.collider_warnings({"c"}, "x", "y")
 ```
 
 ### Standardized effects (v0.4)
 
 ```python
-fit.standardized()  # stdyx-standardized coefficients
+model.standardized()  # stdyx-standardized coefficients
 ```
 
 ## 9. Modeling Semantics

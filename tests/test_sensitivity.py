@@ -24,8 +24,8 @@ def fork_model():
     Y = 0.4 * X + 0.6 * Z + rng.normal(scale=0.5, size=n)
     df = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
 
-    model = pathmc.fit("X ~ Z\nY ~ X + Z", data=df)
-    model.sample(draws=300, tune=300, chains=2, random_seed=42)
+    model = pathmc.model("X ~ Z\nY ~ X + Z", data=df)
+    model.fit(draws=300, tune=300, chains=2, random_seed=42)
     return model
 
 
@@ -250,7 +250,7 @@ class TestSensitivityErrorHandling:
                 "Y": np.random.normal(size=50),
             }
         )
-        model = pathmc.fit("Y ~ X", data=df)
+        model = pathmc.model("Y ~ X", data=df)
         with pytest.raises(RuntimeError, match="No posterior samples"):
             model.sensitivity("Y", "X")
 
@@ -261,7 +261,7 @@ class TestSensitivityErrorHandling:
                 "Y": np.random.normal(size=50),
             }
         )
-        model = pathmc.fit("Y ~ X", data=df)
+        model = pathmc.model("Y ~ X", data=df)
         model._idata = True  # bypass sampling check
         with pytest.raises(ValueError, match="gamma_range"):
             model.sensitivity("Y", "X", gamma_range=(1.0, 0.0))
@@ -273,7 +273,7 @@ class TestSensitivityErrorHandling:
                 "Y": np.random.normal(size=50),
             }
         )
-        model = pathmc.fit("Y ~ X", data=df)
+        model = pathmc.model("Y ~ X", data=df)
         model._idata = True
         with pytest.raises(ValueError, match="delta_range"):
             model.sensitivity("Y", "X", delta_range=(1.0, 0.0))
@@ -285,7 +285,7 @@ class TestSensitivityErrorHandling:
                 "Y": np.random.normal(size=50),
             }
         )
-        model = pathmc.fit("Y ~ X", data=df)
+        model = pathmc.model("Y ~ X", data=df)
         model._idata = True
         with pytest.raises(ValueError, match="n_grid"):
             model.sensitivity("Y", "X", n_grid=1)
@@ -297,7 +297,7 @@ class TestSensitivityErrorHandling:
                 "Y": np.random.normal(size=50),
             }
         )
-        model = pathmc.fit("Y ~ X", data=df)
+        model = pathmc.model("Y ~ X", data=df)
         model._idata = True
         with pytest.raises(ValueError, match="not in model"):
             model.sensitivity("Y", "UNKNOWN")
@@ -309,7 +309,7 @@ class TestSensitivityErrorHandling:
                 "Y": np.random.normal(size=50),
             }
         )
-        model = pathmc.fit("Y ~ X", data=df)
+        model = pathmc.model("Y ~ X", data=df)
         model._idata = True
         with pytest.raises(ValueError, match="not in model"):
             model.sensitivity("UNKNOWN", "X")

@@ -47,7 +47,7 @@ True values: $a = 0.5$, $b = 0.8$, $c = 0.3$, $\sigma_M = 0.3$, $\sigma_Y = 0.3$
 
 ## Inspect the default priors
 
-When you call `pathmc.fit()` without specifying priors, sensible defaults are used.
+When you call `pathmc.model()` without specifying priors, sensible defaults are used.
 The `.priors()` method shows exactly what they are.
 
 ```{python}
@@ -56,7 +56,7 @@ M ~ a*X
 Y ~ b*M + c*X
 """
 
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 model.priors()
 ```
 
@@ -160,7 +160,7 @@ The custom priors concentrate probability mass in the plausible range. The model
 With priors that encode our domain knowledge, we can proceed to posterior inference.
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ```{python}
@@ -171,10 +171,10 @@ The posterior means should be close to the true values ($a = 0.5$, $b = 0.8$, $c
 
 ## Specifying priors up front
 
-If you already know your priors before fitting, you can pass them directly to `fit()` instead of using the two-step inspect-then-refine approach.
+If you already know your priors before fitting, you can pass them directly to `model()` instead of using the two-step inspect-then-refine approach.
 
 ```{python}
-model_upfront = pathmc.fit(
+model_upfront = pathmc.model(
     spec,
     data=df,
     priors={
@@ -195,7 +195,7 @@ Both approaches produce the same compiled model.
 The `Prior` class supports any PyMC distribution. When domain knowledge suggests a specific shape --- for example, that a coefficient should be positive, or bounded --- you can express that directly.
 
 ```{python}
-model_informative = pathmc.fit(
+model_informative = pathmc.model(
     spec,
     data=df,
     priors={
@@ -219,7 +219,7 @@ Call `.priors()` on any model to see the full list of parameter names you can cu
 - **`.priors()`** shows the current prior specification for every model parameter.
 - **`.sample_prior_predictive()`** generates data from the prior to verify that your assumptions produce plausible outcomes.
 - **`.set_priors()`** merges overrides into the current prior configuration and recompiles the model. Only the specified parameters change; everything else keeps its current value.
-- **`fit(priors=...)`** accepts priors at creation time for a one-step workflow.
+- **`model(priors=...)`** accepts priors at creation time for a one-step workflow.
 - **Any PyMC distribution** can serve as a prior via `Prior("DistName", ...)` from `pymc_extras`.
 - The **iterative workflow** --- inspect, check, refine, re-check, sample --- is the principled approach to prior specification in Bayesian modeling. See [Bayesian Workflow](../concepts/bayesian_workflow.qmd) for the full end-to-end cycle from model specification through causal queries.
 

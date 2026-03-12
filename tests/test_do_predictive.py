@@ -22,16 +22,16 @@ def fitted_simple():
     Y = 0.5 * X + rng.normal(scale=1.0, size=n)
     data = pd.DataFrame({"X": X, "Y": Y})
 
-    model = pathmc.fit("Y ~ X", data=data)
-    model.sample(draws=200, tune=200, chains=1, random_seed=42)
+    model = pathmc.model("Y ~ X", data=data)
+    model.fit(draws=200, tune=200, chains=1, random_seed=42)
     return model
 
 
 @pytest.fixture
 def fitted_mediation_for_pred(mediation_data):
     """Mediation model fitted for predictive do() tests."""
-    model = pathmc.fit(MEDIATION_SPEC, data=mediation_data)
-    model.sample(draws=200, tune=200, chains=1, random_seed=42)
+    model = pathmc.model(MEDIATION_SPEC, data=mediation_data)
+    model.fit(draws=200, tune=200, chains=1, random_seed=42)
     return model
 
 
@@ -88,8 +88,8 @@ class TestPredictiveBernoulli:
         Y = rng.binomial(1, p, size=n).astype(float)
         data = pd.DataFrame({"X": X, "Y": Y})
 
-        model = pathmc.fit("Y ~ X", data=data, families={"Y": "bernoulli"})
-        model.sample(draws=100, tune=100, chains=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=data, families={"Y": "bernoulli"})
+        model.fit(draws=100, tune=100, chains=1, random_seed=42)
 
         result = model.do(set={"X": 1.0}, kind="predictive")
         hdi = result.hdi("Y")

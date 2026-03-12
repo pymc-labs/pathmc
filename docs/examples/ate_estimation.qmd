@@ -96,12 +96,12 @@ The ATE is simply the coefficient, regardless of the distribution of `Z`.
 ### Fit and verify
 
 ```{python}
-model_lin = pathmc.fit("Y ~ bT*T + bZ*Z", data=df_linear)
+model_lin = pathmc.model("Y ~ bT*T + bZ*Z", data=df_linear)
 model_lin.model_equations()
 ```
 
 ```{python}
-model_lin.sample(draws=500, tune=500, chains=4, random_seed=42)
+model_lin.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ```{python}
@@ -167,7 +167,7 @@ Three numbers, three different scales, three different answers to "what is the t
 ### Fit and verify
 
 ```{python}
-model_log = pathmc.fit(
+model_log = pathmc.model(
     "Y ~ bT*T + bZ*Z",
     data=df_logistic,
     families={"Y": "bernoulli"},
@@ -176,7 +176,7 @@ model_log.model_equations()
 ```
 
 ```{python}
-model_log.sample(draws=500, tune=500, chains=4, random_seed=42)
+model_log.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ```{python}
@@ -414,7 +414,7 @@ print(f"True ATE (risk difference):     {true_ate_conf:.3f}")
 The naive comparison is biased upward because high-`Z` individuals are both more likely to be treated *and* more likely to have $Y{=}1$.
 
 ```{python}
-model_conf = pathmc.fit(
+model_conf = pathmc.model(
     "T ~ Z\nY ~ bT*T + bZ*Z",
     data=df_conf,
     families={"T": "bernoulli", "Y": "bernoulli"},
@@ -423,7 +423,7 @@ model_conf.model_equations()
 ```
 
 ```{python}
-model_conf.sample(draws=500, tune=500, chains=4, random_seed=42)
+model_conf.fit(draws=500, tune=500, chains=4, random_seed=42)
 
 ate_conf = model_conf.ate("Y", "T", values=(0.0, 1.0))
 print(f"Naive (biased):               {naive_rd:.3f}")
