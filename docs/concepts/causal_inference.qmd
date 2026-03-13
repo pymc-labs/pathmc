@@ -289,4 +289,4 @@ For hands-on demonstrations of the concepts on this page, see:
 - [Causal Identification](../examples/causal_identification.qmd) — adjustment sets, collider bias, and the front-door criterion
 - [Treatment Effects with Non-Linear Models](../examples/ate_estimation.qmd) — why coefficients ≠ ATE in logistic models, g-computation
 - [Moderation](../examples/moderation.qmd) — interaction terms, CATE, and when ATT ≠ ATU
-- [Simpson's Paradox](../examples/simpsons_paradox.qmd) — confounding and the do-operator
+- [The do() Operator](../examples/causal_do_operator.qmd) — confounding, Simpson's paradox, and interventional queries
