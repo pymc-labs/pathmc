@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.special import expit
-from scipy.stats import gaussian_kde
+import arviz as az
 import pathmc
 
 FIG_WIDTH = 7
@@ -352,11 +352,8 @@ for ax, draws, true_val, color, title, xlabel in [
     (axes[1], ate_log_draws, true_ate_logistic, COLOR_LOGISTIC,
      "Logistic model", "ATE (risk difference)"),
 ]:
-    kde = gaussian_kde(draws)
-    x_grid = np.linspace(draws.min(), draws.max(), 200)
-    density = kde(x_grid)
-    ax.fill_between(x_grid, density, alpha=0.3, color=color)
-    ax.plot(x_grid, density, color=color, lw=2)
+    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
+                fill_kwargs={"alpha": 0.3, "color": color})
     ax.axvline(true_val, color=COLOR_TRUE, ls="--", lw=1.5,
                label=f"True = {true_val:.3f}")
     ax.set_xlabel(xlabel)

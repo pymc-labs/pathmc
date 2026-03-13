@@ -22,7 +22,6 @@ Part 1 shows the basic structure; Part 2 demonstrates how even sparse, noisy sur
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.stats import gaussian_kde
 import arviz as az
 import pathmc
 
@@ -247,12 +246,8 @@ for draws, color, label, true_val in [
     (total_draws, COLOR_TOTAL, "Total long-run", true_total_uf),
 ]:
     valid = draws[np.isfinite(draws)]
-    lo, hi = np.percentile(valid, [1, 99])
-    kde = gaussian_kde(valid)
-    x_grid = np.linspace(lo, hi, 200)
-    density = kde(x_grid)
-    ax.fill_between(x_grid, density, alpha=0.25, color=color)
-    ax.plot(x_grid, density, color=color, label=label, lw=2)
+    az.plot_kde(valid, ax=ax, plot_kwargs={"color": color, "lw": 2},
+                fill_kwargs={"alpha": 0.25, "color": color}, label=label)
     ax.axvline(true_val, color=color, ls="--", lw=1.5, alpha=0.7)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -306,19 +301,12 @@ fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 weeks = np.arange(1, n_weeks + 1)
 
 uf_by_time = uf_contrast.by_time("sales")
-uf_mean = uf_by_time.mean(axis=1)
-uf_lo = np.percentile(uf_by_time, 3, axis=1)
-uf_hi = np.percentile(uf_by_time, 97, axis=1)
-
 lf_by_time = lf_contrast.by_time("sales")
-lf_mean = lf_by_time.mean(axis=1)
-lf_lo = np.percentile(lf_by_time, 3, axis=1)
-lf_hi = np.percentile(lf_by_time, 97, axis=1)
 
-ax.plot(weeks, uf_mean, color=COLOR_UPPER, lw=2, label="Upper-funnel contribution")
-ax.fill_between(weeks, uf_lo, uf_hi, alpha=0.15, color=COLOR_UPPER)
-ax.plot(weeks, lf_mean, color=COLOR_LOWER, lw=2, label="Lower-funnel contribution")
-ax.fill_between(weeks, lf_lo, lf_hi, alpha=0.15, color=COLOR_LOWER)
+ax.plot(weeks, uf_by_time.mean(axis=1), color=COLOR_UPPER, lw=2, label="Upper-funnel contribution")
+az.plot_hdi(weeks, uf_by_time.T, ax=ax, color=COLOR_UPPER, fill_kwargs={"alpha": 0.15})
+ax.plot(weeks, lf_by_time.mean(axis=1), color=COLOR_LOWER, lw=2, label="Lower-funnel contribution")
+az.plot_hdi(weeks, lf_by_time.T, ax=ax, color=COLOR_LOWER, fill_kwargs={"alpha": 0.15})
 
 ax.set_xlabel("Week")
 ax.set_ylabel("Sales lift (mean spend vs. zero)")
@@ -355,12 +343,10 @@ pulse_effect = r_pulse - r_off
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 pulse_by_time = pulse_effect.by_time("sales")
-pulse_mean = pulse_by_time.mean(axis=1)
-pulse_lo = np.percentile(pulse_by_time, 3, axis=1)
-pulse_hi = np.percentile(pulse_by_time, 97, axis=1)
 
-ax.plot(weeks, pulse_mean, color=COLOR_UPPER, lw=2, label="Posterior mean")
-ax.fill_between(weeks, pulse_lo, pulse_hi, alpha=0.15, color=COLOR_UPPER, label="94% interval")
+ax.plot(weeks, pulse_by_time.mean(axis=1), color=COLOR_UPPER, lw=2, label="Posterior mean")
+az.plot_hdi(weeks, pulse_by_time.T, ax=ax, color=COLOR_UPPER,
+            fill_kwargs={"alpha": 0.15, "label": "94% HDI"})
 ax.axvspan(11, 20, alpha=0.08, color="gray", label="Campaign window")
 ax.axhline(0, color="black", ls=":", alpha=0.4)
 
@@ -642,15 +628,12 @@ Plotting the posterior mean and HDI band against the true trajectory and survey 
 awareness_draws = idata.posterior["awareness"].values
 awareness_flat = awareness_draws.reshape(-1, awareness_draws.shape[-2])
 
-post_mean = awareness_flat.mean(axis=0)
-post_lo = np.percentile(awareness_flat, 3, axis=0)
-post_hi = np.percentile(awareness_flat, 97, axis=0)
-
 weeks = df["week"].values
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-ax.fill_between(weeks, post_lo, post_hi, alpha=0.25, color=COLOR_AWARENESS, label="94% HDI")
-ax.plot(weeks, post_mean, color=COLOR_AWARENESS, lw=2, label="Posterior mean")
+az.plot_hdi(weeks, awareness_flat, ax=ax, color=COLOR_AWARENESS,
+            fill_kwargs={"alpha": 0.25, "label": "94% HDI"})
+ax.plot(weeks, awareness_flat.mean(axis=0), color=COLOR_AWARENESS, lw=2, label="Posterior mean")
 ax.plot(weeks, df["awareness_true"], color="black", ls="--", lw=1.5, label="True awareness")
 
 survey_mask = df["awareness_survey"].notna()
@@ -681,13 +664,10 @@ Comparing the model's posterior predictive against observed sales is a basic che
 mu_sales = idata.posterior["mu_sales"].values
 mu_sales_flat = mu_sales.reshape(-1, mu_sales.shape[-2])
 
-sales_mean = mu_sales_flat.mean(axis=0)
-sales_lo = np.percentile(mu_sales_flat, 3, axis=0)
-sales_hi = np.percentile(mu_sales_flat, 97, axis=0)
-
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-ax.fill_between(weeks, sales_lo, sales_hi, alpha=0.25, color=COLOR_SALES, label="94% HDI")
-ax.plot(weeks, sales_mean, color=COLOR_SALES, lw=2, label="Posterior mean")
+az.plot_hdi(weeks, mu_sales_flat, ax=ax, color=COLOR_SALES,
+            fill_kwargs={"alpha": 0.25, "label": "94% HDI"})
+ax.plot(weeks, mu_sales_flat.mean(axis=0), color=COLOR_SALES, lw=2, label="Posterior mean")
 ax.scatter(weeks, df["sales"], color="black", s=15, zorder=3, label="Observed sales")
 ax.set_xlabel("Week")
 ax.set_ylabel("Sales")

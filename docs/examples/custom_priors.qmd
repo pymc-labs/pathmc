@@ -91,8 +91,9 @@ ppc_default = model.sample_prior_predictive(draws=500, random_seed=42)
 y_prior = ppc_default.prior["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-ax.hist(y_prior, bins=80, density=True, alpha=0.6, color=COLOR_DEFAULT,
-        edgecolor="white", linewidth=0.3, label="Prior predictive (default)")
+az.plot_kde(y_prior, ax=ax, plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
+            fill_kwargs={"alpha": 0.6, "color": COLOR_DEFAULT},
+            label="Prior predictive (default)")
 ax.axvline(df["Y"].mean(), color=COLOR_TRUE, linestyle="--", linewidth=1.5,
            label=f"Observed mean = {df['Y'].mean():.2f}")
 ax.set_xlabel("Y")
@@ -136,13 +137,12 @@ y_custom = ppc_custom.prior["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-clip = (-15, 15)
-ax.hist(y_default, bins=80, density=True, alpha=0.45, color=COLOR_DEFAULT,
-        edgecolor="white", linewidth=0.3, label="Default priors",
-        range=clip)
-ax.hist(y_custom, bins=80, density=True, alpha=0.55, color=COLOR_CUSTOM,
-        edgecolor="white", linewidth=0.3, label="Custom priors",
-        range=clip)
+az.plot_kde(y_default, ax=ax, plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
+            fill_kwargs={"alpha": 0.45, "color": COLOR_DEFAULT},
+            label="Default priors")
+az.plot_kde(y_custom, ax=ax, plot_kwargs={"color": COLOR_CUSTOM, "lw": 2},
+            fill_kwargs={"alpha": 0.55, "color": COLOR_CUSTOM},
+            label="Custom priors")
 ax.axvline(df["Y"].mean(), color=COLOR_TRUE, linestyle="--", linewidth=1.5,
            label=f"Observed mean = {df['Y'].mean():.2f}")
 ax.set_xlabel("Y")

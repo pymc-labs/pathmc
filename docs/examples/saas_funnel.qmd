@@ -66,7 +66,6 @@ We generate data from a known DGP so we can verify that pathmc recovers the true
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.stats import gaussian_kde
 from scipy.special import expit
 import arviz as az
 import pymc as pm
@@ -321,11 +320,8 @@ fig, axes = plt.subplots(1, 3, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 for ax, var, label, color in zip(axes, stages, stage_labels, colors):
     draws = contrast.draws(var)
-    kde = gaussian_kde(draws)
-    x_grid = np.linspace(draws.min(), draws.max(), 200)
-    density = kde(x_grid)
-    ax.fill_between(x_grid, density, alpha=0.3, color=color)
-    ax.plot(x_grid, density, color=color, lw=2)
+    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
+                fill_kwargs={"alpha": 0.3, "color": color})
     ax.axvline(draws.mean(), color=color, ls="--", lw=1.5, alpha=0.7)
     ax.axvline(0, color="black", ls=":", alpha=0.3)
     ax.set_xlabel(label)
@@ -369,11 +365,8 @@ for lift_obj, color, label in [
     (lift_onboarding, COLOR_ONBOARDING, "+2 onboarding score"),
 ]:
     draws = lift_obj.draws("converted")
-    kde = gaussian_kde(draws)
-    x_grid = np.linspace(draws.min(), draws.max(), 200)
-    density = kde(x_grid)
-    ax.fill_between(x_grid, density, alpha=0.25, color=color)
-    ax.plot(x_grid, density, color=color, label=label, lw=2)
+    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
+                fill_kwargs={"alpha": 0.25, "color": color}, label=label)
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -400,11 +393,8 @@ c_act_draws = idata.posterior["beta_converted"].sel(
 ).values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.8))
-kde = gaussian_kde(c_act_draws)
-x_grid = np.linspace(c_act_draws.min(), c_act_draws.max(), 200)
-density = kde(x_grid)
-ax.fill_between(x_grid, density, alpha=0.3, color=COLOR_ACTIVATION)
-ax.plot(x_grid, density, color=COLOR_ACTIVATION, lw=2)
+az.plot_kde(c_act_draws, ax=ax, plot_kwargs={"color": COLOR_ACTIVATION, "lw": 2},
+            fill_kwargs={"alpha": 0.3, "color": COLOR_ACTIVATION})
 ax.axvline(c_act_draws.mean(), color=COLOR_ACTIVATION, ls="--", lw=1.5, alpha=0.7)
 ax.axvline(true_conv_activated, color="black", ls="--", lw=1.5, alpha=0.5, label=f"True value ({true_conv_activated})")
 ax.axvline(0, color="black", ls=":", alpha=0.3)
