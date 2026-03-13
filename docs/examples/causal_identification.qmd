@@ -51,7 +51,7 @@ Y = 0.4 * X + 0.8 * Z + rng.normal(scale=0.5, size=n)
 df_fork = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
 
 fork_model = pathmc.model("X ~ Z\nY ~ X + Z", data=df_fork)
-fork_model.model_equations()
+fork_model.equations()
 ```
 
 ### Identification check
@@ -96,7 +96,7 @@ Y = 0.5 * M + rng.normal(scale=0.5, size=n)
 df_chain = pd.DataFrame({"X": X, "M": M, "Y": Y})
 
 chain_model = pathmc.model("M ~ X\nY ~ M", data=df_chain)
-chain_model.model_equations()
+chain_model.equations()
 ```
 
 ```{python}
@@ -140,7 +140,7 @@ C = 0.6 * X + 0.4 * Y + rng.normal(scale=0.5, size=n)
 df_collider = pd.DataFrame({"X": X, "Y": Y, "C": C})
 
 collider_model = pathmc.model("C ~ X + Y", data=df_collider)
-collider_model.model_equations()
+collider_model.equations()
 ```
 
 ### Identification check
@@ -199,7 +199,7 @@ C = 0.3 * X + 0.5 * Y + rng.normal(scale=0.5, size=n)
 df_mixed = pd.DataFrame({"X": X, "Y": Y, "Z": Z, "C": C})
 
 mixed_model = pathmc.model("X ~ Z\nY ~ X + Z\nC ~ X + Y", data=df_mixed)
-mixed_model.model_equations()
+mixed_model.equations()
 ```
 
 ```{python}
@@ -347,7 +347,7 @@ mortality ~ b_smoking*smoking + birth_defect
 """
 
 model_bw = pathmc.model(spec_bw, data=df_bw, families={"mortality": "bernoulli"})
-model_bw.model_equations()
+model_bw.equations()
 ```
 
 #### Collider warnings and identification
@@ -579,7 +579,7 @@ model_fd.graph()
 ```
 
 ```{python}
-model_fd.model_equations()
+model_fd.equations()
 ```
 
 ::: {.callout-important}

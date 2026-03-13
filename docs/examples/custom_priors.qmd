@@ -48,7 +48,7 @@ True values: $a = 0.5$, $b = 0.8$, $c = 0.3$, $\sigma_M = 0.3$, $\sigma_Y = 0.3$
 ## Inspect the default priors
 
 When you call `pathmc.model()` without specifying priors, sensible defaults are used.
-The `.priors()` method shows exactly what they are.
+The `.equations()` method shows the structural equations alongside the priors.
 
 ```{python}
 spec = """
@@ -57,7 +57,7 @@ Y ~ b*M + c*X
 """
 
 model = pathmc.model(spec, data=df)
-model.priors()
+model.equations()
 ```
 
 The defaults are deliberately vague: `Normal(mu=0, sigma=10)` for regression coefficients and `HalfNormal(sigma=1)` for residual standard deviations. These are reasonable starting points when you know nothing about the scale of your data, but they may be wider than necessary.
@@ -119,7 +119,7 @@ model.set_priors({
     "sigma_Y": Prior("HalfNormal", sigma=0.5),
 })
 
-model.priors()
+model.equations()
 ```
 
 ```{python}
@@ -185,7 +185,7 @@ model_upfront = pathmc.model(
     },
 )
 
-model_upfront.priors()
+model_upfront.equations()
 ```
 
 Both approaches produce the same compiled model.
@@ -204,19 +204,19 @@ model_informative = pathmc.model(
     },
 )
 
-model_informative.priors()
+model_informative.equations()
 ```
 
 ::: {.callout-tip}
 ## Discovering valid prior keys
 
-Call `.priors()` on any model to see the full list of parameter names you can customize. The keys depend on your model specification --- a model with random slopes will have `mu_slope_*` and `sigma_slope_*` keys, while a model with transforms will include the transform parameter names.
+Call `.equations()` on any model to see both the structural equations and the full list of prior parameter names you can customize. Use `.equations(show="priors")` to see only the priors. The keys depend on your model specification --- a model with random slopes will have `mu_slope_*` and `sigma_slope_*` keys, while a model with transforms will include the transform parameter names.
 :::
 
 ## Summary
 
 - **Default priors** (`Normal(0, 10)` for coefficients, `HalfNormal(1)` for scales) work out of the box and require zero configuration.
-- **`.priors()`** shows the current prior specification for every model parameter.
+- **`.equations()`** shows the structural equations and the current prior specification for every model parameter. Use `show="priors"` to see only the priors.
 - **`.sample_prior_predictive()`** generates data from the prior to verify that your assumptions produce plausible outcomes.
 - **`.set_priors()`** merges overrides into the current prior configuration and recompiles the model. Only the specified parameters change; everything else keeps its current value.
 - **`model(priors=...)`** accepts priors at creation time for a one-step workflow.

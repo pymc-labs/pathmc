@@ -17,7 +17,7 @@ digraph {
   edge [fontsize=10]
 
   specify [label="1. Build model\nmodel(spec, data)"]
-  inspect [label="2. Inspect structure\ngraph(), priors(), equations()"]
+  inspect [label="2. Inspect structure\ngraph(), equations()"]
   ppc [label="3. Prior predictive check\nsample_prior_predictive()"]
   plausible [label="Plausible?", shape=diamond]
   refine [label="4. Refine priors\nset_priors()"]
@@ -95,13 +95,7 @@ model.graph()
 model.equations()
 ```
 
-`priors()` is particularly important — it shows the exact distribution assigned to every parameter, including defaults you may not have thought about.
-
-```{python}
-model.priors()
-```
-
-The defaults are deliberately vague: `Normal(0, 10)` for regression coefficients and `HalfNormal(1)` for residual scales. These work out of the box, but domain knowledge almost always lets you do better.
+`equations()` shows the structural equations and the prior distribution assigned to every parameter, including defaults you may not have thought about. The defaults are deliberately vague: `Normal(0, 10)` for regression coefficients and `HalfNormal(1)` for residual scales. These work out of the box, but domain knowledge almost always lets you do better.
 
 
 ## 3. Prior predictive check
@@ -153,7 +147,7 @@ model.set_priors({
     "sigma_Y": Prior("HalfNormal", sigma=0.5),
 })
 
-model.priors()
+model.equations()
 ```
 
 Now re-check: do the refined priors generate plausible data?
@@ -266,7 +260,7 @@ The ATE should be close to the true total effect ($a \times b + c = 0.5 \times 0
 | Step | Method | Cost |
 |------|--------|------|
 | Build model | `pathmc.model(spec, data)` | Instant |
-| Inspect | `graph()`, `equations()`, `priors()` | Instant |
+| Inspect | `graph()`, `equations()` | Instant |
 | Prior predictive check | `sample_prior_predictive()` | Seconds |
 | Refine priors | `set_priors()` | Instant |
 | Fit | `fit()` | Minutes |

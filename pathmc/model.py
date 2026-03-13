@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 import warnings
-from typing import Any
+from typing import Any, Literal
 
 import arviz as az
 import graphviz
@@ -214,20 +214,46 @@ class PathModel:
         """
         return build_dag_viz(self._spec, self._graph_info, families=self._families)
 
-    def equations(self) -> EquationList:
-        """Return human-readable structural equations.
+    def equations(
+        self,
+        show: Literal["all", "structural", "priors"] = "all",
+    ) -> ModelEquations | EquationList | PriorTable:
+        """Return model equations and/or prior specifications.
 
-        Works before sampling.
+        Works before sampling. By default renders both structural
+        equations and priors as combined LaTeX in Jupyter / Quarto.
+
+        Parameters
+        ----------
+        show : {"all", "structural", "priors"}, default "all"
+            What to display:
+
+            - ``"all"`` — structural equations **and** priors (default).
+            - ``"structural"`` — only the structural (regression) equations.
+            - ``"priors"`` — only the prior distributions.
+
+        Returns
+        -------
+        ModelEquations | EquationList | PriorTable
+            ``ModelEquations`` when *show="all"*, ``EquationList`` when
+            *show="structural"*, ``PriorTable`` when *show="priors"*.
         """
+        if show == "structural":
+            return self._build_equations()
+        if show == "priors":
+            return self._build_priors()
+        if show == "all":
+            return ModelEquations(self._build_equations(), self._build_priors())
+        raise ValueError(
+            f"Unknown show={show!r}. Choose from 'all', 'structural', or 'priors'."
+        )
+
+    def _build_equations(self) -> EquationList:
+        """Build structural equations from the spec."""
         return build_equations(self._spec, latent=self._latent, families=self._families)
 
-    def priors(self) -> PriorTable:
-        """Return a summary of prior distributions for all parameters.
-
-        Works before sampling. The table reflects any custom priors
-        set via ``set_priors()`` or the ``priors`` argument to
-        :func:`pathmc.model`.
-        """
+    def _build_priors(self) -> PriorTable:
+        """Build prior table from the spec and config."""
         return build_priors(
             self._spec,
             families=self._families,
@@ -235,6 +261,20 @@ class PathModel:
             latent=self._latent,
             prior_config=self._priors,
         )
+
+    def priors(self) -> PriorTable:
+        """Return a summary of prior distributions for all parameters.
+
+        Works before sampling. The table reflects any custom priors
+        set via ``set_priors()`` or the ``priors`` argument to
+        :func:`pathmc.model`.
+
+        .. tip::
+
+            Use ``equations()`` for a unified view of both structural
+            equations and priors.
+        """
+        return self._build_priors()
 
     def set_priors(self, overrides: dict[str, Any]) -> None:
         """Update prior distributions and recompile the model.
@@ -246,7 +286,7 @@ class PathModel:
         ----------
         overrides : dict[str, Prior]
             Mapping from parameter name to ``Prior`` object. Use
-            ``.priors()`` to see available parameter names.
+            ``.equations()`` to see available parameter names.
 
         Raises
         ------
@@ -287,9 +327,17 @@ class PathModel:
     def model_equations(self) -> ModelEquations:
         """Return structural equations and priors as a single display object.
 
-        Works before sampling. Renders as combined LaTeX in Jupyter / Quarto.
+        .. deprecated::
+            Use :meth:`equations` instead, which now shows both structural
+            equations and priors by default.
         """
-        return ModelEquations(self.equations(), self.priors())
+        warnings.warn(
+            "model_equations() is deprecated. Use equations() instead, "
+            "which now shows both structural equations and priors by default.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return ModelEquations(self._build_equations(), self._build_priors())
 
     def summary(self) -> pd.DataFrame:
         """Return a posterior summary table.
@@ -1176,7 +1224,7 @@ def model(
         Custom prior specifications mapping parameter names to ``Prior``
         objects from ``pymc_extras``. Only the specified parameters are
         overridden; all others use sensible defaults. Call
-        ``.priors()`` on the returned model to see all parameter names.
+        ``.equations()`` on the returned model to see all parameter names.
 
         Example::
 
@@ -1275,7 +1323,7 @@ def simulate(
     params : dict[str, Any]
         True parameter values keyed by PyMC variable name. Typical
         keys are ``"beta_{var}"`` (coefficient vector) and
-        ``"sigma_{var}"`` (residual std). Use ``pathmc.model(...).priors()``
+        ``"sigma_{var}"`` (residual std). Use ``pathmc.model(...).equations()``
         on a dummy dataset to discover expected names and shapes.
     families : dict[str, str] | None
         Per-variable distribution families (default ``"gaussian"``).

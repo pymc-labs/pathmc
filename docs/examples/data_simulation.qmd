@@ -286,7 +286,7 @@ The parameter names passed to `simulate()` must match the PyMC variable names in
 spec = "M ~ X\nY ~ M + X"
 placeholder = pd.DataFrame({"X": [0.0], "M": [0.0], "Y": [0.0]})
 tmp = pathmc.model(spec, data=placeholder)
-tmp.model_equations()
+tmp.equations()
 ```
 
 
@@ -296,7 +296,7 @@ tmp.model_equations()
 - Parameters are fixed via `pm.do()` and data is drawn via `pm.draw()`, guaranteeing consistency with the model's internal structure — including multi-equation chains and link functions.
 - The returned DataFrame contains the original exogenous columns plus simulated endogenous columns.
 - Supported for all families (`gaussian`, `bernoulli`, `poisson`, `negbinomial`, `studentt`) and multi-equation models.
-- Use `priors()` and `equations()` on a placeholder model to discover the expected parameter names and their dimensions.
+- Use `equations()` on a placeholder model to discover both the structural equations and expected parameter names.
 
 ::: {.callout-tip collapse="true"}
 ## When to use numpy simulation instead
