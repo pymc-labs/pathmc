@@ -313,8 +313,8 @@ The gap between the two estimates reflects the difference between asking about t
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.75))
 
-ax.hist(y_counterfactual, bins=50, density=True, alpha=0.6, color=COLOR_JOE,
-        edgecolor="white", linewidth=0.5)
+az.plot_kde(y_counterfactual, ax=ax, plot_kwargs={"color": COLOR_JOE, "lw": 2},
+            fill_kwargs={"alpha": 0.6, "color": COLOR_JOE})
 ax.axvline(1.90, color="black", linestyle="--", linewidth=1.5,
            label="Analytical counterfactual (1.90)")
 ax.axvline(JOE_Y, color="gray", linestyle="--", linewidth=1.5,

@@ -91,7 +91,6 @@ We simulate 5 retail regions over 40 weeks, with known price elasticities that v
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.stats import gaussian_kde
 import arviz as az
 import pymc as pm
 import pathmc
@@ -301,11 +300,9 @@ print(f"Competitor effect:  posterior mean = {beta_comp.mean():.2f}  (true = {tr
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-kde = gaussian_kde(beta_price)
-x_grid = np.linspace(beta_price.min(), beta_price.max(), 200)
-density = kde(x_grid)
-ax.fill_between(x_grid, density, alpha=0.3, color=COLOR_PRICE)
-ax.plot(x_grid, density, color=COLOR_PRICE, lw=2, label="Posterior (path model)")
+az.plot_kde(beta_price, ax=ax, plot_kwargs={"color": COLOR_PRICE, "lw": 2},
+            fill_kwargs={"alpha": 0.3, "color": COLOR_PRICE},
+            label="Posterior (path model)")
 ax.axvline(true_mu_price, color="black", ls="--", lw=1.5, label=f"True ({true_mu_price})")
 ax.axvline(coefs_naive[1], color="red", ls="--", lw=1.5, alpha=0.7,
            label=f"Naive regression ({coefs_naive[1]:+.2f})")
@@ -344,11 +341,8 @@ for draws, color, label in [
     (beta_lag, COLOR_BASELINE, "Lagged (next week)"),
     (cumulative, COLOR_DEMAND, "Cumulative (long-run)"),
 ]:
-    kde = gaussian_kde(draws)
-    x_grid = np.linspace(draws.min(), draws.max(), 200)
-    density = kde(x_grid)
-    ax.fill_between(x_grid, density, alpha=0.2, color=color)
-    ax.plot(x_grid, density, color=color, label=label, lw=2)
+    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
+                fill_kwargs={"alpha": 0.2, "color": color}, label=label)
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -479,7 +473,7 @@ The net effect depends on the elasticity: if demand is elastic (|elasticity| > 1
 #| code-fold: true
 
 price_levels = np.arange(8.0, 14.1, 0.5)
-demand_means, demand_lo, demand_hi = [], [], []
+demand_draws_list = []
 
 r_ref = model.do(
     set={"price": 10.0, "competitor_price": 10.0},
@@ -491,29 +485,24 @@ for p in price_levels:
         set={"price": float(p), "competitor_price": 10.0},
         simulate_over="time", kind="mean",
     )
-    demand_means.append(r.mean("demand"))
-    hdi = r.hdi("demand", prob=0.94)
-    demand_lo.append(hdi[0])
-    demand_hi.append(hdi[1])
+    demand_draws_list.append(r.draws("demand"))
 
-demand_means = np.array(demand_means)
-demand_lo = np.array(demand_lo)
-demand_hi = np.array(demand_hi)
+demand_draws_2d = np.column_stack(demand_draws_list)
+demand_means = demand_draws_2d.mean(axis=0)
+revenue_draws_2d = price_levels[np.newaxis, :] * demand_draws_2d
 revenue_means = price_levels * demand_means
-revenue_lo = price_levels * demand_lo
-revenue_hi = price_levels * demand_hi
 
 fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 ax = axes[0]
 ax.plot(price_levels, demand_means, "o-", color=COLOR_DEMAND, lw=2, ms=5)
-ax.fill_between(price_levels, demand_lo, demand_hi, alpha=0.15, color=COLOR_DEMAND)
+az.plot_hdi(price_levels, demand_draws_2d, ax=ax, color=COLOR_DEMAND, fill_kwargs={"alpha": 0.15})
 ax.set_xlabel("Price ($)")
 ax.set_ylabel("Expected demand (units)")
 
 ax = axes[1]
 ax.plot(price_levels, revenue_means, "s-", color=COLOR_PRICE, lw=2, ms=5)
-ax.fill_between(price_levels, revenue_lo, revenue_hi, alpha=0.15, color=COLOR_PRICE)
+az.plot_hdi(price_levels, revenue_draws_2d, ax=ax, color=COLOR_PRICE, fill_kwargs={"alpha": 0.15})
 ax.set_xlabel("Price ($)")
 ax.set_ylabel("Expected revenue ($)")
 

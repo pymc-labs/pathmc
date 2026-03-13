@@ -25,7 +25,6 @@ This notebook builds panel models of increasing complexity:
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.stats import gaussian_kde
 import arviz as az
 import pymc as pm
 import pathmc
@@ -316,11 +315,8 @@ for ax, draws, color, label, true_val in [
     (axes[2], total_draws, COLOR_PROMO,
      "Total\n(b_contemp + b_lag)", TRUE_CONTEMP + TRUE_LAG),
 ]:
-    kde = gaussian_kde(draws)
-    x_grid = np.linspace(draws.min(), draws.max(), 200)
-    density = kde(x_grid)
-    ax.fill_between(x_grid, density, alpha=0.3, color=color)
-    ax.plot(x_grid, density, color=color, lw=2)
+    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
+                fill_kwargs={"alpha": 0.3, "color": color})
     ax.axvline(draws.mean(), color=color, ls="--", lw=1.5, alpha=0.7)
     ax.axvline(true_val, color="black", ls="--", lw=1.5, alpha=0.5)
     ax.set_xlabel(label)
@@ -379,11 +375,8 @@ for draws, color, label in [
     (naive_draws, COLOR_CONTEMP, "Naive (no lag)"),
     (total_draws, COLOR_PROMO, "Panel (contemp + lag)"),
 ]:
-    kde = gaussian_kde(draws)
-    x_grid = np.linspace(draws.min(), draws.max(), 200)
-    density = kde(x_grid)
-    ax.fill_between(x_grid, density, alpha=0.25, color=color)
-    ax.plot(x_grid, density, color=color, label=label, lw=2)
+    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
+                fill_kwargs={"alpha": 0.25, "color": color}, label=label)
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(TRUE_CONTEMP + TRUE_LAG, color="black", ls="--", lw=1.5,
@@ -530,14 +523,9 @@ rho_draws = idata_ar.posterior["beta_engagement"].sel(
 longrun_draws = b_x_draws / (1 - rho_draws)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-kde = gaussian_kde(longrun_draws)
-x_grid = np.linspace(
-    np.percentile(longrun_draws, 1),
-    np.percentile(longrun_draws, 99), 200,
-)
-density = kde(x_grid)
-ax.fill_between(x_grid, density, alpha=0.25, color=COLOR_EFFECT)
-ax.plot(x_grid, density, color=COLOR_EFFECT, lw=2, label="Posterior")
+az.plot_kde(longrun_draws, ax=ax, plot_kwargs={"color": COLOR_EFFECT, "lw": 2},
+            fill_kwargs={"alpha": 0.25, "color": COLOR_EFFECT},
+            label="Posterior")
 ax.axvline(true_longrun, color=COLOR_THEORY, ls="--", lw=2,
            label=f"True = {true_longrun:.1f}")
 ax.axvline(true_beta_x, color=COLOR_TRAFFIC, ls=":", lw=2,
@@ -569,12 +557,10 @@ fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 weeks_ar = np.arange(1, n_weeks_ar + 1)
 engagement_by_time = contrast_ar.by_time("engagement")
-mean_curve = engagement_by_time.mean(axis=1)
-lo = np.percentile(engagement_by_time, 3, axis=1)
-hi = np.percentile(engagement_by_time, 97, axis=1)
 
-ax.plot(weeks_ar, mean_curve, color=COLOR_EFFECT, lw=2, label="Posterior mean")
-ax.fill_between(weeks_ar, lo, hi, alpha=0.15, color=COLOR_EFFECT, label="94% interval")
+ax.plot(weeks_ar, engagement_by_time.mean(axis=1), color=COLOR_EFFECT, lw=2, label="Posterior mean")
+az.plot_hdi(weeks_ar, engagement_by_time.T, ax=ax, color=COLOR_EFFECT,
+            fill_kwargs={"alpha": 0.15, "label": "94% HDI"})
 
 delta_x = 8.0 - 2.0
 ax.axhline(true_beta_x * delta_x, color=COLOR_TRAFFIC, ls=":", lw=1.5,
@@ -728,13 +714,10 @@ contrast_mmm = result_scenario - result_baseline
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 sales_by_time = contrast_mmm.by_time("sales")
-mean_curve = sales_by_time.mean(axis=1)
-lo = np.percentile(sales_by_time, 3, axis=1)
-hi = np.percentile(sales_by_time, 97, axis=1)
 
-ax.plot(weeks_mmm, mean_curve, color=COLOR_EFFECT, lw=2, label="Posterior mean")
-ax.fill_between(weeks_mmm, lo, hi, alpha=0.15, color=COLOR_EFFECT,
-                label="94% interval")
+ax.plot(weeks_mmm, sales_by_time.mean(axis=1), color=COLOR_EFFECT, lw=2, label="Posterior mean")
+az.plot_hdi(weeks_mmm, sales_by_time.T, ax=ax, color=COLOR_EFFECT,
+            fill_kwargs={"alpha": 0.15, "label": "94% HDI"})
 ax.axvspan(boost_start + 1, boost_end, alpha=0.08, color="gray")
 ax.axhline(0, color="black", ls=":", alpha=0.4)
 ax.set_xlabel("Week")

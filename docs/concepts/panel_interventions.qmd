@@ -20,6 +20,7 @@ This page walks through why, with concrete numbers and diagrams.
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import arviz as az
 import pathmc
 
 FIG_WIDTH = 8
@@ -288,13 +289,10 @@ contrast = result_scen - result_base
 
 weeks = np.arange(1, n_weeks + 1)
 sales_by_time = contrast.by_time("y")
-mean_curve = sales_by_time.mean(axis=1)
-lo = np.percentile(sales_by_time, 3, axis=1)
-hi = np.percentile(sales_by_time, 97, axis=1)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-ax.fill_between(weeks, lo, hi, alpha=0.15, color=COLOR_CORRECT)
-ax.plot(weeks, mean_curve, color=COLOR_CORRECT, lw=2, label="Incremental sales")
+az.plot_hdi(weeks, sales_by_time.T, ax=ax, color=COLOR_CORRECT, fill_kwargs={"alpha": 0.15})
+ax.plot(weeks, sales_by_time.mean(axis=1), color=COLOR_CORRECT, lw=2, label="Incremental sales")
 ax.axvspan(8, 18, alpha=0.08, color=COLOR_BOOST)
 ax.axhline(0, color="black", ls=":", alpha=0.4)
 ax.set_xlabel("Week")

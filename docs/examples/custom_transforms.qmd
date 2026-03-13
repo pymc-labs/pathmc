@@ -200,14 +200,8 @@ for ax, var, true_val, label in zip(
     [TRUE_N, TRUE_K],
     ["n (Hill coefficient)", "K (EC50)"],
 ):
-    draws = idata.posterior[var].values.flatten()
-    ax.hist(draws, bins=40, density=True, alpha=0.6, color=COLOR_POSTERIOR,
-            edgecolor="white", linewidth=0.3)
-    ax.axvline(true_val, color=COLOR_TRUE, linestyle="--", linewidth=1.5,
-               label=f"True = {true_val}")
+    az.plot_posterior(idata, var_names=[var], ref_val=true_val, ax=ax)
     ax.set_xlabel(label)
-    ax.set_ylabel("Density")
-    ax.legend(fontsize=9)
 
 plt.tight_layout()
 plt.show()
@@ -220,15 +214,13 @@ The real payoff of a custom transform is that `do()` recomputes it automatically
 ```{python}
 dose_grid_do = np.linspace(0.5, 20, 30)
 
-means = []
-hdis = []
+response_draws_list = []
 for d in dose_grid_do:
     result = model.do(set={"dose": d})
-    means.append(result.mean("response"))
-    hdis.append(result.hdi("response", prob=0.94))
+    response_draws_list.append(result.draws("response"))
 
-means = np.array(means)
-hdis = np.array(hdis)
+response_draws_2d = np.column_stack(response_draws_list)
+means = response_draws_2d.mean(axis=0)
 ```
 
 ```{python}
@@ -238,8 +230,8 @@ hdis = np.array(hdis)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-ax.fill_between(dose_grid_do, hdis[:, 0], hdis[:, 1],
-                alpha=0.3, color=COLOR_POSTERIOR, label="94% HDI")
+az.plot_hdi(dose_grid_do, response_draws_2d, ax=ax, color=COLOR_POSTERIOR,
+            fill_kwargs={"alpha": 0.3, "label": "94% HDI"})
 ax.plot(dose_grid_do, means, color=COLOR_POSTERIOR, linewidth=2,
         label="Posterior mean", zorder=3)
 ax.plot(dose_grid, true_curve, color=COLOR_TRUE, linestyle="--", linewidth=1.5,

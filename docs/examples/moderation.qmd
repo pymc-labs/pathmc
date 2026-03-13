@@ -45,6 +45,7 @@ We generate data from a known DGP so we can verify that pathmc recovers the true
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import arviz as az
 import pathmc
 
 FIG_WIDTH = 8
@@ -166,26 +167,19 @@ The conditional effect $\beta_X + \beta_{XZ} \cdot Z$ is a linear function of $Z
 #| code-fold: true
 
 z_grid = np.linspace(-2, 2, 30)
-cate_means = []
-cate_lower = []
-cate_upper = []
+cate_draws_list = []
 
 for z_val in z_grid:
     cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": z_val})
-    cate_means.append(cate.mean("Y"))
-    hdi = cate.hdi("Y", prob=0.94)
-    cate_lower.append(hdi[0])
-    cate_upper.append(hdi[1])
+    cate_draws_list.append(cate.draws("Y"))
 
-cate_means = np.array(cate_means)
-cate_lower = np.array(cate_lower)
-cate_upper = np.array(cate_upper)
+cate_draws_2d = np.column_stack(cate_draws_list)
 true_cate = TRUE_MAIN_X + TRUE_INTER * z_grid
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-ax.fill_between(z_grid, cate_lower, cate_upper, alpha=0.25, color=COLOR_X)
-ax.plot(z_grid, cate_means, color=COLOR_X, lw=2, label="Estimated CATE")
+az.plot_hdi(z_grid, cate_draws_2d, ax=ax, color=COLOR_X, fill_kwargs={"alpha": 0.25})
+ax.plot(z_grid, cate_draws_2d.mean(axis=0), color=COLOR_X, lw=2, label="Estimated CATE")
 ax.plot(z_grid, true_cate, "--", color=COLOR_TRUE, lw=2, label="True CATE")
 ax.axhline(0, color="gray", lw=0.8, ls=":")
 ax.set_xlabel("Moderator Z")
@@ -203,8 +197,6 @@ The estimated CATE tracks the true function closely, with posterior uncertainty 
 Because the model is linear, the CATE is a simple function of the posterior draws for `a` and `c`. We can verify that the `cate()`-based computation matches the algebraic formula:
 
 ```{python}
-import arviz as az
-
 posterior = idata.posterior.stack(sample=("chain", "draw"))
 a_draws = posterior["beta_Y"].sel(Y_predictors="X").values
 c_draws = posterior["beta_Y"].sel(Y_predictors="X:Z").values
