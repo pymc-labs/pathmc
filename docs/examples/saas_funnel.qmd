@@ -10,7 +10,7 @@ The standard analytics dashboard shows conversion rates at each stage — but it
 
 The problem is that funnel stages are causally linked.
 Improving onboarding lifts engagement, which lifts activation, which lifts conversion.
-A naive regression of conversion on all funnel metrics simultaneously blocks the very causal paths you want to measure — the same attribution trap that plagues media mix models (see [MMM with marketing funnel](mmm_mediation.qmd)).
+A naive regression of conversion on all funnel metrics simultaneously blocks the very causal paths you want to measure — the same attribution trap that plagues media mix models (see [MMM with marketing funnel](mmm.qmd#sec-funnel)).
 
 Path analysis lets us model the funnel as a causal chain, estimate the effect that propagates through each stage, and simulate "what if we improve onboarding?" scenarios that respect the full causal structure.
 

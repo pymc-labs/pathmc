@@ -115,7 +115,7 @@ pathmc isn't just for textbook examples. The [examples gallery](examples/index.q
 
 ### Marketing mix modeling
 
-Estimate channel-level ROI with adstock and saturation transforms that capture carry-over effects and diminishing returns. Panel mode handles geo-level data with hierarchical random effects. [Full example &rarr;](examples/mmm_basic.qmd)
+Estimate channel-level ROI with adstock and saturation transforms that capture carry-over effects and diminishing returns. Panel mode handles geo-level data with hierarchical random effects. [Full example &rarr;](examples/mmm.qmd)
 
 ```python
 spec = """
