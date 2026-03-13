@@ -234,7 +234,7 @@ print(identifiable)  # True / False
 print(message)       # Diagnostic explaining the result
 ```
 
-The three conditions are: (1) `M` intercepts all directed paths from `X` to `Y`, (2) there is no unblocked backdoor path from `X` to `M`, and (3) all backdoor paths from `M` to `Y` are blocked by conditioning on `X`. See the [front-door example](../examples/front_door.qmd) for a worked demonstration.
+The three conditions are: (1) `M` intercepts all directed paths from `X` to `Y`, (2) there is no unblocked backdoor path from `X` to `M`, and (3) all backdoor paths from `M` to `Y` are blocked by conditioning on `X`. See the [front-door section](../examples/causal_identification.qmd#sec-front-door) for a worked demonstration.
 
 ::: {.callout-note}
 This check uses the DAG derived from the model spec. If the estimation spec includes adjustment variables that add edges absent from the true causal structure (e.g. including `X` in the `Y` equation to block a backdoor), build a `GraphInfo` from the causal DAG separately for an accurate check.
@@ -257,7 +257,7 @@ The validity of any causal claim depends on assumptions that pathmc cannot verif
 1. **Correct DAG structure.** The user must specify the right causal graph. A misspecified DAG (e.g., omitting a confounder) produces biased effect estimates regardless of the statistical method.
 
 2. **No unmeasured confounders.** The do-operator assumes that all common causes of the treatment and outcome are observed and included in the model.
-If there are unobserved confounders, the `do()` results are biased. (When unmeasured confounding exists but a clean mediator is available, the [front-door criterion](../examples/front_door.qmd) may still permit identification.)
+If there are unobserved confounders, the `do()` results are biased. (When unmeasured confounding exists but a clean mediator is available, the [front-door criterion](../examples/causal_identification.qmd#sec-front-door) may still permit identification.)
 
 3. **Consistency (well-defined interventions).** If a unit actually receives treatment value $x$, their observed outcome equals the potential outcome $Y(x)$.
 This rules out "multiple versions of treatment" — e.g., if `do(X = 1)` could mean different real-world interventions with different effects, the causal quantity is ill-defined.
@@ -285,7 +285,8 @@ Always state and defend your causal assumptions before interpreting `do()` resul
 For hands-on demonstrations of the concepts on this page, see:
 
 - [Mediation Analysis](../examples/mediation.qmd) — direct/indirect effects, path-specific contrasts, and the link from manual `do()` to `.ate()`
-- [Do Queries](../examples/do_queries.qmd) — ATE, CATE, ATT/ATU, and contrast arithmetic
-- [Seeing vs Doing](../examples/seeing_vs_doing.qmd) — why conditioning ≠ intervention
+- [The do() Operator](../examples/causal_do_operator.qmd) — seeing vs doing, ATE, CATE, ATT/ATU, and contrast arithmetic
+- [Causal Identification](../examples/causal_identification.qmd) — adjustment sets, collider bias, and the front-door criterion
+- [Treatment Effects with Non-Linear Models](../examples/ate_estimation.qmd) — why coefficients ≠ ATE in logistic models, g-computation
 - [Moderation](../examples/moderation.qmd) — interaction terms, CATE, and when ATT ≠ ATU
 - [Simpson's Paradox](../examples/simpsons_paradox.qmd) — confounding and the do-operator

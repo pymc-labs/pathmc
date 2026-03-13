@@ -1,6 +1,6 @@
 ---
-title: "Average Treatment Effects: Linear vs Logistic"
-description: "Compare ATE estimation under linear and logistic models — why g-computation is the general solution."
+title: "Treatment Effects with Non-Linear Models"
+description: "Why coefficients ≠ ATE in logistic models, AME vs MEM, g-computation for binary outcomes, and mixed-family models."
 categories: [Causal Inference]
 jupyter: pathmc
 ---
@@ -9,7 +9,7 @@ When a treatment is binary and the model is linear, reading the causal effect is
 But this shortcut breaks when the outcome is binary and the model uses a logistic link.
 The same coefficient value means completely different things on the two scales.
 
-This notebook demonstrates the difference with simulated data, verifies that pathmc's `do()` operator correctly recovers the ATE in both cases, and explains why g-computation is the general solution.
+This notebook demonstrates the difference with simulated data, verifies that pathmc's `do()` operator correctly recovers the ATE in both cases, and explains why g-computation is the general solution. It closes with mixed-family models where continuous and binary variables coexist in the same DAG.
 
 ## Setup
 
@@ -21,7 +21,7 @@ from scipy.special import expit
 from scipy.stats import gaussian_kde
 import pathmc
 
-FIG_WIDTH = 8
+FIG_WIDTH = 7
 FIG_HEIGHT = 4
 COLOR_LINEAR = "#2171b5"
 COLOR_LOGISTIC = "#e6550d"
@@ -475,6 +475,58 @@ Even without an explicit interaction term, the logistic link function creates im
 
 This is a second reason (beyond explicit interactions) why `att()` and `atu()` are important: nonlinear link functions make the treatment effect heterogeneous even when the structural equation has no interaction terms.
 :::
+
+## Mixed-family models: continuous and binary variables
+
+So far, every model used a single family for the outcome. In practice, DAGs often mix continuous and binary variables — for example, a continuous mediator feeding into a binary outcome. pathmc handles this naturally through the `families` argument.
+
+```{python}
+X_mix = rng.normal(size=n)
+M_mix = 0.5 * X_mix + rng.normal(scale=0.5, size=n)
+
+linear_mix = 0.3 + 0.8 * M_mix + 0.4 * X_mix
+p_mix = 1 / (1 + np.exp(-linear_mix))
+Y_mix = rng.binomial(1, p_mix, size=n).astype(float)
+
+df_mix = pd.DataFrame({"X": X_mix, "M": M_mix, "Y": Y_mix})
+print(f"P(Y=1) in data: {Y_mix.mean():.2f}")
+```
+
+```{python}
+model_mix = pathmc.model(
+    "M ~ a*X\nY ~ b*M + c*X",
+    data=df_mix,
+    families={"Y": "bernoulli"},
+)
+model_mix.model_equations()
+```
+
+Variables not listed in `families` default to Gaussian. Here, `M` gets a Gaussian likelihood (with sigma), while `Y` gets a Bernoulli-logit likelihood (no sigma). The `do()` operator handles the link function automatically — it returns probabilities for Bernoulli variables and raw values for Gaussian ones.
+
+```{python}
+model_mix.fit(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+```{python}
+r0_mix = model_mix.do(set={"X": 0.0}, kind="mean")
+r1_mix = model_mix.do(set={"X": 1.0}, kind="mean")
+
+ate_mix = r1_mix - r0_mix
+print(f"P(Y=1 | do(X=0)): {r0_mix.mean('Y'):.3f}")
+print(f"P(Y=1 | do(X=1)): {r1_mix.mean('Y'):.3f}")
+print(f"ATE (risk difference): {ate_mix.mean('Y'):.3f}")
+print(f"94% HDI: {ate_mix.hdi('Y', prob=0.94)}")
+```
+
+With `kind="predictive"`, residual noise is added at each step. For Gaussian variables this adds Normal noise; for Bernoulli variables the draws are binary (0 or 1) rather than probabilities. The predictive mean converges to the same value, but individual draws differ:
+
+```{python}
+r_mean_mix = model_mix.do(set={"X": 1.0}, kind="mean")
+r_pred_mix = model_mix.do(set={"X": 1.0}, kind="predictive")
+
+print(f"Mean propagation  - E[Y | do(X=1)]: {r_mean_mix.mean('Y'):.3f}")
+print(f"Predictive draws  - E[Y | do(X=1)]: {r_pred_mix.mean('Y'):.3f}")
+```
 
 ## Summary
 
