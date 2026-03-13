@@ -55,14 +55,20 @@ class PathModel:
     Created by :func:`pathmc.model`. Holds the parsed specification, graph
     structure, design matrices, and the compiled PyMC model.
 
+    When *data* is ``None``, the model operates in **data-free mode**:
+    introspection (``graph()``, ``equations()``, ``priors()``) and
+    identification helpers work, but methods requiring data or a compiled
+    PyMC model raise ``RuntimeError``.
+
     Parameters
     ----------
     spec : Spec
         Parsed model specification.
     graph_info : GraphInfo
         DAG with topological order and node classification.
-    data : pd.DataFrame
-        Observed data used to build design matrices.
+    data : pd.DataFrame | None
+        Observed data used to build design matrices. ``None`` for
+        data-free DAG exploration.
     families : dict[str, str] | None
         Per-variable distribution families.
     panel_info : PanelInfo | None
@@ -80,7 +86,7 @@ class PathModel:
         self,
         spec: Spec,
         graph_info: GraphInfo,
-        data: pd.DataFrame,
+        data: pd.DataFrame | None,
         families: dict[str, str] | None = None,
         panel_info: PanelInfo | None = None,
         pooling: str | dict | None = None,
@@ -95,8 +101,24 @@ class PathModel:
         self._panel_info = panel_info
         self._pooling = pooling
         self._latent: set[str] = latent if latent is not None else set()
+        self._families: dict[str, str] = families if families is not None else {}
 
-        self._design_matrices: dict[str, pd.DataFrame] = {}
+        defaults = default_priors(
+            spec,
+            families=self._families,
+            pooling=pooling,
+            latent=self._latent,
+        )
+        self._priors = merge_priors(defaults, priors)
+
+        if data is None:
+            self._design_matrices: dict[str, pd.DataFrame] = {}
+            self._gen_model: pm.Model | None = None
+            self._pymc_model: pm.Model | None = None
+            self._idata: az.InferenceData | None = None
+            return
+
+        self._design_matrices = {}
         for reg in spec.regressions:
             missing: list[str] = []
             for t in reg.terms:
@@ -114,20 +136,19 @@ class PathModel:
             else:
                 self._design_matrices[reg.lhs] = build_design_matrix(reg, data)
 
-        self._families: dict[str, str] = families if families is not None else {}
-        defaults = default_priors(
-            spec,
-            families=self._families,
-            pooling=pooling,
-            latent=self._latent,
-        )
-        self._priors = merge_priors(defaults, priors)
-
         self._compile()
+
+    def _require_data(self, method_name: str) -> None:
+        """Raise RuntimeError if the model has no data."""
+        if self._data is None:
+            raise RuntimeError(
+                f"{method_name}() requires data. Create a data-bound model: "
+                f"m = pathmc.model(spec, data=df)"
+            )
 
     def _compile(self) -> None:
         """Compile the generative PyMC model and attach observations."""
-        self._gen_model: pm.Model = compile_to_pymc(
+        self._gen_model = compile_to_pymc(
             self._spec,
             self._data,
             self._design_matrices,
@@ -168,16 +189,23 @@ class PathModel:
                     )
                 observations[var] = vals
 
-        self._pymc_model: pm.Model
         if observations:
             self._pymc_model = pm.observe(self._gen_model, observations)
         else:
             self._pymc_model = self._gen_model
-        self._idata: az.InferenceData | None = None
+        self._idata = None
 
     @property
     def pymc_model(self) -> pm.Model:
-        """The compiled PyMC model."""
+        """The compiled PyMC model.
+
+        Raises
+        ------
+        RuntimeError
+            If the model was created without data.
+        """
+        self._require_data("pymc_model")
+        assert self._pymc_model is not None  # guaranteed after _require_data
         return self._pymc_model
 
     def design(self, var: str) -> pd.DataFrame:
@@ -195,9 +223,12 @@ class PathModel:
 
         Raises
         ------
+        RuntimeError
+            If the model was created without data.
         KeyError
             If *var* is not an endogenous variable in the model.
         """
+        self._require_data("design")
         if var not in self._design_matrices:
             available = ", ".join(sorted(self._design_matrices))
             raise KeyError(
@@ -282,6 +313,8 @@ class PathModel:
         Only the specified priors are changed; all others keep their
         current values. Any existing posterior samples are invalidated.
 
+        On a data-free model, priors are updated without recompilation.
+
         Parameters
         ----------
         overrides : dict[str, Prior]
@@ -297,7 +330,8 @@ class PathModel:
 
         had_samples = self._idata is not None
         self._priors = merge_priors(self._priors, overrides)
-        self._compile()
+        if self._data is not None:
+            self._compile()
         if had_samples:
             warnings.warn(
                 "Priors changed — previous posterior samples have been "
@@ -321,6 +355,7 @@ class PathModel:
         az.InferenceData
             Prior predictive samples.
         """
+        self._require_data("sample_prior_predictive")
         with self._gen_model:
             return pm.sample_prior_predictive(**kwargs)
 
@@ -350,8 +385,10 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.fit()``.
+            If the model was created without data, or called before
+            ``.fit()``.
         """
+        self._require_data("summary")
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .summary()."
@@ -370,8 +407,10 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.fit()``.
+            If the model was created without data, or called before
+            ``.fit()``.
         """
+        self._require_data("effects_summary")
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .effects_summary()."
@@ -401,8 +440,10 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.fit()``.
+            If the model was created without data, or called before
+            ``.fit()``.
         """
+        self._require_data("standardized")
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .standardized()."
@@ -437,10 +478,12 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.fit()``.
+            If the model was created without data, or called before
+            ``.fit()``.
         ValueError
             If a node is not endogenous or an edge does not exist.
         """
+        self._require_data("effect")
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .effect()."
@@ -478,6 +521,7 @@ class PathModel:
         az.InferenceData
             Posterior samples.
         """
+        self._require_data("fit")
         if sys.platform == "darwin" and "mp_ctx" not in kwargs:
             kwargs.setdefault("mp_ctx", "forkserver")
         with self._pymc_model:
@@ -503,8 +547,10 @@ class PathModel:
         Raises
         ------
         RuntimeError
-            If called before ``.fit()``.
+            If the model was created without data, or called before
+            ``.fit()``.
         """
+        self._require_data("predict")
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .predict()."
@@ -642,7 +688,7 @@ class PathModel:
         association that the DAG says should not exist, suggesting a
         missing edge or incorrect structure.
 
-        Works before sampling — uses the observed data, not the posterior.
+        Uses the observed data, not the posterior.
 
         Parameters
         ----------
@@ -655,6 +701,7 @@ class PathModel:
             Test results with ``.violations``, ``.to_dataframe()``, and
             rich display in Jupyter via ``_repr_html_()``.
         """
+        self._require_data("test_implications")
         indeps = self.implied_independences()
         return _test_implications(indeps, self._data, alpha=alpha)
 
@@ -701,6 +748,7 @@ class PathModel:
         ValueError
             If ``simulate_over="time"`` without panel.
         """
+        self._require_data("do")
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .do()."
@@ -915,6 +963,7 @@ class PathModel:
         >>> att = model.att("Y", "T")
         >>> att.mean("Y")  # E[Y(1) - Y(0) | T=1]
         """
+        self._require_data("att")
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .att()."
@@ -1016,6 +1065,7 @@ class PathModel:
         >>> atu = model.atu("Y", "T")
         >>> atu.mean("Y")  # E[Y(1) - Y(0) | T=0]
         """
+        self._require_data("atu")
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .atu()."
@@ -1111,6 +1161,7 @@ class PathModel:
         ValueError
             If the ranges are invalid or ``n_grid < 2``.
         """
+        self._require_data("sensitivity")
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .sensitivity()."
@@ -1179,6 +1230,7 @@ class PathModel:
         float
             Estimated probability (fraction of draws satisfying *expr*).
         """
+        self._require_data("prob")
         result = self.do(set=set, kind=kind, **do_kwargs)
         namespace: dict[str, Any] = {
             var: draws for var, draws in result._values.items()
@@ -1191,7 +1243,7 @@ class PathModel:
 
 def model(
     spec_string: str,
-    data: pd.DataFrame,
+    data: pd.DataFrame | None = None,
     families: dict[str, str] | None = None,
     panel: dict[str, str] | None = None,
     pooling: str | dict | None = None,
@@ -1201,12 +1253,19 @@ def model(
 ) -> PathModel:
     """Parse a specification and compile a Bayesian path model.
 
+    When *data* is ``None``, returns a data-free model suitable for DAG
+    exploration: ``graph()``, ``equations()``, ``priors()``, and all
+    identification helpers work immediately. Methods that require data
+    (``fit()``, ``do()``, ``design()``, etc.) raise ``RuntimeError``
+    with an actionable message.
+
     Parameters
     ----------
     spec_string : str
         Model specification in the pathmc DSL.
-    data : pd.DataFrame
-        Observed data.
+    data : pd.DataFrame | None
+        Observed data. When ``None``, the model is created in data-free
+        mode for DAG exploration and identification.
     families : dict[str, str] | None
         Per-variable distribution families (default ``"gaussian"``).
     panel : dict[str, str] | None
@@ -1241,7 +1300,8 @@ def model(
     Returns
     -------
     PathModel
-        Compiled model ready for inspection and fitting.
+        Compiled model ready for inspection and fitting, or a data-free
+        model for exploration when ``data`` is ``None``.
 
     Raises
     ------
@@ -1262,17 +1322,23 @@ def model(
             "'time': ...} to model()."
         )
 
-    endogenous_lhs = {reg.lhs for reg in spec.regressions}
-    for var in endogenous_lhs:
-        if var not in latent_set and var not in data.columns:
-            raise ValueError(
-                f"Endogenous variable '{var}' not found in data columns. "
-                f"If '{var}' is an unobserved mediator, declare it via "
-                f"latent=['{var}']."
-            )
+    if data is not None:
+        endogenous_lhs = {reg.lhs for reg in spec.regressions}
+        for var in endogenous_lhs:
+            if var not in latent_set and var not in data.columns:
+                raise ValueError(
+                    f"Endogenous variable '{var}' not found in data columns. "
+                    f"If '{var}' is an unobserved mediator, declare it via "
+                    f"latent=['{var}']."
+                )
 
     panel_info: PanelInfo | None = None
     if panel is not None:
+        if data is None:
+            raise ValueError(
+                "panel= requires data. Provide data= alongside panel=, "
+                "or omit panel= for data-free DAG exploration."
+            )
         panel_info = build_panel_info(data, panel)
 
     return PathModel(
