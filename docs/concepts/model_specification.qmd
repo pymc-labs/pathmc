@@ -152,8 +152,71 @@ Here `indirect` is computed element-wise as the product of the posterior draws f
 
 ### Residual covariance
 
-The `~~` operator declares correlated residuals between two endogenous variables.
-This captures shared unmeasured causes that make the residuals of two equations move together — for example, two mediators influenced by the same unobserved factor.
+Every structural equation has a residual — the variation not explained by its predictors.
+By default, pathmc assumes these residuals are independent across equations.
+The `~~` operator relaxes that assumption, declaring that two variables' residuals move together.
+
+**Why model residual covariance?**
+
+The core reason is **unmeasured common causes**.
+If an unobserved variable $U$ influences both M1 and M2, their residuals will be correlated even after conditioning on all observed predictors.
+In DAG terms, the bidirected `~~` arrow *is* the unmeasured confounder — it says "something out there affects both of these, and I can't or didn't measure it."
+
+```{dot}
+//| label: fig-residual-covariance-intuition
+//| fig-cap: "What residual covariance represents. **Left:** the true causal structure — an unmeasured variable U (dashed) causes both M1 and M2. **Right:** the analyst's model — since U is unobserved, its effect is captured by declaring M1 ~~ M2, which models the correlation between their residuals."
+//| fig-width: 7
+digraph {
+  rankdir=TB
+  node [shape=box, style="filled,rounded"]
+
+  subgraph cluster_true {
+    label="True data-generating process"
+    style=rounded
+    color="#999999"
+
+    T1 [label="T", fillcolor="#c6dbef"]
+    M1a [label="M1", fillcolor="#d9f0d3"]
+    M2a [label="M2", fillcolor="#d9f0d3"]
+    Y1 [label="Y", fillcolor="#fcbba1"]
+    U [label="U", style="dashed,filled,rounded", fillcolor="#f0f0f0"]
+
+    T1 -> M1a
+    T1 -> M2a
+    T1 -> Y1
+    M1a -> Y1
+    M2a -> Y1
+    U -> M1a [style=dashed, color="#e6550d"]
+    U -> M2a [style=dashed, color="#e6550d"]
+  }
+
+  subgraph cluster_model {
+    label="Analyst's pathmc model"
+    style=rounded
+    color="#999999"
+
+    T2 [label="T", fillcolor="#c6dbef"]
+    M1b [label="M1", fillcolor="#d9f0d3"]
+    M2b [label="M2", fillcolor="#d9f0d3"]
+    Y2 [label="Y", fillcolor="#fcbba1"]
+
+    T2 -> M1b
+    T2 -> M2b
+    T2 -> Y2
+    M1b -> Y2
+    M2b -> Y2
+    M1b -> M2b [dir=both, style=dashed, color="#e6550d", constraint=false, label=" ~~"]
+  }
+}
+```
+
+This is powerful because in most regression contexts, an unmeasured confounder simply means bias — and there's little you can do about it. In path analysis, the `~~` operator lets you *acknowledge* the confounder and account for its effects on uncertainty without needing to observe it directly.
+
+Beyond unmeasured confounders, residual covariance is useful whenever residuals genuinely co-move:
+
+- **Shared context.** Variables measured on the same units (same person, same store, same time period) often share sources of variation that no predictor in the model captures.
+- **Statistical efficiency.** Jointly modeling correlated residuals uses more information from the data, producing tighter posterior intervals for all parameters in the system.
+- **Honest uncertainty.** Forcing truly correlated residuals to be independent imposes a false constraint that distorts the posterior — typically producing overconfident intervals that miss the shared variation between equations.
 
 ```{dot}
 //| label: fig-residual-covariance
