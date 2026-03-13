@@ -125,7 +125,7 @@ model.equations()
 ## Sample
 
 ```{python}
-model.fit(draws=500, tune=500, chains=4, random_seed=42)
+idata = model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ## Results
@@ -145,7 +145,7 @@ The coefficient on `treat_post` *is* the ATT. We can visualise its full posterio
 #| fig-width: 8
 
 az.plot_posterior(
-    model._idata,
+    idata,
     var_names=["beta_Y"],
     coords={"Y_predictors": ["treat_post"]},
     ref_val=true_att,
@@ -178,7 +178,7 @@ The **counterfactual** extrapolates the treated group's pre-treatment trend forw
 #| fig-cap: "DiD results: observed group means, model trend lines, and counterfactual for the treated group."
 #| fig-width: 9
 
-stacked = model._idata.posterior.stack(sample=("chain", "draw"))
+stacked = idata.posterior.stack(sample=("chain", "draw"))
 beta = stacked["beta_Y"]
 alpha_draws = stacked["alpha_Y"]
 

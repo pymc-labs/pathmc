@@ -322,11 +322,11 @@ print(f"Controlled direct effect on P(hospitalized): {controlled_direct.mean('ho
 The indirect effect is the difference between the total and direct effects:
 
 ```{python}
-indirect_draws = total_effect._values["hospitalized"] - controlled_direct._values["hospitalized"]
+indirect_draws = total_effect.draws("hospitalized") - controlled_direct.draws("hospitalized")
 
 print(f"Indirect effect (via antibodies): {indirect_draws.mean():.4f}")
 
-total_draws = total_effect._values["hospitalized"]
+total_draws = total_effect.draws("hospitalized")
 with np.errstate(divide="ignore", invalid="ignore"):
     prop_mediated = indirect_draws / total_draws
     prop_mediated = prop_mediated[np.isfinite(prop_mediated)]
@@ -342,9 +342,9 @@ print(f"Proportion mediated:             {np.mean(prop_mediated):.2f}")
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 for draws, color, label in [
-    (total_effect._values["hospitalized"], COLOR_VACCINE, "Total (all mechanisms)"),
+    (total_effect.draws("hospitalized"), COLOR_VACCINE, "Total (all mechanisms)"),
     (indirect_draws, COLOR_ANTIBODY, "Indirect (via antibodies)"),
-    (controlled_direct._values["hospitalized"], COLOR_DIRECT, "Direct (non-antibody)"),
+    (controlled_direct.draws("hospitalized"), COLOR_DIRECT, "Direct (non-antibody)"),
 ]:
     kde = gaussian_kde(draws)
     x_grid = np.linspace(draws.min(), draws.max(), 200)

@@ -54,6 +54,21 @@ class DoResult:
         self._values_by_time = values_by_time
         self._time_index = time_index
 
+    def draws(self, var: str) -> np.ndarray:
+        """Return raw posterior draws for *var* under this intervention.
+
+        Parameters
+        ----------
+        var : str
+            Variable name.
+
+        Returns
+        -------
+        np.ndarray
+            1-D array of posterior draws, shape ``(n_samples,)``.
+        """
+        return self._values[var]
+
     def mean(self, var: str) -> float:
         """Return the posterior mean of *var* under this intervention."""
         return float(np.mean(self._values[var]))

@@ -343,8 +343,8 @@ For decision-making, the risk difference is usually the most interpretable.
 
 fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-ate_lin_draws = ate_lin._values["Y"]
-ate_log_draws = ate_log._values["Y"]
+ate_lin_draws = ate_lin.draws("Y")
+ate_log_draws = ate_log.draws("Y")
 
 for ax, draws, true_val, color, title, xlabel in [
     (axes[0], ate_lin_draws, true_bT_lin, COLOR_LINEAR,

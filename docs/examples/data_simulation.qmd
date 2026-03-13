@@ -160,7 +160,7 @@ total := c + a*b
 """
 
 model_med = pathmc.model(spec_med, data=df_med)
-model_med.fit(draws=500, tune=500, chains=4, random_seed=42)
+idata_med = model_med.fit(draws=500, tune=500, chains=4, random_seed=42)
 model_med.effects_summary()
 ```
 
@@ -178,7 +178,7 @@ print(model_med.effect("X -> Y"))
 
 import arviz as az
 
-idata = model_med._idata
+idata = idata_med
 params_to_check = {
     "a (X→M)": ("beta_M", 1, truth_med["beta_M"][1]),
     "b (M→Y)": ("beta_Y", 1, truth_med["beta_Y"][1]),
