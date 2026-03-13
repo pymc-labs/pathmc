@@ -92,4 +92,4 @@ idata = model.predict()
 # idata.posterior_predictive now contains simulated outcomes
 ```
 
-See the [Basic MMM](../examples/mmm_basic.qmd) example for transforms, families, and PPC in action.
+See the [Media Mix Models](../examples/mmm.qmd) example for transforms, families, and PPC in action.
