@@ -57,7 +57,7 @@ m.graph()
 
 ```{python}
 #| echo: false
-m.model_equations()
+m.equations()
 ```
 
 
@@ -69,8 +69,7 @@ A single spec string unlocks the full causal analysis toolkit.
 
 ```python
 m.graph()                           # causal DAG plot
-m.equations()                       # LaTeX structural equations
-m.priors()                          # prior table
+m.equations()                       # structural equations + priors
 m.sample_prior_predictive()         # simulate data from priors
 m.set_priors({"beta_Y": Prior(...)})  # refine and recompile
 ```

@@ -84,7 +84,7 @@ Fit the model and test the DAG's prediction:
 
 ```{python}
 chain_model = pathmc.model("M ~ X\nY ~ M", data=df_chain)
-chain_model.model_equations()
+chain_model.equations()
 ```
 
 ```{python}
@@ -140,7 +140,7 @@ The data disagrees:
 
 ```{python}
 wrong_model = pathmc.model("M ~ X\nY ~ M", data=df_direct)
-wrong_model.model_equations()
+wrong_model.equations()
 ```
 
 ```{python}
@@ -158,7 +158,7 @@ Adding the direct edge removes the violated prediction and brings the DAG in lin
 
 ```{python}
 fixed_model = pathmc.model("M ~ X\nY ~ M + X", data=df_direct)
-fixed_model.model_equations()
+fixed_model.equations()
 ```
 
 ```{python}
@@ -231,7 +231,7 @@ funnel_model = pathmc.model(
     "Ads ~ Budget\nClicks ~ Ads\nSales ~ Clicks",
     data=df_funnel,
 )
-funnel_model.model_equations()
+funnel_model.equations()
 ```
 
 ```{python}
@@ -272,7 +272,7 @@ fixed_funnel = pathmc.model(
     "Ads ~ Budget\nClicks ~ Ads\nSales ~ Clicks + Budget",
     data=df_funnel,
 )
-fixed_funnel.model_equations()
+fixed_funnel.equations()
 ```
 
 ```{python}

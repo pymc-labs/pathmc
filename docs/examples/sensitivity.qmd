@@ -56,7 +56,7 @@ The model adjusts for `Z` using labeled coefficients so we can inspect the indiv
 
 ```{python}
 model = pathmc.model("X ~ a*Z\nY ~ b*X + c*Z", data=df)
-model.model_equations()
+model.equations()
 ```
 
 ```{python}
@@ -169,7 +169,7 @@ Y2 = true_effect_weak * X2 + 0.8 * Z2 + rng2.normal(scale=0.5, size=n)
 df2 = pd.DataFrame({"X": X2, "Y": Y2, "Z": Z2})
 
 model2 = pathmc.model("X ~ a*Z\nY ~ b*X + c*Z", data=df2)
-model2.model_equations()
+model2.equations()
 ```
 
 ```{python}

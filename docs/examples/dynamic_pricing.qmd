@@ -254,7 +254,7 @@ model.graph()
 ```
 
 ```{python}
-model.model_equations()
+model.equations()
 ```
 
 ### PyMC model graph

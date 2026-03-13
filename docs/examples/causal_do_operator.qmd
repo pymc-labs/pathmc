@@ -118,7 +118,7 @@ Y ~ X + Z
 """
 
 model = pathmc.model(spec, data=df)
-model.model_equations()
+model.equations()
 ```
 
 ```{python}

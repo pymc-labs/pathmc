@@ -667,7 +667,7 @@ model_mmm = pathmc.model(
     panel={"unit": "region", "time": "week"},
     pooling="partial",
 )
-model_mmm.model_equations()
+model_mmm.equations()
 ```
 
 ```{python}

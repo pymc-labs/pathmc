@@ -120,7 +120,7 @@ For the mediation model above, `model.graph()` shows three nodes (`X → M → Y
 | Does my causal story make sense? | `model.graph()` | Causal DAG — edges, directions, exogenous/endogenous classification |
 | What is my model actually estimating? | `pm.model_to_graphviz(model.pymc_model)` | PyMC estimation graph — priors, likelihoods, observed data |
 | Is the causal effect identifiable? | `model.adjustment_sets("X", "Y")` | Valid adjustment sets derived from the causal DAG |
-| What are the structural equations? | `model.model_equations()` | LaTeX-rendered equations with all coefficients |
+| What are the structural equations and priors? | `model.equations()` | LaTeX-rendered equations + prior specifications |
 
 For causal reasoning, work with the causal DAG. For debugging estimation or understanding priors, inspect the PyMC graph.
 See the [mediation example](examples/mediation.qmd) for both graphs side by side.
@@ -159,7 +159,7 @@ Each layer can be tested independently. The parser is pure (no data, no PyMC). T
 
 After `m = pathmc.model(spec, data=df)`, the `PathModel` object provides methods in five groups:
 
-**Before fitting** — inspect structure without running MCMC: `graph()` renders the causal DAG, `equations()` and `priors()` display the structural equations and prior distributions (with LaTeX rendering in notebooks), and `design(var)` shows the design matrix for any equation. `sample_prior_predictive()` generates data from your priors to verify they encode plausible assumptions, and `set_priors()` lets you refine them — all without MCMC. See [Bayesian Workflow](concepts/bayesian_workflow.qmd) for the full iterative cycle.
+**Before fitting** — inspect structure without running MCMC: `graph()` renders the causal DAG, `equations()` displays both structural equations and prior distributions (with LaTeX rendering in notebooks), and `design(var)` shows the design matrix for any equation. `sample_prior_predictive()` generates data from your priors to verify they encode plausible assumptions, and `set_priors()` lets you refine them — all without MCMC. See [Bayesian Workflow](concepts/bayesian_workflow.qmd) for the full iterative cycle.
 
 **Estimation** — `fit()` runs MCMC on the estimation model and `predict()` generates posterior predictive draws.
 

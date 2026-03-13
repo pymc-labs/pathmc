@@ -97,7 +97,7 @@ The ATE is simply the coefficient, regardless of the distribution of `Z`.
 
 ```{python}
 model_lin = pathmc.model("Y ~ bT*T + bZ*Z", data=df_linear)
-model_lin.model_equations()
+model_lin.equations()
 ```
 
 ```{python}
@@ -172,7 +172,7 @@ model_log = pathmc.model(
     data=df_logistic,
     families={"Y": "bernoulli"},
 )
-model_log.model_equations()
+model_log.equations()
 ```
 
 ```{python}
@@ -419,7 +419,7 @@ model_conf = pathmc.model(
     data=df_conf,
     families={"T": "bernoulli", "Y": "bernoulli"},
 )
-model_conf.model_equations()
+model_conf.equations()
 ```
 
 ```{python}
@@ -498,7 +498,7 @@ model_mix = pathmc.model(
     data=df_mix,
     families={"Y": "bernoulli"},
 )
-model_mix.model_equations()
+model_mix.equations()
 ```
 
 Variables not listed in `families` default to Gaussian. Here, `M` gets a Gaussian likelihood (with sigma), while `Y` gets a Bernoulli-logit likelihood (no sigma). The `do()` operator handles the link function automatically — it returns probabilities for Bernoulli variables and raw values for Gaussian ones.

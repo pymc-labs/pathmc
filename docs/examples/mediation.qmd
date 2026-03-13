@@ -84,7 +84,7 @@ model.graph()
 ```
 
 ```{python}
-model.model_equations()
+model.equations()
 ```
 
 ```{python}
@@ -229,7 +229,7 @@ total     := c + a1*b1 + a2*b2
 """
 
 model2 = pathmc.model(spec2, data=df2)
-model2.model_equations()
+model2.equations()
 ```
 
 ```{python}
@@ -379,7 +379,7 @@ model3 = pathmc.model(spec3, data=df3, latent=["M"])
 ```
 
 ```{python}
-model3.model_equations()
+model3.equations()
 ```
 
 ```{python}

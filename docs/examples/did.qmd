@@ -119,7 +119,7 @@ model.graph()
 ```
 
 ```{python}
-model.model_equations()
+model.equations()
 ```
 
 ## Sample

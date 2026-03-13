@@ -158,7 +158,7 @@ model.graph()
 ```
 
 ```{python}
-model.model_equations()
+model.equations()
 ```
 
 ```{python}
@@ -570,7 +570,7 @@ model.graph()
 ```
 
 ```{python}
-model.model_equations()
+model.equations()
 ```
 
 ```{python}
@@ -916,7 +916,7 @@ model = pathmc.model(
 ```
 
 ```{python}
-model.model_equations()
+model.equations()
 ```
 
 ```{python}

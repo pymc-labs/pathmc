@@ -171,10 +171,10 @@ The default `HalfNormal(sigma=1)` for both `n` and `K` would concentrate mass ne
 :::
 
 ```{python}
-model.priors()
+model.equations()
 ```
 
-The priors table shows both the structural parameters (`b`, `sigma_response`) and the transform parameters (`n`, `K`). Transform parameters are first-class model parameters --- they appear in the posterior, respond to `set_priors()`, and propagate uncertainty through `do()`.
+The equations and priors show both the structural parameters (`b`, `sigma_response`) and the transform parameters (`n`, `K`). Transform parameters are first-class model parameters --- they appear in the posterior, respond to `set_priors()`, and propagate uncertainty through `do()`.
 
 ```{python}
 idata = model.fit(draws=500, tune=500, chains=4, random_seed=42)
