@@ -75,7 +75,7 @@ The key quantities:
 | **Total (upper-funnel)** | c + a × b / (1 − ρ) | Full long-run causal effect |
 | **Direct (lower-funnel)** | d | Lower-funnel → Sales, immediate |
 
-The awareness channel amplifies the raw coefficient $a \times b$ by the AR(1) multiplier $1 / (1 - \rho)$ — the same "long-run multiplier" from the [autoregressive example](autoregressive.qmd).
+The awareness channel amplifies the raw coefficient $a \times b$ by the AR(1) multiplier $1 / (1 - \rho)$ — the same "long-run multiplier" from the [Panel Data Models](panel_data.qmd#sec-ar1) example.
 
 ### Simulate data
 
@@ -751,5 +751,5 @@ Brand awareness is the most common example, but similar dynamics arise in:
 
 If you have sparse measurements of any of these states (quarterly surveys, periodic brand trackers), the measurement equation approach from Part 2 can substantially tighten your estimates of the channels that build them.
 
-See the [Autoregressive Panel Models](autoregressive.qmd) example for a simpler introduction to `lag()` dynamics, or the [Media Mix Models](mmm.qmd) notebook for transforms, mediation, and hierarchical structures.
+See the [Panel Data Models](panel_data.qmd) example for a simpler introduction to `lag()` dynamics, or the [Media Mix Models](mmm.qmd) notebook for transforms, mediation, and hierarchical structures.
 :::
