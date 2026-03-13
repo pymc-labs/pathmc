@@ -9,7 +9,7 @@ pathmc is ~6,000 lines across 13 Python source files (plus ~5,000 lines of tests
 | Module | Lines | Role |
 |--------|-------|------|
 | `compile.py` | 1,404 | PyMC model compilation (cross-sectional + scan/panel) |
-| `model.py` | 1,293 | PathModel facade, `fit()`, `simulate()` |
+| `model.py` | 1,293 | PathModel facade, `model()`, `simulate()` |
 | `identify.py` | 678 | Backdoor/front-door, adjustment sets, d-sep tests |
 | `simulate.py` | 509 | `do()` via `pm.do()`, DoResult |
 | `introspect.py` | 500 | DAG viz, equations, priors (LaTeX rendering) |
@@ -74,7 +74,7 @@ At least 12 methods in `PathModel` start with:
 
 ```python
 if self._idata is None:
-    raise RuntimeError("No posterior samples available. Call .sample() before ...")
+    raise RuntimeError("No posterior samples available. Call .fit() before ...")
 ```
 
 A private `_require_posterior(method_name)` helper or a decorator would eliminate the repetition.
@@ -224,7 +224,7 @@ Bambi (Bayesian Modeling Made Easy) is a higher-level interface to PyMC that han
 
 **Impact: code organization improvement | Effort: small | Risk: none**
 
-The `simulate()` function (for simulate-and-recover / prior predictive simulation) lives in `model.py` (lines 1165–1293) alongside the `fit()` entry point. It uses `build_graph`, `build_design_matrix`, `compile_to_pymc` — it's essentially a second entry point into the pipeline. Moving it to its own small module (or into `simulate.py` alongside the do-operator code) would reduce `model.py`'s size and improve cohesion.
+The `simulate()` function (for simulate-and-recover / prior predictive simulation) lives in `model.py` (lines 1165–1293) alongside the `model()` entry point. It uses `build_graph`, `build_design_matrix`, `compile_to_pymc` — it's essentially a second entry point into the pipeline. Moving it to its own small module (or into `simulate.py` alongside the do-operator code) would reduce `model.py`'s size and improve cohesion.
 
 ---
 

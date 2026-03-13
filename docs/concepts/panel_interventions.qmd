@@ -254,13 +254,13 @@ df = pd.DataFrame(rows)
 ```
 
 ```{python}
-model = pathmc.fit(
+model = pathmc.model(
     "y ~ b*logistic_saturation(adstock(x, decay=theta), lam=lam)",
     data=df,
     panel={"unit": "region", "time": "week"},
     pooling="partial",
 )
-model.sample(draws=500, tune=500, chains=2, random_seed=42, nuts_sampler="nutpie")
+model.fit(draws=500, tune=500, chains=2, random_seed=42, nuts_sampler="nutpie")
 ```
 
 Now we intervene: boost `x` by 25% during weeks 8–18, then return to baseline.

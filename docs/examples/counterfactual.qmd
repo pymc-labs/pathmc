@@ -85,7 +85,7 @@ H ~ a*X
 Y ~ b*X + c*H
 """
 
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 model.graph()
 ```
 
@@ -94,7 +94,7 @@ model.model_equations()
 ```
 
 ```{python}
-idata = model.sample(draws=1000, tune=1000, chains=4, random_seed=42)
+idata = model.fit(draws=1000, tune=1000, chains=4, random_seed=42)
 ```
 
 The recovered coefficients should be close to the true values ($a = 0.5$, $b = 0.7$, $c = 0.4$):

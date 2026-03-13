@@ -46,13 +46,13 @@ def panel_df():
 @pytest.fixture()
 def slope_model(panel_df):
     """Fit a model with random slopes on spend."""
-    model = pathmc.fit(
+    model = pathmc.model(
         "sales ~ spend + trend",
         data=panel_df,
         panel={"unit": "region", "time": "week"},
         pooling={"intercept": True, "slopes": ["spend"]},
     )
-    model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
     return model
 
 
@@ -75,13 +75,13 @@ def recovery_df():
 @pytest.fixture(scope="class")
 def recovery_model(recovery_df):
     """Fit a random-slopes model on a well-identified DGP."""
-    model = pathmc.fit(
+    model = pathmc.model(
         "sales ~ spend",
         data=recovery_df,
         panel={"unit": "group", "time": "week"},
         pooling={"intercept": True, "slopes": ["spend"]},
     )
-    model.sample(
+    model.fit(
         draws=500,
         tune=500,
         chains=2,

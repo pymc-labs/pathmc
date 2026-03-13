@@ -26,7 +26,7 @@ class TestRandomSlopeCompilation:
     """Random slope RVs are created in the PyMC model."""
 
     def test_slope_rvs_exist(self, panel_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "Y ~ X",
             data=panel_data,
             panel={"unit": "region", "time": "week"},
@@ -38,7 +38,7 @@ class TestRandomSlopeCompilation:
         assert "sigma_slope_Y_X" in rv_names
 
     def test_slope_has_unit_dim(self, panel_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "Y ~ X",
             data=panel_data,
             panel={"unit": "region", "time": "week"},
@@ -50,7 +50,7 @@ class TestRandomSlopeCompilation:
         assert "unit" in coords
 
     def test_intercept_also_random(self, panel_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "Y ~ X",
             data=panel_data,
             panel={"unit": "region", "time": "week"},
@@ -61,7 +61,7 @@ class TestRandomSlopeCompilation:
 
     def test_fixed_coefficients_unchanged(self, panel_data):
         """Beta for X still exists as a fixed effect."""
-        model = pathmc.fit(
+        model = pathmc.model(
             "Y ~ X",
             data=panel_data,
             panel={"unit": "region", "time": "week"},
@@ -76,7 +76,7 @@ class TestRandomSlopeCompilation:
         rng = np.random.default_rng(99)
         panel_data["Z"] = rng.normal(size=len(panel_data))
 
-        model = pathmc.fit(
+        model = pathmc.model(
             "Y ~ X + Z",
             data=panel_data,
             panel={"unit": "region", "time": "week"},
@@ -91,7 +91,7 @@ class TestRandomSlopePriors:
     """Priors table includes slope parameters."""
 
     def test_priors_include_slope_params(self, panel_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "Y ~ X",
             data=panel_data,
             panel={"unit": "region", "time": "week"},
@@ -108,13 +108,13 @@ class TestRandomSlopeSampling:
     """Random slope model samples without error."""
 
     def test_sampling_completes(self, panel_data):
-        model = pathmc.fit(
+        model = pathmc.model(
             "Y ~ X",
             data=panel_data,
             panel={"unit": "region", "time": "week"},
             pooling={"intercept": True, "slopes": ["X"]},
         )
-        idata = model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        idata = model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         assert idata is not None
         summary = model.summary()
         assert any("slope_Y_X" in idx for idx in summary.index)

@@ -61,13 +61,13 @@ class TestMMMWithTransforms:
         spec = (
             "sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)"
         )
-        model = pathmc.fit(
+        model = pathmc.model(
             spec,
             data=mmm_transform_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
         )
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         summary = model.summary()
         assert summary is not None
         assert len(summary) > 0
@@ -76,13 +76,13 @@ class TestMMMWithTransforms:
         spec = (
             "sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)"
         )
-        model = pathmc.fit(
+        model = pathmc.model(
             spec,
             data=mmm_transform_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
         )
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
 
         r_low = model.do(set={"tv": 5.0}, simulate_over="time", kind="mean")
         r_high = model.do(set={"tv": 25.0}, simulate_over="time", kind="mean")
@@ -93,13 +93,13 @@ class TestMMMWithTransforms:
         spec = (
             "sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)"
         )
-        model = pathmc.fit(
+        model = pathmc.model(
             spec,
             data=mmm_transform_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
         )
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         idata = model.predict()
         assert hasattr(idata, "posterior_predictive")
 
@@ -109,8 +109,8 @@ class TestPoissonSmoke:
     """Poisson count model end-to-end."""
 
     def test_poisson_pipeline(self, poisson_dgp_data):
-        model = pathmc.fit("Y ~ X", data=poisson_dgp_data, families={"Y": "poisson"})
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=poisson_dgp_data, families={"Y": "poisson"})
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         r0 = model.do(set={"X": 0.0})
         r1 = model.do(set={"X": 1.0})
         ate = r1 - r0
@@ -128,8 +128,8 @@ class TestStudentTSmoke:
         Y = 1.0 + 0.5 * X + rng.standard_t(df=4, size=n) * 0.5
         df = pd.DataFrame({"X": X, "Y": Y})
 
-        model = pathmc.fit("Y ~ X", data=df, families={"Y": "studentt"})
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ X", data=df, families={"Y": "studentt"})
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         summary = model.summary()
         assert any("nu" in str(idx) for idx in summary.index)
 
@@ -154,8 +154,8 @@ class TestTransformParameterRecovery:
         y = 2.0 + 0.5 * adstocked + rng.normal(scale=1, size=n)
         df = pd.DataFrame({"X": x, "Y": y})
 
-        model = pathmc.fit("Y ~ adstock(X, decay=theta)", data=df)
-        model.sample(draws=500, tune=500, chains=2, cores=1, random_seed=42)
+        model = pathmc.model("Y ~ adstock(X, decay=theta)", data=df)
+        model.fit(draws=500, tune=500, chains=2, cores=1, random_seed=42)
         import arviz as az
 
         summary = az.summary(model._idata, var_names=["theta"])

@@ -19,8 +19,8 @@ class TestFullPipeline:
         Y = 0.4 * X + 0.6 * Z + rng.normal(scale=0.5, size=n)
         df = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
 
-        model = pathmc.fit("X ~ a*Z\nY ~ b*X + c*Z", data=df)
-        model.sample(draws=300, tune=300, chains=2, random_seed=42)
+        model = pathmc.model("X ~ a*Z\nY ~ b*X + c*Z", data=df)
+        model.fit(draws=300, tune=300, chains=2, random_seed=42)
         return model
 
     def test_adjustment_sets(self, pipeline_model):
@@ -77,13 +77,13 @@ class TestPanelRandomSlopesPipeline:
                 )
         df = pd.DataFrame(rows)
 
-        model = pathmc.fit(
+        model = pathmc.model(
             "sales ~ spend",
             data=df,
             panel={"unit": "region", "time": "week"},
             pooling={"intercept": True, "slopes": ["spend"]},
         )
-        model.sample(draws=200, tune=200, chains=2, random_seed=42)
+        model.fit(draws=200, tune=200, chains=2, random_seed=42)
         return model
 
     def test_do_works(self, panel_model):
@@ -121,11 +121,11 @@ class TestMediationStandardized:
         Y = 0.7 * M + 0.2 * X + rng.normal(scale=1, size=n)
         df = pd.DataFrame({"X": X, "M": M, "Y": Y})
 
-        model = pathmc.fit(
+        model = pathmc.model(
             "M ~ a*X\nY ~ b*M + c*X\nindirect := a*b",
             data=df,
         )
-        model.sample(draws=300, tune=300, chains=2, random_seed=42)
+        model.fit(draws=300, tune=300, chains=2, random_seed=42)
         return model
 
     def test_standardized_indirect(self, med_model):

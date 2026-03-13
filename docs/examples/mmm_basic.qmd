@@ -121,7 +121,7 @@ sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
       + trend
 """
 
-model = pathmc.fit(
+model = pathmc.model(
     spec,
     data=df,
     panel={"unit": "region", "time": "week"},
@@ -151,7 +151,7 @@ pm.model_to_graphviz(model.pymc_model)
      reparameterization, or a non-centered saturation formulation. -->
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42, nuts_sampler="nutpie")
+model.fit(draws=500, tune=500, chains=4, random_seed=42, nuts_sampler="nutpie")
 ```
 
 ## Results

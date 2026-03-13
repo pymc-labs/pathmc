@@ -109,7 +109,7 @@ We use panel mode with partial pooling (random intercepts per unit) to account f
 ```{python}
 spec = "Y ~ treated + time + treat_post"
 
-model = pathmc.fit(
+model = pathmc.model(
     spec,
     data=df,
     panel={"unit": "unit", "time": "time"},
@@ -125,7 +125,7 @@ model.model_equations()
 ## Sample
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ## Results

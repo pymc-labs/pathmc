@@ -213,7 +213,7 @@ activated  ~ a_eng*engagement + a_ch*channel_quality
 converted  ~ c_act*activated + c_eng*engagement
 """
 
-model = pathmc.fit(
+model = pathmc.model(
     spec,
     data=df,
     families={"activated": "bernoulli", "converted": "bernoulli"},
@@ -239,7 +239,7 @@ pm.model_to_graphviz(model.pymc_model)
 ## Sample
 
 ```{python}
-idata = model.sample(draws=1000, tune=1000, chains=4, random_seed=42)
+idata = model.fit(draws=1000, tune=1000, chains=4, random_seed=42)
 ```
 
 ## Results

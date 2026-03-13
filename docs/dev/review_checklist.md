@@ -25,9 +25,9 @@ Use this checklist after each milestone to evaluate quality beyond what gate tes
 ## API Ergonomics
 
 - [ ] A user can specify, fit, inspect, and query a model in ≤10 lines of code
-- [ ] `pathmc.fit()` is the single entry point — no multi-step construction required
+- [ ] `pathmc.model()` is the single entry point — no multi-step construction required
 - [ ] Introspection methods (`graph()`, `equations()`, `priors()`) return human-readable output
-- [ ] Introspection methods work before `.sample()` is called
+- [ ] Introspection methods work before `.fit()` is called
 - [ ] `do()` returns objects that support natural arithmetic (scenario - baseline)
 - [ ] `effects_summary()` returns a familiar format (DataFrame with mean, sd, HDI columns)
 
@@ -36,7 +36,7 @@ Use this checklist after each milestone to evaluate quality beyond what gate tes
 - [ ] Invalid spec syntax raises immediately at `parse_spec()` time, not during compilation
 - [ ] Cycle in the DAG raises at `build_graph()` time with a message naming the cycle
 - [ ] Duplicate LHS raises at parse time with a message naming the duplicated variable
-- [ ] Calling `do()` before `sample()` raises a clear error (not a cryptic AttributeError)
+- [ ] Calling `do()` before `fit()` raises a clear error (not a cryptic AttributeError)
 - [ ] `~~` between non-Gaussian outcomes raises at compilation time with guidance
 - [ ] Unknown variable references in `:=` raise at parse or compile time
 - [ ] All error messages name the problem AND suggest a fix or next step

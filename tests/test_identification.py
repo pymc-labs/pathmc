@@ -124,7 +124,7 @@ class TestPathModelIntegration:
                 "Y": np.random.normal(size=50),
             }
         )
-        model = pathmc.fit("X ~ Z\nY ~ X + Z", data=df)
+        model = pathmc.model("X ~ Z\nY ~ X + Z", data=df)
         sets = model.adjustment_sets("X", "Y")
         assert {"Z"} in sets
 
@@ -136,7 +136,7 @@ class TestPathModelIntegration:
                 "Y": np.random.normal(size=50),
             }
         )
-        model = pathmc.fit("X ~ Z\nY ~ X + Z", data=df)
+        model = pathmc.model("X ~ Z\nY ~ X + Z", data=df)
         assert model.is_identifiable("X", "Y")
 
     def test_collider_warnings_method(self):
@@ -147,7 +147,7 @@ class TestPathModelIntegration:
                 "C": np.random.normal(size=50),
             }
         )
-        model = pathmc.fit("C ~ X + Y", data=df)
+        model = pathmc.model("C ~ X + Y", data=df)
         warnings = model.collider_warnings({"C"}, "X", "Y")
         assert len(warnings) > 0
 

@@ -63,8 +63,8 @@ def fitted_binary():
     """Binary treatment model fitted with minimal draws."""
     rng = np.random.default_rng(42)
     df = _make_binary_treatment_data(rng)
-    model = pathmc.fit(CONFOUNDED_SPEC, data=df)
-    model.sample(draws=300, tune=300, chains=2, random_seed=42)
+    model = pathmc.model(CONFOUNDED_SPEC, data=df)
+    model.fit(draws=300, tune=300, chains=2, random_seed=42)
     return model
 
 
@@ -73,8 +73,8 @@ def fitted_interaction():
     """Interaction model fitted with minimal draws."""
     rng = np.random.default_rng(42)
     df = _make_interaction_data(rng)
-    model = pathmc.fit(INTERACTION_SPEC, data=df)
-    model.sample(draws=300, tune=300, chains=2, random_seed=42)
+    model = pathmc.model(INTERACTION_SPEC, data=df)
+    model.fit(draws=300, tune=300, chains=2, random_seed=42)
     return model
 
 
@@ -85,33 +85,33 @@ def fitted_interaction():
 
 class TestAttAtuAPI:
     def test_att_method_exists(self, binary_data):
-        model = pathmc.fit(CONFOUNDED_SPEC, data=binary_data)
+        model = pathmc.model(CONFOUNDED_SPEC, data=binary_data)
         assert hasattr(model, "att")
         assert callable(model.att)
 
     def test_atu_method_exists(self, binary_data):
-        model = pathmc.fit(CONFOUNDED_SPEC, data=binary_data)
+        model = pathmc.model(CONFOUNDED_SPEC, data=binary_data)
         assert hasattr(model, "atu")
         assert callable(model.atu)
 
     def test_att_before_sampling_raises(self, binary_data):
-        model = pathmc.fit(CONFOUNDED_SPEC, data=binary_data)
+        model = pathmc.model(CONFOUNDED_SPEC, data=binary_data)
         with pytest.raises(RuntimeError, match="No posterior samples"):
             model.att("Y", "T")
 
     def test_atu_before_sampling_raises(self, binary_data):
-        model = pathmc.fit(CONFOUNDED_SPEC, data=binary_data)
+        model = pathmc.model(CONFOUNDED_SPEC, data=binary_data)
         with pytest.raises(RuntimeError, match="No posterior samples"):
             model.atu("Y", "T")
 
     def test_att_no_matching_rows_raises(self, binary_data):
-        model = pathmc.fit(CONFOUNDED_SPEC, data=binary_data)
+        model = pathmc.model(CONFOUNDED_SPEC, data=binary_data)
         model._idata = True  # bypass sampling check
         with pytest.raises(ValueError, match="No observations"):
             model.att("Y", "T", treated_value=999.0)
 
     def test_atu_no_matching_rows_raises(self, binary_data):
-        model = pathmc.fit(CONFOUNDED_SPEC, data=binary_data)
+        model = pathmc.model(CONFOUNDED_SPEC, data=binary_data)
         model._idata = True  # bypass sampling check
         with pytest.raises(ValueError, match="No observations"):
             model.atu("Y", "T", untreated_value=999.0)
@@ -209,8 +209,8 @@ class TestNonDefaultCoding:
         T = np.where(rng.uniform(size=n) < expit(0.8 * X), 1.0, -1.0)
         Y = 0.5 * T + 0.3 * X + rng.normal(scale=0.5, size=n)
         df = pd.DataFrame({"X": X, "T": T, "Y": Y})
-        model = pathmc.fit("Y ~ T + X", data=df)
-        model.sample(draws=300, tune=300, chains=2, random_seed=42)
+        model = pathmc.model("Y ~ T + X", data=df)
+        model.fit(draws=300, tune=300, chains=2, random_seed=42)
         return model
 
     def test_att_with_custom_treated_value(self, fitted_alt_coding):

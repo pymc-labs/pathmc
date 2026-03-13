@@ -16,7 +16,7 @@ The interpretation is: *a one standard deviation increase in X is associated wit
 In pathmc this is computed draw-by-draw from the posterior, so the result is a full distribution over the standardized coefficient — not a point estimate.
 
 ```python
-model.sample()
+model.fit()
 model.standardized()
 ```
 

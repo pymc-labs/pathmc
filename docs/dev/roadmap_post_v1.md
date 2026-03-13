@@ -24,7 +24,7 @@ See [prd_v1.md](prd_v1.md) for the v1 scope and requirements.
   Bayesian alternative to SEM modification indices. Posterior predictive residual correlation diagnostics. Rank candidate additions: suggested `~~` edges, suggested directed edges (subject to acyclicity). Must be clearly labeled exploratory.
 
 - **Residual structure objects (beyond pairwise `~~`)**
-  Phase 1 is complete: a `ResidualStructure` protocol and `LKJResidual` implementation exist in `pathmc/residuals.py`, with `mu_{var}` deterministics and `endogenous_rvs` wiring so `do()` propagates through block variables. Remaining: Phase 2 adds alternative structures (diagonal, low-rank), a `residual_structure=` parameter on `fit()`, and full prior customization for LKJ `eta`/`sd_dist`. Phase 3 adds panel `~~` support. See #89 for details.
+  Phase 1 is complete: a `ResidualStructure` protocol and `LKJResidual` implementation exist in `pathmc/residuals.py`, with `mu_{var}` deterministics and `endogenous_rvs` wiring so `do()` propagates through block variables. Remaining: Phase 2 adds alternative structures (diagonal, low-rank), a `residual_structure=` parameter on `model()`, and full prior customization for LKJ `eta`/`sd_dist`. Phase 3 adds panel `~~` support. See #89 for details.
 
 ## Lower priority
 
@@ -32,7 +32,7 @@ See [prd_v1.md](prd_v1.md) for the v1 scope and requirements.
   `optimize_policy()` using `do()` mean simulator + constrained optimization. Budget constraints, smoothness penalties. Particularly compelling for longitudinal applications.
 
 - **Unit-level counterfactuals**
-  Distinct from interventional distributions. `fit.counterfactual(evidence=..., do=...)` requiring an abduction step to condition on observed evidence before intervening.
+  Distinct from interventional distributions. `model.counterfactual(evidence=..., do=...)` requiring an abduction step to condition on observed evidence before intervening.
 
 - **Soft / mechanism interventions**
   Intervene on a structural mechanism rather than a variable (e.g., scale a coefficient: "reduce price elasticity by 20%") and simulate outcomes.

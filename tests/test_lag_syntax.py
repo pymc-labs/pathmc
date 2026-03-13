@@ -62,7 +62,7 @@ class TestLagRequiresPanel:
         n = 50
         df = pd.DataFrame({"X": rng.normal(size=n), "Y": rng.normal(size=n)})
         with pytest.raises(ValueError, match="panel"):
-            pathmc.fit("Y ~ lag(X)", data=df)
+            pathmc.model("Y ~ lag(X)", data=df)
 
 
 class TestLagCompilation:
@@ -80,7 +80,7 @@ class TestLagCompilation:
                     {"region": region, "week": week, "spend": spend, "sales": sales}
                 )
         df = pd.DataFrame(rows)
-        model = pathmc.fit(
+        model = pathmc.model(
             "sales ~ spend + lag(sales)",
             data=df,
             panel={"unit": "region", "time": "week"},
@@ -100,7 +100,7 @@ class TestLagCompilation:
                     {"region": region, "week": week, "spend": spend, "sales": sales}
                 )
         df = pd.DataFrame(rows)
-        model = pathmc.fit(
+        model = pathmc.model(
             "sales ~ lag(spend)",
             data=df,
             panel={"unit": "region", "time": "week"},

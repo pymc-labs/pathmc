@@ -10,7 +10,7 @@ Panel structure enables modeling temporal effects like carry-over and lagged dep
 Use the `lag(var)` term directly in your formula to include lag-1 values within each unit:
 
 ```python
-model = pathmc.fit(
+model = pathmc.model(
     "sales ~ lag(spend) + trend",
     data=df,
     panel={"unit": "region", "time": "week"},
@@ -59,7 +59,7 @@ digraph {
 Partial pooling adds a hierarchical intercept per unit, borrowing strength across units:
 
 ```python
-model = pathmc.fit(
+model = pathmc.model(
     "sales ~ lag(spend) + trend",
     data=df,
     panel={"unit": "region", "time": "week"},
@@ -74,7 +74,7 @@ Each region gets its own intercept, drawn from a shared distribution: `alpha_reg
 For varying effects across units, specify which predictors get random slopes:
 
 ```python
-model = pathmc.fit(
+model = pathmc.model(
     "sales ~ spend + lag(spend)",
     data=df,
     panel={"unit": "region", "time": "week"},

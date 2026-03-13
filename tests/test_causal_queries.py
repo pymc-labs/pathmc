@@ -17,8 +17,8 @@ def fork_model():
     Y = 0.4 * X + 0.6 * Z + rng.normal(scale=0.5, size=n)
     df = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
 
-    model = pathmc.fit("X ~ Z\nY ~ X + Z", data=df)
-    model.sample(draws=300, tune=300, chains=2, random_seed=42)
+    model = pathmc.model("X ~ Z\nY ~ X + Z", data=df)
+    model.fit(draws=300, tune=300, chains=2, random_seed=42)
     return model
 
 

@@ -124,12 +124,12 @@ The gap between the gray and black lines is pure confounding through `U`. A naiv
 A naive regression of `Y` on `X` (ignoring both the mediator and the confounder) gives a biased estimate because the backdoor path `X ← U → Y` is open.
 
 ```{python}
-naive = pathmc.fit("Y ~ b_naive*X", data=df)
+naive = pathmc.model("Y ~ b_naive*X", data=df)
 naive.model_equations()
 ```
 
 ```{python}
-naive.sample(draws=500, tune=500, chains=4, random_seed=42)
+naive.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ```{python}
@@ -156,7 +156,7 @@ Y ~ b*M + X
 indirect := a*b
 """
 
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 model.graph()
 ```
 
@@ -195,7 +195,7 @@ print(f"Message: {message}")
 ### Fit the model
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ```{python}

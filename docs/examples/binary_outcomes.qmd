@@ -63,7 +63,7 @@ M ~ a*X
 Y ~ b*M + c*X
 """
 
-model = pathmc.fit(spec, data=df, families={"Y": "bernoulli"})
+model = pathmc.model(spec, data=df, families={"Y": "bernoulli"})
 model.graph()
 ```
 
@@ -76,7 +76,7 @@ model.model_equations()
 ## Sample
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ## Results

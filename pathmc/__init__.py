@@ -13,8 +13,8 @@ if _pymc_ver_tuple < (5, 22, 0):
         f"from PyMC 5.22. Please upgrade: pip install 'pymc>=5.22.0'"
     )
 
-from pathmc.model import fit, simulate  # noqa: E402
+from pathmc.model import model, simulate  # noqa: E402
 from pathmc.panel import add_lags  # noqa: E402
 from pymc_extras.prior import Prior  # noqa: E402
 
-__all__ = ["Prior", "add_lags", "fit", "simulate"]
+__all__ = ["Prior", "add_lags", "model", "simulate"]

@@ -75,7 +75,7 @@ Beyond the default Gaussian, pathmc supports several outcome distributions:
 | StudentT | `families={"Y": "studentt"}` | identity | degrees of freedom ν |
 
 ```python
-model = pathmc.fit(
+model = pathmc.model(
     "click ~ ad_spend + placement",
     data=df,
     families={"click": "bernoulli"},
@@ -87,7 +87,7 @@ model = pathmc.fit(
 After sampling, call `.predict()` to generate posterior predictive draws — a fundamental diagnostic for assessing model fit:
 
 ```python
-model.sample(draws=1000, chains=2)
+model.fit(draws=1000, chains=2)
 idata = model.predict()
 # idata.posterior_predictive now contains simulated outcomes
 ```

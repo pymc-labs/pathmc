@@ -21,9 +21,9 @@ The pipeline has three stages.
 
 1. **Parsing** converts the lavaan-style spec string into a typed AST of dataclasses — pure, no data, no PyMC — so structural errors surface immediately.
 2. **Graph construction** converts the AST into a NetworkX DAG, providing topological ordering, exogenous/endogenous classification, and cycle detection.
-3. **Compilation** combines the AST, graph, and user data to emit a generative `pm.Model`. Everything is wrapped in a `PathModel` at `fit()` time so that compilation errors surface immediately — not minutes later when sampling starts.
+3. **Compilation** combines the AST, graph, and user data to emit a generative `pm.Model`. Everything is wrapped in a `PathModel` at `model()` time so that compilation errors surface immediately — not minutes later when sampling starts.
 
-The public API is deliberately tiny: `pathmc.fit()` returns a `PathModel`, and everything else lives as methods on that object.
+The public API is deliberately tiny: `pathmc.model()` returns a `PathModel`, and everything else lives as methods on that object.
 
 ```{mermaid}
 %%{init: {'theme': 'default', 'themeVariables': {'fontSize': '18px'}}}%%
@@ -157,11 +157,11 @@ Each layer can be tested independently. The parser is pure (no data, no PyMC). T
 
 ## What PathModel gives you
 
-After `model = pathmc.fit(spec, data=df)`, the `PathModel` object provides methods in five groups:
+After `m = pathmc.model(spec, data=df)`, the `PathModel` object provides methods in five groups:
 
-**Before sampling** — inspect structure without fitting: `graph()` renders the causal DAG, `equations()` and `priors()` display the structural equations and prior distributions (with LaTeX rendering in notebooks), and `design(var)` shows the design matrix for any equation. `sample_prior_predictive()` generates data from your priors to verify they encode plausible assumptions, and `set_priors()` lets you refine them — all without MCMC. See [Bayesian Workflow](concepts/bayesian_workflow.qmd) for the full iterative cycle.
+**Before fitting** — inspect structure without running MCMC: `graph()` renders the causal DAG, `equations()` and `priors()` display the structural equations and prior distributions (with LaTeX rendering in notebooks), and `design(var)` shows the design matrix for any equation. `sample_prior_predictive()` generates data from your priors to verify they encode plausible assumptions, and `set_priors()` lets you refine them — all without MCMC. See [Bayesian Workflow](concepts/bayesian_workflow.qmd) for the full iterative cycle.
 
-**Estimation** — `sample()` runs MCMC on the estimation model and `predict()` generates posterior predictive draws.
+**Estimation** — `fit()` runs MCMC on the estimation model and `predict()` generates posterior predictive draws.
 
 **Summaries** — `summary()` gives the full ArviZ posterior table, `effects_summary()` reports labeled coefficients and `:=` defined parameters with uncertainty, `standardized()` computes stdyx-standardized coefficients, and `effect("X -> M -> Y")` traces path-specific effects through the DAG.
 
@@ -183,7 +183,7 @@ pathmc implements **observed-variable path analysis** — structural equation mo
 
 **Graph layer independent of PyMC.** `build_graph()` needs only a `Spec` — no data, no PyMC imports. Graph validation, topological ordering, and identification queries all work without compiling a model.
 
-**Fail fast.** Design matrices, family validation, and cycle detection all happen at `fit()` time. Structural problems surface immediately, not minutes later when MCMC starts.
+**Fail fast.** Design matrices, family validation, and cycle detection all happen at `model()` time. Structural problems surface immediately, not minutes later when MCMC starts.
 
 **G-computation via PyMC graph surgery.** `do()` uses `pm.do()` on the generative model, delegating propagation to PyMC's computation graph rather than reimplementing it. Panel models encode temporal structure via `pytensor.scan`, so interventions propagate through lags and adstock accumulation natively.
 

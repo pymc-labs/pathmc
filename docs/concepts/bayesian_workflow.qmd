@@ -16,12 +16,12 @@ digraph {
   node [shape=box, style=rounded, fontsize=12]
   edge [fontsize=10]
 
-  specify [label="1. Specify model\nfit(spec, data)"]
+  specify [label="1. Build model\nmodel(spec, data)"]
   inspect [label="2. Inspect structure\ngraph(), priors(), equations()"]
   ppc [label="3. Prior predictive check\nsample_prior_predictive()"]
   plausible [label="Plausible?", shape=diamond]
   refine [label="4. Refine priors\nset_priors()"]
-  sample [label="5. Sample\nsample()"]
+  sample [label="5. Fit\nfit()"]
   check [label="6. Posterior checks\nsummary(), predict()"]
   goodfit [label="Good fit?", shape=diamond]
   revise [label="Revise model", style="rounded,dashed"]
@@ -65,9 +65,9 @@ df = pd.DataFrame({"X": X, "M": M, "Y": Y})
 True values: $a = 0.5$, $b = 0.8$, $c = 0.3$.
 
 
-## 1. Specify the model
+## 1. Build the model
 
-Write causal assumptions as structural equations. `fit()` compiles the spec and data into a `PathModel` — ready for inspection — without sampling.
+Write causal assumptions as structural equations. `model()` compiles the spec and data into a `PathModel` — ready for inspection — without running MCMC.
 
 ```{python}
 import pathmc
@@ -79,7 +79,7 @@ Y ~ b*M + c*X
 indirect := a*b
 """
 
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 ```
 
 
@@ -194,12 +194,12 @@ The refined priors concentrate probability mass in the plausible range — much 
 :::
 
 
-## 5. Sample
+## 5. Fit
 
 With priors that generate plausible data, run MCMC.
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 
@@ -265,11 +265,11 @@ The ATE should be close to the true total effect ($a \times b + c = 0.5 \times 0
 
 | Step | Method | Cost |
 |------|--------|------|
-| Specify | `pathmc.fit(spec, data)` | Instant |
+| Build model | `pathmc.model(spec, data)` | Instant |
 | Inspect | `graph()`, `equations()`, `priors()` | Instant |
 | Prior predictive check | `sample_prior_predictive()` | Seconds |
 | Refine priors | `set_priors()` | Instant |
-| Sample | `sample()` | Minutes |
+| Fit | `fit()` | Minutes |
 | Posterior checks | `summary()`, `effects_summary()`, `predict()` | Seconds |
 | Causal queries | `ate()`, `do()`, `prob()`, `effect()` | Seconds |
 

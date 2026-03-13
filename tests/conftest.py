@@ -110,8 +110,8 @@ def fitted_mediation(mediation_data):
     """Mediation model fitted with minimal draws for testing."""
     import pathmc
 
-    model = pathmc.fit(MEDIATION_SPEC, data=mediation_data)
-    model.sample(draws=100, tune=100, chains=1, random_seed=42)
+    model = pathmc.model(MEDIATION_SPEC, data=mediation_data)
+    model.fit(draws=100, tune=100, chains=1, random_seed=42)
     return model
 
 
@@ -120,6 +120,6 @@ def fitted_parallel_mediators(parallel_mediators_data):
     """Parallel mediators model with ~~ fitted with minimal draws."""
     import pathmc
 
-    model = pathmc.fit(PARALLEL_MEDIATORS_SPEC, data=parallel_mediators_data)
-    model.sample(draws=100, tune=100, chains=1, random_seed=42)
+    model = pathmc.model(PARALLEL_MEDIATORS_SPEC, data=parallel_mediators_data)
+    model.fit(draws=100, tune=100, chains=1, random_seed=42)
     return model

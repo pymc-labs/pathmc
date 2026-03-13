@@ -58,7 +58,7 @@ The test files import from these specific paths — they are **not negotiable**:
 
 - `pathmc.parse` — must export `parse_spec(spec_string: str) -> Spec`
 - `pathmc.graph` — must export `build_graph(spec: Spec) -> GraphInfo`
-- `pathmc` (top-level) — must export `fit(spec: str, data: pd.DataFrame, **kwargs) -> PathModel`
+- `pathmc` (top-level) — must export `model(spec: str, data: pd.DataFrame, **kwargs) -> PathModel`
 - `pathmc.exceptions` — must export custom exception classes
 
 Internal helpers and additional submodules can be organized as you see fit.
@@ -104,7 +104,7 @@ GraphInfo
   .has_edge(source: str, target: str) -> bool
 ```
 
-### PathModel (returned by `fit`)
+### PathModel (returned by `model()`)
 
 ```
 PathModel
@@ -113,7 +113,7 @@ PathModel
   .equations() -> object                          # human-readable equation list
   .design(var: str) -> object with .columns       # design matrix info
   .priors() -> object                             # resolved priors
-  .sample(**kwargs) -> az.InferenceData
+  .fit(**kwargs) -> az.InferenceData
   .do(set=None, shift=None, kind="mean") -> DoResult
   .summary() -> pd.DataFrame (or similar)
   .effects_summary() -> pd.DataFrame (or similar)
@@ -168,7 +168,7 @@ DoResult
 **Goal**: Create the `PathModel` class and build design matrices from parsed formulas.
 
 **What to handle**:
-- `pathmc.fit(spec_string, data=df)` returns a `PathModel`
+- `pathmc.model(spec_string, data=df)` returns a `PathModel`
 - `.design(var)` returns a DataFrame-like object with correct column names
 - Intercept included by default, suppressed by `0 +`
 - Uses `patsy` for formula → design matrix conversion
@@ -183,7 +183,7 @@ DoResult
 - Scale priors (default: `HalfNormal` or `HalfCauchy`)
 - Stable parameter naming with ArviZ coords
 - `.pymc_model` attribute on PathModel
-- `.sample()` wraps `pm.sample()` and stores the InferenceData
+- `.fit()` wraps `pm.sample()` and stores the InferenceData
 
 ### M5: Introspection
 
@@ -204,7 +204,7 @@ These methods should work **before** sampling (they describe model structure, no
 - Mean propagation through DAG in topological order
 - Intervened variable's structural equation is skipped (parents have no influence)
 - `DoResult` with `.mean(var)`, `.hdi(var)`, and contrast arithmetic (`__sub__`)
-- Raise an appropriate error if called before `.sample()`
+- Raise an appropriate error if called before `.fit()`
 
 ### M7: Residual Covariance (~~)
 
@@ -214,7 +214,7 @@ These methods should work **before** sampling (they describe model structure, no
 - LKJ prior for the correlation matrix of each residual block
 - Priors for residual standard deviations
 - Guard: `~~` only between Gaussian outcomes; raise error if a Bernoulli/other family variable is involved
-- This requires at least a stub `families` parameter on `fit()` to distinguish Gaussian from non-Gaussian
+- This requires at least a stub `families` parameter on `model()` to distinguish Gaussian from non-Gaussian
 
 ### M8: Effects + Defined Params
 
@@ -231,7 +231,7 @@ These methods should work **before** sampling (they describe model structure, no
 **Goal**: All end-to-end smoke tests pass. These verify the full pipeline with actual MCMC sampling.
 
 Key verifications:
-- Fit → sample → summary workflow completes
+- model() → fit() → summary workflow completes
 - Defined params (`:=`) appear in effects summary with finite values
 - `do()` ATE has correct sign for a known DGP (positive X→Y effect in simulated data)
 - Correlated residuals model fits and produces summaries
@@ -290,12 +290,12 @@ Required pages:
 - First `k` rows per unit get `NaN` for lag-k columns
 - Validate: `unit` and `time` columns exist; `variables` exist in df
 
-### M14: Panel-aware `fit()` + random intercepts
+### M14: Panel-aware `model()` + random intercepts
 
-**Goal**: Accept `panel=` and `pooling=` on `fit()`, compile hierarchical intercepts per unit.
+**Goal**: Accept `panel=` and `pooling=` on `model()`, compile hierarchical intercepts per unit.
 
 **What to handle**:
-- `panel={"unit": "region", "time": "week"}` parameter on `fit()`
+- `panel={"unit": "region", "time": "week"}` parameter on `model()`
 - `pooling="partial"`: random intercepts per unit for each endogenous variable
 - `pooling=None` (default): cross-sectional behavior unchanged
 - Compiler emits group-level intercepts (`mu_alpha`, `sigma_alpha`, `alpha` per variable)
@@ -330,7 +330,7 @@ Required pages:
 **Goal**: End-to-end integration tests for the full panel pipeline.
 
 **What to handle**:
-- `fit(panel=..., pooling="partial")` with `lag()` in spec → `sample()` → `summary()` completes
+- `model(panel=..., pooling="partial")` with `lag()` in spec → `fit()` → `summary()` completes
 - `do(simulate_over="time")` produces sensible ATE (correct sign for known DGP)
 - Random intercepts produce per-unit variation
 - Panel model with Bernoulli outcomes works
@@ -409,7 +409,7 @@ Returns InferenceData with `posterior_predictive` group. Works for all families 
 
 **Goal**: End-to-end integration tests combining transforms, new families, and PPC.
 
-- MMM with `adstock` + `logistic_saturation` + panel mode: fit, sample, do(), predict
+- MMM with `adstock` + `logistic_saturation` + panel mode: model(), fit(), do(), predict
 - Poisson and StudentT pipelines
 - Transform parameter recovery from known DGP
 
@@ -473,7 +473,7 @@ Returns InferenceData with `posterior_predictive` group. Works for all families 
 
 **Goal**: End-to-end integration tests for the full v0.4 feature set.
 
-- Full pipeline: fit → adjustment_sets → ate → standardized
+- Full pipeline: model → fit() → adjustment_sets → ate → standardized
 - Panel model with random slopes → do() → verify slopes affect result
 - Mediation: indirect standardized effect
 

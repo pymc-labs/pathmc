@@ -74,7 +74,7 @@ sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
       + trend
 """
 
-model = pathmc.fit(
+model = pathmc.model(
     spec,
     data=df,
     panel={"unit": "region", "time": "week"},
@@ -84,7 +84,7 @@ model.model_equations()
 ```
 
 ```{python}
-model.sample(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ## Define the intervention

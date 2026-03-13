@@ -108,7 +108,7 @@ This requires panel mode so pathmc knows which column identifies time ordering.
 ```{python}
 spec = "engagement ~ b_x*promotion + rho*lag(engagement)"
 
-model = pathmc.fit(
+model = pathmc.model(
     spec,
     data=df,
     panel={"unit": "country", "time": "week"},
@@ -126,7 +126,7 @@ model.model_equations()
 ## Sample
 
 ```{python}
-idata = model.sample(draws=200, tune=200, chains=4, random_seed=42)
+idata = model.fit(draws=200, tune=200, chains=4, random_seed=42)
 ```
 
 ## Results

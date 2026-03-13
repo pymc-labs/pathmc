@@ -16,12 +16,12 @@ class TestDoAPI:
     """Fast tests: verify do() API surface before sampling."""
 
     def test_do_method_exists(self, mediation_data):
-        model = pathmc.fit(MEDIATION_SPEC, data=mediation_data)
+        model = pathmc.model(MEDIATION_SPEC, data=mediation_data)
         assert hasattr(model, "do")
         assert callable(model.do)
 
     def test_do_before_sampling_raises(self, mediation_data):
-        model = pathmc.fit(MEDIATION_SPEC, data=mediation_data)
+        model = pathmc.model(MEDIATION_SPEC, data=mediation_data)
         with pytest.raises(Exception):
             model.do(kind="mean")
 

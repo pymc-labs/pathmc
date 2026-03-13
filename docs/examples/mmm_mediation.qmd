@@ -163,7 +163,7 @@ sales ~ b*search_traffic + c*brand_spend + d*perf_spend + season
 indirect := a*b
 """
 
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 ```
 
 ```{python}
@@ -185,7 +185,7 @@ pm.model_to_graphviz(model.pymc_model)
 ## Sample
 
 ```{python}
-idata = model.sample(draws=1000, tune=1000, chains=4, random_seed=42)
+idata = model.fit(draws=1000, tune=1000, chains=4, random_seed=42)
 ```
 
 ## Results

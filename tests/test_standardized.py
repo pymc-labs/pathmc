@@ -17,8 +17,8 @@ def mediation_model():
     Y = 0.8 * M + 0.3 * X + rng.normal(scale=1.0, size=n)
     df = pd.DataFrame({"X": X, "M": M, "Y": Y})
 
-    model = pathmc.fit("M ~ a*X\nY ~ b*M + c*X", data=df)
-    model.sample(draws=300, tune=300, chains=2, random_seed=42)
+    model = pathmc.model("M ~ a*X\nY ~ b*M + c*X", data=df)
+    model.fit(draws=300, tune=300, chains=2, random_seed=42)
     return model, df
 
 
@@ -83,6 +83,6 @@ class TestStandardizedBeforeSample:
                 "Y": np.random.normal(size=50),
             }
         )
-        model = pathmc.fit("Y ~ a*X", data=df)
+        model = pathmc.model("Y ~ a*X", data=df)
         with pytest.raises(RuntimeError, match="No posterior samples"):
             model.standardized()

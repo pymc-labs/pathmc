@@ -32,7 +32,7 @@ class TestPanelCompilation:
     """Panel model compiles correctly with random intercepts."""
 
     def test_panel_model_compiles(self, panel_data, simple_spec):
-        model = pathmc.fit(
+        model = pathmc.model(
             simple_spec,
             data=panel_data,
             panel={"unit": "region", "time": "week"},
@@ -41,7 +41,7 @@ class TestPanelCompilation:
         assert model.pymc_model is not None
 
     def test_random_intercept_rvs_exist(self, panel_data, simple_spec):
-        model = pathmc.fit(
+        model = pathmc.model(
             simple_spec,
             data=panel_data,
             panel={"unit": "region", "time": "week"},
@@ -53,7 +53,7 @@ class TestPanelCompilation:
         assert "sigma_alpha_Y" in rv_names
 
     def test_unit_coord_set(self, panel_data, simple_spec):
-        model = pathmc.fit(
+        model = pathmc.model(
             simple_spec,
             data=panel_data,
             panel={"unit": "region", "time": "week"},
@@ -64,7 +64,7 @@ class TestPanelCompilation:
         assert set(coords["unit"]) == {"A", "B", "C"}
 
     def test_beta_still_exists(self, panel_data, simple_spec):
-        model = pathmc.fit(
+        model = pathmc.model(
             simple_spec,
             data=panel_data,
             panel={"unit": "region", "time": "week"},
@@ -78,7 +78,7 @@ class TestPanelIntrospection:
     """Priors include group-level parameters."""
 
     def test_priors_include_group_params(self, panel_data, simple_spec):
-        model = pathmc.fit(
+        model = pathmc.model(
             simple_spec,
             data=panel_data,
             panel={"unit": "region", "time": "week"},
@@ -95,12 +95,12 @@ class TestCrossSectionalUnchanged:
     """Cross-sectional behavior unchanged when panel=None."""
 
     def test_no_panel_no_alpha(self, panel_data, simple_spec):
-        model = pathmc.fit(simple_spec, data=panel_data)
+        model = pathmc.model(simple_spec, data=panel_data)
         rv_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert "alpha_Y" not in rv_names
 
     def test_no_panel_no_unit_coord(self, panel_data, simple_spec):
-        model = pathmc.fit(simple_spec, data=panel_data)
+        model = pathmc.model(simple_spec, data=panel_data)
         assert "unit" not in model.pymc_model.coords
 
 
@@ -109,34 +109,34 @@ class TestPanelSampling:
     """Panel model samples correctly."""
 
     def test_sampling_completes(self, panel_data, simple_spec):
-        model = pathmc.fit(
+        model = pathmc.model(
             simple_spec,
             data=panel_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
         )
-        idata = model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        idata = model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         assert idata is not None
 
     def test_summary_includes_alpha(self, panel_data, simple_spec):
-        model = pathmc.fit(
+        model = pathmc.model(
             simple_spec,
             data=panel_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
         )
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         summary = model.summary()
         assert any("alpha_Y" in idx for idx in summary.index)
 
     def test_do_works_with_panel(self, panel_data, simple_spec):
-        model = pathmc.fit(
+        model = pathmc.model(
             simple_spec,
             data=panel_data,
             panel={"unit": "region", "time": "week"},
             pooling="partial",
         )
-        model.sample(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
         r0 = model.do(set={"X": 0.0})
         r1 = model.do(set={"X": 1.0})
         ate = r1 - r0
@@ -155,7 +155,7 @@ class TestMultipleEndogenous:
         M ~ X
         Y ~ M + X
         """
-        model = pathmc.fit(
+        model = pathmc.model(
             spec,
             data=panel_data,
             panel={"unit": "region", "time": "week"},

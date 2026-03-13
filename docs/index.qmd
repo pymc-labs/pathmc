@@ -9,7 +9,7 @@ jupyter: pathmc
 
 Specify your causal assumptions as equations. Fit with full Bayesian inference. Simulate interventions and ask "what if?"
 
-pathmc compiles a concise formula language into a generative Bayesian model where every variable is wired through its structural parents in the DAG. One call to `fit()` gives you a single object that handles estimation, introspection, causal queries, identification checking, and sensitivity analysis — all with full posterior uncertainty.
+pathmc compiles a concise formula language into a generative Bayesian model where every variable is wired through its structural parents in the DAG. Call `model()` to build and inspect, then `fit()` to run MCMC — one object handles estimation, introspection, causal queries, identification checking, and sensitivity analysis, all with full posterior uncertainty.
 
 ```python
 import pathmc
@@ -20,12 +20,12 @@ Y ~ b*M + c*X
 indirect := a*b
 """
 
-model = pathmc.fit(spec, data=df)
-model.sample(draws=1000, chains=2)
+m = pathmc.model(spec, data=df)
+m.fit(draws=1000, chains=2)
 
-model.effects_summary()          # labeled coefficients + defined params
-model.ate("Y", "X", values=(0, 1))   # average treatment effect via do-operator
-model.adjustment_sets("X", "Y")  # check identification from the DAG
+m.effects_summary()          # labeled coefficients + defined params
+m.ate("Y", "X", values=(0, 1))   # average treatment effect via do-operator
+m.adjustment_sets("X", "Y")  # check identification from the DAG
 ```
 
 ```{python}
@@ -47,17 +47,17 @@ Y ~ b*M + c*X
 indirect := a*b
 """
 
-model = pathmc.fit(spec, data=df)
+m = pathmc.model(spec, data=df)
 ```
 
 ```{python}
 #| echo: false
-model.graph()
+m.graph()
 ```
 
 ```{python}
 #| echo: false
-model.model_equations()
+m.model_equations()
 ```
 
 
@@ -65,45 +65,45 @@ model.model_equations()
 
 A single spec string unlocks the full causal analysis toolkit.
 
-**Introspection** — inspect the model before spending any time sampling. Render the causal DAG, display structural equations with LaTeX, review default priors, run prior predictive checks, and refine priors iteratively — all without MCMC.
+**Introspection** — inspect the model before spending any time on MCMC. Render the causal DAG, display structural equations with LaTeX, review default priors, run prior predictive checks, and refine priors iteratively.
 
 ```python
-model.graph()                           # causal DAG plot
-model.equations()                       # LaTeX structural equations
-model.priors()                          # prior table
-model.sample_prior_predictive()         # simulate data from priors
-model.set_priors({"beta_Y": Prior(...)})  # refine and recompile
+m.graph()                           # causal DAG plot
+m.equations()                       # LaTeX structural equations
+m.priors()                          # prior table
+m.sample_prior_predictive()         # simulate data from priors
+m.set_priors({"beta_Y": Prior(...)})  # refine and recompile
 ```
 
 **Estimation** — fit the structural model with MCMC. Get posterior summaries, labeled coefficients with uncertainty, path-specific effects, and stdyx-standardized coefficients for comparing effect sizes across variables on different scales.
 
 ```python
-model.sample()
-model.effects_summary()                  # labeled coefficients + defined params
-model.standardized()                     # stdyx-standardized effects
-model.effect("X -> M -> Y")             # indirect effect through M
+m.fit()
+m.effects_summary()                  # labeled coefficients + defined params
+m.standardized()                     # stdyx-standardized effects
+m.effect("X -> M -> Y")             # indirect effect through M
 ```
 
 **Causal queries** — simulate interventions via the do-operator and ask counterfactual questions. pathmc uses g-computation: it forward-simulates through the structural model under the intervention, propagating full posterior uncertainty through the causal chain.
 
 ```python
-model.ate("Y", "X", values=(0, 1))       # average treatment effect
-model.cate("Y", "X", condition={"Z": 2}) # conditional ATE given Z=2
-model.prob("Y > 0", set={"X": 1})        # P(Y > 0) under intervention
+m.ate("Y", "X", values=(0, 1))       # average treatment effect
+m.cate("Y", "X", condition={"Z": 2}) # conditional ATE given Z=2
+m.prob("Y > 0", set={"X": 1})        # P(Y > 0) under intervention
 ```
 
 **Identification** — before trusting a causal estimate, verify it is identifiable. pathmc finds valid adjustment sets, checks for collider bias, and tests the DAG's conditional independence claims against your data.
 
 ```python
-model.adjustment_sets("X", "Y")    # valid backdoor adjustment sets
-model.collider_warnings({"C"}, "X", "Y")
-model.test_implications()          # check DAG against data
+m.adjustment_sets("X", "Y")    # valid backdoor adjustment sets
+m.collider_warnings({"C"}, "X", "Y")
+m.test_implications()          # check DAG against data
 ```
 
 **Sensitivity analysis** — causal conclusions rest on untestable assumptions about unmeasured confounding. pathmc quantifies how strong an unmeasured confounder would need to be to overturn your finding.
 
 ```python
-model.sensitivity("Y", "X")       # tipping point analysis
+m.sensitivity("Y", "X")       # tipping point analysis
 ```
 
 
@@ -165,7 +165,7 @@ demand ~ b_price*price + b_lag*lag(price)
 """
 ```
 
-`lag(price)` creates the previous period's value automatically in panel mode. Random slopes on `price` (specified at `fit()` time) let each region have its own elasticity, partially pooled toward a population mean.
+`lag(price)` creates the previous period's value automatically in panel mode. Random slopes on `price` (specified at `model()` time) let each region have its own elasticity, partially pooled toward a population mean.
 
 :::
 

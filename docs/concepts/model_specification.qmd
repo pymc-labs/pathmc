@@ -162,7 +162,7 @@ The DAG determines:
 Inspect the graph after fitting:
 
 ```python
-model = pathmc.fit(spec, data=df)
+model = pathmc.model(spec, data=df)
 model.graph()  # Returns a graphviz Digraph
 ```
 
@@ -194,7 +194,7 @@ digraph {
 Declare latent variables with the `latent=` parameter:
 
 ```python
-model = pathmc.fit(
+model = pathmc.model(
     """
     brand_awareness ~ phi*upper_spend
     sales ~ b1*upper_spend + b2*brand_awareness
