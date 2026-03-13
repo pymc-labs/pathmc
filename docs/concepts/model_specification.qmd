@@ -50,8 +50,48 @@ Y ~ b*M + c*X
 """
 ```
 
-- **Labeled coefficients** like `a*X` give names to regression weights, making them available for downstream calculations.
-- **Intercepts** are included by default. Suppress them with `0 +` on the right-hand side: `Y ~ 0 + X1 + X2`.
+This compiles into the structural equations:
+
+$$
+M = \beta_0^{(M)} + a \cdot X + \varepsilon_M
+$$
+$$
+Y = \beta_0^{(Y)} + b \cdot M + c \cdot X + \varepsilon_Y
+$$
+
+Every regression includes an **intercept**, **slope coefficients** (one per predictor), and a **residual term**. All parameters — intercepts, slopes, and residual scales — are estimated jointly via MCMC.
+
+#### Intercepts
+
+Intercepts are included by default because pathmc does not assume the data is centered or standardized. Without an intercept, the regression would be forced through the origin — appropriate only when the outcome is expected to be zero when all predictors are zero, which is rarely the case with real-world data.
+
+To suppress the intercept, prefix the right-hand side with `0 +`:
+
+```python
+spec = "Y ~ 0 + X1 + X2"
+```
+
+#### Labeled and unlabeled coefficients
+
+Coefficient labels are **optional**. The `label*variable` syntax (e.g. `a*X`) gives a name to a regression weight, making it available for defined parameters (`:=`) and path-specific effects. Without a label, the coefficient still exists — it just doesn't get a user-facing name.
+
+```python
+# Labeled: coefficients named 'a', 'b', 'c'
+spec = """
+M ~ a*X
+Y ~ b*M + c*X
+indirect := a*b
+"""
+
+# Unlabeled: equivalent model, but coefficients are only
+# accessible via the beta vectors (beta_M, beta_Y)
+spec = """
+M ~ X
+Y ~ M + X
+"""
+```
+
+Use labels when you need to refer to specific coefficients — for defined parameters, `effect()` path queries, or readability. Leave them off when you just need the structural relationship in the DAG.
 
 ### Interaction terms
 
