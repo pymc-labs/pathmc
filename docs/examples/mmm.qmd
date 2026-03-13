@@ -257,13 +257,13 @@ pp_avg = pp_mean_2d.mean(axis=1) if pp_mean_2d.ndim == 2 else pp_mean_2d
 ax.scatter(weeks, avg_obs, s=30, color="black", alpha=0.5, zorder=5, label="Observed (region avg)")
 ax.plot(weeks, pp_avg, "-", color="black", lw=2, zorder=4, label="Model fit (PPC mean)")
 
-bl_draws = r_baseline._values["sales"]
+bl_draws = r_baseline.draws("sales")
 bl_mean = bl_draws.mean()
 bl_hdi = r_baseline.hdi("sales", prob=0.94)
 ax.axhspan(bl_hdi[0], bl_hdi[1], alpha=0.15, color=COLOR_BASELINE, zorder=1)
 ax.axhline(bl_mean, color=COLOR_BASELINE, ls="--", lw=1.5, zorder=2, label=f"do(TV=30) = {bl_mean:.1f}")
 
-dbl_draws = r_double_tv._values["sales"]
+dbl_draws = r_double_tv.draws("sales")
 dbl_mean = dbl_draws.mean()
 dbl_hdi = r_double_tv.hdi("sales", prob=0.94)
 ax.axhspan(dbl_hdi[0], dbl_hdi[1], alpha=0.15, color=COLOR_TV, zorder=1)
@@ -297,8 +297,8 @@ fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 ax = axes[0]
 for draws, color, label in [
-    (r_baseline._values["sales"], COLOR_BASELINE, "TV = 30 (baseline)"),
-    (r_double_tv._values["sales"], COLOR_TV, "TV = 60 (doubled)"),
+    (r_baseline.draws("sales"), COLOR_BASELINE, "TV = 30 (baseline)"),
+    (r_double_tv.draws("sales"), COLOR_TV, "TV = 60 (doubled)"),
 ]:
     kde = gaussian_kde(draws)
     x_grid = np.linspace(draws.min(), draws.max(), 200)
@@ -312,7 +312,7 @@ ax.legend(fontsize=8)
 ax.set_title("Scenario comparison")
 
 ax = axes[1]
-incr = contrast._values["sales"]
+incr = contrast.draws("sales")
 kde = gaussian_kde(incr)
 x_grid = np.linspace(incr.min(), incr.max(), 200)
 density = kde(x_grid)
@@ -357,7 +357,7 @@ for draws_obj, color, label in [
     (tv_lift, COLOR_TV, "TV (spend = 30)"),
     (dig_lift, COLOR_DIGITAL, "Digital (spend = 30)"),
 ]:
-    draws = draws_obj._values["sales"]
+    draws = draws_obj.draws("sales")
     kde = gaussian_kde(draws)
     x_grid = np.linspace(draws.min(), draws.max(), 200)
     density = kde(x_grid)
@@ -721,7 +721,7 @@ for lift_obj, color, label in [
     (brand_lift, COLOR_BRAND, "Brand (total, incl. funnel)"),
     (perf_lift, COLOR_PERF, "Performance (direct only)"),
 ]:
-    draws = lift_obj._values["sales"]
+    draws = lift_obj.draws("sales")
     kde = gaussian_kde(draws)
     x_grid = np.linspace(draws.min(), draws.max(), 200)
     density = kde(x_grid)

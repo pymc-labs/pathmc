@@ -320,7 +320,7 @@ colors = [COLOR_ENGAGEMENT, COLOR_ACTIVATION, COLOR_CONVERSION]
 fig, axes = plt.subplots(1, 3, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 for ax, var, label, color in zip(axes, stages, stage_labels, colors):
-    draws = contrast._values[var]
+    draws = contrast.draws(var)
     kde = gaussian_kde(draws)
     x_grid = np.linspace(draws.min(), draws.max(), 200)
     density = kde(x_grid)
@@ -368,7 +368,7 @@ for lift_obj, color, label in [
     (lift_channel, COLOR_CHANNEL, "+1 SD channel quality"),
     (lift_onboarding, COLOR_ONBOARDING, "+2 onboarding score"),
 ]:
-    draws = lift_obj._values["converted"]
+    draws = lift_obj.draws("converted")
     kde = gaussian_kde(draws)
     x_grid = np.linspace(draws.min(), draws.max(), 200)
     density = kde(x_grid)

@@ -112,7 +112,7 @@ Interaction terms render as `X × Z` in the equation display. In the DAG, both `
 ## Sample from the posterior
 
 ```{python}
-model.fit(draws=500, tune=500, chains=4, random_seed=42)
+idata = model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 
@@ -205,7 +205,7 @@ Because the model is linear, the CATE is a simple function of the posterior draw
 ```{python}
 import arviz as az
 
-posterior = model._idata.posterior.stack(sample=("chain", "draw"))
+posterior = idata.posterior.stack(sample=("chain", "draw"))
 a_draws = posterior["beta_Y"].sel(Y_predictors="X").values
 c_draws = posterior["beta_Y"].sel(Y_predictors="X:Z").values
 
