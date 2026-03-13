@@ -304,21 +304,22 @@ def build_equations(
             reg.lhs in latent and families.get(reg.lhs) == "latent_normal"
         )
         is_deterministic_latent = reg.lhs in latent and not is_stochastic_latent
-
-        if is_stochastic_latent:
-            suffix = " [stochastic]"
-        elif is_deterministic_latent:
-            suffix = " [deterministic]"
-        else:
-            suffix = ""
-        lines.append(f"{reg.lhs} ~ {' + '.join(terms)}{suffix}")
+        family = families.get(reg.lhs, "gaussian")
 
         if is_deterministic_latent:
+            lines.append(f"{reg.lhs} = {' + '.join(terms)} [deterministic]")
             latex_lines.extend(
                 _build_equation_latex(reg.lhs, latex_terms, deterministic=True)
             )
         else:
-            latex_lines.extend(_build_equation_latex(reg.lhs, latex_terms))
+            lines.append(f"mu_{reg.lhs} = {' + '.join(terms)}")
+            likelihood = _likelihood_text(reg.lhs, family)
+            if is_stochastic_latent:
+                likelihood += " [stochastic]"
+            lines.append(likelihood)
+            latex_lines.extend(
+                _build_equation_latex(reg.lhs, latex_terms, family=family)
+            )
     for dp in spec.defined_params:
         lines.append(f"{dp.name} := {dp.expression}")
         latex_lines.append(
@@ -348,16 +349,53 @@ def _format_term(t: Term) -> str:
 _MULTILINE_THRESHOLD = 4
 
 
+def _likelihood_latex(lhs: str, family: str) -> str:
+    """Build the distributional likelihood line in LaTeX."""
+    lhs_latex = rf"\mathrm{{{lhs}}}"
+    mu = rf"\mu_{{{lhs}}}"
+    sigma = rf"\sigma_{{{lhs}}}"
+
+    if family == "bernoulli":
+        return rf"{lhs_latex} &\sim \text{{Bernoulli}}(\text{{logit}}^{{-1}}({mu}))"
+    if family == "poisson":
+        return rf"{lhs_latex} &\sim \text{{Poisson}}(\exp({mu}))"
+    if family == "negbinomial":
+        alpha = rf"\alpha_{{\text{{disp}},\,{lhs}}}"
+        return rf"{lhs_latex} &\sim \text{{NegBinomial}}(\exp({mu}),\, {alpha})"
+    if family == "studentt":
+        nu = rf"\nu_{{{lhs}}}"
+        return rf"{lhs_latex} &\sim \text{{StudentT}}({nu},\, {mu},\, {sigma})"
+    return rf"{lhs_latex} &\sim \text{{Normal}}({mu},\, {sigma})"
+
+
+def _likelihood_text(lhs: str, family: str) -> str:
+    """Build the distributional likelihood line in plain text."""
+    mu = f"mu_{lhs}"
+    sigma = f"sigma_{lhs}"
+
+    if family == "bernoulli":
+        return f"{lhs} ~ Bernoulli(logit_inv({mu}))"
+    if family == "poisson":
+        return f"{lhs} ~ Poisson(exp({mu}))"
+    if family == "negbinomial":
+        return f"{lhs} ~ NegBinomial(exp({mu}), alpha_disp_{lhs})"
+    if family == "studentt":
+        return f"{lhs} ~ StudentT(nu_{lhs}, {mu}, {sigma})"
+    return f"{lhs} ~ Normal({mu}, {sigma})"
+
+
 def _build_equation_latex(
     lhs: str,
     latex_terms: list[str],
     deterministic: bool = False,
+    family: str = "gaussian",
 ) -> list[str]:
-    """Build LaTeX lines for one equation, splitting long ones across lines.
+    r"""Build LaTeX lines for one equation using :math:`\mu` + likelihood form.
 
-    Short equations (fewer than ``_MULTILINE_THRESHOLD`` terms) stay on a
-    single line. Longer ones put each term on its own line, aligned on ``+``.
-    Deterministic equations omit the error term.
+    Observed and stochastic equations produce a :math:`\mu` definition line
+    (linear predictor) and a distributional likelihood line.
+    Deterministic equations produce a single :math:`\equiv` line.
+    Long linear predictors are split across multiple lines.
     """
     lhs_latex = rf"\mathrm{{{lhs}}}"
 
@@ -374,19 +412,20 @@ def _build_equation_latex(
                 result.append(rf"&\quad + {term}")
         return result
 
-    error = rf"\varepsilon_{{{lhs}}}"
+    mu_lhs = rf"\mu_{{{lhs}}}"
 
     if len(latex_terms) < _MULTILINE_THRESHOLD:
-        rhs = " + ".join(latex_terms) + f" + {error}"
-        return [rf"{lhs_latex} &= {rhs}"]
+        rhs = " + ".join(latex_terms)
+        result = [rf"{mu_lhs} &= {rhs}"]
+    else:
+        result = []
+        for i, term in enumerate(latex_terms):
+            if i == 0:
+                result.append(rf"{mu_lhs} &= {term}")
+            else:
+                result.append(rf"&\quad + {term}")
 
-    result = []
-    for i, term in enumerate(latex_terms):
-        if i == 0:
-            result.append(rf"{lhs_latex} &= {term}")
-        else:
-            result.append(rf"&\quad + {term}")
-    result[-1] += f" + {error}"
+    result.append(_likelihood_latex(lhs, family))
     return result
 
 
