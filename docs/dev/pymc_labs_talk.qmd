@@ -44,33 +44,6 @@ df = pd.DataFrame(
         "Performance": performance,
     }
 )
-
-# MMM panel data: 4 regions × 30 weeks
-regions = ["North", "South", "East", "West"]
-n_weeks = 30
-true_intercepts = {"North": 50, "South": 60, "East": 45, "West": 55}
-mmm_rows = []
-for region in regions:
-    adstocked_tv = 0.0
-    adstocked_dig = 0.0
-    for week in range(1, n_weeks + 1):
-        tv = rng.uniform(10, 50)
-        digital = rng.uniform(5, 30)
-        adstocked_tv = tv + 0.7 * adstocked_tv
-        adstocked_dig = digital + 0.5 * adstocked_dig
-        sat_tv = 1 - np.exp(-0.3 * adstocked_tv)
-        sat_dig = 1 - np.exp(-0.4 * adstocked_dig)
-        sales = (
-            true_intercepts[region]
-            + 8.0 * sat_tv + 6.0 * sat_dig
-            + 0.1 * week + rng.normal(scale=1.5)
-        )
-        mmm_rows.append({
-            "region": region, "week": week,
-            "tv": tv, "digital": digital,
-            "trend": week, "sales": sales,
-        })
-df_mmm = pd.DataFrame(mmm_rows)
 ```
 
 
@@ -320,66 +293,21 @@ m.test_implications()
 :::
 
 
-## Five likelihood families
+## And there's more {.smaller}
 
-Not everything is Gaussian.
+Everything you just saw was one cross-sectional example. The same DSL handles:
 
-```python
-m = pathmc.model(spec, data=df,
-    families={
-        "clicked":    "bernoulli",
-        "n_purchases": "poisson",
-        "revenue":    "gaussian",
-    })
-```
+::: {.incremental}
+- **Multiple likelihood families** --- Bernoulli, Poisson, NegBinomial, StudentT alongside Gaussian. Mix them freely across equations.
+- **Panel / longitudinal data** --- `panel=` for unit--time structure, `pooling="partial"` for hierarchical intercepts and slopes
+- **Transforms with estimable parameters** --- `adstock()`, `logistic_saturation()`, and a registry for custom transforms. Compiled to `pytensor.scan` for proper temporal dynamics.
+- **Latent variables** --- deterministic mediators and stochastic latent states with sparse measurement equations
+- **Data simulation** --- `simulate()` generates synthetic data from the structural model, so you can validate recovery before touching real data
+:::
 
 . . .
 
-Also supports `negbinomial`, `studentt`, and `latent_normal` (deterministic mediators).
-
-
-## It handles real problems {.smaller}
-
-:::: {.columns}
-
-::: {.column width="55%"}
-**Marketing mix modeling** --- panel data, 4 regions × 30 weeks
-
-```{python}
-mmm_spec = """
-sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
-      + b_dig*logistic_saturation(adstock(digital, decay=theta_dig), lam=lam_dig)
-      + trend
-"""
-
-m_mmm = pathmc.model(mmm_spec, data=df_mmm,
-    panel={"unit": "region", "time": "week"},
-    pooling="partial")
-```
-
-Adstock uses `pytensor.scan` to make **time an explicit part of the causal graph** --- optimized for DAG correctness, not computational shortcuts. 
-
-Decay and saturation parameters are **estimated from data**. Hierarchical intercepts across regions. 
-
-Time-forward `do()` for counterfactual scenarios.
-
-Extensive worked examples in the docs.
-:::
-
-::: {.column width="45%"}
-```{python}
-#| echo: false
-m_mmm.graph()
-```
-
-```{python}
-#| echo: false
-m_mmm.model_equations()
-```
-:::
-
-::::
-
+Worked examples for all of these in the docs: [pymc-labs.github.io/pathmc](https://pymc-labs.github.io/pathmc/)
 
 ## Where it fits {.smaller}
 
@@ -406,20 +334,8 @@ m_mmm.model_equations()
 | **Data simulation** | ✅ | | | | | |
 | **Causal discovery** | | ✅ | | | | |
 
-::: {.fragment}
+
 **Complementary, not competitive.** Bambi = single-equation regression. CausalPy = quasi-experiments. pathmc = multi-equation structural causal models with `do()`.
-:::
-
-
-## Where it's going
-
-::: {.incremental}
-- **DAG comparison & scoring** --- compare candidate causal structures by predictive criteria
-- **Policy optimization** --- `optimize_policy()` over `do()` for optimal budget allocation
-- **Graph-aware priors** --- horseshoe shrinkage over edges for large candidate DAGs
-- **Latent variable support** --- deterministic latent mediators with sparse measurements
-- **Sensitivity analysis extensions** --- E-values, bounds-based approaches
-:::
 
 
 ## {.center}
