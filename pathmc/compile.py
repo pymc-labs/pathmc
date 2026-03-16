@@ -1423,12 +1423,13 @@ def _compile_scan_panel(
             out += [exog_t.get(k, pt.zeros(n_units)) for k in exog_lag_bases]
             return out
 
-        results, _updates = pytensor.scan(
+        results = pytensor.scan(
             fn=step_fn,
             sequences=sequences,
             outputs_info=outputs_info,
             non_sequences=non_seq_list,
             strict=True,
+            return_updates=False,
         )
 
         if not isinstance(results, list):

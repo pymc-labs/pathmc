@@ -263,11 +263,12 @@ def fit_scan_adstock_only(
             mu_t = beta_[0] + beta_[1] * adstock_t
             return mu_t, adstock_t
 
-        (mu_all, _), _ = pytensor.scan(
+        mu_all, _ = pytensor.scan(
             fn=step,
             sequences=[spend_data],
             outputs_info=[pt.zeros(n_units), pt.zeros(n_units)],
             non_sequences=[beta, decay],
+            return_updates=False,
         )
         pm.Deterministic("mu_sales", mu_all)
         pm.Normal("sales", mu=mu_all, sigma=sigma, shape=(n_time, n_units))
@@ -299,11 +300,12 @@ def fit_scan_adstock_ar(
             mu_t = beta_[0] + beta_[1] * adstock_t + beta_[2] * prev_mu
             return mu_t, adstock_t
 
-        (mu_all, _), _ = pytensor.scan(
+        mu_all, _ = pytensor.scan(
             fn=step,
             sequences=[spend_data],
             outputs_info=[pt.zeros(n_units), pt.zeros(n_units)],
             non_sequences=[beta, decay],
+            return_updates=False,
         )
         pm.Deterministic("mu_sales", mu_all)
         pm.Normal("sales", mu=mu_all, sigma=sigma, shape=(n_time, n_units))
@@ -341,11 +343,12 @@ def fit_scan_multi_eq(
             )
             return mu_sales_t, adstock_t, mu_awareness_t
 
-        (mu_sales_all, _, mu_aw_all), _ = pytensor.scan(
+        mu_sales_all, _, mu_aw_all = pytensor.scan(
             fn=step,
             sequences=[spend_data],
             outputs_info=[pt.zeros(n_units), pt.zeros(n_units), None],
             non_sequences=[beta_aw, beta_sl, decay],
+            return_updates=False,
         )
         pm.Deterministic("mu_awareness", mu_aw_all)
         pm.Deterministic("mu_sales", mu_sales_all)
