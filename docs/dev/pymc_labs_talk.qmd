@@ -2,6 +2,7 @@
 pagetitle: "pathmc — Structural Causal Models, Made Simple"
 format:
   revealjs:
+    html-math-method: katex
     theme: [default, talk_style.scss]
     slide-number: true
     code-line-numbers: false
@@ -126,7 +127,7 @@ digraph {
 
 This is the DAG we believe. It would be good if we could represent this concisely...
 
-. . .
+## Build it
 
 ```{python}
 spec = """
@@ -137,16 +138,13 @@ indirect := a*b
 direct   := c
 total    := a*b + c
 """
-```
 
-
-## Build it
-
-```{python}
 m = pathmc.model(spec, data=df)
 ```
 
-That's it.
+That's it!
+
+Passing in data is optional.
 
 
 ## Causal DAG please
@@ -163,8 +161,6 @@ A proper causal DAG --- exogenous nodes (boxes), endogenous nodes (ellipses), di
 ```{python}
 m.model_equations()
 ```
-
-. . .
 
 Custom priors already built in.
 
@@ -204,12 +200,12 @@ Two representations: a NetworkX DAG for causal reasoning (identification, adjust
 
 ## Fit with MCMC
 
+Standard PyMC sampling.
+
 ```{python}
 #| output: true
 m.fit(draws=1000, tune=1000, chains=4, random_seed=42)
 ```
-
-Standard PyMC sampling.
 
 
 ## What did we learn?
@@ -396,7 +392,7 @@ m_mmm.graph()
 
 ```{python}
 #| echo: false
-m_mmm.to_graphviz()
+m_mmm.graph()
 ```
 :::
 
