@@ -17,6 +17,8 @@ execute:
   echo: true
 ---
 
+<!-- RENDER WITH: `quarto render docs/dev/pymc_labs_talk.qmd` -->
+
 ```{python}
 #| echo: false
 #| output: false
@@ -156,46 +158,26 @@ m.graph()
 A proper causal DAG --- exogenous nodes (boxes), endogenous nodes (ellipses), directed edges encoding structural assumptions.
 
 
+## PyMC model for inference
+
+```{python}
+m.to_graphviz()
+```
+
+A standard `pm.Model` --- inspect it, extend it, sample from it. Anyone on the team can work with this directly.
+
+::: {.notes}
+The causal DAG is a NetworkX DiGraph under the hood. All identification helpers (adjustment sets, d-separation, collider warnings) operate on this graph. The PyMC model is what gets sampled. Two complementary representations from the same spec.
+:::
+
+
 ## Show me the equations
 
 ```{python}
 m.model_equations()
 ```
 
-Custom priors already built in.
-
-
-## Under the hood: two representations
-
-:::: {.columns}
-
-::: {.column width="55%"}
-**NetworkX DAG**
-
-```{python}
-#| echo: false
-gi = m._graph_info
-g = gi.contemporaneous_dag
-print(f"Topo order:  {gi.topological_order}")
-print(f"Exogenous:   {gi.exogenous}")
-print(f"Endogenous:  {gi.endogenous}")
-print(f"Edges:       {list(g.edges())}")
-```
-:::
-
-::: {.column width="45%"}
-**PyMC model**
-
-```{python}
-m.to_graphviz()
-```
-:::
-
-::::
-
-::: {.notes}
-Two representations: a NetworkX DAG for causal reasoning (identification, adjustment sets, graph surgery) and a standard PyMC model for estimation. Anyone on the team can inspect and extend either.
-:::
+Sensible default priors --- all overridable via `priors={...}`.
 
 
 ## Fit with MCMC
@@ -204,7 +186,7 @@ Standard PyMC sampling.
 
 ```{python}
 #| output: true
-m.fit(draws=1000, tune=1000, chains=4, random_seed=42)
+idata = m.fit(draws=1000, tune=1000, chains=4, random_seed=42)
 ```
 
 
@@ -241,9 +223,10 @@ print(direct)
 
 Most of the training effect flows **through skill building** --- but there's a meaningful direct channel too.
 
-::: {.callout-warning}
-## Coefficient products ≠ general causal effects
-Path-specific effect = product of coefficients along a path. This has a causal interpretation **only in linear Gaussian models with no interactions**. For non-Gaussian families, nonlinear links, or interactions, use proper causal estimands (`ate()`, `cate()`) which forward-simulate through the full structural model.
+For nonlinear models, `ate()` and `cate()` forward-simulate through the full structural model.
+
+::: {.notes}
+Coefficient products = causal effects only in linear Gaussian models with no interactions. For non-Gaussian families, nonlinear links, or interactions, the proper approach is to use `ate()` / `cate()` which do g-computation through the full structural model. Mention this if someone asks.
 :::
 
 
@@ -275,6 +258,27 @@ print(f"94% HDI:            {ate.hdi('Performance', prob=0.94)}")
 Under the hood: g-computation via `pm.do()`. Forward-simulate through the DAG under each intervention, propagating full posterior uncertainty through the causal chain.
 
 
+## Interventional probability queries
+
+What's the probability a trained employee exceeds a performance rating of 2?
+
+```{python}
+p = m.prob("Performance > 2", set={"Training": 1})
+print(f"P(Performance > 2 | do(Training=1)) = {p:.2f}")
+```
+
+. . .
+
+```{python}
+p0 = m.prob("Performance > 2", set={"Training": 0})
+print(f"P(Performance > 2 | do(Training=0)) = {p0:.2f}")
+```
+
+. . .
+
+Answer questions stakeholders actually ask --- in the language of probabilities, not regression coefficients.
+
+
 ## Sensitivity analysis
 
 How robust is this finding to **unmeasured confounding**?
@@ -297,6 +301,8 @@ print(f"Adjustment sets: {m.adjustment_sets('Training', 'Performance')}")
 ```
 
 . . .
+
+Does the data agree with our assumed causal structure? Test every DAG-implied conditional independence:
 
 ```{python}
 m.test_implications()
@@ -332,6 +338,49 @@ m = pathmc.model(spec, data=df,
 Also supports `negbinomial`, `studentt`, and `latent_normal` (deterministic mediators).
 
 
+## It handles real problems {.smaller}
+
+:::: {.columns}
+
+::: {.column width="55%"}
+**Marketing mix modeling** --- panel data, 4 regions × 30 weeks
+
+```{python}
+mmm_spec = """
+sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
+      + b_dig*logistic_saturation(adstock(digital, decay=theta_dig), lam=lam_dig)
+      + trend
+"""
+
+m_mmm = pathmc.model(mmm_spec, data=df_mmm,
+    panel={"unit": "region", "time": "week"},
+    pooling="partial")
+```
+
+Adstock uses `pytensor.scan` to make **time an explicit part of the causal graph** --- optimized for DAG correctness, not computational shortcuts. 
+
+Decay and saturation parameters are **estimated from data**. Hierarchical intercepts across regions. 
+
+Time-forward `do()` for counterfactual scenarios.
+
+Extensive worked examples in the docs.
+:::
+
+::: {.column width="45%"}
+```{python}
+#| echo: false
+m_mmm.graph()
+```
+
+```{python}
+#| echo: false
+m_mmm.model_equations()
+```
+:::
+
+::::
+
+
 ## Where it fits {.smaller}
 
 | | pathmc | DoWhy | CausalPy | semopy | EconML | Bambi |
@@ -362,53 +411,27 @@ Also supports `negbinomial`, `studentt`, and `latent_normal` (deterministic medi
 :::
 
 
-## It handles real problems {.smaller}
+## Where it's going
 
-:::: {.columns}
-
-::: {.column width="55%"}
-**Marketing mix modeling** --- panel data, 4 regions × 30 weeks
-
-```{python}
-mmm_spec = """
-sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
-      + b_dig*logistic_saturation(adstock(digital, decay=theta_dig), lam=lam_dig)
-      + trend
-"""
-
-m_mmm = pathmc.model(mmm_spec, data=df_mmm,
-    panel={"unit": "region", "time": "week"},
-    pooling="partial")
-```
-
-Adstock decay and saturation lambda are **estimated from data**. Hierarchical random intercepts across regions. Time-forward `do()` for counterfactual spend scenarios. **28 worked examples** in the docs.
+::: {.incremental}
+- **DAG comparison & scoring** --- compare candidate causal structures by predictive criteria
+- **Policy optimization** --- `optimize_policy()` over `do()` for optimal budget allocation
+- **Graph-aware priors** --- horseshoe shrinkage over edges for large candidate DAGs
+- **Latent variable support** --- deterministic latent mediators with sparse measurements
+- **Sensitivity analysis extensions** --- E-values, bounds-based approaches
 :::
-
-::: {.column width="45%"}
-```{python}
-#| echo: false
-m_mmm.graph()
-```
-
-```{python}
-#| echo: false
-m_mmm.graph()
-```
-:::
-
-::::
 
 
 ## {.center}
 
 ::: {style="font-size: 1.1em;"}
-A causal orchestration layer around PyMC amplifies its power.
+A causal orchestration layer around PyMC that amplifies its power.
 :::
 
 . . .
 
-::: {style="font-size: 1.5em; margin-top: 0.8em;"}
-**Team, let's make this more awesome!**
+::: {style="font-size: 1.2em; margin-top: 0.8em;"}
+I'd love your **feedback on the API**, a **code review**, and to release this as a **PyMC Labs package**.
 :::
 
 . . .
