@@ -230,7 +230,7 @@ means = response_draws_2d.mean(axis=0)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-az.plot_hdi(dose_grid_do, response_draws_2d, ax=ax, color=COLOR_POSTERIOR,
+az.plot_hdi(dose_grid_do, response_draws_2d, ax=ax, smooth=False, color=COLOR_POSTERIOR,
             fill_kwargs={"alpha": 0.3, "label": "94% HDI"})
 ax.plot(dose_grid_do, means, color=COLOR_POSTERIOR, linewidth=2,
         label="Posterior mean", zorder=3)

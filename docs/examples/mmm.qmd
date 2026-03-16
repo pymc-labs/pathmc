@@ -391,9 +391,9 @@ dig_draws_2d = np.column_stack(dig_draws_list)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 ax.plot(spend_levels, tv_draws_2d.mean(axis=0), "o-", color=COLOR_TV, label="TV", lw=2, ms=5)
-az.plot_hdi(spend_levels, tv_draws_2d, ax=ax, color=COLOR_TV, fill_kwargs={"alpha": 0.15})
+az.plot_hdi(spend_levels, tv_draws_2d, ax=ax, smooth=False, color=COLOR_TV, fill_kwargs={"alpha": 0.15})
 ax.plot(spend_levels, dig_draws_2d.mean(axis=0), "s-", color=COLOR_DIGITAL, label="Digital", lw=2, ms=5)
-az.plot_hdi(spend_levels, dig_draws_2d, ax=ax, color=COLOR_DIGITAL, fill_kwargs={"alpha": 0.15})
+az.plot_hdi(spend_levels, dig_draws_2d, ax=ax, smooth=False, color=COLOR_DIGITAL, fill_kwargs={"alpha": 0.15})
 ax.set_xlabel("Channel spend (units)")
 ax.set_ylabel("Incremental sales lift vs no spend")
 ax.legend()
@@ -759,9 +759,9 @@ perf_draws_2d = np.column_stack(perf_draws_list)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 ax.plot(spend_levels, brand_draws_2d.mean(axis=0), "o-", color=COLOR_BRAND, label="Brand (total)", lw=2, ms=5)
-az.plot_hdi(spend_levels, brand_draws_2d, ax=ax, color=COLOR_BRAND, fill_kwargs={"alpha": 0.15})
+az.plot_hdi(spend_levels, brand_draws_2d, ax=ax, smooth=False, color=COLOR_BRAND, fill_kwargs={"alpha": 0.15})
 ax.plot(spend_levels, perf_draws_2d.mean(axis=0), "s-", color=COLOR_PERF, label="Performance", lw=2, ms=5)
-az.plot_hdi(spend_levels, perf_draws_2d, ax=ax, color=COLOR_PERF, fill_kwargs={"alpha": 0.15})
+az.plot_hdi(spend_levels, perf_draws_2d, ax=ax, smooth=False, color=COLOR_PERF, fill_kwargs={"alpha": 0.15})
 
 ax.plot(spend_levels, [true_total_brand * s for s in spend_levels],
         "--", color=COLOR_BRAND, alpha=0.5, label=f"True brand slope ({true_total_brand})")
