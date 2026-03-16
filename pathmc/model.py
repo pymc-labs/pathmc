@@ -528,6 +528,8 @@ class PathModel:
         assert self._pymc_model is not None
         if sys.platform == "darwin" and "mp_ctx" not in kwargs:
             kwargs.setdefault("mp_ctx", "forkserver")
+        kwargs.setdefault("idata_kwargs", {})
+        kwargs["idata_kwargs"].setdefault("log_likelihood", True)
         with self._pymc_model:
             self._idata = pm.sample(**kwargs)
         return self._idata
