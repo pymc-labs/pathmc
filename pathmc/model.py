@@ -209,6 +209,27 @@ class PathModel:
         assert self._pymc_model is not None  # guaranteed after _require_data
         return self._pymc_model
 
+    def to_graphviz(self) -> graphviz.Digraph:
+        """Render the underlying PyMC model as a graphviz plate diagram.
+
+        Delegates to ``pm.Model.to_graphviz()`` on the compiled model,
+        showing random variables, deterministics, observed data, and
+        plate structure.
+
+        Returns
+        -------
+        graphviz.Digraph
+            Graphviz diagram of the PyMC model graph.
+
+        Raises
+        ------
+        RuntimeError
+            If the model was created without data.
+        """
+        self._require_data("to_graphviz")
+        assert self._pymc_model is not None
+        return self._pymc_model.to_graphviz()
+
     def design(self, var: str) -> pd.DataFrame:
         """Return the design matrix for an endogenous variable's equation.
 
