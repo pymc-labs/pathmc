@@ -61,17 +61,41 @@ m.equations()
 ```
 
 
+## Explore the DAG before you have data
+
+You don't need a DataFrame to start thinking causally. Pass just a spec string to `model()` and immediately explore the DAG structure, check identification, and review priors — all before collecting or cleaning data.
+
+```python
+m = pathmc.model("""
+    M ~ a*X
+    Y ~ b*M + c*X
+    indirect := a*b
+""")
+
+m.graph()                        # render the causal DAG
+m.equations()                    # structural equations + priors
+m.adjustment_sets("X", "Y")     # valid backdoor adjustment sets
+m.is_identifiable("X", "Y")     # identification check
+```
+
+When data arrives, create a data-bound model and fit:
+
+```python
+m = pathmc.model(spec, data=df)
+m.fit(draws=1000)
+```
+
 ## One spec, five capabilities
 
 A single spec string unlocks the full causal analysis toolkit.
 
-**Introspection** — inspect the model before spending any time on MCMC. Render the causal DAG, display structural equations with LaTeX, review default priors, run prior predictive checks, and refine priors iteratively.
+**Introspection** — inspect the model before spending any time on MCMC. Render the causal DAG, display structural equations with LaTeX, review default priors, and refine priors iteratively. All of these work with or without data.
 
 ```python
 m.graph()                           # causal DAG plot
 m.equations()                       # structural equations + priors
-m.sample_prior_predictive()         # simulate data from priors
-m.set_priors({"beta_Y": Prior(...)})  # refine and recompile
+m.set_priors({"beta_Y": Prior(...)})  # refine priors
+m.sample_prior_predictive()         # simulate data from priors (requires data)
 ```
 
 **Estimation** — fit the structural model with MCMC. Get posterior summaries, labeled coefficients with uncertainty, path-specific effects, and stdyx-standardized coefficients for comparing effect sizes across variables on different scales.
@@ -91,7 +115,7 @@ m.cate("Y", "X", condition={"Z": 2}) # conditional ATE given Z=2
 m.prob("Y > 0", set={"X": 1})        # P(Y > 0) under intervention
 ```
 
-**Identification** — before trusting a causal estimate, verify it is identifiable. pathmc finds valid adjustment sets, checks for collider bias, and tests the DAG's conditional independence claims against your data.
+**Identification** — before trusting a causal estimate, verify it is identifiable. pathmc finds valid adjustment sets, checks for collider bias, and tests the DAG's conditional independence claims against your data. Structural checks work without data; `test_implications()` requires data.
 
 ```python
 m.adjustment_sets("X", "Y")    # valid backdoor adjustment sets
