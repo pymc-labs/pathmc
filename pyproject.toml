@@ -13,7 +13,7 @@ dependencies = [
     "numpy",
     "pandas",
     "patsy",
-    "pymc>=5.22.0",
+    "pymc>=5.27.0",
     "pymc-extras",
     "pymc-marketing",
 ]
