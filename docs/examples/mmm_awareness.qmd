@@ -304,9 +304,9 @@ uf_by_time = uf_contrast.by_time("sales")
 lf_by_time = lf_contrast.by_time("sales")
 
 ax.plot(weeks, uf_by_time.mean(axis=1), color=COLOR_UPPER, lw=2, label="Upper-funnel contribution")
-az.plot_hdi(weeks, uf_by_time.T, ax=ax, color=COLOR_UPPER, fill_kwargs={"alpha": 0.15})
+az.plot_hdi(weeks, uf_by_time.T, ax=ax, smooth=False, color=COLOR_UPPER, fill_kwargs={"alpha": 0.15})
 ax.plot(weeks, lf_by_time.mean(axis=1), color=COLOR_LOWER, lw=2, label="Lower-funnel contribution")
-az.plot_hdi(weeks, lf_by_time.T, ax=ax, color=COLOR_LOWER, fill_kwargs={"alpha": 0.15})
+az.plot_hdi(weeks, lf_by_time.T, ax=ax, smooth=False, color=COLOR_LOWER, fill_kwargs={"alpha": 0.15})
 
 ax.set_xlabel("Week")
 ax.set_ylabel("Sales lift (mean spend vs. zero)")
@@ -345,7 +345,7 @@ fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 pulse_by_time = pulse_effect.by_time("sales")
 
 ax.plot(weeks, pulse_by_time.mean(axis=1), color=COLOR_UPPER, lw=2, label="Posterior mean")
-az.plot_hdi(weeks, pulse_by_time.T, ax=ax, color=COLOR_UPPER,
+az.plot_hdi(weeks, pulse_by_time.T, ax=ax, smooth=False, color=COLOR_UPPER,
             fill_kwargs={"alpha": 0.15, "label": "94% HDI"})
 ax.axvspan(11, 20, alpha=0.08, color="gray", label="Campaign window")
 ax.axhline(0, color="black", ls=":", alpha=0.4)
@@ -631,7 +631,7 @@ awareness_flat = awareness_draws.reshape(-1, awareness_draws.shape[-2])
 weeks = df["week"].values
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_hdi(weeks, awareness_flat, ax=ax, color=COLOR_AWARENESS,
+az.plot_hdi(weeks, awareness_flat, ax=ax, smooth=False, color=COLOR_AWARENESS,
             fill_kwargs={"alpha": 0.25, "label": "94% HDI"})
 ax.plot(weeks, awareness_flat.mean(axis=0), color=COLOR_AWARENESS, lw=2, label="Posterior mean")
 ax.plot(weeks, df["awareness_true"], color="black", ls="--", lw=1.5, label="True awareness")
@@ -665,7 +665,7 @@ mu_sales = idata.posterior["mu_sales"].values
 mu_sales_flat = mu_sales.reshape(-1, mu_sales.shape[-2])
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_hdi(weeks, mu_sales_flat, ax=ax, color=COLOR_SALES,
+az.plot_hdi(weeks, mu_sales_flat, ax=ax, smooth=False, color=COLOR_SALES,
             fill_kwargs={"alpha": 0.25, "label": "94% HDI"})
 ax.plot(weeks, mu_sales_flat.mean(axis=0), color=COLOR_SALES, lw=2, label="Posterior mean")
 ax.scatter(weeks, df["sales"], color="black", s=15, zorder=3, label="Observed sales")

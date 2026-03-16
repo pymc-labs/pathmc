@@ -178,7 +178,7 @@ true_cate = TRUE_MAIN_X + TRUE_INTER * z_grid
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-az.plot_hdi(z_grid, cate_draws_2d, ax=ax, color=COLOR_X, fill_kwargs={"alpha": 0.25})
+az.plot_hdi(z_grid, cate_draws_2d, ax=ax, smooth=False, color=COLOR_X, fill_kwargs={"alpha": 0.25})
 ax.plot(z_grid, cate_draws_2d.mean(axis=0), color=COLOR_X, lw=2, label="Estimated CATE")
 ax.plot(z_grid, true_cate, "--", color=COLOR_TRUE, lw=2, label="True CATE")
 ax.axhline(0, color="gray", lw=0.8, ls=":")

@@ -291,7 +291,7 @@ weeks = np.arange(1, n_weeks + 1)
 sales_by_time = contrast.by_time("y")
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_hdi(weeks, sales_by_time.T, ax=ax, color=COLOR_CORRECT, fill_kwargs={"alpha": 0.15})
+az.plot_hdi(weeks, sales_by_time.T, ax=ax, smooth=False, color=COLOR_CORRECT, fill_kwargs={"alpha": 0.15})
 ax.plot(weeks, sales_by_time.mean(axis=1), color=COLOR_CORRECT, lw=2, label="Incremental sales")
 ax.axvspan(8, 18, alpha=0.08, color=COLOR_BOOST)
 ax.axhline(0, color="black", ls=":", alpha=0.4)
