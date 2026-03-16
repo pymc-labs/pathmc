@@ -496,13 +496,13 @@ fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 ax = axes[0]
 ax.plot(price_levels, demand_means, "o-", color=COLOR_DEMAND, lw=2, ms=5)
-az.plot_hdi(price_levels, demand_draws_2d, ax=ax, color=COLOR_DEMAND, fill_kwargs={"alpha": 0.15})
+az.plot_hdi(price_levels, demand_draws_2d, ax=ax, smooth=False, color=COLOR_DEMAND, fill_kwargs={"alpha": 0.15})
 ax.set_xlabel("Price ($)")
 ax.set_ylabel("Expected demand (units)")
 
 ax = axes[1]
 ax.plot(price_levels, revenue_means, "s-", color=COLOR_PRICE, lw=2, ms=5)
-az.plot_hdi(price_levels, revenue_draws_2d, ax=ax, color=COLOR_PRICE, fill_kwargs={"alpha": 0.15})
+az.plot_hdi(price_levels, revenue_draws_2d, ax=ax, smooth=False, color=COLOR_PRICE, fill_kwargs={"alpha": 0.15})
 ax.set_xlabel("Price ($)")
 ax.set_ylabel("Expected revenue ($)")
 

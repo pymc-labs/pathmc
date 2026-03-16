@@ -431,7 +431,7 @@ cate_draws_2d = np.column_stack(cate_draws_list)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 ax.plot(ages, cate_draws_2d.mean(axis=0), "o-", color=COLOR_VACCINE, lw=2, ms=6)
-az.plot_hdi(ages, cate_draws_2d, ax=ax, color=COLOR_VACCINE, fill_kwargs={"alpha": 0.2})
+az.plot_hdi(ages, cate_draws_2d, ax=ax, smooth=False, color=COLOR_VACCINE, fill_kwargs={"alpha": 0.2})
 ax.axhline(0, color="black", ls=":", alpha=0.3)
 ax.set_xlabel("Age (standardized)")
 ax.set_ylabel("ΔP(hospitalized) from vaccination")

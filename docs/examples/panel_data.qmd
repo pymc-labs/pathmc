@@ -559,7 +559,7 @@ weeks_ar = np.arange(1, n_weeks_ar + 1)
 engagement_by_time = contrast_ar.by_time("engagement")
 
 ax.plot(weeks_ar, engagement_by_time.mean(axis=1), color=COLOR_EFFECT, lw=2, label="Posterior mean")
-az.plot_hdi(weeks_ar, engagement_by_time.T, ax=ax, color=COLOR_EFFECT,
+az.plot_hdi(weeks_ar, engagement_by_time.T, ax=ax, smooth=False, color=COLOR_EFFECT,
             fill_kwargs={"alpha": 0.15, "label": "94% HDI"})
 
 delta_x = 8.0 - 2.0
@@ -716,7 +716,7 @@ fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 sales_by_time = contrast_mmm.by_time("sales")
 
 ax.plot(weeks_mmm, sales_by_time.mean(axis=1), color=COLOR_EFFECT, lw=2, label="Posterior mean")
-az.plot_hdi(weeks_mmm, sales_by_time.T, ax=ax, color=COLOR_EFFECT,
+az.plot_hdi(weeks_mmm, sales_by_time.T, ax=ax, smooth=False, color=COLOR_EFFECT,
             fill_kwargs={"alpha": 0.15, "label": "94% HDI"})
 ax.axvspan(boost_start + 1, boost_end, alpha=0.08, color="gray")
 ax.axhline(0, color="black", ls=":", alpha=0.4)
