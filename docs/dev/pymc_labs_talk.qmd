@@ -1,0 +1,422 @@
+---
+pagetitle: "pathmc — Structural Causal Models, Made Simple"
+format:
+  revealjs:
+    theme: [default, talk_style.scss]
+    slide-number: true
+    code-line-numbers: false
+    highlight-style: monokai
+    width: 1200
+    height: 700
+    transition: fade
+    scrollable: true
+    fig-align: center
+jupyter: pathmc
+execute:
+  echo: true
+---
+
+```{python}
+#| echo: false
+#| output: false
+
+import numpy as np
+import pandas as pd
+import pymc as pm
+import pathmc
+
+rng = np.random.default_rng(42)
+n = 300
+
+motivation = rng.normal(0, 1, n)
+training = 0.6 * motivation + rng.normal(0, 1, n)
+skill = 0.8 * training + rng.normal(0, 1, n)
+performance = 0.6 * skill + 0.25 * training + 0.5 * motivation + rng.normal(0, 1, n)
+
+df = pd.DataFrame(
+    {
+        "Motivation": motivation,
+        "Training": training,
+        "Skill": skill,
+        "Performance": performance,
+    }
+)
+
+# MMM panel data: 4 regions × 30 weeks
+regions = ["North", "South", "East", "West"]
+n_weeks = 30
+true_intercepts = {"North": 50, "South": 60, "East": 45, "West": 55}
+mmm_rows = []
+for region in regions:
+    adstocked_tv = 0.0
+    adstocked_dig = 0.0
+    for week in range(1, n_weeks + 1):
+        tv = rng.uniform(10, 50)
+        digital = rng.uniform(5, 30)
+        adstocked_tv = tv + 0.7 * adstocked_tv
+        adstocked_dig = digital + 0.5 * adstocked_dig
+        sat_tv = 1 - np.exp(-0.3 * adstocked_tv)
+        sat_dig = 1 - np.exp(-0.4 * adstocked_dig)
+        sales = (
+            true_intercepts[region]
+            + 8.0 * sat_tv + 6.0 * sat_dig
+            + 0.1 * week + rng.normal(scale=1.5)
+        )
+        mmm_rows.append({
+            "region": region, "week": week,
+            "tv": tv, "digital": digital,
+            "trend": week, "sales": sales,
+        })
+df_mmm = pd.DataFrame(mmm_rows)
+```
+
+
+## {.center}
+
+::: {style="font-size: 1.4em;"}
+I've been building something...
+:::
+
+. . .
+
+::: {style="font-size: 1.4em;"}
+Let me show you.
+:::
+
+::: {.notes}
+No preamble. Jump straight into the demo.
+"I've been building a tool for Bayesian structural causal models and I want to show you what it does."
+:::
+
+
+## The scenario
+
+A company wants to evaluate its **voluntary training program** from cross-sectional observational data:
+
+| Variable | Description |
+|----------|-------------|
+| **Training** | Training hours completed |
+| **Performance** | Quarterly performance rating |
+| **Motivation** | Employee motivation score (survey) |
+| **Skill** | Post-training assessment score |
+
+
+. . .
+
+**Problem:** Motivated employees take more training AND perform better. Can we separate the **causal effect of training** from the confounding?
+
+
+## The causal structure
+
+```{dot}
+//| echo: false
+//| fig-align: center
+digraph {
+  rankdir=LR
+  node [shape=box, style="rounded", fontname="Helvetica", fontsize=14]
+  edge [fontname="Helvetica", fontsize=11]
+
+  Motivation -> Training
+  Motivation -> Performance
+  Training -> Skill
+  Skill -> Performance
+  Training -> Performance
+}
+```
+
+This is the DAG we believe. It would be good if we could represent this concisely...
+
+. . .
+
+```{python}
+spec = """
+Training    ~ m*Motivation
+Skill       ~ a*Training
+Performance ~ b*Skill + c*Training + f*Motivation
+indirect := a*b
+direct   := c
+total    := a*b + c
+"""
+```
+
+
+## Build it
+
+```{python}
+m = pathmc.model(spec, data=df)
+```
+
+That's it.
+
+
+## Causal DAG please
+
+```{python}
+m.graph()
+```
+
+A proper causal DAG --- exogenous nodes (boxes), endogenous nodes (ellipses), directed edges encoding structural assumptions.
+
+
+## Show me the equations
+
+```{python}
+m.model_equations()
+```
+
+. . .
+
+Custom priors already built in.
+
+
+## Under the hood: two representations
+
+:::: {.columns}
+
+::: {.column width="55%"}
+**NetworkX DAG**
+
+```{python}
+#| echo: false
+gi = m._graph_info
+g = gi.contemporaneous_dag
+print(f"Topo order:  {gi.topological_order}")
+print(f"Exogenous:   {gi.exogenous}")
+print(f"Endogenous:  {gi.endogenous}")
+print(f"Edges:       {list(g.edges())}")
+```
+:::
+
+::: {.column width="45%"}
+**PyMC model**
+
+```{python}
+m.to_graphviz()
+```
+:::
+
+::::
+
+::: {.notes}
+Two representations: a NetworkX DAG for causal reasoning (identification, adjustment sets, graph surgery) and a standard PyMC model for estimation. Anyone on the team can inspect and extend either.
+:::
+
+
+## Fit with MCMC
+
+```{python}
+#| output: true
+m.fit(draws=1000, tune=1000, chains=4, random_seed=42)
+```
+
+Standard PyMC sampling.
+
+
+## What did we learn?
+
+```{python}
+m.effects_summary()
+```
+
+
+## Path-specific effects
+
+```{python}
+#| echo: false
+#| fig-align: center
+g = m.graph()
+g.attr(size="8,3!")
+g
+```
+
+```{python}
+indirect = m.effect("Training -> Skill -> Performance")
+print(indirect)
+```
+
+. . .
+
+```{python}
+direct = m.effect("Training -> Performance")
+print(direct)
+```
+
+. . .
+
+Most of the training effect flows **through skill building** --- but there's a meaningful direct channel too.
+
+::: {.callout-warning}
+## Coefficient products ≠ general causal effects
+Path-specific effect = product of coefficients along a path. This has a causal interpretation **only in linear Gaussian models with no interactions**. For non-Gaussian families, nonlinear links, or interactions, use proper causal estimands (`ate()`, `cate()`) which forward-simulate through the full structural model.
+:::
+
+
+## Causal estimands via the do-operator
+
+The **Average Treatment Effect** --- a causal estimand, not just a regression coefficient:
+
+$$
+\begin{aligned}
+\text{ATE} &= \mathbb{E}[\text{Performance} \mid do(\text{Training}=1)] \\
+           &- \mathbb{E}[\text{Performance} \mid do(\text{Training}=0)]
+\end{aligned}
+$$
+
+. . .
+
+```{python}
+ate = m.ate("Performance", "Training", values=(0, 1))
+```
+
+```{python}
+#| echo: false
+print(f"ATE on Performance: {ate.mean('Performance'):.3f}")
+print(f"94% HDI:            {ate.hdi('Performance', prob=0.94)}")
+```
+
+. . .
+
+Under the hood: g-computation via `pm.do()`. Forward-simulate through the DAG under each intervention, propagating full posterior uncertainty through the causal chain.
+
+
+## Sensitivity analysis
+
+How robust is this finding to **unmeasured confounding**?
+
+```{python}
+sens = m.sensitivity("Performance", "Training")
+sens.plot();
+```
+
+If an unmeasured confounder existed, how strong would it need to be to nullify the training effect?
+
+
+## Identification
+
+Before trusting these estimates, check they're identifiable from the DAG:
+
+```{python}
+print(f"Identifiable?    {m.is_identifiable('Training', 'Performance')}")
+print(f"Adjustment sets: {m.adjustment_sets('Training', 'Performance')}")
+```
+
+. . .
+
+```{python}
+m.test_implications()
+```
+
+
+## What an explicit causal layer gives you
+
+::: {.incremental}
+1. **Introspection** --- `graph()`, `equations()`, `priors()`, prior predictive checks
+2. **Estimation** --- `fit()`, `effects_summary()`, `standardized()`, path-specific effects
+3. **Causal queries** --- `do()`, `ate()`, `cate()`, `prob("Y > 0", set={...})`
+4. **Identification** --- `adjustment_sets()`, `collider_warnings()`, `test_implications()`
+5. **Sensitivity** --- `sensitivity()` for robustness to unmeasured confounding
+:::
+
+
+## Five likelihood families
+
+Not everything is Gaussian.
+
+```python
+m = pathmc.model(spec, data=df,
+    families={
+        "clicked":    "bernoulli",
+        "n_purchases": "poisson",
+        "revenue":    "gaussian",
+    })
+```
+
+. . .
+
+Also supports `negbinomial`, `studentt`, and `latent_normal` (deterministic mediators).
+
+
+## Where it fits {.smaller}
+
+| | pathmc | DoWhy | CausalPy | semopy | EconML | Bambi |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Bayesian inference** | ✅ | | ✅ | | | ✅ |
+| **Formula DSL** | ✅ | | | ✅ | | ✅ |
+| **Multi-equation systems** | ✅ | | | ✅ | | |
+| **Residual covariance (`~~`)** | ✅ | | | ✅ | | |
+| **do() operator** | ✅ | ✅ | | | | |
+| **Time-forward simulation** | ✅ | | | | | |
+| **Transforms (estimable params)** | ✅ | | | | | |
+| **Panel / longitudinal** | ✅ | | ✅ | | | ✅ |
+| **Identification checks** | ✅ | ✅ | | | | |
+| **Implied independence tests** | ✅ | | | | | |
+| **Sensitivity analysis** | ✅ | ✅ | | | | |
+| **Heterogeneous effects** | ✅ | | | | ✅ | ✅ |
+| **Quasi-experimental** | ✅ | ✅ | ✅ | | ✅ | |
+| **Latent factor models** | | | | ✅ | | |
+| **Posterior predictive** | ✅ | | ✅ | | | ✅ |
+| **Standardized effects** | ✅ | | | ✅ | | |
+| **Path-specific effects** | ✅ | | | ✅ | | |
+| **Interventional prob. queries** | ✅ | | | | | |
+| **Data simulation** | ✅ | | | | | |
+| **Causal discovery** | | ✅ | | | | |
+
+::: {.fragment}
+**Complementary, not competitive.** Bambi = single-equation regression. CausalPy = quasi-experiments. pathmc = multi-equation structural causal models with `do()`.
+:::
+
+
+## It handles real problems {.smaller}
+
+:::: {.columns}
+
+::: {.column width="55%"}
+**Marketing mix modeling** --- panel data, 4 regions × 30 weeks
+
+```{python}
+mmm_spec = """
+sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
+      + b_dig*logistic_saturation(adstock(digital, decay=theta_dig), lam=lam_dig)
+      + trend
+"""
+
+m_mmm = pathmc.model(mmm_spec, data=df_mmm,
+    panel={"unit": "region", "time": "week"},
+    pooling="partial")
+```
+
+Adstock decay and saturation lambda are **estimated from data**. Hierarchical random intercepts across regions. Time-forward `do()` for counterfactual spend scenarios. **28 worked examples** in the docs.
+:::
+
+::: {.column width="45%"}
+```{python}
+#| echo: false
+m_mmm.graph()
+```
+
+```{python}
+#| echo: false
+m_mmm.to_graphviz()
+```
+:::
+
+::::
+
+
+## {.center}
+
+::: {style="font-size: 1.1em;"}
+A causal orchestration layer around PyMC amplifies its power.
+:::
+
+. . .
+
+::: {style="font-size: 1.5em; margin-top: 0.8em;"}
+**Team, let's make this more awesome!**
+:::
+
+. . .
+
+::: {style="font-size: 1.1em; margin-top: 0.8em;"}
+[github.com/pymc-labs/pathmc](https://github.com/pymc-labs/pathmc/)
+:::
