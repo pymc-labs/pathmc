@@ -575,7 +575,10 @@ def _partial_correlation_test(
     beta_y, _, _, _ = np.linalg.lstsq(z_with_intercept, y_vals, rcond=None)
     resid_y = y_vals - z_with_intercept @ beta_y
 
-    r, p = stats.pearsonr(resid_x, resid_y)
+    r = np.corrcoef(resid_x, resid_y)[0, 1]
+    df = n - k - 2
+    t_stat = r * np.sqrt(df) / np.sqrt(1.0 - r**2)
+    p = 2.0 * stats.t.sf(np.abs(t_stat), df)
     return float(r), float(p), n
 
 
