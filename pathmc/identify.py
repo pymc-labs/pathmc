@@ -250,19 +250,12 @@ def collider_warnings(
             continue
         parents = list(dag.predecessors(var))
         if len(parents) >= 2:
-            treatment_ancestor = var in nx.descendants(
-                dag, treatment
-            ) or treatment in nx.ancestors(dag, var)
-            outcome_ancestor = var in nx.descendants(
-                dag, outcome
-            ) or outcome in nx.ancestors(dag, var)
-            if treatment_ancestor or outcome_ancestor:
-                if _is_collider_on_path(dag, var, treatment, outcome):
-                    warnings_list.append(
-                        f"'{var}' is a collider between '{treatment}' and "
-                        f"'{outcome}'. Conditioning on it may open a spurious "
-                        f"path and introduce bias."
-                    )
+            if _is_collider_on_path(dag, var, treatment, outcome):
+                warnings_list.append(
+                    f"'{var}' is a collider between '{treatment}' and "
+                    f"'{outcome}'. Conditioning on it may open a spurious "
+                    f"path and introduce bias."
+                )
 
     return warnings_list
 
