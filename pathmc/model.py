@@ -148,6 +148,7 @@ class PathModel:
 
     def _compile(self) -> None:
         """Compile the generative PyMC model and attach observations."""
+        assert self._data is not None
         self._gen_model = compile_to_pymc(
             self._spec,
             self._data,
@@ -356,6 +357,7 @@ class PathModel:
             Prior predictive samples.
         """
         self._require_data("sample_prior_predictive")
+        assert self._gen_model is not None
         with self._gen_model:
             return pm.sample_prior_predictive(**kwargs)
 
@@ -457,6 +459,7 @@ class PathModel:
                 UserWarning,
                 stacklevel=2,
             )
+        assert self._data is not None
         return build_standardized_effects(
             self._spec, self._idata, self._data, latent=self._latent
         )
@@ -522,6 +525,7 @@ class PathModel:
             Posterior samples.
         """
         self._require_data("fit")
+        assert self._pymc_model is not None
         if sys.platform == "darwin" and "mp_ctx" not in kwargs:
             kwargs.setdefault("mp_ctx", "forkserver")
         with self._pymc_model:
@@ -551,6 +555,7 @@ class PathModel:
             ``.fit()``.
         """
         self._require_data("predict")
+        assert self._pymc_model is not None
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .predict()."
@@ -702,6 +707,7 @@ class PathModel:
             rich display in Jupyter via ``_repr_html_()``.
         """
         self._require_data("test_implications")
+        assert self._data is not None
         indeps = self.implied_independences()
         return _test_implications(indeps, self._data, alpha=alpha)
 
@@ -749,6 +755,8 @@ class PathModel:
             If ``simulate_over="time"`` without panel.
         """
         self._require_data("do")
+        assert self._data is not None
+        assert self._gen_model is not None
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .do()."
@@ -860,6 +868,7 @@ class PathModel:
         DoResult
             Contrast ``do(treatment=hi) - do(treatment=lo)``.
         """
+        self._require_data("ate")
         lo, hi = values
         r_lo = self.do(set={treatment: lo}, **do_kwargs)
         r_hi = self.do(set={treatment: hi}, **do_kwargs)
@@ -896,6 +905,7 @@ class PathModel:
         DoResult
             Contrast with conditioning variables held fixed.
         """
+        self._require_data("cate")
         if condition is None:
             condition = {}
         lo, hi = values
@@ -964,6 +974,8 @@ class PathModel:
         >>> att.mean("Y")  # E[Y(1) - Y(0) | T=1]
         """
         self._require_data("att")
+        assert self._data is not None
+        assert self._gen_model is not None
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .att()."
@@ -1066,6 +1078,8 @@ class PathModel:
         >>> atu.mean("Y")  # E[Y(1) - Y(0) | T=0]
         """
         self._require_data("atu")
+        assert self._data is not None
+        assert self._gen_model is not None
         if self._idata is None:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .atu()."
