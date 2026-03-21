@@ -1,0 +1,4 @@
+{
+  "python.defaultInterpreterPath": "/Users/benjamv/mambaforge/envs/pathmc/bin/python",
+  "jupyter.notebookFileRoot": "${workspaceFolder}"
+}
