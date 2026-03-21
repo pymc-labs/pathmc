@@ -431,8 +431,8 @@ The model has three equations: a stochastic state equation for awareness, a meas
 
 ```{python}
 spec = """
-awareness ~ a_uf*upper_funnel + rho*lag(awareness)
-sales ~ b_aw*awareness + c_uf*upper_funnel + d_lf*lower_funnel
+awareness ~ 0 + a_uf*upper_funnel + rho*lag(awareness)
+sales ~ 0 + b_aw*awareness + c_uf*upper_funnel + d_lf*lower_funnel
 awareness_survey ~ 0 + 1*awareness
 """
 
@@ -445,10 +445,11 @@ model = pathmc.model(
     latent=["awareness"],
     families={"awareness": "latent_normal"},
     priors={
-        "beta_awareness": Prior("Normal", mu=0, sigma=0.3),
-        "beta_sales": Prior("Normal", mu=0, sigma=0.5),
-        "sigma_awareness": Prior("HalfNormal", sigma=1.0),
+        "beta_awareness": Prior("Beta", alpha=3, beta=2),
+        "beta_sales": Prior("Normal", mu=0.3, sigma=0.2),
+        "sigma_awareness": Prior("HalfNormal", sigma=0.5),
         "sigma_awareness_survey": Prior("HalfNormal", sigma=1.5),
+        "sigma_sales": Prior("HalfNormal", sigma=1.2),
     },
 )
 ```
@@ -458,11 +459,13 @@ model = pathmc.model(
 
 - **`latent=["awareness"]`** — awareness has no observed data column; the model must infer its trajectory
 - **`families={"awareness": "latent_normal"}`** — awareness gets process noise $\sigma_\text{state}$ (stochastic, not deterministic)
+- **`0 +` in structural equations** — removes intercepts to match this simulation's data-generating process and improve prior predictive alignment
 - **`awareness_survey ~ 0 + 1*awareness`** — a measurement equation with fixed loading (1) and no intercept, so `survey = awareness + noise`. NaN entries for unsurveyed weeks are automatically masked by PyMC
 
 The compiler pre-generates standard-normal innovations for each time step, passes them through the scan, and scales by $\sigma_\text{state}$.
 The measurement equation is compiled as a masked likelihood — only weeks with survey data contribute to the log-probability.
 Here we also regularize both state noise (`sigma_awareness`) and measurement noise (`sigma_awareness_survey`) so sparse surveys more clearly anchor the latent trajectory in this teaching example.
+Using a bounded prior (`Beta`) for `beta_awareness` keeps both awareness coefficients in $(0, 1)$, which helps prevent explosive AR(1)-like trajectories when fitting with sparse observations.
 :::
 
 ```{python}
@@ -539,6 +542,7 @@ This works seamlessly with PyMC's built-in NUTS sampler, but **nutpie** (`nuts_s
 If you need nutpie's speed for other models, note that this limitation applies specifically to models with `NaN`-containing observed columns.
 If you hit multiprocessing errors on macOS/Python 3.13 (for example `RuntimeError: did not receive acknowledgement of fd`), use Python 3.12 or temporarily set `cores=1` as a fallback.
 If you see divergences, this model benefits from regularizing priors on latent dynamics and conservative NUTS settings (`target_accept=0.99`, higher `max_treedepth`), which are used in this notebook.
+In practice, we found a real tradeoff: aggressively tightening priors can eliminate divergences but also reduce how strongly sparse surveys recalibrate latent awareness, while looser priors improve survey tethering but can reintroduce divergences. The settings here are a pragmatic compromise for this demo.
 :::
 
 ### Results
