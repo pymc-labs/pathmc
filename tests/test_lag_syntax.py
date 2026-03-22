@@ -118,8 +118,8 @@ class TestLagCarryRegression:
         assert mu.shape == (4, 1)
         assert np.allclose(mu[:, 0], np.array([1.0, 1.0, 2.0, 4.0]))
 
-    def test_observed_model_mu_depends_on_beta(self):
-        """Observed likelihood mean should remain sensitive to regression beta."""
+    def test_observed_model_logp_depends_on_beta(self):
+        """Observed-data likelihood must remain sensitive to regression beta."""
         df = self._simple_panel()
         model = pathmc.model(
             "sales ~ lag(sales) + 0",
@@ -127,15 +127,18 @@ class TestLagCarryRegression:
             panel={"unit": "region", "time": "week"},
         )
 
-        with model.pymc_model:
-            mu_draws = pm.draw(model.pymc_model["mu_sales"], draws=50, random_seed=123)
+        obs_model = model.pymc_model
+        sales_rv = next(rv for rv in obs_model.observed_RVs if rv.name == "sales")
+        logp_fn = obs_model.compile_logp(vars=[sales_rv])
+        initial_point = obs_model.initial_point()
+        point_perturbed = dict(initial_point)
+        point_perturbed["beta_sales"] = initial_point["beta_sales"] + np.array([5.0])
 
-        mu_samples = np.asarray(mu_draws, dtype=float)
-        assert mu_samples.shape == (50, 4, 1)
-        assert np.std(mu_samples[:, 2, 0]) > 0.0
+        delta = abs(float(logp_fn(point_perturbed)) - float(logp_fn(initial_point)))
+        assert delta > 1.0, f"sales logp should change with beta, delta={delta}"
 
-    def test_generative_model_scan_mu_is_stochastic_for_endogenous_lag(self):
-        """Generative scan recursion should keep mu as the linear predictor."""
+    def test_generative_model_mu_is_linear_predictor_not_carry(self):
+        """Generative scan should emit the linear predictor as mu, not carry state."""
         df = self._simple_panel()
         model = pathmc.model(
             "sales ~ 0*lag(sales) + 0",
