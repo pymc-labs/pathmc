@@ -116,13 +116,29 @@ class TestLagCarryRegression:
 
         mu = np.asarray(mu_draw, dtype=float)
         assert mu.shape == (4, 1)
-        assert np.allclose(mu[:, 0], df["sales"].to_numpy())
+        assert np.allclose(mu[:, 0], np.array([1.0, 1.0, 2.0, 4.0]))
 
-    def test_generative_model_scan_mu_is_stochastic_for_endogenous_lag(self):
-        """Generative scan recursion should include stochastic carry innovations."""
+    def test_observed_model_mu_depends_on_beta(self):
+        """Observed likelihood mean should remain sensitive to regression beta."""
         df = self._simple_panel()
         model = pathmc.model(
-            "sales ~ 1*lag(sales) + 0",
+            "sales ~ lag(sales) + 0",
+            data=df,
+            panel={"unit": "region", "time": "week"},
+        )
+
+        with model.pymc_model:
+            mu_draws = pm.draw(model.pymc_model["mu_sales"], draws=50, random_seed=123)
+
+        mu_samples = np.asarray(mu_draws, dtype=float)
+        assert mu_samples.shape == (50, 4, 1)
+        assert np.std(mu_samples[:, 2, 0]) > 0.0
+
+    def test_generative_model_scan_mu_is_stochastic_for_endogenous_lag(self):
+        """Generative scan recursion should keep mu as the linear predictor."""
+        df = self._simple_panel()
+        model = pathmc.model(
+            "sales ~ 0*lag(sales) + 0",
             data=df,
             panel={"unit": "region", "time": "week"},
         )
@@ -132,7 +148,7 @@ class TestLagCarryRegression:
 
         mu_samples = np.asarray(mu_draws, dtype=float)
         assert mu_samples.shape == (50, 4, 1)
-        assert np.std(mu_samples[:, -1, 0]) > 0.0
+        assert np.allclose(mu_samples[:, :, 0], 0.0)
 
     def test_lag_exogenous_compiles(self):
         """Exogenous lag: sales ~ lag(spend)."""

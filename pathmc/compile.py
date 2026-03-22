@@ -1357,6 +1357,7 @@ def _compile_scan_panel(
             [_init_carry(init_endo[k]) for k in endo_keys]
             + [_init_carry(init_adstock[k]) for k in adstock_keys]
             + [_init_carry(init_exog_lag[k]) for k in exog_lag_bases]
+            + [None for _ in stochastic_carry_vars]
         )
 
         # Non-sequences: all parameters
@@ -1428,6 +1429,7 @@ def _compile_scan_panel(
 
             new_endo: dict[str, Any] = {}
             new_adstock = dict(prev_adstock_state)
+            carry_mu: dict[str, Any] = {}
 
             for var in endo_keys:
                 beta = ns_map.get(f"beta_{var}")
@@ -1460,6 +1462,7 @@ def _compile_scan_panel(
                     else:
                         new_endo[var] = mu
                 elif var in stochastic_carry_vars:
+                    carry_mu[var] = mu
                     sigma_val = ns_map[f"sigma_{var}"]
                     sampled_state = mu + sigma_val * carry_innov_t[var]
                     obs_state = obs_carry_t[var]
@@ -1479,6 +1482,7 @@ def _compile_scan_panel(
             out = [new_endo[k] for k in endo_keys]
             out += [new_adstock[k] for k in adstock_keys]
             out += [exog_t.get(k, pt.zeros(n_units)) for k in exog_lag_bases]
+            out += [carry_mu[k] for k in stochastic_carry_vars]
             return out
 
         results = pytensor.scan(
@@ -1493,9 +1497,16 @@ def _compile_scan_panel(
         if not isinstance(results, list):
             results = [results]
 
+        carry_mu_start = n_carry
+        carry_mu_results: dict[str, Any] = {
+            var: results[carry_mu_start + i]
+            for i, var in enumerate(stochastic_carry_vars)
+        }
+
         # --- emit deterministics and free RVs ---
         for i, var in enumerate(endo_keys):
-            mu_all = results[i]  # (n_times, n_units)
+            carry_all = results[i]  # (n_times, n_units)
+            mu_all = carry_mu_results.get(var, carry_all)
 
             if var in latent:
                 if var in stochastic_latent_set:
