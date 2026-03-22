@@ -192,6 +192,9 @@ class PathModel:
 
         if observations:
             self._pymc_model = pm.observe(self._gen_model, observations)
+            if "_use_observed_carry" in self._pymc_model.named_vars:
+                with self._pymc_model:
+                    pm.set_data({"_use_observed_carry": np.array(1, dtype="int8")})
         else:
             self._pymc_model = self._gen_model
         self._idata = None

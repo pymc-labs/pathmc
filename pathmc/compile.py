@@ -1299,15 +1299,47 @@ def _compile_scan_panel(
             col: np.zeros(n_units, dtype="float64") for col in adstock_keys
         }
 
-        innovation_nodes: dict[str, Any] = {}
+        # Flag toggled by caller: 0 for generative recursion, 1 for observed carry.
+        use_observed_carry = pm.Data("_use_observed_carry", np.array(0, dtype="int8"))
+
+        endo_lag_bases = sorted(
+            {base for _col, (base, _k) in lag_cols.items() if base in endo_set}
+        )
+        stochastic_carry_vars = sorted(
+            v
+            for v in endo_lag_bases
+            if v not in latent
+            and families.get(v, "gaussian") in ("gaussian", "studentt")
+        )
+
+        observed_carry_nodes: dict[str, Any] = {}
+        for var in stochastic_carry_vars:
+            if var in data_sorted.columns:
+                observed_panel = _reshape_to_panel(data_sorted, var, n_units, n_times)
+            else:
+                observed_panel = np.full((n_times, n_units), np.nan, dtype="float64")
+            observed_carry_nodes[var] = pm.Data(
+                f"_obs_carry_{var}", observed_panel.astype("float64")
+            )
+
+        latent_innovation_nodes: dict[str, Any] = {}
         for var in stochastic_latent:
-            innovation_nodes[var] = pm.Normal(
+            latent_innovation_nodes[var] = pm.Normal(
                 f"innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
 
-        sequences = [exog_data_nodes[k] for k in exog_keys] + [
-            innovation_nodes[k] for k in stochastic_latent
-        ]
+        carry_innovation_nodes: dict[str, Any] = {}
+        for var in stochastic_carry_vars:
+            carry_innovation_nodes[var] = pm.Normal(
+                f"carry_innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
+            )
+
+        sequences = (
+            [exog_data_nodes[k] for k in exog_keys]
+            + [observed_carry_nodes[k] for k in stochastic_carry_vars]
+            + [latent_innovation_nodes[k] for k in stochastic_latent]
+            + [carry_innovation_nodes[k] for k in stochastic_carry_vars]
+        )
 
         def _init_carry(arr: np.ndarray) -> Any:
             """Convert init array to tensor for scan carry state.
@@ -1325,11 +1357,14 @@ def _compile_scan_panel(
             [_init_carry(init_endo[k]) for k in endo_keys]
             + [_init_carry(init_adstock[k]) for k in adstock_keys]
             + [_init_carry(init_exog_lag[k]) for k in exog_lag_bases]
+            + [None for _ in stochastic_carry_vars]
         )
 
         # Non-sequences: all parameters
         non_seq_list: list[Any] = []
         non_seq_names: list[str] = []
+        non_seq_list.append(use_observed_carry)
+        non_seq_names.append("_use_observed_carry")
         for var in endo_keys:
             if beta_rvs[var] is not None:
                 non_seq_list.append(beta_rvs[var])
@@ -1348,9 +1383,14 @@ def _compile_scan_panel(
         for var in stochastic_latent:
             non_seq_list.append(sigma_rvs[var])
             non_seq_names.append(f"sigma_{var}")
+        for var in stochastic_carry_vars:
+            non_seq_list.append(sigma_rvs[var])
+            non_seq_names.append(f"sigma_{var}")
 
         n_seq = len(sequences)
         n_exog_seq = len(exog_keys)
+        n_obs_carry_seq = len(stochastic_carry_vars)
+        n_latent_innov_seq = len(stochastic_latent)
         n_endo = len(endo_keys)
         n_adstock = len(adstock_keys)
         n_exog_lag = len(exog_lag_bases)
@@ -1362,8 +1402,16 @@ def _compile_scan_panel(
             ns_args = args[n_seq + n_carry :]
 
             exog_t = {k: seq_args[i] for i, k in enumerate(exog_keys)}
-            innov_t = {
-                k: seq_args[n_exog_seq + i] for i, k in enumerate(stochastic_latent)
+            obs_carry_t = {
+                k: seq_args[n_exog_seq + i] for i, k in enumerate(stochastic_carry_vars)
+            }
+            latent_innov_t = {
+                k: seq_args[n_exog_seq + n_obs_carry_seq + i]
+                for i, k in enumerate(stochastic_latent)
+            }
+            carry_innov_t = {
+                k: seq_args[n_exog_seq + n_obs_carry_seq + n_latent_innov_seq + i]
+                for i, k in enumerate(stochastic_carry_vars)
             }
             prev_endo = {k: carry_args[i] for i, k in enumerate(endo_keys)}
             prev_adstock_state = {
@@ -1377,9 +1425,11 @@ def _compile_scan_panel(
             ns_map: dict[str, Any] = {
                 name: ns_args[i] for i, name in enumerate(non_seq_names)
             }
+            use_observed_carry_t = ns_map["_use_observed_carry"]
 
             new_endo: dict[str, Any] = {}
             new_adstock = dict(prev_adstock_state)
+            carry_mu: dict[str, Any] = {}
 
             for var in endo_keys:
                 beta = ns_map.get(f"beta_{var}")
@@ -1408,9 +1458,20 @@ def _compile_scan_panel(
                 if var in latent:
                     if var in stochastic_latent_set:
                         sigma_val = ns_map[f"sigma_{var}"]
-                        new_endo[var] = mu + sigma_val * innov_t[var]
+                        new_endo[var] = mu + sigma_val * latent_innov_t[var]
                     else:
                         new_endo[var] = mu
+                elif var in stochastic_carry_vars:
+                    carry_mu[var] = mu
+                    sigma_val = ns_map[f"sigma_{var}"]
+                    sampled_state = mu + sigma_val * carry_innov_t[var]
+                    obs_state = obs_carry_t[var]
+                    observed_or_sampled = pt.switch(
+                        pt.isnan(obs_state), sampled_state, obs_state
+                    )
+                    new_endo[var] = pt.switch(
+                        use_observed_carry_t, observed_or_sampled, sampled_state
+                    )
                 elif family == "bernoulli":
                     new_endo[var] = 1.0 / (1.0 + pt.exp(-mu))
                 elif family in ("poisson", "negbinomial"):
@@ -1421,6 +1482,7 @@ def _compile_scan_panel(
             out = [new_endo[k] for k in endo_keys]
             out += [new_adstock[k] for k in adstock_keys]
             out += [exog_t.get(k, pt.zeros(n_units)) for k in exog_lag_bases]
+            out += [carry_mu[k] for k in stochastic_carry_vars]
             return out
 
         results = pytensor.scan(
@@ -1435,9 +1497,16 @@ def _compile_scan_panel(
         if not isinstance(results, list):
             results = [results]
 
+        carry_mu_start = n_carry
+        carry_mu_results: dict[str, Any] = {
+            var: results[carry_mu_start + i]
+            for i, var in enumerate(stochastic_carry_vars)
+        }
+
         # --- emit deterministics and free RVs ---
         for i, var in enumerate(endo_keys):
-            mu_all = results[i]  # (n_times, n_units)
+            carry_all = results[i]  # (n_times, n_units)
+            mu_all = carry_mu_results.get(var, carry_all)
 
             if var in latent:
                 if var in stochastic_latent_set:
