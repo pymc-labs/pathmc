@@ -438,12 +438,18 @@ def run_do_panel_unified(
             if var in graph_info.endogenous and var not in set and var not in latent:
                 replacements[var] = gen_model[f"mu_{var}"] * 1
 
+        stochastic_latent = {
+            v for v in latent if families.get(v, "gaussian") == "latent_normal"
+        }
+
         do_model = pm.do(gen_model, replacements)
-        det_names = [
-            f"mu_{var}"
-            for var in graph_info.topological_order
-            if var in graph_info.endogenous
-        ]
+        det_names = []
+        for var in graph_info.topological_order:
+            if var in graph_info.endogenous:
+                if var in stochastic_latent:
+                    det_names.append(var)
+                else:
+                    det_names.append(f"mu_{var}")
         det = pm.compute_deterministics(
             idata.posterior,  # type: ignore[attr-defined]
             model=do_model,
@@ -471,7 +477,8 @@ def run_do_panel_unified(
             elif var in graph_info.exogenous:
                 values[var] = np.zeros(n_samples)
             elif var in graph_info.endogenous:
-                mu_raw = det[f"mu_{var}"].values
+                det_key = var if var in stochastic_latent else f"mu_{var}"
+                mu_raw = det[det_key].values
                 mu_flat = mu_raw.reshape(-1, n_times, n_units)
                 by_time = mu_flat.mean(axis=2).T
                 values_by_time[var] = by_time
@@ -495,11 +502,13 @@ def run_do_panel_unified(
         with do_model:
             ppc = pm.sample_posterior_predictive(idata, progressbar=False)
 
-    latent_det_names = [
-        f"mu_{var}"
-        for var in graph_info.topological_order
-        if var in latent and var not in set
-    ]
+    stochastic_latent = {
+        v for v in latent if families.get(v, "gaussian") == "latent_normal"
+    }
+    latent_det_names = []
+    for var in graph_info.topological_order:
+        if var in latent and var not in set:
+            latent_det_names.append(var if var in stochastic_latent else f"mu_{var}")
     if latent_det_names:
         latent_det = pm.compute_deterministics(
             idata.posterior,  # type: ignore[attr-defined]
@@ -528,12 +537,14 @@ def run_do_panel_unified(
             by_time = flat.mean(axis=2).T
             values_by_time[var] = by_time
             values[var] = by_time.mean(axis=0)
-        elif latent_det is not None and f"mu_{var}" in latent_det:
-            mu_raw = latent_det[f"mu_{var}"].values
-            mu_flat = mu_raw.reshape(-1, n_times, n_units)
-            by_time = mu_flat.mean(axis=2).T
-            values_by_time[var] = by_time
-            values[var] = by_time.mean(axis=0)
+        elif latent_det is not None:
+            det_key = var if var in stochastic_latent else f"mu_{var}"
+            if det_key in latent_det:
+                mu_raw = latent_det[det_key].values
+                mu_flat = mu_raw.reshape(-1, n_times, n_units)
+                by_time = mu_flat.mean(axis=2).T
+                values_by_time[var] = by_time
+                values[var] = by_time.mean(axis=0)
 
     time_idx = (
         np.array(scan_info.time_values) if scan_info.time_values else np.arange(n_times)

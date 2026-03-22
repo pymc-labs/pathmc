@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Path Monte Carlo"
 requires-python = ">=3.11"
 dependencies = [
-    "arviz",
+    "arviz<1",
     "networkx",
     "numpy",
     "pandas",

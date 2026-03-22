@@ -9,14 +9,10 @@ Standard media mix models treat each channel's effect as instantaneous (or at mo
 But upper-funnel spend — brand campaigns, TV, sponsorships — doesn't just nudge this week's sales.
 It builds **brand awareness**, a latent stock that persists over time and compounds into sustained sales lift.
 
-This notebook builds two models of increasing realism:
+This notebook develops the idea in two parts:
 
-| Part | What it adds | Key pathmc features |
-|------|-------------|---------------------|
-| **1. Deterministic latent awareness** | AR(1) mediator inferred from sales alone | `latent=["awareness"]`, `lag()` |
-| **2. Sparse brand-tracking surveys** | Measurement equation constrains the latent state | `families={"awareness": "latent_normal"}`, masked likelihood |
-
-Part 1 shows the basic structure; Part 2 demonstrates how even sparse, noisy survey data can substantially tighten the posteriors on the awareness-mediated effect.
+* **Part 1** introduces the causal structure — awareness as a latent AR(1) mediator — and reveals why this model is **fundamentally unidentifiable** from downstream sales alone.
+* **Part 2** shows how even sparse, noisy brand-tracking surveys solve the identification problem, enabling full posterior inference, long-run decomposition, and counterfactual analysis.
 
 ```{python}
 import numpy as np
@@ -65,16 +61,6 @@ digraph {
 }
 ```
 
-The key quantities:
-
-| Effect | Formula | Interpretation |
-|--------|---------|----------------|
-| **Direct (upper-funnel)** | c | Upper-funnel → Sales, not through awareness |
-| **Awareness channel** | a × b / (1 − ρ) | Upper-funnel → Awareness (persistent) → Sales |
-| **Total (upper-funnel)** | c + a × b / (1 − ρ) | Full long-run causal effect |
-| **Direct (lower-funnel)** | d | Lower-funnel → Sales, immediate |
-
-The awareness channel amplifies the raw coefficient $a \times b$ by the AR(1) multiplier $1 / (1 - \rho)$ — the same "long-run multiplier" from the [Panel Data Models](panel_data.qmd#sec-ar1) example.
 
 ### Simulate data
 
@@ -115,13 +101,17 @@ df = pd.DataFrame(rows)
 true_awareness_channel = true_a * true_b / (1 - true_rho)
 true_total_uf = true_c + true_awareness_channel
 
+df.head()
+```
+
+If we make the simplifying assumption of a linear model with no interactions, then we can approximate the effects as below.
+```{python}
 print(f"True upper-funnel direct effect (c):        {true_c}")
 print(f"True awareness channel (a×b / (1−ρ)):       {true_awareness_channel:.3f}")
 print(f"True total upper-funnel effect:              {true_total_uf:.3f}")
 print(f"True lower-funnel effect (d):                {true_d}")
 print(f"True awareness persistence (ρ):              {true_rho}")
 print(f"Fraction of UF effect through awareness:     {true_awareness_channel / true_total_uf:.0%}")
-df.head()
 ```
 
 Over two-thirds of upper-funnel's total effect on sales flows through the latent awareness stock — invisible to a model that doesn't represent this mediator.
@@ -130,31 +120,40 @@ Over two-thirds of upper-funnel's total effect on sales flows through the latent
 
 ```{python}
 #| label: fig-p1-sales
-#| fig-cap: "Weekly sales over 50 weeks. The persistent autocorrelation reflects the latent awareness stock that accumulates from upper-funnel spend."
+#| fig-cap: "Simulated data over 50 weeks. Top: upper-funnel (blue) and lower-funnel (orange) weekly spend. Bottom: weekly sales, whose persistent autocorrelation reflects the latent awareness stock that accumulates from upper-funnel spend."
 #| code-fold: true
 
-fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-ax.plot(df["week"], df["sales"], color=COLOR_UPPER, lw=1.5)
-ax.scatter(df["week"], df["sales"], color=COLOR_UPPER, s=15, zorder=3)
+fig, axes = plt.subplots(2, 1, figsize=(FIG_WIDTH, FIG_HEIGHT * 1.4), sharex=True,
+                         height_ratios=[1, 1])
+
+ax = axes[0]
+ax.plot(df["week"], df["upper_funnel"], color=COLOR_UPPER, lw=1.2, label="Upper-funnel")
+ax.plot(df["week"], df["lower_funnel"], color=COLOR_LOWER, lw=1.2, label="Lower-funnel")
+ax.set_ylabel("Spend")
+ax.legend(fontsize=8)
+ax.set_title("Channel spend", fontweight="bold", loc="left")
+
+ax = axes[1]
+ax.plot(df["week"], df["sales"], color=COLOR_SALES, lw=1.5)
+ax.scatter(df["week"], df["sales"], color=COLOR_SALES, s=15, zorder=3)
 ax.set_xlabel("Week")
 ax.set_ylabel("Sales")
+ax.set_title("Sales", fontweight="bold", loc="left")
+
 plt.tight_layout()
 plt.show()
 ```
 
-### The attribution trap
-
-::: {.callout-warning}
-## Why naive regression undervalues upper-funnel
+### The attribution trap:hy naive regression undervalues upper-funnel
 
 Regressing `sales ~ upper_funnel + lower_funnel` estimates the *total contemporaneous association*, confounding the direct effect with the awareness-mediated effect.
 But worse: because awareness is latent and autocorrelated, a flat regression cannot separate the persistent component from the immediate one.
 The model might attribute some of the awareness-driven sales to lower-funnel (if they happen to correlate), or it underestimates upper-funnel's true ROI because the effect is spread over many future weeks.
 
 A path model with an explicit latent awareness mediator solves both problems: it decomposes the effect and accounts for persistence.
-:::
 
-### Specify and fit the model
+
+### Specify the model
 
 The spec declares two equations: one for awareness (latent, with AR(1) persistence) and one for sales.
 The `latent=["awareness"]` argument tells pathmc that awareness is unobserved — it will be inferred as a deterministic function of the model parameters.
@@ -173,13 +172,13 @@ model = pathmc.model(
 )
 ```
 
-```{python}
-model.graph()
-```
+::: {.callout-note collapse="true"}
+## Why `panel=` and the `"country"` column?
 
-```{python}
-model.equations()
-```
+The `lag(awareness)` term creates temporal state — each time step depends on the previous one.
+The `panel={"unit": "country", "time": "week"}` argument tells pathmc to compile a `pytensor.scan` loop that steps forward through time, carrying awareness as state.
+Even though this is a single-unit (national) model, the compiler requires both a unit and time column to set up the scan.
+:::
 
 ::: {.callout-tip collapse="true"}
 ## What `latent=["awareness"]` does
@@ -192,184 +191,42 @@ Because `awareness` is declared latent:
 4. The only likelihood is on `sales` — the model infers the awareness trajectory by fitting the sales signal
 :::
 
-### Sample
-
 ```{python}
-idata = model.fit(
-    draws=200, tune=200, chains=4, random_seed=42,
-    target_accept=0.95,
-)
-```
-
-### Results
-
-```{python}
-model.summary()
+model.graph()
 ```
 
 ```{python}
-model.effects_summary()
+model.equations()
 ```
 
-::: {.callout-tip}
-## Reading the effects
+### The identification problem
 
-- **a_uf** ≈ 0.5: how much one unit of upper-funnel spend increases awareness
-- **rho** ≈ 0.7: awareness persistence (high → slow decay)
-- **b_aw** ≈ 0.3: how much one unit of awareness lifts sales
-- **c_uf** ≈ 0.2: direct upper-funnel → sales (small)
-- **d_lf** ≈ 0.5: direct lower-funnel → sales (immediate)
+The model is structurally sound — the DAG is correct and the equations are well-specified. But can we actually estimate the parameters? Unrolling the awareness recursion reveals that awareness at time $t$ is a weighted sum of all past upper-funnel spend:
+
+$$\text{awareness}_t = a \sum_{k=0}^{t-1} \rho^k \cdot \text{upper\_funnel}_{t-k}$$
+
+Substituting into the sales equation:
+
+$$\text{sales}_t = \underbrace{(a \cdot b)}_{\text{always a product}} \sum_{k=0}^{t-1} \rho^k \cdot \text{uf}_{t-k} \;+\; c \cdot \text{uf}_t \;+\; d \cdot \text{lf}_t \;+\; \epsilon_t$$
+
+The parameters $a$ and $b$ **never appear separately** in the likelihood — only their product $a \cdot b$ matters.
+You can double $a$ and halve $b$, or vice versa, and the model produces identical predictions.
+This is **multiplicative non-identifiability**: the data constrain the product $a \cdot b$ and the persistence $\rho$, but cannot distinguish between the individual path coefficients.
+
+::: {.callout-warning}
+## Why this model cannot be sampled as-is
+
+The non-identifiability creates a curved **ridge** in the $(a, b)$ posterior: every point along the hyperbola $a \cdot b = \text{const}$ fits the data equally well.
+HMC cannot efficiently explore this geometry — the sampler produces divergent transitions as it tries to traverse the narrow ridge.
+
+Strong informative priors on $a$ or $b$ individually could pin the scale and break the symmetry, but this requires genuine prior knowledge about the *units* of the latent awareness state — knowledge we rarely have.
 :::
 
-### Long-run decomposition
+The quantities we care about — the awareness-mediated effect $a \cdot b / (1 - \rho)$ and the total upper-funnel effect — depend on the product $a \cdot b$, which *is* identified.
+The problem is that the sampler must explore the full $(a, b, \rho)$ space, and the ridge makes this intractable without additional information.
 
-The total long-run effect of upper-funnel on sales combines the direct path with the awareness-mediated path, accounting for the AR(1) multiplier.
-
-```{python}
-#| label: fig-p1-decomposition
-#| fig-cap: "Posterior distributions of upper-funnel's direct effect (c), awareness-mediated effect (a × b / (1 − ρ)), and total long-run effect. True values shown as dashed lines."
-#| code-fold: true
-
-a_draws = idata.posterior["beta_awareness"].sel(awareness_predictors="upper_funnel").values.flatten()
-rho_draws = idata.posterior["beta_awareness"].sel(awareness_predictors="lag(awareness)").values.flatten()
-b_draws = idata.posterior["beta_sales"].sel(sales_predictors="awareness").values.flatten()
-c_draws = idata.posterior["beta_sales"].sel(sales_predictors="upper_funnel").values.flatten()
-
-awareness_channel_draws = a_draws * b_draws / (1 - rho_draws)
-total_draws = c_draws + awareness_channel_draws
-
-fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-
-for draws, color, label, true_val in [
-    (c_draws, COLOR_UPPER, "Direct (c)", true_c),
-    (awareness_channel_draws, COLOR_AWARENESS, "Via awareness (a×b/(1−ρ))", true_awareness_channel),
-    (total_draws, COLOR_TOTAL, "Total long-run", true_total_uf),
-]:
-    valid = draws[np.isfinite(draws)]
-    az.plot_kde(valid, ax=ax, plot_kwargs={"color": color, "lw": 2},
-                fill_kwargs={"alpha": 0.25, "color": color}, label=label)
-    ax.axvline(true_val, color=color, ls="--", lw=1.5, alpha=0.7)
-
-ax.axvline(0, color="black", ls=":", alpha=0.3)
-ax.set_xlabel("Effect on sales (per unit upper-funnel spend)")
-ax.set_ylabel("Density")
-ax.legend(fontsize=8)
-plt.tight_layout()
-plt.show()
-```
-
-The awareness-mediated channel is larger than the direct effect — missing it means undervaluing upper-funnel by more than half.
-
-### Counterfactual: channel comparison over time
-
-What does each channel contribute to sales when run at its average level versus zero?
-
-Because awareness is persistent, upper-funnel's contribution **ramps up** over time as the awareness stock builds, while lower-funnel's contribution is **flat** (immediate, no persistence).
-
-```{python}
-mean_uf = df["upper_funnel"].mean()
-mean_lf = df["lower_funnel"].mean()
-
-r_baseline = model.do(
-    set={"upper_funnel": mean_uf},
-    simulate_over="time", kind="mean",
-)
-r_no_uf = model.do(
-    set={"upper_funnel": 0.0},
-    simulate_over="time", kind="mean",
-)
-uf_contrast = r_baseline - r_no_uf
-
-r_baseline_lf = model.do(
-    set={"lower_funnel": mean_lf},
-    simulate_over="time", kind="mean",
-)
-r_no_lf = model.do(
-    set={"lower_funnel": 0.0},
-    simulate_over="time", kind="mean",
-)
-lf_contrast = r_baseline_lf - r_no_lf
-```
-
-```{python}
-#| label: fig-p1-channels
-#| fig-cap: "Impact of running each channel at its mean vs zero. Upper-funnel (blue) shows gradual ramp-up as awareness accumulates. Lower-funnel (orange) produces a flat, immediate effect with no temporal dynamics."
-#| code-fold: true
-
-fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-
-weeks = np.arange(1, n_weeks + 1)
-
-uf_by_time = uf_contrast.by_time("sales")
-lf_by_time = lf_contrast.by_time("sales")
-
-ax.plot(weeks, uf_by_time.mean(axis=1), color=COLOR_UPPER, lw=2, label="Upper-funnel contribution")
-az.plot_hdi(weeks, uf_by_time.T, ax=ax, smooth=False, color=COLOR_UPPER, fill_kwargs={"alpha": 0.15})
-ax.plot(weeks, lf_by_time.mean(axis=1), color=COLOR_LOWER, lw=2, label="Lower-funnel contribution")
-az.plot_hdi(weeks, lf_by_time.T, ax=ax, smooth=False, color=COLOR_LOWER, fill_kwargs={"alpha": 0.15})
-
-ax.set_xlabel("Week")
-ax.set_ylabel("Sales lift (mean spend vs. zero)")
-ax.legend(fontsize=8)
-ax.axhline(0, color="black", ls=":", alpha=0.3)
-plt.tight_layout()
-plt.show()
-```
-
-The asymmetry is the central insight: **lower-funnel is flat** (its effect is fully immediate), while **upper-funnel ramps up** as brand awareness builds.
-A snapshot at week 1 would severely underestimate upper-funnel's contribution; by week 15+, the awareness stock has reached its long-run level.
-
-### Counterfactual: upper-funnel pulse
-
-A brand campaign runs at high intensity for 10 weeks (weeks 11--20), then stops entirely.
-This produces the classic "brand halo" pattern: awareness builds during the campaign and decays slowly after it ends.
-
-```{python}
-uf_pulse = np.zeros(n_weeks)
-uf_pulse[10:20] = mean_uf * 2
-
-uf_zero = np.zeros(n_weeks)
-
-r_pulse = model.do(set={"upper_funnel": uf_pulse}, simulate_over="time", kind="mean")
-r_off = model.do(set={"upper_funnel": uf_zero}, simulate_over="time", kind="mean")
-pulse_effect = r_pulse - r_off
-```
-
-```{python}
-#| label: fig-p1-pulse
-#| fig-cap: "Sales response to a 10-week upper-funnel pulse (weeks 11--20, shaded). During the pulse, awareness accumulates and sales lift grows. After the pulse ends, the brand halo decays gradually."
-#| code-fold: true
-
-fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-
-pulse_by_time = pulse_effect.by_time("sales")
-
-ax.plot(weeks, pulse_by_time.mean(axis=1), color=COLOR_UPPER, lw=2, label="Posterior mean")
-az.plot_hdi(weeks, pulse_by_time.T, ax=ax, smooth=False, color=COLOR_UPPER,
-            fill_kwargs={"alpha": 0.15, "label": "94% HDI"})
-ax.axvspan(11, 20, alpha=0.08, color="gray", label="Campaign window")
-ax.axhline(0, color="black", ls=":", alpha=0.4)
-
-ax.set_xlabel("Week")
-ax.set_ylabel("Incremental sales vs. no upper-funnel")
-ax.legend(fontsize=8)
-plt.tight_layout()
-plt.show()
-```
-
-This is the signature of brand awareness dynamics:
-
-- **Before the campaign** (weeks 1--10): no upper-funnel spend, no effect
-- **During the campaign** (weeks 11--20): awareness accumulates, sales lift ramps up
-- **After the campaign** (weeks 21+): spend stops, but the awareness stock decays at rate $\rho$ per period — the "brand halo" sustains sales lift for many additional weeks
-
-The **total incremental sales** from the pulse includes both the in-campaign lift and the post-campaign tail.
-
----
-
-The model above infers the entire awareness trajectory from the sales signal alone — a powerful but indirect identification strategy.
-When the only downstream observable is noisy, posteriors on the awareness path can be wide.
 What if we had *direct observations* of the latent state?
+Even noisy, sparse measurements of awareness would break the symmetry: they constrain awareness on an absolute scale, which pins $a$ (the loading from spend to awareness) and lets $b$ (the effect of awareness on sales) be estimated separately.
 
 ## Part 2: Constraining awareness with sparse surveys {#sec-surveys}
 
@@ -471,9 +328,16 @@ for week in range(1, n_weeks + 1):
 
 df = pd.DataFrame(rows)
 
+true_awareness_channel = true_a * true_b / (1 - true_rho)
+true_total_uf = true_c + true_awareness_channel
+
 n_observed = df["awareness_survey"].notna().sum()
 print(f"Time series: {n_weeks} weeks, {n_observed} survey observations")
 print(f"Survey coverage: {n_observed / n_weeks:.0%} of weeks")
+print(f"True upper-funnel direct effect (c):        {true_c}")
+print(f"True awareness channel (a×b / (1−ρ)):       {true_awareness_channel:.3f}")
+print(f"True total upper-funnel effect:              {true_total_uf:.3f}")
+print(f"True lower-funnel effect (d):                {true_d}")
 df.head(10)
 ```
 
@@ -524,8 +388,8 @@ plt.show()
 
 ### Why sparse observations help
 
-Without any survey data, the model identifies the awareness trajectory **only** through the sales equation — an indirect signal that also depends on lower-funnel spend, the direct upper-funnel effect, and observation noise.
-This works (as shown in [Part 1](#sec-deterministic)), but the posterior on the awareness path can be wide, especially when upper-funnel and lower-funnel spend are correlated.
+Without any survey data, the model must identify the awareness trajectory **only** through the sales equation — an indirect signal that also depends on lower-funnel spend, the direct upper-funnel effect, and observation noise.
+As [Part 1](#sec-deterministic) showed, this leads to multiplicative non-identifiability: the individual path coefficients $a$ and $b$ cannot be separated.
 
 Survey observations change the identification picture in two ways:
 
@@ -555,10 +419,12 @@ The model has three equations: a stochastic state equation for awareness, a meas
 
 ```{python}
 spec = """
-awareness ~ a_uf*upper_funnel + rho*lag(awareness)
-sales ~ b_aw*awareness + c_uf*upper_funnel + d_lf*lower_funnel
+awareness ~ 0 + a_uf*upper_funnel + rho*lag(awareness)
+sales ~ 0 + b_aw*awareness + c_uf*upper_funnel + d_lf*lower_funnel
 awareness_survey ~ 0 + 1*awareness
 """
+
+from pathmc import Prior
 
 model = pathmc.model(
     spec,
@@ -566,6 +432,13 @@ model = pathmc.model(
     panel={"unit": "country", "time": "week"},
     latent=["awareness"],
     families={"awareness": "latent_normal"},
+    priors={
+        "beta_awareness": Prior("Beta", alpha=3, beta=2),
+        "beta_sales": Prior("Normal", mu=0.3, sigma=0.2),
+        "sigma_awareness": Prior("HalfNormal", sigma=0.5),
+        "sigma_awareness_survey": Prior("HalfNormal", sigma=1.5),
+        "sigma_sales": Prior("HalfNormal", sigma=1.2),
+    },
 )
 ```
 
@@ -574,10 +447,13 @@ model = pathmc.model(
 
 - **`latent=["awareness"]`** — awareness has no observed data column; the model must infer its trajectory
 - **`families={"awareness": "latent_normal"}`** — awareness gets process noise $\sigma_\text{state}$ (stochastic, not deterministic)
+- **`0 +` in structural equations** — removes intercepts to match this simulation's data-generating process and improve prior predictive alignment
 - **`awareness_survey ~ 0 + 1*awareness`** — a measurement equation with fixed loading (1) and no intercept, so `survey = awareness + noise`. NaN entries for unsurveyed weeks are automatically masked by PyMC
 
 The compiler pre-generates standard-normal innovations for each time step, passes them through the scan, and scales by $\sigma_\text{state}$.
 The measurement equation is compiled as a masked likelihood — only weeks with survey data contribute to the log-probability.
+Here we also regularize both state noise (`sigma_awareness`) and measurement noise (`sigma_awareness_survey`) so sparse surveys more clearly anchor the latent trajectory in this teaching example.
+Using a bounded prior (`Beta`) for `beta_awareness` keeps both awareness coefficients in $(0, 1)$, which helps prevent explosive AR(1)-like trajectories when fitting with sparse observations.
 :::
 
 ```{python}
@@ -588,12 +464,61 @@ model.graph()
 model.equations()
 ```
 
+```{python}
+model.to_graphviz()
+```
+
+### Prior predictive check
+
+Before sampling, we draw from the prior predictive to verify that the priors generate plausible sales and awareness ranges.
+
+```{python}
+#| label: fig-p2-prior-predictive
+#| fig-cap: "Prior predictive distribution of sales (left) and awareness (right). Shaded bands show the central 94% of prior-implied trajectories. The observed data (black dots) should fall within the prior predictive range — not centered, but not in the extreme tails."
+#| code-fold: true
+
+prior_pred = model.sample_prior_predictive(random_seed=42)
+weeks = df["week"].values
+
+fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+pp_mu_sales = prior_pred.prior["mu_sales"].values.reshape(-1, n_weeks)
+ax = axes[0]
+az.plot_hdi(weeks, pp_mu_sales, ax=ax, smooth=False, color=COLOR_SALES,
+            fill_kwargs={"alpha": 0.2, "label": "94% prior predictive"})
+ax.scatter(weeks, df["sales"], color="black", s=12, zorder=3, label="Observed")
+ax.set_xlabel("Week")
+ax.set_ylabel("Sales")
+ax.set_title("Sales (prior predictive mean)", fontweight="bold", loc="left")
+ax.legend(fontsize=8)
+
+pp_awareness = prior_pred.prior["awareness"].values.reshape(-1, n_weeks)
+ax = axes[1]
+az.plot_hdi(weeks, pp_awareness, ax=ax, smooth=False, color=COLOR_AWARENESS,
+            fill_kwargs={"alpha": 0.2, "label": "94% prior predictive"})
+ax.plot(weeks, df["awareness_true"], color="black", ls="--", lw=1.5, label="True")
+ax.set_xlabel("Week")
+ax.set_ylabel("Awareness")
+ax.set_title("Awareness", fontweight="bold", loc="left")
+ax.legend(fontsize=8)
+
+plt.tight_layout()
+plt.show()
+```
+
 ### Sample
 
 ```{python}
 idata = model.fit(
-    draws=500, tune=500, chains=4, random_seed=42,
+    draws=500,
+    tune=1000,
+    chains=4,
+    cores=4,
+    mp_ctx="fork",
+    blas_cores=1,
     target_accept=0.99,
+    nuts_sampler_kwargs={"max_treedepth": 16},
+    random_seed=42,
 )
 ```
 
@@ -603,6 +528,9 @@ idata = model.fit(
 Models with sparse measurement equations use PyMC's masked array imputation internally — missing (`NaN`) positions become free random variables while observed positions contribute to the likelihood.
 This works seamlessly with PyMC's built-in NUTS sampler, but **nutpie** (`nuts_sampler="nutpie"`) currently fails because the masked array splitting creates unnamed shared variables that nutpie's numba backend cannot compile.
 If you need nutpie's speed for other models, note that this limitation applies specifically to models with `NaN`-containing observed columns.
+If you hit multiprocessing errors on macOS/Python 3.13 (for example `RuntimeError: did not receive acknowledgement of fd`), use Python 3.12 or temporarily set `cores=1` as a fallback.
+If you see divergences, this model benefits from regularizing priors on latent dynamics and conservative NUTS settings (`target_accept=0.99`, higher `max_treedepth`), which are used in this notebook.
+In practice, we found a real tradeoff: aggressively tightening priors can eliminate divergences but also reduce how strongly sparse surveys recalibrate latent awareness, while looser priors improve survey tethering but can reintroduce divergences. The settings here are a pragmatic compromise for this demo.
 :::
 
 ### Results
@@ -676,6 +604,209 @@ plt.tight_layout()
 plt.show()
 ```
 
+### Long-run decomposition
+
+With the identification problem resolved by survey data, we can now decompose upper-funnel's total long-run effect on sales into its direct path ($c$) and the awareness-mediated path ($a \times b / (1 - \rho)$).
+The AR(1) multiplier $1 / (1 - \rho)$ captures the fact that awareness persists — a single unit of spend doesn't just affect this week's awareness, it echoes forward through the autoregressive dynamics.
+Because this expression is coefficient-based, we also validate it with an intervention-based estimate in the next subsection.
+
+```{python}
+#| label: fig-p2-decomposition
+#| fig-cap: "Posterior distributions of upper-funnel's direct effect (c), awareness-mediated effect (a × b / (1 − ρ)), and total long-run effect. True values shown as dashed lines."
+#| code-fold: true
+
+a_draws = idata.posterior["beta_awareness"].sel(awareness_predictors="upper_funnel").values.flatten()
+rho_draws = idata.posterior["beta_awareness"].sel(awareness_predictors="lag(awareness)").values.flatten()
+b_draws = idata.posterior["beta_sales"].sel(sales_predictors="awareness").values.flatten()
+c_draws = idata.posterior["beta_sales"].sel(sales_predictors="upper_funnel").values.flatten()
+
+awareness_channel_draws = a_draws * b_draws / (1 - rho_draws)
+total_draws = c_draws + awareness_channel_draws
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+for draws, color, label, true_val in [
+    (c_draws, COLOR_UPPER, "Direct (c)", true_c),
+    (awareness_channel_draws, COLOR_AWARENESS, "Via awareness (a×b/(1−ρ))", true_awareness_channel),
+    (total_draws, COLOR_TOTAL, "Total long-run", true_total_uf),
+]:
+    valid = draws[np.isfinite(draws)]
+    az.plot_kde(valid, ax=ax, plot_kwargs={"color": color, "lw": 2},
+                fill_kwargs={"alpha": 0.25, "color": color}, label=label)
+    ax.axvline(true_val, color=color, ls="--", lw=1.5, alpha=0.7)
+
+ax.axvline(0, color="black", ls=":", alpha=0.3)
+ax.set_xlabel("Effect on sales (per unit upper-funnel spend)")
+ax.set_ylabel("Density")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+The awareness-mediated channel is larger than the direct effect — missing it means undervaluing upper-funnel by more than half.
+This decomposition was impossible in [Part 1](#sec-deterministic) because $a$ and $b$ were individually non-identified; here, the survey data pin awareness to an absolute scale, breaking the multiplicative degeneracy.
+
+#### Validate with intervention (`do()`)
+
+The decomposition above uses path coefficients, which is convenient in linear AR(1) models.
+As a robustness check, we can estimate the same long-run quantity with **intervention**:
+set upper-funnel spend to 1 every week (vs 0), hold lower-funnel at 0 in both scenarios, and read off the stabilized sales lift from the tail of the simulated trajectory.
+
+```{python}
+#| label: fig-p2-longrun-do-validation
+#| fig-cap: "Long-run upper-funnel effect estimated two ways: coefficient decomposition (c + a×b/(1−ρ)) vs intervention-based g-computation from do(). In this linear model they should agree closely."
+#| code-fold: true
+
+ones_uf = np.ones(n_weeks)
+zeros = np.zeros(n_weeks)
+
+r_uf_on = model.do(
+    set={"upper_funnel": ones_uf, "lower_funnel": zeros},
+    simulate_over="time",
+    kind="mean",
+)
+r_uf_off = model.do(
+    set={"upper_funnel": zeros, "lower_funnel": zeros},
+    simulate_over="time",
+    kind="mean",
+)
+
+uf_unit_contrast = r_uf_on - r_uf_off
+uf_unit_by_time = uf_unit_contrast.by_time("sales")
+
+# Approximate steady-state lift using the final 10 weeks of the trajectory.
+do_longrun_draws = uf_unit_by_time[-10:, :].mean(axis=0)
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+for draws, color, label in [
+    (total_draws, COLOR_TOTAL, "Coefficient decomposition"),
+    (do_longrun_draws, COLOR_UPPER, "Intervention (do)"),
+]:
+    valid = draws[np.isfinite(draws)]
+    az.plot_kde(
+        valid,
+        ax=ax,
+        plot_kwargs={"color": color, "lw": 2},
+        fill_kwargs={"alpha": 0.25, "color": color},
+        label=label,
+    )
+
+ax.axvline(true_total_uf, color="black", ls="--", lw=1.5, alpha=0.8, label="True total")
+ax.set_xlabel("Long-run sales effect per 1-unit upper-funnel spend")
+ax.set_ylabel("Density")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+For this linear model, the two estimates should align closely.
+In more complex models (nonlinear transforms, interactions, non-Gaussian links), intervention-based estimation is often the safer default because it targets the causal quantity directly without relying on closed-form coefficient algebra.
+
+### Counterfactual: channel comparison over time
+
+What does each channel contribute to sales when run at its average level versus zero?
+
+Because awareness is persistent, upper-funnel's contribution **ramps up** over time as the awareness stock builds, while lower-funnel's contribution is **flat** (immediate, no persistence).
+
+```{python}
+mean_uf = df["upper_funnel"].mean()
+mean_lf = df["lower_funnel"].mean()
+
+r_baseline = model.do(
+    set={"upper_funnel": mean_uf},
+    simulate_over="time", kind="mean",
+)
+r_no_uf = model.do(
+    set={"upper_funnel": 0.0},
+    simulate_over="time", kind="mean",
+)
+uf_contrast = r_baseline - r_no_uf
+
+r_baseline_lf = model.do(
+    set={"lower_funnel": mean_lf},
+    simulate_over="time", kind="mean",
+)
+r_no_lf = model.do(
+    set={"lower_funnel": 0.0},
+    simulate_over="time", kind="mean",
+)
+lf_contrast = r_baseline_lf - r_no_lf
+```
+
+```{python}
+#| label: fig-p2-channels
+#| fig-cap: "Impact of running each channel at its mean vs zero. Upper-funnel (blue) shows gradual ramp-up as awareness accumulates. Lower-funnel (orange) produces a flat, immediate effect with no temporal dynamics."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+weeks_seq = np.arange(1, n_weeks + 1)
+
+uf_by_time = uf_contrast.by_time("sales")
+lf_by_time = lf_contrast.by_time("sales")
+
+ax.plot(weeks_seq, uf_by_time.mean(axis=1), color=COLOR_UPPER, lw=2, label="Upper-funnel contribution")
+az.plot_hdi(weeks_seq, uf_by_time.T, ax=ax, smooth=False, color=COLOR_UPPER, fill_kwargs={"alpha": 0.15})
+ax.plot(weeks_seq, lf_by_time.mean(axis=1), color=COLOR_LOWER, lw=2, label="Lower-funnel contribution")
+az.plot_hdi(weeks_seq, lf_by_time.T, ax=ax, smooth=False, color=COLOR_LOWER, fill_kwargs={"alpha": 0.15})
+
+ax.set_xlabel("Week")
+ax.set_ylabel("Sales lift (mean spend vs. zero)")
+ax.legend(fontsize=8)
+ax.axhline(0, color="black", ls=":", alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+The asymmetry is the central insight: **lower-funnel is flat** (its effect is fully immediate), while **upper-funnel ramps up** as brand awareness builds.
+A snapshot at week 1 would severely underestimate upper-funnel's contribution; by week 15+, the awareness stock has reached its long-run level.
+
+### Counterfactual: upper-funnel pulse
+
+A brand campaign runs at high intensity for 10 weeks (weeks 11--20), then stops entirely.
+This produces the classic "brand halo" pattern: awareness builds during the campaign and decays slowly after it ends.
+
+```{python}
+uf_pulse = np.zeros(n_weeks)
+uf_pulse[10:20] = mean_uf * 2
+
+uf_zero = np.zeros(n_weeks)
+
+r_pulse = model.do(set={"upper_funnel": uf_pulse}, simulate_over="time", kind="mean")
+r_off = model.do(set={"upper_funnel": uf_zero}, simulate_over="time", kind="mean")
+pulse_effect = r_pulse - r_off
+```
+
+```{python}
+#| label: fig-p2-pulse
+#| fig-cap: "Sales response to a 10-week upper-funnel pulse (weeks 11--20, shaded). During the pulse, awareness accumulates and sales lift grows. After the pulse ends, the brand halo decays gradually."
+#| code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+pulse_by_time = pulse_effect.by_time("sales")
+
+ax.plot(weeks_seq, pulse_by_time.mean(axis=1), color=COLOR_UPPER, lw=2, label="Posterior mean")
+az.plot_hdi(weeks_seq, pulse_by_time.T, ax=ax, smooth=False, color=COLOR_UPPER,
+            fill_kwargs={"alpha": 0.15, "label": "94% HDI"})
+ax.axvspan(11, 20, alpha=0.08, color="gray", label="Campaign window")
+ax.axhline(0, color="black", ls=":", alpha=0.4)
+
+ax.set_xlabel("Week")
+ax.set_ylabel("Incremental sales vs. no upper-funnel")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+This is the signature of brand awareness dynamics:
+
+- **Before the campaign** (weeks 1--10): no upper-funnel spend, no effect
+- **During the campaign** (weeks 11--20): awareness accumulates, sales lift ramps up
+- **After the campaign** (weeks 21+): spend stops, but the awareness stock decays at rate $\rho$ per period — the "brand halo" sustains sales lift for many additional weeks
+
+The **total incremental sales** from the pulse includes both the in-campaign lift and the post-campaign tail.
+
 ### Practical considerations for survey design
 
 The value of brand tracking surveys depends on their frequency, timing, and accuracy relative to the underlying awareness dynamics.
@@ -712,12 +843,14 @@ With $\rho = 0.75$ (the value in our simulation), a single survey observation re
 ## Summary
 
 - **Brand awareness is a latent AR(1) stock.** It accumulates from upper-funnel spend and decays slowly, creating persistent sales lift beyond the campaign period.
-- **`latent=["awareness"]`** lets pathmc infer the awareness trajectory without requiring observed awareness data. The model learns the dynamics from the sales signal alone.
-- **Upper-funnel effects are amplified by persistence.** The direct effect $c$ understates the total contribution; the awareness-mediated channel $a \times b / (1 - \rho)$ captures the long-run value.
-- **Lower-funnel effects are immediate.** No persistence, no ramp-up — the effect is what you see in a single-period regression.
+- **Latent mediators create multiplicative non-identifiability.** When awareness is unobserved, the loading $a$ and the effect $b$ only appear as their product $a \cdot b$ in the likelihood — the individual path coefficients cannot be separated from sales data alone.
+- **Brand tracking surveys break the degeneracy.** Even sparse, noisy surveys pin awareness to an absolute scale, enabling separate estimation of $a$ and $b$ and resolving the identification problem.
+- **Upper-funnel effects are amplified by persistence.** The direct effect $c$ understates the total contribution; the awareness-mediated channel $a \times b / (1 - \rho)$ captures the long-run value in this linear AR(1) setup.
+- **Intervention-based validation is a useful complement.** The long-run effect estimated from `do()` agrees with the coefficient decomposition here, and is often the safer default in more complex models.
+- **Upper-funnel contribution ramps up over time; lower-funnel is flat.** Because awareness accumulates, upper-funnel's sales lift grows over weeks, while lower-funnel acts immediately with no temporal dynamics.
 - **The "brand halo" emerges naturally** from the AR(1) dynamics: a temporary campaign builds awareness that sustains sales lift for weeks after spending stops.
-- **Brand tracking surveys provide direct evidence** about the latent state that would otherwise be identified only through downstream sales — an indirect and noisy signal.
-- **Even sparse, noisy surveys constrain the latent trajectory** because the AR(1) structure propagates each observation's information to neighboring time periods.
+- **Even sparse surveys constrain the latent trajectory** because the AR(1) structure propagates each observation's information to neighboring time periods.
+- **There is a practical workflow tradeoff.** Tighter priors and conservative NUTS settings help reduce divergences, but overly aggressive regularization can damp survey-driven latent calibration; this notebook uses a pragmatic middle ground.
 
 ::: {.callout-note}
 ## Reflection
