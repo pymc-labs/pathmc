@@ -61,16 +61,6 @@ digraph {
 }
 ```
 
-The key quantities are described below. Note that these are derived from the path coefficients. A more robust approach, is to use g-computation where we intervene on the upper-funnel variable and let the consequences play out through the causal graph.
-
-| Effect | Formula | Interpretation |
-|--------|---------|----------------|
-| **Direct (upper-funnel)** | c | Upper-funnel → Sales, not through awareness |
-| **Awareness channel** | a × b / (1 − ρ) | Upper-funnel → Awareness (persistent) → Sales |
-| **Total (upper-funnel)** | c + a × b / (1 − ρ) | Full long-run causal effect |
-| **Direct (lower-funnel)** | d | Lower-funnel → Sales, immediate |
-
-The awareness channel amplifies the raw coefficient $a \times b$ by the AR(1) multiplier $1 / (1 - \rho)$ — the same "long-run multiplier" from the [Panel Data Models](panel_data.qmd#sec-ar1) example.
 
 ### Simulate data
 
@@ -111,13 +101,17 @@ df = pd.DataFrame(rows)
 true_awareness_channel = true_a * true_b / (1 - true_rho)
 true_total_uf = true_c + true_awareness_channel
 
+df.head()
+```
+
+If we make the simplifying assumption of a linear model with no interactions, then we can approximate the effects as below.
+```{python}
 print(f"True upper-funnel direct effect (c):        {true_c}")
 print(f"True awareness channel (a×b / (1−ρ)):       {true_awareness_channel:.3f}")
 print(f"True total upper-funnel effect:              {true_total_uf:.3f}")
 print(f"True lower-funnel effect (d):                {true_d}")
 print(f"True awareness persistence (ρ):              {true_rho}")
 print(f"Fraction of UF effect through awareness:     {true_awareness_channel / true_total_uf:.0%}")
-df.head()
 ```
 
 Over two-thirds of upper-funnel's total effect on sales flows through the latent awareness stock — invisible to a model that doesn't represent this mediator.
@@ -150,19 +144,16 @@ plt.tight_layout()
 plt.show()
 ```
 
-### The attribution trap
-
-::: {.callout-warning}
-## Why naive regression undervalues upper-funnel
+### The attribution trap:hy naive regression undervalues upper-funnel
 
 Regressing `sales ~ upper_funnel + lower_funnel` estimates the *total contemporaneous association*, confounding the direct effect with the awareness-mediated effect.
 But worse: because awareness is latent and autocorrelated, a flat regression cannot separate the persistent component from the immediate one.
 The model might attribute some of the awareness-driven sales to lower-funnel (if they happen to correlate), or it underestimates upper-funnel's true ROI because the effect is spread over many future weeks.
 
 A path model with an explicit latent awareness mediator solves both problems: it decomposes the effect and accounts for persistence.
-:::
 
-### Specify and fit the model
+
+### Specify the model
 
 The spec declares two equations: one for awareness (latent, with AR(1) persistence) and one for sales.
 The `latent=["awareness"]` argument tells pathmc that awareness is unobserved — it will be inferred as a deterministic function of the model parameters.
@@ -179,14 +170,6 @@ model = pathmc.model(
     panel={"unit": "country", "time": "week"},
     latent=["awareness"],
 )
-```
-
-```{python}
-model.graph()
-```
-
-```{python}
-model.equations()
 ```
 
 ::: {.callout-note collapse="true"}
@@ -208,12 +191,17 @@ Because `awareness` is declared latent:
 4. The only likelihood is on `sales` — the model infers the awareness trajectory by fitting the sales signal
 :::
 
+```{python}
+model.graph()
+```
+
+```{python}
+model.equations()
+```
+
 ### The identification problem
 
-The model is structurally sound — the DAG is correct and the equations are well-specified.
-But can we actually estimate the parameters?
-
-Unrolling the awareness recursion reveals that awareness at time $t$ is a weighted sum of all past upper-funnel spend:
+The model is structurally sound — the DAG is correct and the equations are well-specified. But can we actually estimate the parameters? Unrolling the awareness recursion reveals that awareness at time $t$ is a weighted sum of all past upper-funnel spend:
 
 $$\text{awareness}_t = a \sum_{k=0}^{t-1} \rho^k \cdot \text{upper\_funnel}_{t-k}$$
 
@@ -620,6 +608,7 @@ plt.show()
 
 With the identification problem resolved by survey data, we can now decompose upper-funnel's total long-run effect on sales into its direct path ($c$) and the awareness-mediated path ($a \times b / (1 - \rho)$).
 The AR(1) multiplier $1 / (1 - \rho)$ captures the fact that awareness persists — a single unit of spend doesn't just affect this week's awareness, it echoes forward through the autoregressive dynamics.
+Because this expression is coefficient-based, we also validate it with an intervention-based estimate in the next subsection.
 
 ```{python}
 #| label: fig-p2-decomposition
@@ -656,6 +645,62 @@ plt.show()
 
 The awareness-mediated channel is larger than the direct effect — missing it means undervaluing upper-funnel by more than half.
 This decomposition was impossible in [Part 1](#sec-deterministic) because $a$ and $b$ were individually non-identified; here, the survey data pin awareness to an absolute scale, breaking the multiplicative degeneracy.
+
+#### Validate with intervention (`do()`)
+
+The decomposition above uses path coefficients, which is convenient in linear AR(1) models.
+As a robustness check, we can estimate the same long-run quantity with **intervention**:
+set upper-funnel spend to 1 every week (vs 0), hold lower-funnel at 0 in both scenarios, and read off the stabilized sales lift from the tail of the simulated trajectory.
+
+```{python}
+#| label: fig-p2-longrun-do-validation
+#| fig-cap: "Long-run upper-funnel effect estimated two ways: coefficient decomposition (c + a×b/(1−ρ)) vs intervention-based g-computation from do(). In this linear model they should agree closely."
+#| code-fold: true
+
+ones_uf = np.ones(n_weeks)
+zeros = np.zeros(n_weeks)
+
+r_uf_on = model.do(
+    set={"upper_funnel": ones_uf, "lower_funnel": zeros},
+    simulate_over="time",
+    kind="mean",
+)
+r_uf_off = model.do(
+    set={"upper_funnel": zeros, "lower_funnel": zeros},
+    simulate_over="time",
+    kind="mean",
+)
+
+uf_unit_contrast = r_uf_on - r_uf_off
+uf_unit_by_time = uf_unit_contrast.by_time("sales")
+
+# Approximate steady-state lift using the final 10 weeks of the trajectory.
+do_longrun_draws = uf_unit_by_time[-10:, :].mean(axis=0)
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+for draws, color, label in [
+    (total_draws, COLOR_TOTAL, "Coefficient decomposition"),
+    (do_longrun_draws, COLOR_UPPER, "Intervention (do)"),
+]:
+    valid = draws[np.isfinite(draws)]
+    az.plot_kde(
+        valid,
+        ax=ax,
+        plot_kwargs={"color": color, "lw": 2},
+        fill_kwargs={"alpha": 0.25, "color": color},
+        label=label,
+    )
+
+ax.axvline(true_total_uf, color="black", ls="--", lw=1.5, alpha=0.8, label="True total")
+ax.set_xlabel("Long-run sales effect per 1-unit upper-funnel spend")
+ax.set_ylabel("Density")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+For this linear model, the two estimates should align closely.
+In more complex models (nonlinear transforms, interactions, non-Gaussian links), intervention-based estimation is often the safer default because it targets the causal quantity directly without relying on closed-form coefficient algebra.
 
 ### Counterfactual: channel comparison over time
 
@@ -800,10 +845,12 @@ With $\rho = 0.75$ (the value in our simulation), a single survey observation re
 - **Brand awareness is a latent AR(1) stock.** It accumulates from upper-funnel spend and decays slowly, creating persistent sales lift beyond the campaign period.
 - **Latent mediators create multiplicative non-identifiability.** When awareness is unobserved, the loading $a$ and the effect $b$ only appear as their product $a \cdot b$ in the likelihood — the individual path coefficients cannot be separated from sales data alone.
 - **Brand tracking surveys break the degeneracy.** Even sparse, noisy surveys pin awareness to an absolute scale, enabling separate estimation of $a$ and $b$ and resolving the identification problem.
-- **Upper-funnel effects are amplified by persistence.** The direct effect $c$ understates the total contribution; the awareness-mediated channel $a \times b / (1 - \rho)$ captures the long-run value.
+- **Upper-funnel effects are amplified by persistence.** The direct effect $c$ understates the total contribution; the awareness-mediated channel $a \times b / (1 - \rho)$ captures the long-run value in this linear AR(1) setup.
+- **Intervention-based validation is a useful complement.** The long-run effect estimated from `do()` agrees with the coefficient decomposition here, and is often the safer default in more complex models.
 - **Upper-funnel contribution ramps up over time; lower-funnel is flat.** Because awareness accumulates, upper-funnel's sales lift grows over weeks, while lower-funnel acts immediately with no temporal dynamics.
 - **The "brand halo" emerges naturally** from the AR(1) dynamics: a temporary campaign builds awareness that sustains sales lift for weeks after spending stops.
 - **Even sparse surveys constrain the latent trajectory** because the AR(1) structure propagates each observation's information to neighboring time periods.
+- **There is a practical workflow tradeoff.** Tighter priors and conservative NUTS settings help reduce divergences, but overly aggressive regularization can damp survey-driven latent calibration; this notebook uses a pragmatic middle ground.
 
 ::: {.callout-note}
 ## Reflection
