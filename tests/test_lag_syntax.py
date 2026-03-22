@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+import pymc as pm
 
 import pathmc
 from pathmc.parse import parse_spec
@@ -87,6 +88,51 @@ class TestLagCompilation:
         )
         assert model.pymc_model is not None
         assert hasattr(model._gen_model, "_pathmc_panel_scan")
+
+
+class TestLagCarryRegression:
+    """Regression tests for scan carry state in endogenous lag models."""
+
+    def _simple_panel(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "region": ["A", "A", "A", "A"],
+                "week": [1, 2, 3, 4],
+                "sales": [1.0, 2.0, 4.0, 8.0],
+            }
+        )
+
+    def test_observed_model_carries_realized_lagged_values(self):
+        """Observed scan recursion should teacher-force endogenous lag state."""
+        df = self._simple_panel()
+        model = pathmc.model(
+            "sales ~ 1*lag(sales) + 0",
+            data=df,
+            panel={"unit": "region", "time": "week"},
+        )
+
+        with model.pymc_model:
+            mu_draw = pm.draw(model.pymc_model["mu_sales"], random_seed=123)
+
+        mu = np.asarray(mu_draw, dtype=float)
+        assert mu.shape == (4, 1)
+        assert np.allclose(mu[:, 0], df["sales"].to_numpy())
+
+    def test_generative_model_scan_mu_is_stochastic_for_endogenous_lag(self):
+        """Generative scan recursion should include stochastic carry innovations."""
+        df = self._simple_panel()
+        model = pathmc.model(
+            "sales ~ 1*lag(sales) + 0",
+            data=df,
+            panel={"unit": "region", "time": "week"},
+        )
+
+        with model._gen_model:
+            mu_draws = pm.draw(model._gen_model["mu_sales"], draws=50, random_seed=123)
+
+        mu_samples = np.asarray(mu_draws, dtype=float)
+        assert mu_samples.shape == (50, 4, 1)
+        assert np.std(mu_samples[:, -1, 0]) > 0.0
 
     def test_lag_exogenous_compiles(self):
         """Exogenous lag: sales ~ lag(spend)."""
