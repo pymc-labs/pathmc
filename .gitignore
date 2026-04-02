@@ -6,3 +6,5 @@ docs/_site/
 /docs/site_libs
 /docs/_freeze
 .github/pr-summaries/
+/docs/dev/pymc_labs_talk_files/
+/docs/dev/pymc_labs_talk.html

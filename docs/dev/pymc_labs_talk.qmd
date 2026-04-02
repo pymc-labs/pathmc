@@ -1,0 +1,357 @@
+---
+pagetitle: "pathmc — Structural Causal Models, Made Simple"
+format:
+  revealjs:
+    html-math-method: katex
+    theme: [default, talk_style.scss]
+    slide-number: true
+    code-line-numbers: false
+    highlight-style: monokai
+    width: 1200
+    height: 700
+    transition: fade
+    scrollable: true
+    fig-align: center
+jupyter: pathmc
+execute:
+  echo: true
+---
+
+<!-- RENDER WITH: `quarto render docs/dev/pymc_labs_talk.qmd` -->
+
+```{python}
+#| echo: false
+#| output: false
+
+import numpy as np
+import pandas as pd
+import pymc as pm
+import pathmc
+
+rng = np.random.default_rng(42)
+n = 300
+
+motivation = rng.normal(0, 1, n)
+training = 0.6 * motivation + rng.normal(0, 1, n)
+skill = 0.8 * training + rng.normal(0, 1, n)
+performance = 0.6 * skill + 0.25 * training + 0.5 * motivation + rng.normal(0, 1, n)
+
+df = pd.DataFrame(
+    {
+        "Motivation": motivation,
+        "Training": training,
+        "Skill": skill,
+        "Performance": performance,
+    }
+)
+```
+
+
+## {.center}
+
+::: {style="font-size: 1.4em;"}
+I've been building something...
+:::
+
+. . .
+
+::: {style="font-size: 1.4em;"}
+Let me show you.
+:::
+
+::: {.notes}
+No preamble. Jump straight into the demo.
+"I've been building a tool for Bayesian structural causal models and I want to show you what it does."
+:::
+
+
+## The scenario
+
+A company wants to evaluate its **voluntary training program** from cross-sectional observational data:
+
+| Variable | Description |
+|----------|-------------|
+| **Training** | Training hours completed |
+| **Performance** | Quarterly performance rating |
+| **Motivation** | Employee motivation score (survey) |
+| **Skill** | Post-training assessment score |
+
+
+. . .
+
+**Problem:** Motivated employees take more training AND perform better. Can we separate the **causal effect of training** from the confounding?
+
+
+## The causal structure
+
+```{dot}
+//| echo: false
+//| fig-align: center
+digraph {
+  rankdir=LR
+  node [shape=box, style="rounded", fontname="Helvetica", fontsize=14]
+  edge [fontname="Helvetica", fontsize=11]
+
+  Motivation -> Training
+  Motivation -> Performance
+  Training -> Skill
+  Skill -> Performance
+  Training -> Performance
+}
+```
+
+This is the DAG we believe. It would be good if we could represent this concisely...
+
+## Build it
+
+```{python}
+spec = """
+Training    ~ m*Motivation
+Skill       ~ a*Training
+Performance ~ b*Skill + c*Training + f*Motivation
+indirect := a*b
+direct   := c
+total    := a*b + c
+"""
+
+m = pathmc.model(spec, data=df)
+```
+
+That's it!
+
+Passing in data is optional.
+
+
+## Causal DAG please
+
+```{python}
+m.graph()
+```
+
+A proper causal DAG --- exogenous nodes (boxes), endogenous nodes (ellipses), directed edges encoding structural assumptions.
+
+
+## PyMC model for inference
+
+```{python}
+m.to_graphviz()
+```
+
+A standard `pm.Model` --- inspect it, extend it, sample from it. Anyone on the team can work with this directly.
+
+::: {.notes}
+The causal DAG is a NetworkX DiGraph under the hood. All identification helpers (adjustment sets, d-separation, collider warnings) operate on this graph. The PyMC model is what gets sampled. Two complementary representations from the same spec.
+:::
+
+
+## Show me the equations
+
+```{python}
+m.model_equations()
+```
+
+Sensible default priors --- all overridable via `priors={...}`.
+
+
+## Fit with MCMC
+
+Standard PyMC sampling.
+
+```{python}
+#| output: true
+idata = m.fit(draws=1000, tune=1000, chains=4, random_seed=42)
+```
+
+
+## What did we learn?
+
+```{python}
+m.effects_summary()
+```
+
+
+## Path-specific effects
+
+```{python}
+#| echo: false
+#| fig-align: center
+g = m.graph()
+g.attr(size="8,3!")
+g
+```
+
+```{python}
+indirect = m.effect("Training -> Skill -> Performance")
+print(indirect)
+```
+
+. . .
+
+```{python}
+direct = m.effect("Training -> Performance")
+print(direct)
+```
+
+. . .
+
+Most of the training effect flows **through skill building** --- but there's a meaningful direct channel too.
+
+For nonlinear models, `ate()` and `cate()` forward-simulate through the full structural model.
+
+::: {.notes}
+Coefficient products = causal effects only in linear Gaussian models with no interactions. For non-Gaussian families, nonlinear links, or interactions, the proper approach is to use `ate()` / `cate()` which do g-computation through the full structural model. Mention this if someone asks.
+:::
+
+
+## Causal estimands via the do-operator
+
+The **Average Treatment Effect** --- a causal estimand, not just a regression coefficient:
+
+$$
+\begin{aligned}
+\text{ATE} &= \mathbb{E}[\text{Performance} \mid do(\text{Training}=1)] \\
+           &- \mathbb{E}[\text{Performance} \mid do(\text{Training}=0)]
+\end{aligned}
+$$
+
+. . .
+
+```{python}
+ate = m.ate("Performance", "Training", values=(0, 1))
+```
+
+```{python}
+#| echo: false
+print(f"ATE on Performance: {ate.mean('Performance'):.3f}")
+print(f"94% HDI:            {ate.hdi('Performance', prob=0.94)}")
+```
+
+. . .
+
+Under the hood: g-computation via `pm.do()`. Forward-simulate through the DAG under each intervention, propagating full posterior uncertainty through the causal chain.
+
+
+## Interventional probability queries
+
+What's the probability a trained employee exceeds a performance rating of 2?
+
+```{python}
+p = m.prob("Performance > 2", set={"Training": 1})
+print(f"P(Performance > 2 | do(Training=1)) = {p:.2f}")
+```
+
+. . .
+
+```{python}
+p0 = m.prob("Performance > 2", set={"Training": 0})
+print(f"P(Performance > 2 | do(Training=0)) = {p0:.2f}")
+```
+
+. . .
+
+Answer questions stakeholders actually ask --- in the language of probabilities, not regression coefficients.
+
+
+## Sensitivity analysis
+
+How robust is this finding to **unmeasured confounding**?
+
+```{python}
+sens = m.sensitivity("Performance", "Training")
+sens.plot();
+```
+
+If an unmeasured confounder existed, how strong would it need to be to nullify the training effect?
+
+
+## Identification
+
+Before trusting these estimates, check they're identifiable from the DAG:
+
+```{python}
+print(f"Identifiable?    {m.is_identifiable('Training', 'Performance')}")
+print(f"Adjustment sets: {m.adjustment_sets('Training', 'Performance')}")
+```
+
+. . .
+
+Does the data agree with our assumed causal structure? Test every DAG-implied conditional independence:
+
+```{python}
+m.test_implications()
+```
+
+
+## What an explicit causal layer gives you
+
+::: {.incremental}
+1. **Introspection** --- `graph()`, `equations()`, `priors()`, prior predictive checks
+2. **Estimation** --- `fit()`, `effects_summary()`, `standardized()`, path-specific effects
+3. **Causal queries** --- `do()`, `ate()`, `cate()`, `prob("Y > 0", set={...})`
+4. **Identification** --- `adjustment_sets()`, `collider_warnings()`, `test_implications()`
+5. **Sensitivity** --- `sensitivity()` for robustness to unmeasured confounding
+:::
+
+
+## And there's more {.smaller}
+
+Everything you just saw was one cross-sectional example. The same DSL handles:
+
+::: {.incremental}
+- **Multiple likelihood families** --- Bernoulli, Poisson, NegBinomial, StudentT alongside Gaussian. Mix them freely across equations.
+- **Panel / longitudinal data** --- `panel=` for unit--time structure, `pooling="partial"` for hierarchical intercepts and slopes
+- **Transforms with estimable parameters** --- `adstock()`, `logistic_saturation()`, and a registry for custom transforms. Compiled to `pytensor.scan` for proper temporal dynamics.
+- **Latent variables** --- deterministic mediators and stochastic latent states with sparse measurement equations
+- **Data simulation** --- `simulate()` generates synthetic data from the structural model, so you can validate recovery before touching real data
+:::
+
+. . .
+
+Worked examples for all of these in the docs: [pymc-labs.github.io/pathmc](https://pymc-labs.github.io/pathmc/)
+
+## Where it fits {.smaller}
+
+| | pathmc | DoWhy | CausalPy | semopy | EconML | Bambi |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Bayesian inference** | ✅ | | ✅ | | | ✅ |
+| **Formula DSL** | ✅ | | | ✅ | | ✅ |
+| **Multi-equation systems** | ✅ | | | ✅ | | |
+| **Residual covariance (`~~`)** | ✅ | | | ✅ | | |
+| **do() operator** | ✅ | ✅ | | | | |
+| **Time-forward simulation** | ✅ | | | | | |
+| **Transforms (estimable params)** | ✅ | | | | | |
+| **Panel / longitudinal** | ✅ | | ✅ | | | ✅ |
+| **Identification checks** | ✅ | ✅ | | | | |
+| **Implied independence tests** | ✅ | | | | | |
+| **Sensitivity analysis** | ✅ | ✅ | | | | |
+| **Heterogeneous effects** | ✅ | | | | ✅ | ✅ |
+| **Quasi-experimental** | ✅ | ✅ | ✅ | | ✅ | |
+| **Latent factor models** | | | | ✅ | | |
+| **Posterior predictive** | ✅ | | ✅ | | | ✅ |
+| **Standardized effects** | ✅ | | | ✅ | | |
+| **Path-specific effects** | ✅ | | | ✅ | | |
+| **Interventional prob. queries** | ✅ | | | | | |
+| **Data simulation** | ✅ | | | | | |
+| **Causal discovery** | | ✅ | | | | |
+
+
+**Complementary, not competitive.** Bambi = single-equation regression. CausalPy = quasi-experiments. pathmc = multi-equation structural causal models with `do()`.
+
+
+## {.center}
+
+::: {style="font-size: 1.1em;"}
+A causal orchestration layer around PyMC that amplifies its power.
+:::
+
+. . .
+
+::: {style="font-size: 1.2em; margin-top: 0.8em;"}
+I'd love your **feedback on the API**, a **code review**, and to release this as a **PyMC Labs package**.
+:::
+
+. . .
+
+::: {style="font-size: 1.1em; margin-top: 0.8em;"}
+[github.com/pymc-labs/pathmc](https://github.com/pymc-labs/pathmc/)
+:::

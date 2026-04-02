@@ -1,0 +1,45 @@
+/*-- scss:defaults --*/
+@import url('https://fonts.googleapis.com/css2?family=Fira+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
+
+$font-family-sans-serif: 'Fira Sans', sans-serif;
+$presentation-font-size-root: 36px;
+$presentation-heading-color: #2c3e50;
+$body-color: #333;
+$code-block-font-size: 0.7em;
+$code-block-bg: #1e1e2e;
+
+/*-- scss:rules --*/
+.reveal pre code {
+  max-height: 500px;
+  padding: 0.8em 1em;
+}
+
+.reveal .cell-output pre {
+  background-color: #1e1e2e;
+  color: #cdd6f4;
+  padding: 0.8em 1em;
+}
+
+.reveal code {
+  color: #2563b0;
+}
+
+.reveal .slide-number {
+  font-size: 0.6em;
+}
+
+.reveal table {
+  font-size: 0.75em;
+}
+
+.reveal .smaller table {
+  font-size: 0.65em;
+}
+
+section.center {
+  text-align: center;
+}
+
+.reveal .notes {
+  display: none;
+}
