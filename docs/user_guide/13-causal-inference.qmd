@@ -3,7 +3,7 @@ title: "Causal Inference"
 ---
 
 pathmc implements Pearl's do-operator for **interventional reasoning** and provides tools to check whether causal effects are identifiable from the DAG structure.
-For how pathmc compiles structural equations into a generative PyMC model — and the distinction between the causal DAG and the estimation graph — see the [architecture overview](../how-it-works.qmd#from-structural-equations-to-the-generative-model).
+For how pathmc compiles structural equations into a generative PyMC model — and the distinction between the causal DAG and the estimation graph — see the [architecture overview](01-how-it-works.qmd#from-structural-equations-to-the-generative-model).
 
 ## Estimand, estimator, estimate
 

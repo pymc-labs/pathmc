@@ -1,9 +1,9 @@
 ---
-title: "pathmc"
+title: "Welcome"
 jupyter: pathmc
 ---
 
-![](assets/logo.png){width=75% fig-align="center"}
+![](../assets/logo.png){width=75% fig-align="center"}
 
 **Structural causal models, made simple.**
 
@@ -132,13 +132,13 @@ m.sensitivity("Y", "X")  # tipping point analysis
 
 ## Applied use cases
 
-pathmc isn't just for textbook examples. The [examples gallery](examples/index.qmd) covers real problems across industries.
+pathmc isn't just for textbook examples. The [examples gallery](../examples/index.qmd) covers real problems across industries.
 
 ::: {.panel-tabset}
 
 ### Marketing mix modeling
 
-Estimate channel-level ROI with adstock and saturation transforms that capture carry-over effects and diminishing returns. Panel mode handles geo-level data with hierarchical random effects. [Full example &rarr;](examples/mmm.qmd)
+Estimate channel-level ROI with adstock and saturation transforms that capture carry-over effects and diminishing returns. Panel mode handles geo-level data with hierarchical random effects. [Full example &rarr;](../examples/mmm.qmd)
 
 ```python
 spec = """
@@ -152,7 +152,7 @@ sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
 
 ### Vaccine surrogates
 
-Assess whether a biomarker is a valid surrogate for clinical outcomes using mediation analysis and the do-operator. Quantify what fraction of the treatment effect flows through the measured pathway. [Full example &rarr;](examples/vaccine_surrogates.qmd)
+Assess whether a biomarker is a valid surrogate for clinical outcomes using mediation analysis and the do-operator. Quantify what fraction of the treatment effect flows through the measured pathway. [Full example &rarr;](../examples/vaccine_surrogates.qmd)
 
 ```python
 spec = """
@@ -165,7 +165,7 @@ Labeled coefficients (`a*`, `b*`, `c*`) let you decompose the total effect into 
 
 ### SaaS conversion funnels
 
-Model a multi-stage funnel as a causal chain to find which stage has the highest leverage on paid conversion. Simulate "what if we improve onboarding?" scenarios that respect the full causal structure. [Full example &rarr;](examples/saas_funnel.qmd)
+Model a multi-stage funnel as a causal chain to find which stage has the highest leverage on paid conversion. Simulate "what if we improve onboarding?" scenarios that respect the full causal structure. [Full example &rarr;](../examples/saas_funnel.qmd)
 
 ```python
 spec = """
@@ -179,7 +179,7 @@ Each equation models one stage. Multiple equations form the causal chain — eff
 
 ### Dynamic pricing
 
-Estimate true price elasticity from observational data where price and demand are confounded. Panel structure with regional hierarchical effects separates the causal signal from common-cause noise. [Full example &rarr;](examples/dynamic_pricing.qmd)
+Estimate true price elasticity from observational data where price and demand are confounded. Panel structure with regional hierarchical effects separates the causal signal from common-cause noise. [Full example &rarr;](../examples/dynamic_pricing.qmd)
 
 ```python
 spec = """
@@ -207,11 +207,11 @@ The goal is responsible causal inference: make it easy to ask hard questions abo
 
 ## Getting started
 
-- [Overview](how-it-works.qmd) — how pathmc works, from spec to causal insight
-- [Bayesian workflow](concepts/bayesian_workflow.qmd) — the iterative cycle of inspect, check, refine, fit, and query
-- [Model specification](concepts/model_specification.qmd) — DSL syntax: `~`, `~~`, `:=`, labels, transforms
-- [Causal inference](concepts/causal_inference.qmd) — the do-operator, g-computation, identification
-- [Examples](examples/index.qmd) — worked notebooks across mediation, MMM, panel data, and more
+- [Overview](01-how-it-works.qmd) — how pathmc works, from spec to causal insight
+- [Bayesian workflow](10-bayesian-workflow.qmd) — the iterative cycle of inspect, check, refine, fit, and query
+- [Model specification](11-model-specification.qmd) — DSL syntax: `~`, `~~`, `:=`, labels, transforms
+- [Causal inference](13-causal-inference.qmd) — the do-operator, g-computation, identification
+- [Examples](../examples/index.qmd) — worked notebooks across mediation, MMM, panel data, and more
 
 ::: {.callout-tip}
 ## Coming from lavaan?

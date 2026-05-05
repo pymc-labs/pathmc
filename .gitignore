@@ -5,7 +5,7 @@ build/
 dist/
 .build-check/
 .pytest_cache/
-docs/_site/
-/docs/site_libs
-/docs/_freeze
 .github/pr-summaries/
+
+# Great Docs build directory (regenerated on every `great-docs build`)
+great-docs/

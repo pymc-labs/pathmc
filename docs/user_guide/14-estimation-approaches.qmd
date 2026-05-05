@@ -106,7 +106,7 @@ The full structural model asks more of the analyst (specify all equations correc
 
 **Use both together when:**
 
-- You want pathmc's identification helpers ([`adjustment_sets()`](../how-it-works.qmd), [`collider_warnings()`](causal_inference.qmd)) to determine *what to adjust for*, then hand off to Bambi for estimation and g-computation
+- You want pathmc's identification helpers ([`adjustment_sets()`](01-how-it-works.qmd), [`collider_warnings()`](13-causal-inference.qmd)) to determine *what to adjust for*, then hand off to Bambi for estimation and g-computation
 
 ## Where pathmc draws the line
 

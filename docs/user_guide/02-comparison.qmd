@@ -19,7 +19,7 @@ Other packages emphasize different parts of the causal workflow — discovery, i
 The right choice depends on what stage of the analysis you're in and what assumptions you're willing to encode.
 
 While pathmc is built on Pearl's SCM framework (DAGs, structural equations, the do-operator), the quantities it computes — ATE, CATE, and interventional distributions — are the same estimands targeted by potential outcomes methods.
-See [Pearl ↔ Potential Outcomes](concepts/causal_inference.qmd#pearl-potential-outcomes) for a detailed term mapping and equivalence guide.
+See [Pearl ↔ Potential Outcomes](13-causal-inference.qmd#pearl-potential-outcomes) for a detailed term mapping and equivalence guide.
 
 ## Feature comparison
 

@@ -45,31 +45,37 @@ Additional internal helpers and submodules can be organized freely, but the impo
 
 ## Environment
 
-All commands (tests, scripts, quarto render) **must** run in the `pathmc` conda environment:
+All commands (tests, scripts, docs builds) **must** run in the `pathmc` conda environment:
 
 ```bash
 conda activate pathmc
 ```
 
-The Jupyter kernel used by Quarto notebooks is also named `pathmc` and points to this environment's Python (`miniforge3/envs/pathmc/bin/python`). When running Python snippets to verify behavior, always use this environment — **not** the base conda env. If using a full path:
+The Jupyter kernel used by Quarto notebooks is named `pathmc` and points to this environment's Python (`miniforge3/envs/pathmc/bin/python`). When running Python snippets to verify behavior, always use this environment — **not** the base conda env. If using a full path:
 
 ```bash
 /Users/benjamv/miniforge3/envs/pathmc/bin/python -c "..."
 ```
 
-### Quarto freeze cache
+### Building the docs
 
-The docs site uses `execute: freeze: auto` in `docs/_quarto.yml`, which caches notebook outputs. After changing Python source code that affects notebook outputs, **clear the freeze cache** for affected notebooks before re-rendering:
+The site is built with [Great Docs](https://posit-dev.github.io/great-docs/), driven by `great-docs.yml` at the repo root. Quarto is still the underlying renderer.
 
 ```bash
-# Clear cache for a specific notebook
-rm -rf docs/_freeze/examples/<notebook_name> docs/.quarto/_freeze/examples/<notebook_name>
-
-# Full rebuild from scratch
-make cleandocs && make docs
+conda activate pathmc
+pip install -e ".[docs]"        # one-time: installs great-docs + transitive Jupyter
+great-docs build                # full build to great-docs/_site/
+great-docs build --no-refresh   # faster rebuild — skips API rediscovery
+great-docs preview              # local server on http://localhost:3000
 ```
 
-Without this, Quarto will serve stale cached figures/outputs even though the underlying code has changed.
+The `great-docs/` directory is **ephemeral**: it is wiped at the start of every build and listed in `.gitignore`. Never edit files under `great-docs/` directly — change source files (`docs/user_guide/*.qmd`, `docs/examples/*.qmd`, `great-docs.yml`, `skills/pathmc/SKILL.md`) instead.
+
+#### Render cache caveat — local builds are the only path
+
+Great Docs does not currently expose Quarto's `execute: freeze` setting and wipes `great-docs/` (including any freeze cache) on every build. As a result, every `great-docs build` re-executes every example notebook from scratch (~30–45 minutes for pathmc's 18 MCMC notebooks). The CI doc-build workflow is therefore disabled (`if: false` in `.github/workflows/docs.yml`) until upstream lands a freeze-cache hook — see `docs/dev/great_docs_migration.md` for the upstream issue draft and rationale.
+
+**Practical implications:** docs are built locally only. For day-to-day iteration on prose / API reference, prefer `great-docs build --no-refresh` and temporarily move heavyweight `.qmd` files out of `docs/examples/` while editing. For pre-release verification, run a full build on a non-fanless machine.
 
 ## Running Tests
 
