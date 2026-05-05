@@ -95,6 +95,66 @@ The partial correlation between X and Y — after partialing out M — is close 
 The data is consistent with the DAG.
 
 
+## Identification is conditional on the DAG
+
+Identification helpers answer a structural question: if your declared DAG is right, can the causal effect be identified? They do not know whether the DAG omitted a real common cause.
+
+The docstrings for `adjustment_sets()`, `is_identifiable()`, `collider_warnings()`, and `frontdoor_identifiable()` call this out explicitly. Use `test_implications()` as the next workflow step when observed data is available.
+
+Suppose the analyst declares a simple mediated effect, T → M → Y, but the real data-generating process also has an omitted confounder U that affects both T and Y:
+
+```{dot}
+//| label: fig-omitted-confounder
+//| fig-cap: "The declared DAG omits U, a real common cause of T and Y. The dashed arrows are absent from the model specification."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  U -> T [style=dashed]
+  U -> Y [style=dashed]
+  T -> M
+  M -> Y
+}
+```
+
+```{python}
+rng_omitted = np.random.default_rng(seed=sum(map(ord, "omitted confounder")))
+
+truth_omitted = {
+    "u_to_t": 0.8,
+    "t_to_m": 0.7,
+    "m_to_y": 0.5,
+    "u_to_y": 0.6,
+    "sigma": 0.5,
+}
+
+U = rng_omitted.normal(size=n)
+T = truth_omitted["u_to_t"] * U + rng_omitted.normal(scale=truth_omitted["sigma"], size=n)
+M3 = truth_omitted["t_to_m"] * T + rng_omitted.normal(scale=truth_omitted["sigma"], size=n)
+Y3 = (
+    truth_omitted["m_to_y"] * M3
+    + truth_omitted["u_to_y"] * U
+    + rng_omitted.normal(scale=truth_omitted["sigma"], size=n)
+)
+
+df_omitted = pd.DataFrame({"T": T, "M": M3, "Y": Y3})
+```
+
+The declared DAG has no backdoor path from T to Y, so `is_identifiable()` reports `True`:
+
+```{python}
+omitted_model = pathmc.model("M ~ T\nY ~ M", data=df_omitted)
+omitted_model.is_identifiable("T", "Y")
+```
+
+That result means "identified according to the declared DAG" — not "the declared DAG is true." Testing the DAG against the observed data exposes the problem:
+
+```{python}
+omitted_model.test_implications()
+```
+
+The implied independence T ⊥⊥ Y | M fails because the omitted U still links T and Y after conditioning on M. `test_implications()` cannot name U for you, but it can show that the declared structure is inconsistent with the data.
+
+
 ## Catching a missing edge
 
 Now suppose the true data-generating process includes an edge the DAG doesn't capture.
