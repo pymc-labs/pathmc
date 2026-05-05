@@ -9,7 +9,8 @@ dependencies:
   - numpy<2.4
   - pandas
   - patsy
-  - pymc
+  - pymc>=5.27.0,<6
+  - pytensor>=2.38,<3
   - nutpie
   - pymc-marketing
   - pyyaml
