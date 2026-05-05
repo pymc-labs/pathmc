@@ -10,7 +10,7 @@ readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
-authors = [{ name = "PyMC Labs" }]
+authors = [{ name = "Benjamin Vincent" }]
 maintainers = [{ name = "PyMC Labs" }]
 keywords = [
     "bayesian",
