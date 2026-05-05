@@ -26,3 +26,11 @@ repos:
         args: [--ignore-missing-imports]
         files: ^pathmc/
         additional_dependencies: [numpy>=1.20, pandas-stubs]
+  - repo: https://github.com/lucianopaz/head_of_apache
+    rev: "0.1.1"
+    hooks:
+      - id: head_of_apache
+        args:
+          - --author=The PyMC Labs Developers
+          - --start-year=2025
+          - --exclude=docs/
