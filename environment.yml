@@ -27,7 +27,8 @@ dependencies:
   - prek
   - pymc-extras
   - pymc-marketing
-  - pymc>=5.27.0
+  - pymc<6,>=5.27.0
+  - pytensor<3,>=2.38
   - pytest
   - pyyaml
   - ruff

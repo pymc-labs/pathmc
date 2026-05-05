@@ -14,9 +14,10 @@ dependencies = [
     "numpy<2.4",
     "pandas",
     "patsy",
-    "pymc>=5.27.0",
+    "pymc>=5.27.0,<6",
     "pymc-extras",
     "pymc-marketing",
+    "pytensor>=2.38,<3",
 ]
 
 [project.optional-dependencies]
