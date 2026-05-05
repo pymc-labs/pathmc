@@ -95,6 +95,7 @@ pytest tests/test_compile.py::TestDesignMatrix -x -v
 - **No global mutable state** — no module-level dicts, lists, or registries that get mutated at import time
 - **Error messages** must name the problem AND suggest a fix (e.g., "Duplicate equation for 'Y'. Each variable can appear as LHS in at most one regression.")
 - **No narrating comments** — don't write `# parse the spec` above a call to `parse_spec()`. Comments should explain *why*, not *what*.
+- **No hard-wrapped prose in `.md` or `.qmd` files.** One paragraph = one line. Do not insert newlines mid-paragraph or mid-list-item to wrap to a column width. Let the editor soft-wrap. Block elements (headings, list markers, table rows, fenced code, blockquotes, blank lines between paragraphs) are unaffected — only mid-paragraph line breaks are forbidden. This applies to all hand-written markdown including `AGENTS.md`, files under `docs/`, `docs/dev/`, `README.md`, and any `.qmd` source. Code inside fenced blocks is exempt.
 
 ## Architecture Principles
 
@@ -113,3 +114,4 @@ pytest tests/test_compile.py::TestDesignMatrix -x -v
 - Suppress warnings without documenting the reason.
 - Write "clever" code — prefer clear, boring implementations.
 - Commit temporary/scratch files (e.g., draft issue text, PR summary scaffolds). Files intended to be persistent parts of the repo (docs, config, source) are fine to commit.
+- Hard-wrap paragraphs in markdown or Quarto files (see Style Guide). Keep each paragraph and list item on a single line.
