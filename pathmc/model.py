@@ -599,6 +599,14 @@ class PathModel:
         """Find valid backdoor adjustment sets for the causal effect
         of *treatment* on *outcome*.
 
+        .. note::
+
+            This function reasons about the DAG structure declared in the
+            model specification. It cannot detect omitted variables,
+            missing edges, or other forms of misspecification. Use
+            ``test_implications()`` to check whether the DAG's structural
+            assumptions are consistent with observed data.
+
         Parameters
         ----------
         treatment : str
@@ -616,6 +624,14 @@ class PathModel:
     def is_identifiable(self, treatment: str, outcome: str) -> bool:
         """Check if the causal effect of *treatment* on *outcome* is
         identifiable via the backdoor criterion.
+
+        .. note::
+
+            This function reasons about the DAG structure declared in the
+            model specification. It cannot detect omitted variables,
+            missing edges, or other forms of misspecification. Use
+            ``test_implications()`` to check whether the DAG's structural
+            assumptions are consistent with observed data.
 
         Parameters
         ----------
@@ -642,7 +658,11 @@ class PathModel:
 
         .. note::
 
-            This checks the DAG derived from the model spec. If the spec
+            This function reasons about the DAG structure declared in the
+            model specification. It cannot detect omitted variables,
+            missing edges, or other forms of misspecification. Use
+            ``test_implications()`` to check whether the DAG's structural
+            assumptions are consistent with observed data. If the spec
             includes adjustment variables that add edges absent from the
             true causal DAG, the check may report false negatives. Build a
             separate ``GraphInfo`` from the causal structure for an
@@ -673,6 +693,14 @@ class PathModel:
     ) -> list[str]:
         """Check if any variable in the proposed adjustment set is a
         collider that could introduce bias.
+
+        .. note::
+
+            This function reasons about the DAG structure declared in the
+            model specification. It cannot detect omitted variables,
+            missing edges, or other forms of misspecification. Use
+            ``test_implications()`` to check whether the DAG's structural
+            assumptions are consistent with observed data.
 
         Parameters
         ----------

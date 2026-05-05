@@ -31,6 +31,14 @@ def adjustment_sets(
     2. Z blocks all backdoor paths (non-causal paths) from treatment
        to outcome.
 
+    .. note::
+
+        This function reasons about the DAG structure declared in the
+        model specification. It cannot detect omitted variables, missing
+        edges, or other forms of misspecification. Use
+        ``test_implications()`` to check whether the DAG's structural
+        assumptions are consistent with observed data.
+
     Parameters
     ----------
     graph_info : GraphInfo
@@ -86,6 +94,14 @@ def is_identifiable(
     """Check whether the causal effect of *treatment* on *outcome*
     is identifiable via the backdoor criterion.
 
+    .. note::
+
+        This function reasons about the DAG structure declared in the
+        model specification. It cannot detect omitted variables, missing
+        edges, or other forms of misspecification. Use
+        ``test_implications()`` to check whether the DAG's structural
+        assumptions are consistent with observed data.
+
     Parameters
     ----------
     graph_info : GraphInfo
@@ -125,6 +141,14 @@ def frontdoor_identifiable(
     that create edges absent from the true causal DAG (e.g. including
     treatment in the outcome equation to block a backdoor), build a
     separate ``GraphInfo`` from the causal structure for this check.
+
+    .. note::
+
+        This function reasons about the DAG structure declared in the
+        model specification. It cannot detect omitted variables, missing
+        edges, or other forms of misspecification. Use
+        ``test_implications()`` to check whether the DAG's structural
+        assumptions are consistent with observed data.
 
     Parameters
     ----------
@@ -218,6 +242,14 @@ def collider_warnings(
 
     Conditioning on a collider opens a spurious path and introduces
     bias. This function warns about such variables.
+
+    .. note::
+
+        This function reasons about the DAG structure declared in the
+        model specification. It cannot detect omitted variables, missing
+        edges, or other forms of misspecification. Use
+        ``test_implications()`` to check whether the DAG's structural
+        assumptions are consistent with observed data.
 
     Parameters
     ----------
