@@ -9,8 +9,9 @@ description = "Path Monte Carlo"
 requires-python = ">=3.11"
 dependencies = [
     "arviz<1",
+    "graphviz",
     "networkx",
-    "numpy",
+    "numpy<2.4",
     "pandas",
     "patsy",
     "pymc>=5.27.0,<6",
@@ -20,8 +21,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["mypy", "pytest", "ruff"]
+dev = ["mypy", "prek", "pytest", "ruff"]
+docs = ["ipykernel", "jupyter", "pyyaml"]
 samplers = ["nutpie", "numpyro", "jax"]
+
+[tool.pyproject2conda]
+channels = ["conda-forge"]
 
 [tool.setuptools.packages.find]
 include = ["pathmc*"]

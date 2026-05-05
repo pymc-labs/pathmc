@@ -14,7 +14,7 @@ Specify a system of structural equations, build a model, fit with MCMC, and reas
 Create the conda environment:
 
 ```bash
-conda env create -f environment.yaml
+conda env create -f environment.yml
 ```
 
 Activate it:
@@ -23,11 +23,15 @@ Activate it:
 conda activate pathmc
 ```
 
-Update after changes to `environment.yaml`:
+Update after changes to `environment.yml`:
 
 ```bash
-conda env update -f environment.yaml --prune
+conda env update -f environment.yml --prune
 ```
+
+### Changing dependencies
+
+Edit dependency metadata in `pyproject.toml`, not `environment.yml`. The conda environment file is generated from `pyproject.toml`; run `prek run pyproject2conda-yaml --all-files` after dependency changes, or let the pre-commit hook regenerate it.
 
 ## Tests
 
