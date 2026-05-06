@@ -45,6 +45,59 @@ def full_panel_data():
     return pd.DataFrame(rows)
 
 
+@pytest.fixture()
+def binary_panel_data():
+    """Binary panel data for scan compiler validation tests."""
+    rng = np.random.default_rng(42)
+    rows = []
+    for region in ["A", "B"]:
+        for week in range(1, 8):
+            x = rng.normal()
+            p = 1 / (1 + np.exp(-0.5 * x))
+            m = float(rng.binomial(1, p))
+            y = 0.5 * m + rng.normal(scale=0.1)
+            rows.append({"region": region, "week": week, "X": x, "M": m, "Y": y})
+    return pd.DataFrame(rows)
+
+
+class TestScanNonGaussianValidation:
+    """Scan panel validation for non-Gaussian endogenous predictors."""
+
+    def test_terminal_non_gaussian_scan_outcome_allowed(self, binary_panel_data):
+        model = pathmc.model(
+            "M ~ lag(X)",
+            data=binary_panel_data,
+            panel={"unit": "region", "time": "week"},
+            families={"M": "bernoulli"},
+        )
+
+        assert "_use_observed_carry" in model.pymc_model.named_vars
+
+    def test_non_gaussian_scan_intermediary_rejected(self, binary_panel_data):
+        with pytest.raises(
+            ValueError,
+            match="non-Gaussian endogenous variables as predictors",
+        ):
+            pathmc.model(
+                "M ~ X\nY ~ M + lag(Y)",
+                data=binary_panel_data,
+                panel={"unit": "region", "time": "week"},
+                families={"M": "bernoulli"},
+            )
+
+    def test_non_gaussian_scan_self_lag_rejected(self, binary_panel_data):
+        with pytest.raises(
+            ValueError,
+            match="non-Gaussian endogenous variables as predictors",
+        ):
+            pathmc.model(
+                "M ~ X + lag(M)",
+                data=binary_panel_data,
+                panel={"unit": "region", "time": "week"},
+                families={"M": "bernoulli"},
+            )
+
+
 @pytest.mark.slow
 class TestFullPipeline:
     """End-to-end: fit with lag() -> sample -> summary -> do."""
