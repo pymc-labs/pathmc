@@ -57,6 +57,9 @@ samplers = ["nutpie", "numpyro", "jax"]
 [tool.pyproject2conda]
 channels = ["conda-forge"]
 
+[tool.pyproject2conda.dependencies]
+build = { channel = "pip" }
+
 [tool.setuptools.packages.find]
 include = ["pathmc*"]
 
