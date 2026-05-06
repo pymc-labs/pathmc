@@ -9,3 +9,8 @@ dist/
 
 # Great Docs build directory (regenerated on every `great-docs build`)
 great-docs/
+
+# Legacy Quarto output/cache directories from the pre-Great Docs site
+docs/_site/
+docs/_freeze/
+docs/.quarto/

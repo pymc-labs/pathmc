@@ -25,7 +25,7 @@ Usage questions can also start as issues while the project is young; if GitHub D
 
 ## Use of agents
 
-Pull requests with agent-generated code are welcome, but contributors are responsible for understanding, testing, and maintaining the code they submit. See [AGENTS.md](./AGENTS.md) for repository-specific guidance used by maintainers and coding agents.
+Pull requests with agent-generated code are welcome, but contributors are responsible for understanding, testing, and maintaining the code they submit. See [AGENTS.md](https://github.com/pymc-labs/pathmc/blob/main/AGENTS.md) for repository-specific guidance used by maintainers and coding agents.
 
 ## Contributing code via pull requests
 

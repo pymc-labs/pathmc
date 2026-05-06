@@ -60,7 +60,7 @@ r1 = model.do(set={"tv": 50}, simulate_over="time", kind="mean")
 contrast = r1 - r0  # effect of increasing TV spend, accounting for adstock + saturation
 ```
 
-See [Time-Forward Panel Simulation](panel_interventions.qmd) for why `simulate_over="time"` is necessary when models have adstock or lagged variables.
+See [Time-Forward Panel Simulation](panel-interventions.qmd) for why `simulate_over="time"` is necessary when models have adstock or lagged variables.
 
 ## Distribution families
 
@@ -92,4 +92,4 @@ idata = model.predict()
 # idata.posterior_predictive now contains simulated outcomes
 ```
 
-See the [Media Mix Models](../examples/mmm.qmd) example for transforms, families, and PPC in action.
+See the [Media Mix Models](../docs/examples/mmm.qmd) example for transforms, families, and PPC in action.

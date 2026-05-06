@@ -307,7 +307,7 @@ The first four steps form a fast inner loop that you can repeat many times befor
 
 ## Further reading
 
-- [Custom Priors](../examples/custom_priors.qmd) — deeper dive into prior specification with hierarchical priors and different distribution families
-- [Model Specification](model_specification.qmd) — DSL syntax reference
-- [Causal Inference](causal_inference.qmd) — the do-operator and g-computation
-- [Standardized Effects](standardized_effects.qmd) — comparing effect sizes across scales
+- [Custom Priors](../docs/examples/custom_priors.qmd) — deeper dive into prior specification with hierarchical priors and different distribution families
+- [Model Specification](model-specification.qmd) — DSL syntax reference
+- [Causal Inference](causal-inference.qmd) — the do-operator and g-computation
+- [Standardized Effects](standardized-effects.qmd) — comparing effect sizes across scales

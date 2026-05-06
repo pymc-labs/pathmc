@@ -106,7 +106,7 @@ The full structural model asks more of the analyst (specify all equations correc
 
 **Use both together when:**
 
-- You want pathmc's identification helpers ([`adjustment_sets()`](01-how-it-works.qmd), [`collider_warnings()`](13-causal-inference.qmd)) to determine *what to adjust for*, then hand off to Bambi for estimation and g-computation
+- You want pathmc's identification helpers ([`adjustment_sets()`](how-it-works.qmd), [`collider_warnings()`](causal-inference.qmd)) to determine *what to adjust for*, then hand off to Bambi for estimation and g-computation
 
 ## Where pathmc draws the line
 
@@ -117,5 +117,5 @@ pathmc does *not* include a built-in regression adjustment estimator, and this i
 Regression adjustment + g-computation is well served by existing tools — [Bambi](https://bambinos.github.io/bambi/) in particular provides Bayesian regression with a formula interface and g-computation via its `interpret` module.
 Rather than duplicate that functionality, pathmc focuses on what it uniquely provides: DAG-aware structural modeling, graph surgery via `do()`, and causal identification helpers.
 
-What pathmc *does* provide to support the regression adjustment workflow is the **identification layer**: given a DAG, [`adjustment_sets()`](causal_inference.qmd) computes the minimal backdoor adjustment sets, [`is_identifiable()`](causal_inference.qmd) checks whether the effect is identified, and [`collider_warnings()`](causal_inference.qmd) flags problematic conditioning variables.
+What pathmc *does* provide to support the regression adjustment workflow is the **identification layer**: given a DAG, [`adjustment_sets()`](causal-inference.qmd) computes the minimal backdoor adjustment sets, [`is_identifiable()`](causal-inference.qmd) checks whether the effect is identified, and [`collider_warnings()`](causal-inference.qmd) flags problematic conditioning variables.
 These tools are useful regardless of which estimation approach you choose downstream.
