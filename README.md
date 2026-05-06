@@ -42,6 +42,10 @@ The same model object can also render the DAG, summarize labeled coefficients an
 
 Documentation, concepts, and worked examples are available at [pymc-labs.github.io/pathmc](https://pymc-labs.github.io/pathmc/).
 
+## Contributing
+
+Development setup, testing, and pull request guidance live in [CONTRIBUTING.md](https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md).
+
 ## Citation
 
 If you use pathmc in academic work, please cite the project using the metadata in the repository's [CITATION.cff](https://github.com/pymc-labs/pathmc/blob/main/CITATION.cff). The citation metadata will be updated before the final 0.1.0 release.
