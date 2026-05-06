@@ -494,7 +494,10 @@ def compile_to_pymc(
             mu_det = pm.Deterministic(f"mu_{var}", mu)
 
             rv = _emit_free_rv(var, mu_det, family, latent, sparse_data, priors)
-            endogenous_rvs[var] = rv
+            if family in ("bernoulli", "poisson", "negbinomial"):
+                endogenous_rvs[var] = pt.cast(rv, "float64")
+            else:
+                endogenous_rvs[var] = rv
 
     return pymc_model
 
