@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from importlib.metadata import version as _pkg_version
 
+__version__ = _pkg_version("pathmc")
+
 _pymc_ver_str = _pkg_version("pymc")
 _pymc_ver_tuple = tuple(int(x) for x in _pymc_ver_str.split(".")[:3])
 if _pymc_ver_tuple < (5, 22, 0):
@@ -30,4 +32,4 @@ from pathmc.model import model, simulate  # noqa: E402
 from pathmc.panel import add_lags  # noqa: E402
 from pymc_extras.prior import Prior  # noqa: E402
 
-__all__ = ["Prior", "add_lags", "model", "simulate"]
+__all__ = ["Prior", "__version__", "add_lags", "model", "simulate"]

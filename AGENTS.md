@@ -18,7 +18,7 @@ All v1 milestones (M1–M31) are complete. See `docs/dev/roadmap_post_v1.md` for
 2. Run the milestone's gate tests: `pytest tests/test_<module>.py -x -v`
 3. Implement until all gate tests pass.
 4. **Do not modify test files.**
-5. Run `make lint` before considering a milestone done.
+5. Run `make lint` before considering a milestone done or creating a commit. This runs `prek run --all-files`, including the configured `ruff`, `ruff-format`, `mypy`, YAML/TOML, environment sync, and license checks.
 6. Move to the next milestone.
 
 ## Required Module Structure
