@@ -164,9 +164,9 @@ The adstock at each time step was computed from the *observed* spending history 
 The saturation function sees adstock ≈ 50 (from observed history) instead of adstock ≈ 67 (from the counterfactual steady state of 20 / 0.3).
 
 ```{python}
-#| label: fig-naive-vs-correct
-#| fig-cap: "Adstock trajectories under a counterfactual spend of 20/week. Naive replacement (orange) uses the observed adstock values — which reflect historic spend of ~15 — producing the wrong effective input. Correct time-forward simulation (blue) re-computes the adstock recursion from scratch, reaching the true steady state."
-#| code-fold: true
+# | label: fig-naive-vs-correct
+# | fig-cap: "Adstock trajectories under a counterfactual spend of 20/week. Naive replacement (orange) uses the observed adstock values — which reflect historic spend of ~15 — producing the wrong effective input. Correct time-forward simulation (blue) re-computes the adstock recursion from scratch, reaching the true steady state."
+# | code-fold: true
 
 theta = 0.7
 observed_spend = np.full(25, 15.0)
@@ -194,11 +194,38 @@ for t in range(25):
 
 weeks = np.arange(1, 26)
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-ax.plot(weeks, adstock_obs, color=COLOR_OBSERVED, ls="--", lw=1.5, label="Observed adstock (spend=15)")
-ax.plot(weeks, adstock_naive, color=COLOR_NAIVE, lw=2, label="Naive replacement (wrong)")
-ax.plot(weeks, adstock_correct, color=COLOR_CORRECT, lw=2, label="Time-forward simulation (correct)")
-ax.axhline(20 / (1 - theta), color=COLOR_CORRECT, ls=":", alpha=0.5, label=f"True steady state ({20/(1-theta):.0f})")
-ax.axhline(15 / (1 - theta), color=COLOR_OBSERVED, ls=":", alpha=0.5, label=f"Observed steady state ({15/(1-theta):.0f})")
+ax.plot(
+    weeks,
+    adstock_obs,
+    color=COLOR_OBSERVED,
+    ls="--",
+    lw=1.5,
+    label="Observed adstock (spend=15)",
+)
+ax.plot(
+    weeks, adstock_naive, color=COLOR_NAIVE, lw=2, label="Naive replacement (wrong)"
+)
+ax.plot(
+    weeks,
+    adstock_correct,
+    color=COLOR_CORRECT,
+    lw=2,
+    label="Time-forward simulation (correct)",
+)
+ax.axhline(
+    20 / (1 - theta),
+    color=COLOR_CORRECT,
+    ls=":",
+    alpha=0.5,
+    label=f"True steady state ({20 / (1 - theta):.0f})",
+)
+ax.axhline(
+    15 / (1 - theta),
+    color=COLOR_OBSERVED,
+    ls=":",
+    alpha=0.5,
+    label=f"Observed steady state ({15 / (1 - theta):.0f})",
+)
 ax.set_xlabel("Week")
 ax.set_ylabel("Effective adstock input")
 ax.legend(fontsize=9)
@@ -273,26 +300,35 @@ baseline_x = np.full(n_weeks, mean_x)
 scenario_x = baseline_x.copy()
 scenario_x[7:18] = mean_x * 1.25  # 25% boost, weeks 8-18
 
-result_base = model.do(
-    set={"x": baseline_x}, simulate_over="time"
-)
-result_scen = model.do(
-    set={"x": scenario_x}, simulate_over="time"
-)
+result_base = model.do(set={"x": baseline_x}, simulate_over="time")
+result_scen = model.do(set={"x": scenario_x}, simulate_over="time")
 contrast = result_scen - result_base
 ```
 
 ```{python}
-#| label: fig-ramp-up-down
-#| fig-cap: "Incremental effect of a temporary 25% spend increase (weeks 8–18, shaded). The adstock creates a visible ramp-up as the stock accumulates during the boost, and a gradual ramp-down afterward as the stock decays. This temporal shape is only visible with time-forward simulation."
-#| code-fold: true
+# | label: fig-ramp-up-down
+# | fig-cap: "Incremental effect of a temporary 25% spend increase (weeks 8–18, shaded). The adstock creates a visible ramp-up as the stock accumulates during the boost, and a gradual ramp-down afterward as the stock decays. This temporal shape is only visible with time-forward simulation."
+# | code-fold: true
 
 weeks = np.arange(1, n_weeks + 1)
 sales_by_time = contrast.by_time("y")
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_hdi(weeks, sales_by_time.T, ax=ax, smooth=False, color=COLOR_CORRECT, fill_kwargs={"alpha": 0.15})
-ax.plot(weeks, sales_by_time.mean(axis=1), color=COLOR_CORRECT, lw=2, label="Incremental sales")
+az.plot_hdi(
+    weeks,
+    sales_by_time.T,
+    ax=ax,
+    smooth=False,
+    color=COLOR_CORRECT,
+    fill_kwargs={"alpha": 0.15},
+)
+ax.plot(
+    weeks,
+    sales_by_time.mean(axis=1),
+    color=COLOR_CORRECT,
+    lw=2,
+    label="Incremental sales",
+)
 ax.axvspan(8, 18, alpha=0.08, color=COLOR_BOOST)
 ax.axhline(0, color="black", ls=":", alpha=0.4)
 ax.set_xlabel("Week")

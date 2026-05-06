@@ -141,25 +141,35 @@ The conversion rate among activated users is much higher than among non-activate
 ## Visualise the funnel
 
 ```{python}
-#| label: fig-funnel-rates
-#| fig-cap: "Conversion rates by activation status and engagement quartile. Higher engagement is associated with both higher activation and higher conversion, but the gap between activated and non-activated users persists across engagement levels."
-#| code-fold: true
+# | label: fig-funnel-rates
+# | fig-cap: "Conversion rates by activation status and engagement quartile. Higher engagement is associated with both higher activation and higher conversion, but the gap between activated and non-activated users persists across engagement levels."
+# | code-fold: true
 
 eng_quartiles = pd.qcut(df["engagement"], 4, labels=["Q1", "Q2", "Q3", "Q4"])
-summary = df.assign(eng_q=eng_quartiles).groupby("eng_q").agg(
-    activation_rate=("activated", "mean"),
-    conversion_rate=("converted", "mean"),
-    n=("converted", "size"),
-).reset_index()
+summary = (
+    df
+    .assign(eng_q=eng_quartiles)
+    .groupby("eng_q")
+    .agg(
+        activation_rate=("activated", "mean"),
+        conversion_rate=("converted", "mean"),
+        n=("converted", "size"),
+    )
+    .reset_index()
+)
 
 fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-axes[0].bar(summary["eng_q"], summary["activation_rate"], color=COLOR_ACTIVATION, alpha=0.7)
+axes[0].bar(
+    summary["eng_q"], summary["activation_rate"], color=COLOR_ACTIVATION, alpha=0.7
+)
 axes[0].set_xlabel("Engagement quartile")
 axes[0].set_ylabel("Activation rate")
 axes[0].set_ylim(0, 1)
 
-axes[1].bar(summary["eng_q"], summary["conversion_rate"], color=COLOR_CONVERSION, alpha=0.7)
+axes[1].bar(
+    summary["eng_q"], summary["conversion_rate"], color=COLOR_CONVERSION, alpha=0.7
+)
 axes[1].set_xlabel("Engagement quartile")
 axes[1].set_ylabel("Conversion rate")
 axes[1].set_ylim(0, 1)
@@ -169,17 +179,29 @@ plt.show()
 ```
 
 ```{python}
-#| label: fig-engagement-by-onboarding
-#| fig-cap: "Engagement as a function of onboarding score, colored by activation status. Higher onboarding scores shift the engagement distribution upward, and activated users cluster at higher engagement levels."
-#| code-fold: true
+# | label: fig-engagement-by-onboarding
+# | fig-cap: "Engagement as a function of onboarding score, colored by activation status. Higher onboarding scores shift the engagement distribution upward, and activated users cluster at higher engagement levels."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 mask_act = df["activated"] == 1
 mask_not = df["activated"] == 0
-ax.scatter(df.loc[mask_not, "onboarding_score"], df.loc[mask_not, "engagement"],
-           alpha=0.3, s=10, color=COLOR_ENGAGEMENT, label="Not activated")
-ax.scatter(df.loc[mask_act, "onboarding_score"], df.loc[mask_act, "engagement"],
-           alpha=0.3, s=10, color=COLOR_ACTIVATION, label="Activated")
+ax.scatter(
+    df.loc[mask_not, "onboarding_score"],
+    df.loc[mask_not, "engagement"],
+    alpha=0.3,
+    s=10,
+    color=COLOR_ENGAGEMENT,
+    label="Not activated",
+)
+ax.scatter(
+    df.loc[mask_act, "onboarding_score"],
+    df.loc[mask_act, "engagement"],
+    alpha=0.3,
+    s=10,
+    color=COLOR_ACTIVATION,
+    label="Activated",
+)
 ax.set_xlabel("Onboarding score")
 ax.set_ylabel("Engagement (first week)")
 ax.legend()
@@ -230,8 +252,8 @@ model.equations()
 ### PyMC model graph
 
 ```{python}
-#| label: fig-pymc-graph
-#| fig-cap: "PyMC plate diagram for the mixed-family funnel model. Note the Gaussian likelihood for engagement (with sigma) and Bernoulli likelihoods for activation and conversion (no sigma)."
+# | label: fig-pymc-graph
+# | fig-cap: "PyMC plate diagram for the mixed-family funnel model. Note the Gaussian likelihood for engagement (with sigma) and Bernoulli likelihoods for activation and conversion (no sigma)."
 pm.model_to_graphviz(model.pymc_model)
 ```
 
@@ -268,7 +290,9 @@ To get effects on the **probability scale**, use `do()` — it applies the inver
 ### Identification check
 
 ```{python}
-print(f"Is onboarding → converted identifiable? {model.is_identifiable('onboarding_score', 'converted')}")
+print(
+    f"Is onboarding → converted identifiable? {model.is_identifiable('onboarding_score', 'converted')}"
+)
 print(f"Adjustment sets: {model.adjustment_sets('onboarding_score', 'converted')}")
 ```
 
@@ -300,28 +324,42 @@ r_low = model.do(set={"onboarding_score": 3.0}, kind="mean")
 r_high = model.do(set={"onboarding_score": 8.0}, kind="mean")
 
 print("do(onboarding=3) vs do(onboarding=8):")
-print(f"  Engagement:    {r_low.mean('engagement'):.2f} → {r_high.mean('engagement'):.2f}")
-print(f"  P(activated):  {r_low.mean('activated'):.3f} → {r_high.mean('activated'):.3f}")
-print(f"  P(converted):  {r_low.mean('converted'):.3f} → {r_high.mean('converted'):.3f}")
+print(
+    f"  Engagement:    {r_low.mean('engagement'):.2f} → {r_high.mean('engagement'):.2f}"
+)
+print(
+    f"  P(activated):  {r_low.mean('activated'):.3f} → {r_high.mean('activated'):.3f}"
+)
+print(
+    f"  P(converted):  {r_low.mean('converted'):.3f} → {r_high.mean('converted'):.3f}"
+)
 ```
 
 ```{python}
-#| label: fig-funnel-propagation
-#| fig-cap: "Effect of improving onboarding score from 3 to 8 on each funnel stage. The do() operator propagates the intervention through the full causal chain, showing how an upstream change cascades through engagement (identity scale), activation (probability scale), and conversion (probability scale)."
-#| code-fold: true
+# | label: fig-funnel-propagation
+# | fig-cap: "Effect of improving onboarding score from 3 to 8 on each funnel stage. The do() operator propagates the intervention through the full causal chain, showing how an upstream change cascades through engagement (identity scale), activation (probability scale), and conversion (probability scale)."
+# | code-fold: true
 
 contrast = r_high - r_low
 
 stages = ["engagement", "activated", "converted"]
-stage_labels = ["Engagement\n(Δ units)", "P(Activated)\n(Δ probability)", "P(Converted)\n(Δ probability)"]
+stage_labels = [
+    "Engagement\n(Δ units)",
+    "P(Activated)\n(Δ probability)",
+    "P(Converted)\n(Δ probability)",
+]
 colors = [COLOR_ENGAGEMENT, COLOR_ACTIVATION, COLOR_CONVERSION]
 
 fig, axes = plt.subplots(1, 3, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 for ax, var, label, color in zip(axes, stages, stage_labels, colors):
     draws = contrast.draws(var)
-    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
-                fill_kwargs={"alpha": 0.3, "color": color})
+    az.plot_kde(
+        draws,
+        ax=ax,
+        plot_kwargs={"color": color, "lw": 2},
+        fill_kwargs={"alpha": 0.3, "color": color},
+    )
     ax.axvline(draws.mean(), color=color, ls="--", lw=1.5, alpha=0.7)
     ax.axvline(0, color="black", ls=":", alpha=0.3)
     ax.set_xlabel(label)
@@ -341,22 +379,30 @@ We can compare these by simulating comparable interventions on each lever.
 ```{python}
 r_base = model.do(set={"channel_quality": 0.0, "onboarding_score": 5.0}, kind="mean")
 
-r_better_channel = model.do(set={"channel_quality": 1.0, "onboarding_score": 5.0}, kind="mean")
-r_better_onboarding = model.do(set={"channel_quality": 0.0, "onboarding_score": 7.0}, kind="mean")
+r_better_channel = model.do(
+    set={"channel_quality": 1.0, "onboarding_score": 5.0}, kind="mean"
+)
+r_better_onboarding = model.do(
+    set={"channel_quality": 0.0, "onboarding_score": 7.0}, kind="mean"
+)
 
 lift_channel = r_better_channel - r_base
 lift_onboarding = r_better_onboarding - r_base
 
 print("Conversion lift from 1-SD improvement in channel quality:")
-print(f"  ΔP(converted): {lift_channel.mean('converted'):.4f}  (HDI: {lift_channel.hdi('converted', prob=0.94)})")
+print(
+    f"  ΔP(converted): {lift_channel.mean('converted'):.4f}  (HDI: {lift_channel.hdi('converted', prob=0.94)})"
+)
 print(f"\nConversion lift from +2 onboarding score:")
-print(f"  ΔP(converted): {lift_onboarding.mean('converted'):.4f}  (HDI: {lift_onboarding.hdi('converted', prob=0.94)})")
+print(
+    f"  ΔP(converted): {lift_onboarding.mean('converted'):.4f}  (HDI: {lift_onboarding.hdi('converted', prob=0.94)})"
+)
 ```
 
 ```{python}
-#| label: fig-lever-comparison
-#| fig-cap: "Posterior distributions of conversion probability lift from two interventions: +1 SD channel quality (orange) vs +2 onboarding score (blue). Both are computed via do() and propagated through the full funnel."
-#| code-fold: true
+# | label: fig-lever-comparison
+# | fig-cap: "Posterior distributions of conversion probability lift from two interventions: +1 SD channel quality (orange) vs +2 onboarding score (blue). Both are computed via do() and propagated through the full funnel."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
@@ -365,8 +411,13 @@ for lift_obj, color, label in [
     (lift_onboarding, COLOR_ONBOARDING, "+2 onboarding score"),
 ]:
     draws = lift_obj.draws("converted")
-    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
-                fill_kwargs={"alpha": 0.25, "color": color}, label=label)
+    az.plot_kde(
+        draws,
+        ax=ax,
+        plot_kwargs={"color": color, "lw": 2},
+        fill_kwargs={"alpha": 0.25, "color": color},
+        label=label,
+    )
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -384,19 +435,33 @@ A common product debate: is activation a *gate* (you must activate to convert) o
 The path model can address this directly. The coefficient `c_act` captures the effect of activation on conversion *holding engagement constant*. If activation is purely a signal, this coefficient would be near zero.
 
 ```{python}
-#| label: fig-activation-effect
-#| fig-cap: "Posterior distribution of the activation → conversion coefficient (log-odds scale). A value clearly above zero indicates that activation has a causal effect on conversion beyond what engagement alone predicts."
-#| code-fold: true
+# | label: fig-activation-effect
+# | fig-cap: "Posterior distribution of the activation → conversion coefficient (log-odds scale). A value clearly above zero indicates that activation has a causal effect on conversion beyond what engagement alone predicts."
+# | code-fold: true
 
-c_act_draws = idata.posterior["beta_converted"].sel(
-    converted_predictors="activated"
-).values.flatten()
+c_act_draws = (
+    idata
+    .posterior["beta_converted"]
+    .sel(converted_predictors="activated")
+    .values.flatten()
+)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.8))
-az.plot_kde(c_act_draws, ax=ax, plot_kwargs={"color": COLOR_ACTIVATION, "lw": 2},
-            fill_kwargs={"alpha": 0.3, "color": COLOR_ACTIVATION})
+az.plot_kde(
+    c_act_draws,
+    ax=ax,
+    plot_kwargs={"color": COLOR_ACTIVATION, "lw": 2},
+    fill_kwargs={"alpha": 0.3, "color": COLOR_ACTIVATION},
+)
 ax.axvline(c_act_draws.mean(), color=COLOR_ACTIVATION, ls="--", lw=1.5, alpha=0.7)
-ax.axvline(true_conv_activated, color="black", ls="--", lw=1.5, alpha=0.5, label=f"True value ({true_conv_activated})")
+ax.axvline(
+    true_conv_activated,
+    color="black",
+    ls="--",
+    lw=1.5,
+    alpha=0.5,
+    label=f"True value ({true_conv_activated})",
+)
 ax.axvline(0, color="black", ls=":", alpha=0.3)
 ax.set_xlabel("Activation → Conversion (log-odds)")
 ax.set_ylabel("Density")
@@ -421,10 +486,14 @@ r_mean = model.do(set={"onboarding_score": 8.0}, kind="mean")
 r_pred = model.do(set={"onboarding_score": 8.0}, kind="predictive")
 
 print("do(onboarding=8):")
-print(f"  Mean propagation  — P(converted): {r_mean.mean('converted'):.3f}  "
-      f"HDI: {r_mean.hdi('converted', prob=0.94)}")
-print(f"  Predictive draws  — P(converted): {r_pred.mean('converted'):.3f}  "
-      f"HDI: {r_pred.hdi('converted', prob=0.94)}")
+print(
+    f"  Mean propagation  — P(converted): {r_mean.mean('converted'):.3f}  "
+    f"HDI: {r_mean.hdi('converted', prob=0.94)}"
+)
+print(
+    f"  Predictive draws  — P(converted): {r_pred.mean('converted'):.3f}  "
+    f"HDI: {r_pred.hdi('converted', prob=0.94)}"
+)
 ```
 
 ::: {.callout-tip}

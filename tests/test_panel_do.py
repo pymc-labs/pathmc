@@ -32,14 +32,12 @@ def panel_lag_data():
         for week in range(1, n_weeks + 1):
             spend = rng.uniform(5, 15)
             sales = 5.0 + 0.5 * spend_prev + rng.normal(scale=0.5)
-            rows.append(
-                {
-                    "region": region,
-                    "week": week,
-                    "sales": sales,
-                    "spend": spend,
-                }
-            )
+            rows.append({
+                "region": region,
+                "week": week,
+                "sales": sales,
+                "spend": spend,
+            })
             spend_prev = spend
     return pd.DataFrame(rows)
 

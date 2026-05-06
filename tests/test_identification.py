@@ -130,36 +130,30 @@ class TestPathModelIntegration:
     """Test identification methods on PathModel."""
 
     def test_adjustment_sets_method(self):
-        df = pd.DataFrame(
-            {
-                "X": np.random.normal(size=50),
-                "Z": np.random.normal(size=50),
-                "Y": np.random.normal(size=50),
-            }
-        )
+        df = pd.DataFrame({
+            "X": np.random.normal(size=50),
+            "Z": np.random.normal(size=50),
+            "Y": np.random.normal(size=50),
+        })
         model = pathmc.model("X ~ Z\nY ~ X + Z", data=df)
         sets = model.adjustment_sets("X", "Y")
         assert {"Z"} in sets
 
     def test_is_identifiable_method(self):
-        df = pd.DataFrame(
-            {
-                "X": np.random.normal(size=50),
-                "Z": np.random.normal(size=50),
-                "Y": np.random.normal(size=50),
-            }
-        )
+        df = pd.DataFrame({
+            "X": np.random.normal(size=50),
+            "Z": np.random.normal(size=50),
+            "Y": np.random.normal(size=50),
+        })
         model = pathmc.model("X ~ Z\nY ~ X + Z", data=df)
         assert model.is_identifiable("X", "Y")
 
     def test_collider_warnings_method(self):
-        df = pd.DataFrame(
-            {
-                "X": np.random.normal(size=50),
-                "Y": np.random.normal(size=50),
-                "C": np.random.normal(size=50),
-            }
-        )
+        df = pd.DataFrame({
+            "X": np.random.normal(size=50),
+            "Y": np.random.normal(size=50),
+            "C": np.random.normal(size=50),
+        })
         model = pathmc.model("C ~ X + Y", data=df)
         warnings = model.collider_warnings({"C"}, "X", "Y")
         assert len(warnings) > 0

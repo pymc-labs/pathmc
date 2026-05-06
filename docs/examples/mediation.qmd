@@ -195,8 +195,7 @@ T = rng2.normal(size=n2)
 
 eps = rng2.multivariate_normal(
     [0, 0],
-    [[0.16, 0.08],
-     [0.08, 0.16]],
+    [[0.16, 0.08], [0.08, 0.16]],
     size=n2,
 )
 
@@ -331,9 +330,9 @@ print(f"Employees assessed: {(~np.isnan(M_obs)).sum()}/{n3}")
 True values: $a = 0.6$, $b = 0.7$, $c = 0.2$, indirect $= 0.42$, total $= 0.62$.
 
 ```{python}
-#| label: fig-data-overview
-#| fig-cap: "Left: training hours versus productivity for all 500 employees. Right: true latent skill versus training, highlighting the 30% with observed assessments (orange) versus unassessed employees (grey)."
-#| code-fold: true
+# | label: fig-data-overview
+# | fig-cap: "Left: training hours versus productivity for all 500 employees. Right: true latent skill versus training, highlighting the 30% with observed assessments (orange) versus unassessed employees (grey)."
+# | code-fold: true
 
 COLOR_ASSESSED = "#e07a2f"
 COLOR_UNASSESSED = "#bbbbbb"
@@ -347,8 +346,23 @@ axes[0].set_ylabel("Productivity (Y)")
 axes[0].set_title("Observable data")
 
 mask = ~np.isnan(M_obs)
-axes[1].scatter(X3[~mask], M_true[~mask], s=8, alpha=0.25, color=COLOR_UNASSESSED, label="No assessment")
-axes[1].scatter(X3[mask], M_true[mask], s=14, alpha=0.7, color=COLOR_ASSESSED, label="Assessed", zorder=3)
+axes[1].scatter(
+    X3[~mask],
+    M_true[~mask],
+    s=8,
+    alpha=0.25,
+    color=COLOR_UNASSESSED,
+    label="No assessment",
+)
+axes[1].scatter(
+    X3[mask],
+    M_true[mask],
+    s=14,
+    alpha=0.7,
+    color=COLOR_ASSESSED,
+    label="Assessed",
+    zorder=3,
+)
 axes[1].set_xlabel("Training (X)")
 axes[1].set_ylabel("True skill (M)")
 axes[1].set_title("Latent skill — sparse assessment coverage")
@@ -410,9 +424,9 @@ Because the latent $M$ is a deterministic linear function of $X$ ($M \equiv \tex
 The model can estimate $b \cdot a + c$ precisely, but cannot separate `b` from `c`.
 
 ```{python}
-#| label: fig-posterior-anatomy
-#| fig-cap: "Left: the training → skill coefficient a is well-identified by sparse measurements (true value: dashed line). Centre: b and c are individually diffuse due to collinearity between the latent and its parent. Right: the total effect a·b + c is precisely estimated despite the individual non-identifiability."
-#| code-fold: true
+# | label: fig-posterior-anatomy
+# | fig-cap: "Left: the training → skill coefficient a is well-identified by sparse measurements (true value: dashed line). Centre: b and c are individually diffuse due to collinearity between the latent and its parent. Right: the total effect a·b + c is precisely estimated despite the individual non-identifiability."
+# | code-fold: true
 
 COLOR_A = "#4878cf"
 COLOR_BC = "#e07a2f"
@@ -421,8 +435,12 @@ COLOR_TOTAL = "#2ca02c"
 fig, axes = plt.subplots(1, 3, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 a_draws = idata3.posterior["beta_M"].sel(M_predictors="X").values.flatten()
-az.plot_kde(a_draws, ax=axes[0], plot_kwargs={"color": COLOR_A, "lw": 2},
-            fill_kwargs={"alpha": 0.7, "color": COLOR_A})
+az.plot_kde(
+    a_draws,
+    ax=axes[0],
+    plot_kwargs={"color": COLOR_A, "lw": 2},
+    fill_kwargs={"alpha": 0.7, "color": COLOR_A},
+)
 axes[0].axvline(0.6, color="black", ls="--", lw=1.2, label="True a = 0.6")
 axes[0].set_xlabel("a (training → skill)")
 axes[0].set_ylabel("Density")
@@ -431,19 +449,31 @@ axes[0].legend(fontsize=7, frameon=False)
 
 b_draws = idata3.posterior["beta_Y"].sel(Y_predictors="M").values.flatten()
 c_draws = idata3.posterior["beta_Y"].sel(Y_predictors="X").values.flatten()
-az.plot_kde(b_draws, ax=axes[1], plot_kwargs={"color": COLOR_BC, "lw": 2},
-            fill_kwargs={"alpha": 0.4, "color": COLOR_BC},
-            label="b (skill → prod.)")
-az.plot_kde(c_draws, ax=axes[1], plot_kwargs={"color": COLOR_BC, "lw": 2, "ls": "--"},
-            fill_kwargs={"alpha": 0.15, "color": COLOR_BC},
-            label="c (direct)")
+az.plot_kde(
+    b_draws,
+    ax=axes[1],
+    plot_kwargs={"color": COLOR_BC, "lw": 2},
+    fill_kwargs={"alpha": 0.4, "color": COLOR_BC},
+    label="b (skill → prod.)",
+)
+az.plot_kde(
+    c_draws,
+    ax=axes[1],
+    plot_kwargs={"color": COLOR_BC, "lw": 2, "ls": "--"},
+    fill_kwargs={"alpha": 0.15, "color": COLOR_BC},
+    label="c (direct)",
+)
 axes[1].set_xlabel("Coefficient value")
 axes[1].set_title("Not separately identified")
 axes[1].legend(fontsize=7, frameon=False)
 
 total_draws = a_draws * b_draws + c_draws
-az.plot_kde(total_draws, ax=axes[2], plot_kwargs={"color": COLOR_TOTAL, "lw": 2},
-            fill_kwargs={"alpha": 0.7, "color": COLOR_TOTAL})
+az.plot_kde(
+    total_draws,
+    ax=axes[2],
+    plot_kwargs={"color": COLOR_TOTAL, "lw": 2},
+    fill_kwargs={"alpha": 0.7, "color": COLOR_TOTAL},
+)
 axes[2].axvline(0.62, color="black", ls="--", lw=1.2, label="True total = 0.62")
 axes[2].set_xlabel("Total effect (a·b + c)")
 axes[2].set_title("Well-identified")

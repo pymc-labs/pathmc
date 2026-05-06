@@ -105,7 +105,12 @@ TRUE_B_TRAFFIC_CS = 0.8
 
 foot_traffic = rng.normal(0, 1, size=n_cs)
 promo = 2 + TRUE_CONFOUND * foot_traffic + rng.normal(0, 0.5, size=n_cs)
-revenue = 5 + TRUE_B_PROMO * promo + TRUE_B_TRAFFIC_CS * foot_traffic + rng.normal(0, 1, size=n_cs)
+revenue = (
+    5
+    + TRUE_B_PROMO * promo
+    + TRUE_B_TRAFFIC_CS * foot_traffic
+    + rng.normal(0, 1, size=n_cs)
+)
 
 df_cs = pd.DataFrame({
     "foot_traffic": foot_traffic,
@@ -219,7 +224,7 @@ These edges expand the set of causal paths and change the total effect of an int
 ```{python}
 n_stores = 8
 n_weeks = 30
-store_names = [f"S{i+1}" for i in range(n_stores)]
+store_names = [f"S{i + 1}" for i in range(n_stores)]
 
 TRUE_CONTEMP = 0.30
 TRUE_LAG = 0.25
@@ -242,8 +247,11 @@ for store in store_names:
             + rng.normal(0, 1)
         )
         rows.append({
-            "store": store, "week": week,
-            "foot_traffic": ft, "promo": p, "revenue": r,
+            "store": store,
+            "week": week,
+            "foot_traffic": ft,
+            "promo": p,
+            "revenue": r,
         })
         prev_promo = p
 
@@ -293,30 +301,49 @@ A cross-sectional analysis would estimate a single blended number — unable to 
 :::
 
 ```{python}
-#| label: fig-panel-posteriors
-#| fig-cap: "Posterior distributions of the contemporaneous and lagged promo effects from the panel model. Black dashed lines mark the true DGP values."
-#| code-fold: true
+# | label: fig-panel-posteriors
+# | fig-cap: "Posterior distributions of the contemporaneous and lagged promo effects from the panel model. Black dashed lines mark the true DGP values."
+# | code-fold: true
 
-contemp_draws = idata_panel.posterior["beta_revenue"].sel(
-    revenue_predictors="promo"
-).values.flatten()
-lag_draws = idata_panel.posterior["beta_revenue"].sel(
-    revenue_predictors="lag(promo)"
-).values.flatten()
+contemp_draws = (
+    idata_panel
+    .posterior["beta_revenue"]
+    .sel(revenue_predictors="promo")
+    .values.flatten()
+)
+lag_draws = (
+    idata_panel
+    .posterior["beta_revenue"]
+    .sel(revenue_predictors="lag(promo)")
+    .values.flatten()
+)
 total_draws = contemp_draws + lag_draws
 
 fig, axes = plt.subplots(1, 3, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 for ax, draws, color, label, true_val in [
-    (axes[0], contemp_draws, COLOR_CONTEMP,
-     "Contemporaneous\n(b_contemp)", TRUE_CONTEMP),
-    (axes[1], lag_draws, COLOR_LAG,
-     "Carry-over\n(b_lag)", TRUE_LAG),
-    (axes[2], total_draws, COLOR_PROMO,
-     "Total\n(b_contemp + b_lag)", TRUE_CONTEMP + TRUE_LAG),
+    (
+        axes[0],
+        contemp_draws,
+        COLOR_CONTEMP,
+        "Contemporaneous\n(b_contemp)",
+        TRUE_CONTEMP,
+    ),
+    (axes[1], lag_draws, COLOR_LAG, "Carry-over\n(b_lag)", TRUE_LAG),
+    (
+        axes[2],
+        total_draws,
+        COLOR_PROMO,
+        "Total\n(b_contemp + b_lag)",
+        TRUE_CONTEMP + TRUE_LAG,
+    ),
 ]:
-    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
-                fill_kwargs={"alpha": 0.3, "color": color})
+    az.plot_kde(
+        draws,
+        ax=ax,
+        plot_kwargs={"color": color, "lw": 2},
+        fill_kwargs={"alpha": 0.3, "color": color},
+    )
     ax.axvline(draws.mean(), color=color, ls="--", lw=1.5, alpha=0.7)
     ax.axvline(true_val, color="black", ls="--", lw=1.5, alpha=0.5)
     ax.set_xlabel(label)
@@ -330,7 +357,8 @@ Time-forward `do()` propagates the intervention through lagged variables — fro
 
 ```{python}
 ate_panel = model_panel.ate(
-    "revenue", "promo",
+    "revenue",
+    "promo",
     values=(1.0, 3.0),
     simulate_over="time",
 )
@@ -361,13 +389,16 @@ idata_no_lag = model_no_lag.fit(draws=500, tune=500, chains=2, random_seed=42)
 ```
 
 ```{python}
-#| label: fig-naive-vs-panel
-#| fig-cap: "Naive model without lag term (purple) vs panel model total effect (blue). The naive model underestimates the total effect by missing the carry-over path. Black dashed line: true total effect."
-#| code-fold: true
+# | label: fig-naive-vs-panel
+# | fig-cap: "Naive model without lag term (purple) vs panel model total effect (blue). The naive model underestimates the total effect by missing the carry-over path. Black dashed line: true total effect."
+# | code-fold: true
 
-naive_draws = idata_no_lag.posterior["beta_revenue"].sel(
-    revenue_predictors="promo"
-).values.flatten()
+naive_draws = (
+    idata_no_lag
+    .posterior["beta_revenue"]
+    .sel(revenue_predictors="promo")
+    .values.flatten()
+)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.8))
 
@@ -375,12 +406,23 @@ for draws, color, label in [
     (naive_draws, COLOR_CONTEMP, "Naive (no lag)"),
     (total_draws, COLOR_PROMO, "Panel (contemp + lag)"),
 ]:
-    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
-                fill_kwargs={"alpha": 0.25, "color": color}, label=label)
+    az.plot_kde(
+        draws,
+        ax=ax,
+        plot_kwargs={"color": color, "lw": 2},
+        fill_kwargs={"alpha": 0.25, "color": color},
+        label=label,
+    )
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
-ax.axvline(TRUE_CONTEMP + TRUE_LAG, color="black", ls="--", lw=1.5,
-           alpha=0.5, label=f"True total ({TRUE_CONTEMP + TRUE_LAG})")
+ax.axvline(
+    TRUE_CONTEMP + TRUE_LAG,
+    color="black",
+    ls="--",
+    lw=1.5,
+    alpha=0.5,
+    label=f"True total ({TRUE_CONTEMP + TRUE_LAG})",
+)
 ax.set_xlabel("Effect of promo on revenue")
 ax.set_ylabel("Density")
 ax.legend()
@@ -457,10 +499,17 @@ rows_ar = []
 y = 0.0
 for week in range(1, n_weeks_ar + 1):
     promo_val = rng.uniform(0, 10)
-    y = true_intercept + true_beta_x * promo_val + true_rho * y + rng.normal(scale=true_sigma)
+    y = (
+        true_intercept
+        + true_beta_x * promo_val
+        + true_rho * y
+        + rng.normal(scale=true_sigma)
+    )
     rows_ar.append({
-        "country": "national", "week": week,
-        "promotion": promo_val, "engagement": y,
+        "country": "national",
+        "week": week,
+        "promotion": promo_val,
+        "engagement": y,
     })
 
 df_ar = pd.DataFrame(rows_ar)
@@ -472,9 +521,9 @@ print(f"True long-run effect:  β_x / (1 − ρ) = {true_longrun}")
 ```
 
 ```{python}
-#| label: fig-engagement
-#| fig-cap: "Weekly engagement over 50 weeks. The series is persistent — high values tend to follow high values — reflecting the AR(1) structure."
-#| code-fold: true
+# | label: fig-engagement
+# | fig-cap: "Weekly engagement over 50 weeks. The series is persistent — high values tend to follow high values — reflecting the AR(1) structure."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 ax.plot(df_ar["week"], df_ar["engagement"], color=COLOR_EFFECT, lw=1.5)
@@ -510,26 +559,42 @@ model_ar.effects_summary()
 The long-run effect is a nonlinear function of two parameters ($\beta_X / (1 - \rho)$), so we compute it from the joint posterior to get the full uncertainty.
 
 ```{python}
-#| label: fig-longrun-multiplier
-#| fig-cap: "Posterior distribution of the long-run multiplier β_x / (1 − ρ). The immediate effect alone (orange dotted) substantially understates the total impact."
-#| code-fold: true
+# | label: fig-longrun-multiplier
+# | fig-cap: "Posterior distribution of the long-run multiplier β_x / (1 − ρ). The immediate effect alone (orange dotted) substantially understates the total impact."
+# | code-fold: true
 
-b_x_draws = idata_ar.posterior["beta_engagement"].sel(
-    engagement_predictors="promotion"
-).values.flatten()
-rho_draws = idata_ar.posterior["beta_engagement"].sel(
-    engagement_predictors="lag(engagement)"
-).values.flatten()
+b_x_draws = (
+    idata_ar
+    .posterior["beta_engagement"]
+    .sel(engagement_predictors="promotion")
+    .values.flatten()
+)
+rho_draws = (
+    idata_ar
+    .posterior["beta_engagement"]
+    .sel(engagement_predictors="lag(engagement)")
+    .values.flatten()
+)
 longrun_draws = b_x_draws / (1 - rho_draws)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_kde(longrun_draws, ax=ax, plot_kwargs={"color": COLOR_EFFECT, "lw": 2},
-            fill_kwargs={"alpha": 0.25, "color": COLOR_EFFECT},
-            label="Posterior")
-ax.axvline(true_longrun, color=COLOR_THEORY, ls="--", lw=2,
-           label=f"True = {true_longrun:.1f}")
-ax.axvline(true_beta_x, color=COLOR_TRAFFIC, ls=":", lw=2,
-           label=f"Immediate only = {true_beta_x}")
+az.plot_kde(
+    longrun_draws,
+    ax=ax,
+    plot_kwargs={"color": COLOR_EFFECT, "lw": 2},
+    fill_kwargs={"alpha": 0.25, "color": COLOR_EFFECT},
+    label="Posterior",
+)
+ax.axvline(
+    true_longrun, color=COLOR_THEORY, ls="--", lw=2, label=f"True = {true_longrun:.1f}"
+)
+ax.axvline(
+    true_beta_x,
+    color=COLOR_TRAFFIC,
+    ls=":",
+    lw=2,
+    label=f"Immediate only = {true_beta_x}",
+)
 ax.set_xlabel("Long-run multiplier: β_x / (1 − ρ)")
 ax.set_ylabel("Density")
 ax.legend()
@@ -549,24 +614,46 @@ contrast_ar = r_hi - r_lo
 ```
 
 ```{python}
-#| label: fig-rampup
-#| fig-cap: "Time profile of the causal effect of increasing promotion from 2 to 8 units. The effect ramps up over ~10 weeks as AR(1) dynamics accumulate, then converges to the long-run steady state."
-#| code-fold: true
+# | label: fig-rampup
+# | fig-cap: "Time profile of the causal effect of increasing promotion from 2 to 8 units. The effect ramps up over ~10 weeks as AR(1) dynamics accumulate, then converges to the long-run steady state."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 weeks_ar = np.arange(1, n_weeks_ar + 1)
 engagement_by_time = contrast_ar.by_time("engagement")
 
-ax.plot(weeks_ar, engagement_by_time.mean(axis=1), color=COLOR_EFFECT, lw=2, label="Posterior mean")
-az.plot_hdi(weeks_ar, engagement_by_time.T, ax=ax, smooth=False, color=COLOR_EFFECT,
-            fill_kwargs={"alpha": 0.15, "label": "94% HDI"})
+ax.plot(
+    weeks_ar,
+    engagement_by_time.mean(axis=1),
+    color=COLOR_EFFECT,
+    lw=2,
+    label="Posterior mean",
+)
+az.plot_hdi(
+    weeks_ar,
+    engagement_by_time.T,
+    ax=ax,
+    smooth=False,
+    color=COLOR_EFFECT,
+    fill_kwargs={"alpha": 0.15, "label": "94% HDI"},
+)
 
 delta_x = 8.0 - 2.0
-ax.axhline(true_beta_x * delta_x, color=COLOR_TRAFFIC, ls=":", lw=1.5,
-           label=f"Immediate effect = {true_beta_x * delta_x:.1f}")
-ax.axhline(true_longrun * delta_x, color=COLOR_THEORY, ls="--", lw=1.5,
-           label=f"Long-run effect = {true_longrun * delta_x:.1f}")
+ax.axhline(
+    true_beta_x * delta_x,
+    color=COLOR_TRAFFIC,
+    ls=":",
+    lw=1.5,
+    label=f"Immediate effect = {true_beta_x * delta_x:.1f}",
+)
+ax.axhline(
+    true_longrun * delta_x,
+    color=COLOR_THEORY,
+    ls="--",
+    lw=1.5,
+    label=f"Long-run effect = {true_longrun * delta_x:.1f}",
+)
 
 ax.set_xlabel("Week")
 ax.set_ylabel("Incremental engagement (promo 8 − promo 2)")
@@ -628,9 +715,12 @@ for region in regions:
             + rng.normal(scale=1.5)
         )
         rows_mmm.append({
-            "region": region, "week": week,
-            "tv": tv, "digital": digital,
-            "trend": week, "sales": sales,
+            "region": region,
+            "week": week,
+            "tv": tv,
+            "digital": digital,
+            "trend": week,
+            "sales": sales,
         })
 
 df_mmm = pd.DataFrame(rows_mmm)
@@ -676,17 +766,23 @@ digital_scenario[boost_start:boost_end] = mean_digital * (1 + boost_fraction)
 ```
 
 ```{python}
-#| label: fig-intervention
-#| fig-cap: "Intervention design: digital spend increased by 15% during weeks 11–20 (shaded), then returns to baseline."
-#| code-fold: true
+# | label: fig-intervention
+# | fig-cap: "Intervention design: digital spend increased by 15% during weeks 11–20 (shaded), then returns to baseline."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.7))
 weeks_mmm = np.arange(1, n_weeks_mmm + 1)
 ax.plot(weeks_mmm, digital_baseline, color="gray", ls="--", label="Baseline digital")
-ax.plot(weeks_mmm, digital_scenario, color=COLOR_BOOST, lw=2,
-        label="Scenario digital (+15%)")
-ax.axvspan(boost_start + 1, boost_end, alpha=0.1, color=COLOR_BOOST,
-           label="Boost window")
+ax.plot(
+    weeks_mmm,
+    digital_scenario,
+    color=COLOR_BOOST,
+    lw=2,
+    label="Scenario digital (+15%)",
+)
+ax.axvspan(
+    boost_start + 1, boost_end, alpha=0.1, color=COLOR_BOOST, label="Boost window"
+)
 ax.set_xlabel("Week")
 ax.set_ylabel("Digital spend")
 ax.legend(loc="upper right")
@@ -707,17 +803,29 @@ contrast_mmm = result_scenario - result_baseline
 ```
 
 ```{python}
-#| label: fig-ramp-adstock
-#| fig-cap: "Incremental sales from a temporary 15% digital spend increase (weeks 11–20). Adstock causes a visible ramp-up as the stock accumulates and a gradual ramp-down as the stock decays after the boost ends."
-#| code-fold: true
+# | label: fig-ramp-adstock
+# | fig-cap: "Incremental sales from a temporary 15% digital spend increase (weeks 11–20). Adstock causes a visible ramp-up as the stock accumulates and a gradual ramp-down as the stock decays after the boost ends."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 sales_by_time = contrast_mmm.by_time("sales")
 
-ax.plot(weeks_mmm, sales_by_time.mean(axis=1), color=COLOR_EFFECT, lw=2, label="Posterior mean")
-az.plot_hdi(weeks_mmm, sales_by_time.T, ax=ax, smooth=False, color=COLOR_EFFECT,
-            fill_kwargs={"alpha": 0.15, "label": "94% HDI"})
+ax.plot(
+    weeks_mmm,
+    sales_by_time.mean(axis=1),
+    color=COLOR_EFFECT,
+    lw=2,
+    label="Posterior mean",
+)
+az.plot_hdi(
+    weeks_mmm,
+    sales_by_time.T,
+    ax=ax,
+    smooth=False,
+    color=COLOR_EFFECT,
+    fill_kwargs={"alpha": 0.15, "label": "94% HDI"},
+)
 ax.axvspan(boost_start + 1, boost_end, alpha=0.08, color="gray")
 ax.axhline(0, color="black", ls=":", alpha=0.4)
 ax.set_xlabel("Week")

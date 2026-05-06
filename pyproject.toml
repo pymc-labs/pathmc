@@ -49,7 +49,7 @@ Documentation = "https://pymc-labs.github.io/pathmc/"
 Issues = "https://github.com/pymc-labs/pathmc/issues"
 
 [project.optional-dependencies]
-dev = ["mypy", "prek", "pytest", "ruff"]
+dev = ["build", "mypy", "prek", "pytest", "ruff"]
 docs = ["ipykernel", "jupyter", "pyyaml"]
 samplers = ["nutpie", "numpyro", "jax"]
 
@@ -61,6 +61,12 @@ include = ["pathmc*"]
 
 [tool.ruff]
 line-length = 88
+extension = { qmd = "markdown" }
+include = ["pyproject.toml", "*.py", "*.pyi", "*.ipynb", "*.qmd"]
+
+[tool.ruff.format]
+preview = true
+docstring-code-format = true
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["F841"]
@@ -83,6 +89,7 @@ module = [
     "patsy.*",
     "pymc.*",
     "pymc_marketing.*",
+    "pymc_extras.*",
     "pytensor.*",
     "graphviz.*",
     "scipy.*",

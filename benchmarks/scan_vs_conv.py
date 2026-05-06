@@ -104,14 +104,12 @@ def generate_adstock_only(rng: np.random.Generator) -> pd.DataFrame:
             p["intercept"] + p["beta_spend"] * adstocked + rng.normal(0, p["sigma"], T)
         )
         for t in range(T):
-            rows.append(
-                {
-                    "region": f"u{uid}",
-                    "week": t + 1,
-                    "spend": spend[t],
-                    "sales": sales[t],
-                }
-            )
+            rows.append({
+                "region": f"u{uid}",
+                "week": t + 1,
+                "spend": spend[t],
+                "sales": sales[t],
+            })
     return pd.DataFrame(rows)
 
 
@@ -131,14 +129,12 @@ def generate_adstock_ar(rng: np.random.Generator) -> pd.DataFrame:
                 + rng.normal(0, p["sigma"])
             )
         for t in range(T):
-            rows.append(
-                {
-                    "region": f"u{uid}",
-                    "week": t + 1,
-                    "spend": spend[t],
-                    "sales": sales[t],
-                }
-            )
+            rows.append({
+                "region": f"u{uid}",
+                "week": t + 1,
+                "spend": spend[t],
+                "sales": sales[t],
+            })
     return pd.DataFrame(rows)
 
 
@@ -165,15 +161,13 @@ def generate_multi_eq(rng: np.random.Generator) -> pd.DataFrame:
                 + rng.normal(0, p["sigma_sales"])
             )
         for t in range(T):
-            rows.append(
-                {
-                    "region": f"u{uid}",
-                    "week": t + 1,
-                    "spend": spend[t],
-                    "awareness": awareness[t],
-                    "sales": sales[t],
-                }
-            )
+            rows.append({
+                "region": f"u{uid}",
+                "week": t + 1,
+                "spend": spend[t],
+                "awareness": awareness[t],
+                "sales": sales[t],
+            })
     return pd.DataFrame(rows)
 
 

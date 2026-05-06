@@ -90,12 +90,10 @@ class TestStandardizedEffects:
 
 class TestStandardizedBeforeSample:
     def test_raises_before_sample(self):
-        df = pd.DataFrame(
-            {
-                "X": np.random.normal(size=50),
-                "Y": np.random.normal(size=50),
-            }
-        )
+        df = pd.DataFrame({
+            "X": np.random.normal(size=50),
+            "Y": np.random.normal(size=50),
+        })
         model = pathmc.model("Y ~ a*X", data=df)
         with pytest.raises(RuntimeError, match="No posterior samples"):
             model.standardized()
