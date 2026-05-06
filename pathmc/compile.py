@@ -370,6 +370,7 @@ def compile_to_pymc(
     _validate_residual_cov_families(spec, families)
 
     if panel_info is not None and _has_temporal_deps(spec, graph_info):
+        _validate_scan_non_gaussian_intermediaries(spec, families, latent)
         return _compile_scan_panel(
             spec=spec,
             data=data,
@@ -1029,6 +1030,70 @@ def _has_temporal_deps(spec: Spec, graph_info: GraphInfo) -> bool:
             if _parse_lag(term.variable) is not None:
                 return True
     return False
+
+
+def _transform_base_vars(tc: TransformCall) -> list[str]:
+    """Return leaf variable names used by a transform chain."""
+    if isinstance(tc.input_expr, TransformCall):
+        return _transform_base_vars(tc.input_expr)
+    return [tc.input_expr]
+
+
+def _scan_term_base_vars(term: Any) -> list[str]:
+    """Return base variables a scan predictor term reads from."""
+    if term.lag_of is not None:
+        return [term.lag_of]
+
+    if term.transform is not None:
+        return _transform_base_vars(term.transform)
+
+    base_vars = _term_base_vars(term)
+    parsed_vars: list[str] = []
+    for var in base_vars:
+        parsed = _parse_lag(var)
+        parsed_vars.append(parsed[0] if parsed is not None else var)
+    return parsed_vars
+
+
+def _validate_scan_non_gaussian_intermediaries(
+    spec: Spec,
+    families: dict[str, str],
+    latent: set[str],
+) -> None:
+    """Reject scan models that would pass response means downstream."""
+    discrete_families = {"bernoulli", "poisson", "negbinomial"}
+    non_gaussian = {
+        reg.lhs
+        for reg in spec.regressions
+        if reg.lhs not in latent
+        and families.get(reg.lhs, "gaussian") in discrete_families
+    }
+    if not non_gaussian:
+        return
+
+    downstream: dict[str, set[str]] = {}
+    for reg in spec.regressions:
+        for term in reg.terms:
+            for base_var in _scan_term_base_vars(term):
+                if base_var in non_gaussian:
+                    downstream.setdefault(base_var, set()).add(reg.lhs)
+
+    if not downstream:
+        return
+
+    details = "; ".join(
+        f"'{var}' ({families.get(var, 'gaussian')}) -> {', '.join(sorted(targets))}"
+        for var, targets in sorted(downstream.items())
+    )
+    raise ValueError(
+        "Scan-compiled panel models do not support non-Gaussian endogenous "
+        "variables as predictors in downstream equations. The current scan "
+        "compiler would propagate response means (probabilities or rates) "
+        f"instead of sampled Bernoulli/count values: {details}. Make these "
+        "variables terminal outcomes, remove temporal terms so the "
+        "cross-sectional compiler can be used, or follow #191 for the "
+        "split-scan stochastic compiler work."
+    )
 
 
 def _get_adstock_input(tc: TransformCall) -> str:
