@@ -32,6 +32,9 @@ import arviz as az
 import numpy as np
 import pandas as pd
 import pymc as pm
+import pytensor.tensor as pt
+from pytensor.graph.replace import graph_replace
+from pytensor.graph.traversal import ancestors
 
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
@@ -159,15 +162,51 @@ class DoResult:
         )
 
 
-def _apply_inverse_link(mu_vals: np.ndarray, family: str) -> np.ndarray:
+def _apply_inverse_link(mu_vals: Any, family: str) -> Any:
     """Map linear-predictor values back to the response scale."""
     if family == "bernoulli":
-        from scipy.special import expit
-
-        return expit(mu_vals)
+        if isinstance(mu_vals, np.ndarray):
+            return 1.0 / (1.0 + np.exp(-mu_vals))
+        return 1.0 / (1.0 + pt.exp(-mu_vals))
     if family in ("poisson", "negbinomial"):
-        return np.exp(mu_vals)
+        if isinstance(mu_vals, np.ndarray):
+            return np.exp(mu_vals)
+        return pt.exp(mu_vals)
     return mu_vals
+
+
+def _replace_graph(expr: Any, replacements: dict[Any, Any]) -> Any:
+    """Clone *expr* with only the replacements that appear in its graph."""
+    if not replacements:
+        return expr
+    graph_vars = set(ancestors([expr]))
+    used_replacements = {
+        var: replacement
+        for var, replacement in replacements.items()
+        if var in graph_vars
+    }
+    if not used_replacements:
+        return expr
+    return graph_replace(expr, replace=used_replacements, strict=False)
+
+
+def _float_descendants_of(source_var: Any, exprs: list[Any]) -> list[Any]:
+    """Find float graph nodes that directly cast or transform *source_var*."""
+    descendants: list[Any] = []
+    seen: set[Any] = set()
+    for expr in exprs:
+        for node_var in ancestors([expr]):
+            owner = getattr(node_var, "owner", None)
+            dtype = getattr(node_var, "dtype", "")
+            if (
+                owner is not None
+                and source_var in owner.inputs
+                and str(dtype).startswith("float")
+                and node_var not in seen
+            ):
+                descendants.append(node_var)
+                seen.add(node_var)
+    return descendants
 
 
 def run_do_pymc(
@@ -186,9 +225,9 @@ def run_do_pymc(
     followed by ``pm.sample_posterior_predictive()`` to forward-sample
     through the causal chain with residual noise.
 
-    For ``kind="mean"``: uses ``pm.do()`` with the anonymous tensor trick
-    (replacing free endogenous RVs with their mu Deterministics) followed
-    by ``compute_deterministics`` for noise-free mean propagation.
+    For ``kind="mean"``: uses ``pm.do()`` for interventions, then computes
+    cloned mu Deterministics with upstream endogenous variables replaced by
+    their expected values for noise-free mean propagation.
 
     Parameters
     ----------
@@ -248,46 +287,64 @@ def run_do_pymc(
         replacements[key] = arr.astype(target_dtype)
 
     if kind == "mean":
-        non_float_endo: list[str] = []
-        for var in graph_info.topological_order:
-            if var in graph_info.endogenous and var not in set:
-                is_deterministic_latent = var in latent and var not in free_rv_names
-                if is_deterministic_latent:
-                    continue
-                if var in block_vars:
-                    continue
-                model_var = gen_model[var]
-                if model_var.dtype.startswith("float"):
-                    replacements[var] = gen_model[f"mu_{var}"] * 1
-                else:
-                    non_float_endo.append(var)
-
         do_model = pm.do(gen_model, replacements)
 
+        mean_det_names: dict[str, str] = {}
+        expr_replacements: dict[Any, Any] = {}
+        mu_source_exprs = [
+            do_model[f"mu_{var}"] * 1
+            for var in graph_info.topological_order
+            if var in graph_info.endogenous
+            and var not in set
+            and f"mu_{var}" in do_model.named_vars
+        ]
+        with do_model:
+            for var in graph_info.topological_order:
+                if var in graph_info.endogenous and var not in set:
+                    mu_name = f"mu_{var}"
+                    mu_expr = _replace_graph(do_model[mu_name] * 1, expr_replacements)
+                    mean_name = f"pathmc_mean_{mu_name}"
+                    pm.Deterministic(mean_name, mu_expr)
+                    mean_det_names[var] = mean_name
+
+                    response_expr = _apply_inverse_link(mu_expr, families.get(var, ""))
+                    if var in do_model.named_vars:
+                        model_var = do_model[var]
+                        if model_var.dtype.startswith("float"):
+                            expr_replacements[model_var] = response_expr
+                        else:
+                            for key in _float_descendants_of(
+                                model_var, mu_source_exprs
+                            ):
+                                expr_replacements[key] = response_expr
+                    elif mu_name in do_model.named_vars:
+                        expr_replacements[do_model[mu_name]] = response_expr
+
         posterior_ds = idata.posterior  # type: ignore[attr-defined]
-        if non_float_endo:
+        missing_rv_names = [
+            rv.name for rv in do_model.free_RVs if rv.name not in posterior_ds
+        ]
+        if missing_rv_names:
             import xarray as xr
 
             n_chains = posterior_ds.sizes["chain"]
             n_draws = posterior_ds.sizes["draw"]
             dummy_vars: dict[str, xr.DataArray] = {}
-            for var in non_float_endo:
-                rv = do_model[var]
+            for name in missing_rv_names:
+                rv = do_model[name]
                 var_shape = tuple(s for s in rv.type.shape if s is not None) or (N,)
                 dummy = np.zeros((n_chains, n_draws, *var_shape), dtype=rv.dtype)
                 dims = ["chain", "draw"] + [
-                    f"{var}_dim_{i}" for i in range(len(var_shape))
+                    f"{name}_dim_{i}" for i in range(len(var_shape))
                 ]
-                dummy_vars[var] = xr.DataArray(dummy, dims=dims)
+                dummy_vars[name] = xr.DataArray(dummy, dims=dims)
             posterior_ds = posterior_ds.assign(dummy_vars)
 
-        det_names = [
-            f"mu_{var}"
-            for var in graph_info.topological_order
-            if var in graph_info.endogenous and var not in set
-        ]
         det = pm.compute_deterministics(
-            posterior_ds, model=do_model, var_names=det_names, progressbar=False
+            posterior_ds,
+            model=do_model,
+            var_names=list(mean_det_names.values()),
+            progressbar=False,
         )
 
         stacked = idata.posterior.stack(sample=("chain", "draw"))  # type: ignore[attr-defined]
@@ -306,7 +363,7 @@ def run_do_pymc(
                 else:
                     values[var] = np.zeros(n_samples)
             else:
-                mu_raw = det[f"mu_{var}"].values
+                mu_raw = det[mean_det_names[var]].values
                 if subgroup_indices is not None and mu_raw.ndim >= 3:
                     mu_raw = mu_raw[:, :, subgroup_indices]
                 mu_vals = mu_raw.flatten()
