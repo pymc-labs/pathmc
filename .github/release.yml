@@ -1,0 +1,19 @@
+# Configuration for GitHub's automatically generated release notes.
+# See https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+changelog:
+  exclude:
+    labels:
+      - wontfix
+  categories:
+    - title: New features and enhancements
+      labels:
+        - enhancement
+    - title: Bug fixes
+      labels:
+        - bug
+    - title: Documentation
+      labels:
+        - documentation
+    - title: Maintenance
+      labels:
+        - "*"

@@ -50,7 +50,7 @@ jobs:
           installed_version = importlib.metadata.version("pathmc")
           assert pathmc.__version__ == installed_version
           if os.environ["REF_TYPE"] == "tag":
-              assert installed_version == os.environ["REF_NAME"].removeprefix("v")
+              assert installed_version == os.environ["REF_NAME"]
           print(installed_version)
           PY
         env:
@@ -71,7 +71,7 @@ jobs:
           installed_version = importlib.metadata.version("pathmc")
           assert pathmc.__version__ == installed_version
           if os.environ["REF_TYPE"] == "tag":
-              assert installed_version == os.environ["REF_NAME"].removeprefix("v")
+              assert installed_version == os.environ["REF_NAME"]
           print(installed_version)
           PY
         env:
@@ -112,7 +112,7 @@ jobs:
           import os
           import pathmc
 
-          assert pathmc.__version__ == os.environ["REF_NAME"].removeprefix("v")
+          assert pathmc.__version__ == os.environ["REF_NAME"]
           print(pathmc.__version__)
           PY
         env:
