@@ -35,18 +35,21 @@ if _HAVE_PYMC_TESTING:
         scope="module",
     )
 else:
+    _PYMC_MOCK_SKIP_REASON = (
+        "pymc.testing.mock_sample_setup_and_teardown is unavailable"
+    )
 
     @pytest.fixture
     def mock_pymc_sample():
-        yield
+        pytest.skip(_PYMC_MOCK_SKIP_REASON)
 
     @pytest.fixture(scope="class")
     def mock_pymc_sample_class():
-        yield
+        pytest.skip(_PYMC_MOCK_SKIP_REASON)
 
     @pytest.fixture(scope="module")
     def mock_pymc_sample_module():
-        yield
+        pytest.skip(_PYMC_MOCK_SKIP_REASON)
 
 
 # ---------------------------------------------------------------------------

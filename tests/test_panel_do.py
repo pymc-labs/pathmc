@@ -77,13 +77,13 @@ class TestPanelDoAPI:
         )
         assert np.isfinite(result.mean("sales"))
 
-    def test_error_without_panel(self):
+    def test_error_without_panel(self, mock_pymc_sample):
         """simulate_over='time' without panel= raises ValueError."""
         rng = np.random.default_rng(42)
         n = 50
         df = pd.DataFrame({"X": rng.normal(size=n), "Y": rng.normal(size=n)})
         model = pathmc.model("Y ~ X", data=df)
-        model._idata = True
+        model.fit(draws=5, tune=5, chains=1, cores=1, random_seed=42)
         with pytest.raises(ValueError, match="panel"):
             model.do(set={"X": 1.0}, simulate_over="time")
 

@@ -322,7 +322,7 @@ class TestPredictiveModeTemporal:
 class TestInputValidation:
     """Validate error messages for malformed inputs."""
 
-    def test_wrong_length_array_raises(self):
+    def test_wrong_length_array_raises(self, mock_pymc_sample):
         """Array intervention with wrong length should raise ValueError."""
         rng = np.random.default_rng(42)
         rows = []
@@ -343,7 +343,7 @@ class TestInputValidation:
             panel={"unit": "region", "time": "week"},
             pooling="partial",
         )
-        model._idata = True
+        model.fit(draws=5, tune=5, chains=1, cores=1, random_seed=42)
         wrong_length = np.full(5, 30.0)  # panel has 15 time steps
         with pytest.raises(ValueError, match="expected"):
             model.do(
