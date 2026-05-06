@@ -162,9 +162,9 @@ The estimated CATEs track the true values closely. At $Z = 1$, the treatment eff
 The conditional effect $\beta_X + \beta_{XZ} \cdot Z$ is a linear function of $Z$. We can trace out the full CATE curve by evaluating it at many moderator levels:
 
 ```{python}
-#| label: fig-cate-curve
-#| fig-cap: "Conditional average treatment effect (CATE) of X on Y as a function of the moderator Z. Blue band: 94% HDI from posterior draws. Black dashed line: true conditional effect from the DGP. The treatment effect is positive for high Z and turns negative below Z ≈ −0.6."
-#| code-fold: true
+# | label: fig-cate-curve
+# | fig-cap: "Conditional average treatment effect (CATE) of X on Y as a function of the moderator Z. Blue band: 94% HDI from posterior draws. Black dashed line: true conditional effect from the DGP. The treatment effect is positive for high Z and turns negative below Z ≈ −0.6."
+# | code-fold: true
 
 z_grid = np.linspace(-2, 2, 30)
 cate_draws_list = []
@@ -178,7 +178,14 @@ true_cate = TRUE_MAIN_X + TRUE_INTER * z_grid
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-az.plot_hdi(z_grid, cate_draws_2d, ax=ax, smooth=False, color=COLOR_X, fill_kwargs={"alpha": 0.25})
+az.plot_hdi(
+    z_grid,
+    cate_draws_2d,
+    ax=ax,
+    smooth=False,
+    color=COLOR_X,
+    fill_kwargs={"alpha": 0.25},
+)
 ax.plot(z_grid, cate_draws_2d.mean(axis=0), color=COLOR_X, lw=2, label="Estimated CATE")
 ax.plot(z_grid, true_cate, "--", color=COLOR_TRUE, lw=2, label="True CATE")
 ax.axhline(0, color="gray", lw=0.8, ls=":")
@@ -276,7 +283,9 @@ atu = model_att.atu("Y", "T")
 ate = model_att.ate("Y", "T")
 
 print(f"{'Estimand':<12} {'Estimate':>10} {'True':>10}")
-print(f"{'ATE':<12} {ate.mean('Y'):>10.3f} {(TRUE_MAIN_X + TRUE_INTER * Z_att.mean()):>10.3f}")
+print(
+    f"{'ATE':<12} {ate.mean('Y'):>10.3f} {(TRUE_MAIN_X + TRUE_INTER * Z_att.mean()):>10.3f}"
+)
 print(f"{'ATT':<12} {att.mean('Y'):>10.3f} {true_att:>10.3f}")
 print(f"{'ATU':<12} {atu.mean('Y'):>10.3f} {true_atu:>10.3f}")
 ```
@@ -289,9 +298,9 @@ The ATT and ATU diverge because the treated group has higher `Z`, where the inte
 The interaction is visible in the raw data: the slope of $Y$ on $X$ is steeper when $Z$ is high than when $Z$ is low.
 
 ```{python}
-#| label: fig-scatter-by-z
-#| fig-cap: "Y versus X, colored by the moderator Z. The slope of Y on X is steeper for high-Z observations (yellow) than for low-Z observations (purple), reflecting the positive interaction term."
-#| code-fold: true
+# | label: fig-scatter-by-z
+# | fig-cap: "Y versus X, colored by the moderator Z. The slope of Y on X is steeper for high-Z observations (yellow) than for low-Z observations (purple), reflecting the positive interaction term."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 

@@ -45,14 +45,12 @@ def mmm_transform_data():
             adstocked = tv + 0.7 * adstocked
             saturated = 1 - np.exp(-0.3 * adstocked)
             sales = true_intercepts[region] + 2.5 * saturated + rng.normal(scale=0.5)
-            rows.append(
-                {
-                    "region": region,
-                    "week": week,
-                    "tv": tv,
-                    "sales": sales,
-                }
-            )
+            rows.append({
+                "region": region,
+                "week": week,
+                "tv": tv,
+                "sales": sales,
+            })
     return pd.DataFrame(rows)
 
 

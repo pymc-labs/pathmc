@@ -90,9 +90,12 @@ class TestLagCompilation:
             for week in range(1, 11):
                 spend = rng.uniform(10, 50)
                 sales = 50 + 0.5 * spend + rng.normal(0, 2)
-                rows.append(
-                    {"region": region, "week": week, "spend": spend, "sales": sales}
-                )
+                rows.append({
+                    "region": region,
+                    "week": week,
+                    "spend": spend,
+                    "sales": sales,
+                })
         df = pd.DataFrame(rows)
         model = pathmc.model(
             "sales ~ spend + lag(sales)",
@@ -107,13 +110,11 @@ class TestLagCarryRegression:
     """Regression tests for scan carry state in endogenous lag models."""
 
     def _simple_panel(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            {
-                "region": ["A", "A", "A", "A"],
-                "week": [1, 2, 3, 4],
-                "sales": [1.0, 2.0, 4.0, 8.0],
-            }
-        )
+        return pd.DataFrame({
+            "region": ["A", "A", "A", "A"],
+            "week": [1, 2, 3, 4],
+            "sales": [1.0, 2.0, 4.0, 8.0],
+        })
 
     def test_observed_model_carries_realized_lagged_values(self):
         """Observed scan recursion should teacher-force endogenous lag state."""
@@ -174,9 +175,12 @@ class TestLagCarryRegression:
             for week in range(1, 11):
                 spend = rng.uniform(10, 50)
                 sales = 50 + 0.5 * spend + rng.normal(0, 2)
-                rows.append(
-                    {"region": region, "week": week, "spend": spend, "sales": sales}
-                )
+                rows.append({
+                    "region": region,
+                    "week": week,
+                    "spend": spend,
+                    "sales": sales,
+                })
         df = pd.DataFrame(rows)
         model = pathmc.model(
             "sales ~ lag(spend)",

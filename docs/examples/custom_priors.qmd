@@ -67,7 +67,7 @@ The defaults are deliberately vague: `Normal(mu=0, sigma=10)` for regression coe
 A **prior predictive check** asks: "If we sampled parameters from our priors and generated fake data, would it look remotely like real-world data?" If the prior implies outcomes spanning thousands of units when the real data lives in $[-3, 3]$, the priors are too vague.
 
 ```{python}
-#| code-fold: true
+# | code-fold: true
 import matplotlib.pyplot as plt
 import arviz as az
 
@@ -84,18 +84,27 @@ ppc_default = model.sample_prior_predictive(draws=500, random_seed=42)
 ```
 
 ```{python}
-#| label: fig-ppc-default
-#| fig-cap: "Prior predictive distribution of Y under default priors. The wide tails (spanning well beyond ±10) indicate the model considers extreme outcomes plausible before seeing data."
-#| code-fold: true
+# | label: fig-ppc-default
+# | fig-cap: "Prior predictive distribution of Y under default priors. The wide tails (spanning well beyond ±10) indicate the model considers extreme outcomes plausible before seeing data."
+# | code-fold: true
 
 y_prior = ppc_default.prior["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_kde(y_prior, ax=ax, plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
-            fill_kwargs={"alpha": 0.6, "color": COLOR_DEFAULT},
-            label="Prior predictive (default)")
-ax.axvline(df["Y"].mean(), color=COLOR_TRUE, linestyle="--", linewidth=1.5,
-           label=f"Observed mean = {df['Y'].mean():.2f}")
+az.plot_kde(
+    y_prior,
+    ax=ax,
+    plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
+    fill_kwargs={"alpha": 0.6, "color": COLOR_DEFAULT},
+    label="Prior predictive (default)",
+)
+ax.axvline(
+    df["Y"].mean(),
+    color=COLOR_TRUE,
+    linestyle="--",
+    linewidth=1.5,
+    label=f"Observed mean = {df['Y'].mean():.2f}",
+)
 ax.set_xlabel("Y")
 ax.set_ylabel("Density")
 ax.legend()
@@ -128,23 +137,36 @@ ppc_custom = model.sample_prior_predictive(draws=500, random_seed=42)
 ```
 
 ```{python}
-#| label: fig-ppc-comparison
-#| fig-cap: "Prior predictive distributions of Y under default (green) and refined (orange) priors. The custom priors concentrate mass in the plausible range without excluding any realistic values."
-#| code-fold: true
+# | label: fig-ppc-comparison
+# | fig-cap: "Prior predictive distributions of Y under default (green) and refined (orange) priors. The custom priors concentrate mass in the plausible range without excluding any realistic values."
+# | code-fold: true
 
 y_default = ppc_default.prior["Y"].values.flatten()
 y_custom = ppc_custom.prior["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-az.plot_kde(y_default, ax=ax, plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
-            fill_kwargs={"alpha": 0.45, "color": COLOR_DEFAULT},
-            label="Default priors")
-az.plot_kde(y_custom, ax=ax, plot_kwargs={"color": COLOR_CUSTOM, "lw": 2},
-            fill_kwargs={"alpha": 0.55, "color": COLOR_CUSTOM},
-            label="Custom priors")
-ax.axvline(df["Y"].mean(), color=COLOR_TRUE, linestyle="--", linewidth=1.5,
-           label=f"Observed mean = {df['Y'].mean():.2f}")
+az.plot_kde(
+    y_default,
+    ax=ax,
+    plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
+    fill_kwargs={"alpha": 0.45, "color": COLOR_DEFAULT},
+    label="Default priors",
+)
+az.plot_kde(
+    y_custom,
+    ax=ax,
+    plot_kwargs={"color": COLOR_CUSTOM, "lw": 2},
+    fill_kwargs={"alpha": 0.55, "color": COLOR_CUSTOM},
+    label="Custom priors",
+)
+ax.axvline(
+    df["Y"].mean(),
+    color=COLOR_TRUE,
+    linestyle="--",
+    linewidth=1.5,
+    label=f"Observed mean = {df['Y'].mean():.2f}",
+)
 ax.set_xlabel("Y")
 ax.set_ylabel("Density")
 ax.legend()

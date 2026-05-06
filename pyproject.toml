@@ -61,6 +61,12 @@ include = ["pathmc*"]
 
 [tool.ruff]
 line-length = 88
+extension = { qmd = "markdown" }
+include = ["pyproject.toml", "*.py", "*.pyi", "*.ipynb", "*.qmd"]
+
+[tool.ruff.format]
+preview = true
+docstring-code-format = true
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["F841"]

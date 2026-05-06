@@ -113,7 +113,7 @@ df = pd.DataFrame({"dose": dose, "response": response})
 True values: $n = 2$, $K = 5$, $b = 100$, $\sigma = 3$.
 
 ```{python}
-#| code-fold: true
+# | code-fold: true
 import matplotlib.pyplot as plt
 
 FIG_WIDTH = 7
@@ -125,18 +125,32 @@ COLOR_POSTERIOR = "#d95f02"
 ```
 
 ```{python}
-#| label: fig-data
-#| fig-cap: "Simulated dose-response data (grey) with the true Hill curve (black dashed). The curve saturates near the maximum response of 100 as dose increases."
-#| code-fold: true
+# | label: fig-data
+# | fig-cap: "Simulated dose-response data (grey) with the true Hill curve (black dashed). The curve saturates near the maximum response of 100 as dose increases."
+# | code-fold: true
 
 dose_grid = np.linspace(0.5, 20, 200)
 true_curve = TRUE_B * dose_grid**TRUE_N / (TRUE_K**TRUE_N + dose_grid**TRUE_N)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-ax.scatter(df["dose"], df["response"], color=COLOR_DATA, s=15, alpha=0.6,
-           label="Observed data", zorder=2)
-ax.plot(dose_grid, true_curve, color=COLOR_TRUE, linestyle="--", linewidth=2,
-        label="True Hill curve", zorder=3)
+ax.scatter(
+    df["dose"],
+    df["response"],
+    color=COLOR_DATA,
+    s=15,
+    alpha=0.6,
+    label="Observed data",
+    zorder=2,
+)
+ax.plot(
+    dose_grid,
+    true_curve,
+    color=COLOR_TRUE,
+    linestyle="--",
+    linewidth=2,
+    label="True Hill curve",
+    zorder=3,
+)
 ax.set_xlabel("Dose")
 ax.set_ylabel("Response")
 ax.legend()
@@ -187,11 +201,12 @@ model.effects_summary()
 ```
 
 ```{python}
-#| label: fig-posteriors
-#| fig-cap: "Posterior distributions for the Hill parameters n and K, with true values (black dashed). Both parameters are well-recovered."
-#| code-fold: true
+# | label: fig-posteriors
+# | fig-cap: "Posterior distributions for the Hill parameters n and K, with true values (black dashed). Both parameters are well-recovered."
+# | code-fold: true
 
 import arviz as az
+
 fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 for ax, var, true_val, label in zip(
@@ -224,20 +239,38 @@ means = response_draws_2d.mean(axis=0)
 ```
 
 ```{python}
-#| label: fig-do-curve
-#| fig-cap: "Posterior predictive response curve under do(dose = d) for a range of doses. The orange band shows the 94% HDI; the true curve is recovered with appropriate uncertainty."
-#| code-fold: true
+# | label: fig-do-curve
+# | fig-cap: "Posterior predictive response curve under do(dose = d) for a range of doses. The orange band shows the 94% HDI; the true curve is recovered with appropriate uncertainty."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-az.plot_hdi(dose_grid_do, response_draws_2d, ax=ax, smooth=False, color=COLOR_POSTERIOR,
-            fill_kwargs={"alpha": 0.3, "label": "94% HDI"})
-ax.plot(dose_grid_do, means, color=COLOR_POSTERIOR, linewidth=2,
-        label="Posterior mean", zorder=3)
-ax.plot(dose_grid, true_curve, color=COLOR_TRUE, linestyle="--", linewidth=1.5,
-        label="True curve", zorder=4)
-ax.scatter(df["dose"], df["response"], color=COLOR_DATA, s=10, alpha=0.4,
-           zorder=1)
+az.plot_hdi(
+    dose_grid_do,
+    response_draws_2d,
+    ax=ax,
+    smooth=False,
+    color=COLOR_POSTERIOR,
+    fill_kwargs={"alpha": 0.3, "label": "94% HDI"},
+)
+ax.plot(
+    dose_grid_do,
+    means,
+    color=COLOR_POSTERIOR,
+    linewidth=2,
+    label="Posterior mean",
+    zorder=3,
+)
+ax.plot(
+    dose_grid,
+    true_curve,
+    color=COLOR_TRUE,
+    linestyle="--",
+    linewidth=1.5,
+    label="True curve",
+    zorder=4,
+)
+ax.scatter(df["dose"], df["response"], color=COLOR_DATA, s=10, alpha=0.4, zorder=1)
 ax.set_xlabel("Dose")
 ax.set_ylabel("Response")
 ax.legend()
@@ -256,12 +289,18 @@ baseline = model.do(set={"dose": 2})
 increased = model.do(set={"dose": 10})
 contrast = increased - baseline
 
-print(f"Expected response at dose=2:  {baseline.mean('response'):.1f}  "
-      f"{baseline.hdi('response')}")
-print(f"Expected response at dose=10: {increased.mean('response'):.1f}  "
-      f"{increased.hdi('response')}")
-print(f"Causal effect of dose 2→10:   {contrast.mean('response'):.1f}  "
-      f"{contrast.hdi('response')}")
+print(
+    f"Expected response at dose=2:  {baseline.mean('response'):.1f}  "
+    f"{baseline.hdi('response')}"
+)
+print(
+    f"Expected response at dose=10: {increased.mean('response'):.1f}  "
+    f"{increased.hdi('response')}"
+)
+print(
+    f"Causal effect of dose 2→10:   {contrast.mean('response'):.1f}  "
+    f"{contrast.hdi('response')}"
+)
 ```
 
 The contrast gives the full posterior distribution of the causal effect, including uncertainty from all model parameters --- the coefficient `b`, the Hill parameters `n` and `K`, and the residual noise.

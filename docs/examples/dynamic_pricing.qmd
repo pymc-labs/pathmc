@@ -117,8 +117,11 @@ true_trend = 0.05
 
 true_price_effects = {r: rng.normal(true_mu_price, true_sigma_price) for r in regions}
 true_intercepts = {
-    "Metro": 100, "Suburban": 85, "Rural": 70,
-    "Coastal": 95, "College": 80,
+    "Metro": 100,
+    "Suburban": 85,
+    "Rural": 70,
+    "Coastal": 95,
+    "College": 80,
 }
 
 rows = []
@@ -146,10 +149,13 @@ for region in regions:
         )
 
         rows.append({
-            "region": region, "week": week,
-            "price": price, "demand": demand,
+            "region": region,
+            "week": week,
+            "price": price,
+            "demand": demand,
             "competitor_price": competitor_price,
-            "season": season, "trend": week,
+            "season": season,
+            "trend": week,
         })
         prev_price = price
 
@@ -169,22 +175,31 @@ true_effects_df
 ## Visualise the data
 
 ```{python}
-#| label: fig-price-demand-raw
-#| fig-cap: "Raw price vs demand across all regions. The naive positive association reflects confounding (seasonality drives both price and demand upward simultaneously), not a causal effect."
-#| code-fold: true
+# | label: fig-price-demand-raw
+# | fig-cap: "Raw price vs demand across all regions. The naive positive association reflects confounding (seasonality drives both price and demand upward simultaneously), not a causal effect."
+# | code-fold: true
 
 fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 REGION_COLORS = {
-    "Metro": "#2171b5", "Suburban": "#e6550d", "Rural": "#31a354",
-    "Coastal": "#756bb1", "College": "#e7298a",
+    "Metro": "#2171b5",
+    "Suburban": "#e6550d",
+    "Rural": "#31a354",
+    "Coastal": "#756bb1",
+    "College": "#e7298a",
 }
 
 ax = axes[0]
 for region in regions:
     d = df_raw[df_raw["region"] == region]
-    ax.scatter(d["price"], d["demand"], s=12, alpha=0.5,
-               color=REGION_COLORS[region], label=region)
+    ax.scatter(
+        d["price"],
+        d["demand"],
+        s=12,
+        alpha=0.5,
+        color=REGION_COLORS[region],
+        label=region,
+    )
 ax.set_xlabel("Price")
 ax.set_ylabel("Demand")
 ax.legend(fontsize=7)
@@ -192,7 +207,9 @@ ax.legend(fontsize=7)
 ax = axes[1]
 for region in regions:
     d = df_raw[df_raw["region"] == region]
-    ax.plot(d["week"], d["demand"], color=REGION_COLORS[region], alpha=0.7, label=region)
+    ax.plot(
+        d["week"], d["demand"], color=REGION_COLORS[region], alpha=0.7, label=region
+    )
 ax.set_xlabel("Week")
 ax.set_ylabel("Demand")
 ax.legend(fontsize=7, ncol=2)
@@ -259,8 +276,8 @@ model.equations()
 ### PyMC model graph
 
 ```{python}
-#| label: fig-pymc-graph
-#| fig-cap: "PyMC plate diagram for the hierarchical pricing model with random intercepts and random slopes for price sensitivity."
+# | label: fig-pymc-graph
+# | fig-cap: "PyMC plate diagram for the hierarchical pricing model with random intercepts and random slopes for price sensitivity."
 pm.model_to_graphviz(model.pymc_model)
 ```
 
@@ -284,28 +301,53 @@ Compare this to the naive regression, which gave a positive coefficient.
 ### Recovery of key parameters
 
 ```{python}
-beta_price = idata.posterior["beta_demand"].sel(demand_predictors="price").values.flatten()
-beta_lag = idata.posterior["beta_demand"].sel(demand_predictors="lag(price)").values.flatten()
-beta_comp = idata.posterior["beta_demand"].sel(demand_predictors="competitor_price").values.flatten()
+beta_price = (
+    idata.posterior["beta_demand"].sel(demand_predictors="price").values.flatten()
+)
+beta_lag = (
+    idata.posterior["beta_demand"].sel(demand_predictors="lag(price)").values.flatten()
+)
+beta_comp = (
+    idata
+    .posterior["beta_demand"]
+    .sel(demand_predictors="competitor_price")
+    .values.flatten()
+)
 
-print(f"Price effect:      posterior mean = {beta_price.mean():.2f}  (true = {true_mu_price})")
+print(
+    f"Price effect:      posterior mean = {beta_price.mean():.2f}  (true = {true_mu_price})"
+)
 print(f"Lagged price:      posterior mean = {beta_lag.mean():.2f}  (true = {true_lag})")
-print(f"Competitor effect:  posterior mean = {beta_comp.mean():.2f}  (true = {true_competitor})")
+print(
+    f"Competitor effect:  posterior mean = {beta_comp.mean():.2f}  (true = {true_competitor})"
+)
 ```
 
 ```{python}
-#| label: fig-price-coefficient
-#| fig-cap: "Posterior distribution of the population-level price elasticity. The naive regression estimate (red dashed) has the wrong sign; the path model correctly recovers the true negative effect (black dashed)."
-#| code-fold: true
+# | label: fig-price-coefficient
+# | fig-cap: "Posterior distribution of the population-level price elasticity. The naive regression estimate (red dashed) has the wrong sign; the path model correctly recovers the true negative effect (black dashed)."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-az.plot_kde(beta_price, ax=ax, plot_kwargs={"color": COLOR_PRICE, "lw": 2},
-            fill_kwargs={"alpha": 0.3, "color": COLOR_PRICE},
-            label="Posterior (path model)")
-ax.axvline(true_mu_price, color="black", ls="--", lw=1.5, label=f"True ({true_mu_price})")
-ax.axvline(coefs_naive[1], color="red", ls="--", lw=1.5, alpha=0.7,
-           label=f"Naive regression ({coefs_naive[1]:+.2f})")
+az.plot_kde(
+    beta_price,
+    ax=ax,
+    plot_kwargs={"color": COLOR_PRICE, "lw": 2},
+    fill_kwargs={"alpha": 0.3, "color": COLOR_PRICE},
+    label="Posterior (path model)",
+)
+ax.axvline(
+    true_mu_price, color="black", ls="--", lw=1.5, label=f"True ({true_mu_price})"
+)
+ax.axvline(
+    coefs_naive[1],
+    color="red",
+    ls="--",
+    lw=1.5,
+    alpha=0.7,
+    label=f"Naive regression ({coefs_naive[1]:+.2f})",
+)
 ax.axvline(0, color="black", ls=":", alpha=0.3)
 ax.set_xlabel("Price coefficient (units of demand per unit price)")
 ax.set_ylabel("Density")
@@ -330,9 +372,9 @@ print(f"True cumulative: {true_mu_price + true_lag:.2f}")
 ```
 
 ```{python}
-#| label: fig-cumulative-effect
-#| fig-cap: "Posterior distributions of the immediate (current-week), lagged (next-week), and cumulative (long-run) price effects on demand. The cumulative effect captures the full impact of a permanent price change."
-#| code-fold: true
+# | label: fig-cumulative-effect
+# | fig-cap: "Posterior distributions of the immediate (current-week), lagged (next-week), and cumulative (long-run) price effects on demand. The cumulative effect captures the full impact of a permanent price change."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
@@ -341,8 +383,13 @@ for draws, color, label in [
     (beta_lag, COLOR_BASELINE, "Lagged (next week)"),
     (cumulative, COLOR_DEMAND, "Cumulative (long-run)"),
 ]:
-    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
-                fill_kwargs={"alpha": 0.2, "color": color}, label=label)
+    az.plot_kde(
+        draws,
+        ax=ax,
+        plot_kwargs={"color": color, "lw": 2},
+        fill_kwargs={"alpha": 0.2, "color": color},
+        label=label,
+    )
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -359,9 +406,9 @@ The random slopes on `price` let each region deviate from the population mean.
 This reveals which regions are more or less price-sensitive — critical for region-specific pricing strategies.
 
 ```{python}
-#| label: fig-regional-elasticity
-#| fig-cap: "Posterior distributions of region-level price elasticity vs true values (black diamonds). Partial pooling shrinks extreme estimates toward the population mean (dashed line), borrowing strength across regions."
-#| code-fold: true
+# | label: fig-regional-elasticity
+# | fig-cap: "Posterior distributions of region-level price elasticity vs true values (black diamonds). Partial pooling shrinks extreme estimates toward the population mean (dashed line), borrowing strength across regions."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 1.2))
 
@@ -383,8 +430,13 @@ for i, region in enumerate(regions):
 ax.set_xticks(range(len(regions)))
 ax.set_xticklabels(regions)
 ax.set_ylabel("Price elasticity (demand per $1)")
-ax.axhline(true_mu_price, color=COLOR_PRICE, ls="--", alpha=0.5,
-           label=f"True pop. mean ({true_mu_price})")
+ax.axhline(
+    true_mu_price,
+    color=COLOR_PRICE,
+    ls="--",
+    alpha=0.5,
+    label=f"True pop. mean ({true_mu_price})",
+)
 ax.axhline(0, color="black", ls=":", alpha=0.3)
 ax.legend(fontsize=8)
 plt.tight_layout()
@@ -397,9 +449,9 @@ Regions closer to zero can absorb price increases with less demand loss.
 ### Shrinkage
 
 ```{python}
-#| label: fig-shrinkage
-#| fig-cap: "Shrinkage plot: true region-level price elasticity (x-axis) vs posterior mean (y-axis). Points pulled toward the population mean (horizontal dashed line) demonstrate partial pooling borrowing strength across regions."
-#| code-fold: true
+# | label: fig-shrinkage
+# | fig-cap: "Shrinkage plot: true region-level price elasticity (x-axis) vs posterior mean (y-axis). Points pulled toward the population mean (horizontal dashed line) demonstrate partial pooling borrowing strength across regions."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
@@ -411,11 +463,19 @@ for region in regions:
     post_means.append(region_total.mean())
 
 for i, region in enumerate(regions):
-    ax.scatter(true_vals[i], post_means[i], color=REGION_COLORS[region],
-               s=80, zorder=3, label=region)
+    ax.scatter(
+        true_vals[i],
+        post_means[i],
+        color=REGION_COLORS[region],
+        s=80,
+        zorder=3,
+        label=region,
+    )
 
-lims = [min(min(true_vals), min(post_means)) - 0.2,
-        max(max(true_vals), max(post_means)) + 0.2]
+lims = [
+    min(min(true_vals), min(post_means)) - 0.2,
+    max(max(true_vals), max(post_means)) + 0.2,
+]
 ax.plot(lims, lims, "k:", alpha=0.3, label="Perfect recovery")
 ax.axhline(beta_price.mean(), color=COLOR_PRICE, ls="--", alpha=0.3)
 ax.set_xlabel("True price elasticity")
@@ -449,11 +509,13 @@ new_price = current_price + 2.0
 
 r_baseline = model.do(
     set={"price": current_price, "competitor_price": 10.0},
-    simulate_over="time", kind="mean",
+    simulate_over="time",
+    kind="mean",
 )
 r_increase = model.do(
     set={"price": new_price, "competitor_price": 10.0},
-    simulate_over="time", kind="mean",
+    simulate_over="time",
+    kind="mean",
 )
 
 demand_impact = r_increase - r_baseline
@@ -468,22 +530,24 @@ A price increase raises revenue per unit but reduces units sold.
 The net effect depends on the elasticity: if demand is elastic (|elasticity| > 1), the volume loss outweighs the price gain.
 
 ```{python}
-#| label: fig-revenue-tradeoff
-#| fig-cap: "Revenue response to price changes via do(). Left: demand curve showing units sold at each price level. Right: revenue curve (price × demand) showing the revenue-maximizing price. The concave revenue curve reflects the trade-off between higher margins and lower volume."
-#| code-fold: true
+# | label: fig-revenue-tradeoff
+# | fig-cap: "Revenue response to price changes via do(). Left: demand curve showing units sold at each price level. Right: revenue curve (price × demand) showing the revenue-maximizing price. The concave revenue curve reflects the trade-off between higher margins and lower volume."
+# | code-fold: true
 
 price_levels = np.arange(8.0, 14.1, 0.5)
 demand_draws_list = []
 
 r_ref = model.do(
     set={"price": 10.0, "competitor_price": 10.0},
-    simulate_over="time", kind="mean",
+    simulate_over="time",
+    kind="mean",
 )
 
 for p in price_levels:
     r = model.do(
         set={"price": float(p), "competitor_price": 10.0},
-        simulate_over="time", kind="mean",
+        simulate_over="time",
+        kind="mean",
     )
     demand_draws_list.append(r.draws("demand"))
 
@@ -496,19 +560,38 @@ fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 ax = axes[0]
 ax.plot(price_levels, demand_means, "o-", color=COLOR_DEMAND, lw=2, ms=5)
-az.plot_hdi(price_levels, demand_draws_2d, ax=ax, smooth=False, color=COLOR_DEMAND, fill_kwargs={"alpha": 0.15})
+az.plot_hdi(
+    price_levels,
+    demand_draws_2d,
+    ax=ax,
+    smooth=False,
+    color=COLOR_DEMAND,
+    fill_kwargs={"alpha": 0.15},
+)
 ax.set_xlabel("Price ($)")
 ax.set_ylabel("Expected demand (units)")
 
 ax = axes[1]
 ax.plot(price_levels, revenue_means, "s-", color=COLOR_PRICE, lw=2, ms=5)
-az.plot_hdi(price_levels, revenue_draws_2d, ax=ax, smooth=False, color=COLOR_PRICE, fill_kwargs={"alpha": 0.15})
+az.plot_hdi(
+    price_levels,
+    revenue_draws_2d,
+    ax=ax,
+    smooth=False,
+    color=COLOR_PRICE,
+    fill_kwargs={"alpha": 0.15},
+)
 ax.set_xlabel("Price ($)")
 ax.set_ylabel("Expected revenue ($)")
 
 best_idx = np.argmax(revenue_means)
-ax.axvline(price_levels[best_idx], color=COLOR_PRICE, ls="--", alpha=0.5,
-           label=f"Revenue-maximizing: ${price_levels[best_idx]:.1f}")
+ax.axvline(
+    price_levels[best_idx],
+    color=COLOR_PRICE,
+    ls="--",
+    alpha=0.5,
+    label=f"Revenue-maximizing: ${price_levels[best_idx]:.1f}",
+)
 ax.legend(fontsize=8)
 
 plt.tight_layout()

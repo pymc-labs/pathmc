@@ -54,9 +54,9 @@ df = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
 Before fitting any models, we can see the confounding directly. @fig-seeing-doing-scatter shows that the slope of Y on X in the raw data (the "seeing" slope) is steeper than the true causal effect. High-X individuals tend to have high Z, which independently raises Y — inflating the apparent relationship.
 
 ```{python}
-#| label: fig-seeing-doing-scatter
-#| fig-cap: "Scatter of X vs Y colored by the confounder Z. The raw regression slope (gray dashed) is steeper than the true causal effect (black dashed) because high-Z observations (yellow) push both X and Y upward simultaneously."
-#| code-fold: true
+# | label: fig-seeing-doing-scatter
+# | fig-cap: "Scatter of X vs Y colored by the confounder Z. The raw regression slope (gray dashed) is steeper than the true causal effect (black dashed) because high-Z observations (yellow) push both X and Y upward simultaneously."
+# | code-fold: true
 
 FIG_WIDTH = 7
 FIG_HEIGHT = 4
@@ -70,10 +70,22 @@ cbar = plt.colorbar(scatter, ax=ax, label="Confounder Z")
 
 raw_coeffs = polyfit(X, Y, 1)
 x_range = np.linspace(X.min(), X.max(), 100)
-ax.plot(x_range, raw_coeffs[0] + raw_coeffs[1] * x_range, "--", color="gray",
-        linewidth=2, label=f"Raw slope = {raw_coeffs[1]:.2f} (seeing)")
-ax.plot(x_range, np.mean(Y) + TRUE_EFFECT * (x_range - np.mean(X)), "--", color="black",
-        linewidth=2, label=f"True causal slope = {TRUE_EFFECT} (doing)")
+ax.plot(
+    x_range,
+    raw_coeffs[0] + raw_coeffs[1] * x_range,
+    "--",
+    color="gray",
+    linewidth=2,
+    label=f"Raw slope = {raw_coeffs[1]:.2f} (seeing)",
+)
+ax.plot(
+    x_range,
+    np.mean(Y) + TRUE_EFFECT * (x_range - np.mean(X)),
+    "--",
+    color="black",
+    linewidth=2,
+    label=f"True causal slope = {TRUE_EFFECT} (doing)",
+)
 
 ax.set_xlabel("X")
 ax.set_ylabel("Y")
@@ -99,8 +111,12 @@ y_see_hi = df.loc[hi_mask, "Y"].mean()
 z_see_lo = df.loc[lo_mask, "Z"].mean()
 z_see_hi = df.loc[hi_mask, "Z"].mean()
 
-print(f"E[Y | X ≈ 0] = {y_see_lo:.3f}   (n = {lo_mask.sum()},  mean Z in window = {z_see_lo:.2f})")
-print(f"E[Y | X ≈ 1] = {y_see_hi:.3f}   (n = {hi_mask.sum()},  mean Z in window = {z_see_hi:.2f})")
+print(
+    f"E[Y | X ≈ 0] = {y_see_lo:.3f}   (n = {lo_mask.sum()},  mean Z in window = {z_see_lo:.2f})"
+)
+print(
+    f"E[Y | X ≈ 1] = {y_see_hi:.3f}   (n = {hi_mask.sum()},  mean Z in window = {z_see_hi:.2f})"
+)
 print(f"Seeing difference:  {y_see_hi - y_see_lo:.3f}")
 print(f"True causal effect: {TRUE_EFFECT}")
 ```
@@ -147,9 +163,9 @@ print(f"94% HDI:                  {ate.hdi('Y', prob=0.94)}")
 ```
 
 ```{python}
-#| label: fig-seeing-vs-doing-confounded
-#| fig-cap: "Under confounding, the conditional difference (seeing) overestimates the causal effect by more than 2×. The do-operator recovers the true effect of 0.4. Black dashed line marks the true DGP value."
-#| code-fold: true
+# | label: fig-seeing-vs-doing-confounded
+# | fig-cap: "Under confounding, the conditional difference (seeing) overestimates the causal effect by more than 2×. The do-operator recovers the true effect of 0.4. Black dashed line marks the true DGP value."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
@@ -158,15 +174,28 @@ causal_hdi = ate.hdi("Y", prob=0.94)
 seeing_diff = y_see_hi - y_see_lo
 
 ax.errorbar(
-    seeing_diff, 1,
-    fmt="s", color="C3", markersize=8, label="Seeing (conditional difference)",
+    seeing_diff,
+    1,
+    fmt="s",
+    color="C3",
+    markersize=8,
+    label="Seeing (conditional difference)",
 )
 ax.errorbar(
-    causal_val, 0,
+    causal_val,
+    0,
     xerr=[[causal_val - causal_hdi[0]], [causal_hdi[1] - causal_val]],
-    fmt="o", color="C0", capsize=5, label="Doing (do-operator ATE)",
+    fmt="o",
+    color="C0",
+    capsize=5,
+    label="Doing (do-operator ATE)",
 )
-ax.axvline(TRUE_EFFECT, color="black", linestyle="--", label=f"True causal effect ({TRUE_EFFECT})")
+ax.axvline(
+    TRUE_EFFECT,
+    color="black",
+    linestyle="--",
+    label=f"True causal effect ({TRUE_EFFECT})",
+)
 ax.set_yticks([0, 1])
 ax.set_yticklabels(["do(X=1) − do(X=0)", "E[Y|X≈1] − E[Y|X≈0]"])
 ax.set_xlabel("Effect of X on Y")
@@ -203,9 +232,9 @@ print(f"True effect:           {TRUE_EFFECT}")
 ```
 
 ```{python}
-#| label: fig-seeing-vs-doing-unconfounded
-#| fig-cap: "Without confounding (randomized X), the OLS slope and the do-operator agree — both recover the true causal effect of 0.4."
-#| code-fold: true
+# | label: fig-seeing-vs-doing-unconfounded
+# | fig-cap: "Without confounding (randomized X), the OLS slope and the do-operator agree — both recover the true causal effect of 0.4."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
@@ -213,15 +242,28 @@ rand_val = ate_rand.mean("Y")
 rand_hdi = ate_rand.hdi("Y", prob=0.94)
 
 ax.errorbar(
-    seeing_slope, 1,
-    fmt="s", color="C1", markersize=8, label="Seeing (OLS slope)",
+    seeing_slope,
+    1,
+    fmt="s",
+    color="C1",
+    markersize=8,
+    label="Seeing (OLS slope)",
 )
 ax.errorbar(
-    rand_val, 0,
+    rand_val,
+    0,
     xerr=[[rand_val - rand_hdi[0]], [rand_hdi[1] - rand_val]],
-    fmt="o", color="C0", capsize=5, label="Doing (do-operator ATE)",
+    fmt="o",
+    color="C0",
+    capsize=5,
+    label="Doing (do-operator ATE)",
 )
-ax.axvline(TRUE_EFFECT, color="black", linestyle="--", label=f"True causal effect ({TRUE_EFFECT})")
+ax.axvline(
+    TRUE_EFFECT,
+    color="black",
+    linestyle="--",
+    label=f"True causal effect ({TRUE_EFFECT})",
+)
 ax.set_yticks([0, 1])
 ax.set_yticklabels(["do(X=1) − do(X=0)", "OLS slope"])
 ax.set_xlabel("Effect of X on Y")
@@ -319,8 +361,12 @@ r_pred = model.do(set={"X": 1.0}, kind="predictive")
 hdi_mean = r_mean.hdi("Y")
 hdi_pred = r_pred.hdi("Y")
 
-print(f"Mean propagation  - 94% HDI: [{hdi_mean[0]:.3f}, {hdi_mean[1]:.3f}]  width={hdi_mean[1]-hdi_mean[0]:.3f}")
-print(f"Predictive draws  - 94% HDI: [{hdi_pred[0]:.3f}, {hdi_pred[1]:.3f}]  width={hdi_pred[1]-hdi_pred[0]:.3f}")
+print(
+    f"Mean propagation  - 94% HDI: [{hdi_mean[0]:.3f}, {hdi_mean[1]:.3f}]  width={hdi_mean[1] - hdi_mean[0]:.3f}"
+)
+print(
+    f"Predictive draws  - 94% HDI: [{hdi_pred[0]:.3f}, {hdi_pred[1]:.3f}]  width={hdi_pred[1] - hdi_pred[0]:.3f}"
+)
 ```
 
 The predictive HDI is wider because it includes residual variation around the regression line.
@@ -348,6 +394,7 @@ X_att = rng_att.normal(size=n_att)
 prob_T = 1 / (1 + np.exp(-truth["confounder_on_trt"] * X_att))
 T_att = (rng_att.uniform(size=n_att) < prob_T).astype(float)
 
+
 def expected_y(T_val, X_val):
     return (
         truth["treatment_effect"] * T_val
@@ -355,14 +402,19 @@ def expected_y(T_val, X_val):
         + truth["interaction_effect"] * T_val * X_val
     )
 
+
 noise_att = rng_att.normal(scale=0.5, size=n_att)
 Y_att = expected_y(T_att, X_att) + noise_att
 
 df_att = pd.DataFrame({"X": X_att, "T": T_att, "Y": Y_att})
 
 truth["true_ate"] = (expected_y(1, X_att) - expected_y(0, X_att)).mean()
-truth["true_att"] = (expected_y(1, X_att[T_att == 1]) - expected_y(0, X_att[T_att == 1])).mean()
-truth["true_atu"] = (expected_y(1, X_att[T_att == 0]) - expected_y(0, X_att[T_att == 0])).mean()
+truth["true_att"] = (
+    expected_y(1, X_att[T_att == 1]) - expected_y(0, X_att[T_att == 1])
+).mean()
+truth["true_atu"] = (
+    expected_y(1, X_att[T_att == 0]) - expected_y(0, X_att[T_att == 0])
+).mean()
 
 print(f"True ATE: {truth['true_ate']:.3f}")
 print(f"True ATT: {truth['true_att']:.3f}")

@@ -25,14 +25,12 @@ pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.fixture()
 def panel_df():
     """Simple two-unit, four-period panel."""
-    return pd.DataFrame(
-        {
-            "region": ["A", "A", "A", "A", "B", "B", "B", "B"],
-            "week": [1, 2, 3, 4, 1, 2, 3, 4],
-            "sales": [10, 20, 30, 40, 50, 60, 70, 80],
-            "spend": [1, 2, 3, 4, 5, 6, 7, 8],
-        }
-    )
+    return pd.DataFrame({
+        "region": ["A", "A", "A", "A", "B", "B", "B", "B"],
+        "week": [1, 2, 3, 4, 1, 2, 3, 4],
+        "sales": [10, 20, 30, 40, 50, 60, 70, 80],
+        "spend": [1, 2, 3, 4, 5, 6, 7, 8],
+    })
 
 
 class TestLagValues:
@@ -105,13 +103,11 @@ class TestSorting:
     """Output is sorted by unit then time."""
 
     def test_unsorted_input_is_sorted(self):
-        df = pd.DataFrame(
-            {
-                "region": ["B", "A", "B", "A"],
-                "week": [2, 1, 1, 2],
-                "sales": [60, 10, 50, 20],
-            }
-        )
+        df = pd.DataFrame({
+            "region": ["B", "A", "B", "A"],
+            "week": [2, 1, 1, 2],
+            "sales": [60, 10, 50, 20],
+        })
         result = pathmc.add_lags(
             df,
             variables=["sales"],
@@ -166,9 +162,11 @@ class TestEdgeCases:
     """Edge cases."""
 
     def test_single_unit(self):
-        df = pd.DataFrame(
-            {"region": ["A", "A", "A"], "week": [1, 2, 3], "sales": [10, 20, 30]}
-        )
+        df = pd.DataFrame({
+            "region": ["A", "A", "A"],
+            "week": [1, 2, 3],
+            "sales": [10, 20, 30],
+        })
         result = pathmc.add_lags(
             df,
             variables=["sales"],

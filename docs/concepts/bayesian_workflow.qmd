@@ -107,9 +107,9 @@ ppc_default = model.sample_prior_predictive(draws=500, random_seed=42)
 ```
 
 ```{python}
-#| label: fig-ppc-default
-#| fig-cap: "Prior predictive distribution of Y under default priors. The tails extend well beyond the observed data range, indicating the model considers extreme outcomes plausible."
-#| code-fold: true
+# | label: fig-ppc-default
+# | fig-cap: "Prior predictive distribution of Y under default priors. The tails extend well beyond the observed data range, indicating the model considers extreme outcomes plausible."
+# | code-fold: true
 
 import matplotlib.pyplot as plt
 import arviz as az
@@ -122,11 +122,20 @@ COLOR_CUSTOM = "#d95f02"
 y_prior = ppc_default.prior["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_kde(y_prior, ax=ax, plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
-            fill_kwargs={"alpha": 0.6, "color": COLOR_DEFAULT},
-            label="Prior predictive (defaults)")
-ax.axvline(df["Y"].mean(), color="black", linestyle="--", linewidth=1.5,
-           label=f"Observed mean = {df['Y'].mean():.2f}")
+az.plot_kde(
+    y_prior,
+    ax=ax,
+    plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
+    fill_kwargs={"alpha": 0.6, "color": COLOR_DEFAULT},
+    label="Prior predictive (defaults)",
+)
+ax.axvline(
+    df["Y"].mean(),
+    color="black",
+    linestyle="--",
+    linewidth=1.5,
+    label=f"Observed mean = {df['Y'].mean():.2f}",
+)
 ax.set_xlabel("Y")
 ax.set_ylabel("Density")
 ax.legend()
@@ -159,22 +168,35 @@ ppc_custom = model.sample_prior_predictive(draws=500, random_seed=42)
 ```
 
 ```{python}
-#| label: fig-ppc-comparison
-#| fig-cap: "Prior predictive distributions under default (green) and refined (orange) priors. The refined priors concentrate mass in the plausible range."
-#| code-fold: true
+# | label: fig-ppc-comparison
+# | fig-cap: "Prior predictive distributions under default (green) and refined (orange) priors. The refined priors concentrate mass in the plausible range."
+# | code-fold: true
 
 y_default = ppc_default.prior["Y"].values.flatten()
 y_custom = ppc_custom.prior["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_kde(y_default, ax=ax, plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
-            fill_kwargs={"alpha": 0.45, "color": COLOR_DEFAULT},
-            label="Default priors")
-az.plot_kde(y_custom, ax=ax, plot_kwargs={"color": COLOR_CUSTOM, "lw": 2},
-            fill_kwargs={"alpha": 0.55, "color": COLOR_CUSTOM},
-            label="Refined priors")
-ax.axvline(df["Y"].mean(), color="black", linestyle="--", linewidth=1.5,
-           label=f"Observed mean = {df['Y'].mean():.2f}")
+az.plot_kde(
+    y_default,
+    ax=ax,
+    plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
+    fill_kwargs={"alpha": 0.45, "color": COLOR_DEFAULT},
+    label="Default priors",
+)
+az.plot_kde(
+    y_custom,
+    ax=ax,
+    plot_kwargs={"color": COLOR_CUSTOM, "lw": 2},
+    fill_kwargs={"alpha": 0.55, "color": COLOR_CUSTOM},
+    label="Refined priors",
+)
+ax.axvline(
+    df["Y"].mean(),
+    color="black",
+    linestyle="--",
+    linewidth=1.5,
+    label=f"Observed mean = {df['Y'].mean():.2f}",
+)
 ax.set_xlabel("Y")
 ax.set_ylabel("Density")
 ax.legend()
@@ -223,20 +245,28 @@ model.effects_summary()
 Can the fitted model reproduce the observed data?
 
 ```{python}
-#| label: fig-ppc-posterior
-#| fig-cap: "Posterior predictive check: distribution of predicted Y values (orange) vs observed Y values (green)."
-#| code-fold: true
+# | label: fig-ppc-posterior
+# | fig-cap: "Posterior predictive check: distribution of predicted Y values (orange) vs observed Y values (green)."
+# | code-fold: true
 
 pp = model.predict()
 y_pred = pp.posterior_predictive["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_kde(df["Y"].values, ax=ax, plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
-            fill_kwargs={"alpha": 0.5, "color": COLOR_DEFAULT},
-            label="Observed Y")
-az.plot_kde(y_pred, ax=ax, plot_kwargs={"color": COLOR_CUSTOM, "lw": 2},
-            fill_kwargs={"alpha": 0.5, "color": COLOR_CUSTOM},
-            label="Posterior predictive Y")
+az.plot_kde(
+    df["Y"].values,
+    ax=ax,
+    plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
+    fill_kwargs={"alpha": 0.5, "color": COLOR_DEFAULT},
+    label="Observed Y",
+)
+az.plot_kde(
+    y_pred,
+    ax=ax,
+    plot_kwargs={"color": COLOR_CUSTOM, "lw": 2},
+    fill_kwargs={"alpha": 0.5, "color": COLOR_CUSTOM},
+    label="Posterior predictive Y",
+)
 ax.set_xlabel("Y")
 ax.set_ylabel("Density")
 ax.legend()

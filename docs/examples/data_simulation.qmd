@@ -44,7 +44,7 @@ seed = sum(map(ord, "simple regression"))
 rng = np.random.default_rng(seed)
 
 truth_simple = {
-    "beta_Y": [2.0, 0.8],   # Intercept=2.0, slope=0.8
+    "beta_Y": [2.0, 0.8],  # Intercept=2.0, slope=0.8
     "sigma_Y": 1.0,
 }
 
@@ -63,9 +63,9 @@ df_simple.head()
 The returned DataFrame contains the original exogenous column `X` plus the simulated outcome `Y`.
 
 ```{python}
-#| label: fig-simple-scatter
-#| fig-cap: "Simulated data from Y ~ X with known intercept (2.0) and slope (0.8). Black dashed line shows the true regression function."
-#| code-fold: true
+# | label: fig-simple-scatter
+# | fig-cap: "Simulated data from Y ~ X with known intercept (2.0) and slope (0.8). Black dashed line shows the true regression function."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 ax.scatter(df_simple["X"], df_simple["Y"], alpha=0.3, s=15, color="C0")
@@ -115,7 +115,7 @@ digraph {
 
 ```{python}
 truth_med = {
-    "beta_M": [0.0, 0.5],       # M = 0.0 + 0.5*X + noise
+    "beta_M": [0.0, 0.5],  # M = 0.0 + 0.5*X + noise
     "sigma_M": 0.5,
     "beta_Y": [1.0, 0.8, 0.3],  # Y = 1.0 + 0.8*M + 0.3*X + noise
     "sigma_Y": 0.5,
@@ -123,8 +123,8 @@ truth_med = {
 
 # Derived truths
 true_indirect = truth_med["beta_M"][1] * truth_med["beta_Y"][1]  # a*b
-true_direct = truth_med["beta_Y"][2]                              # c
-true_total = true_direct + true_indirect                          # c + a*b
+true_direct = truth_med["beta_Y"][2]  # c
+true_total = true_direct + true_indirect  # c + a*b
 
 print(f"True indirect effect (a×b): {true_indirect:.2f}")
 print(f"True direct effect (c):     {true_direct:.2f}")
@@ -172,9 +172,9 @@ print(model_med.effect("X -> Y"))
 ```
 
 ```{python}
-#| label: fig-mediation-recovery
-#| fig-cap: "Parameter recovery for the mediation model. Black dashed lines mark the true values used in simulation."
-#| code-fold: true
+# | label: fig-mediation-recovery
+# | fig-cap: "Parameter recovery for the mediation model. Black dashed lines mark the true values used in simulation."
+# | code-fold: true
 
 import arviz as az
 
@@ -187,7 +187,17 @@ params_to_check = {
 
 fig, axes = plt.subplots(1, 3, figsize=(FIG_WIDTH, FIG_HEIGHT * 0.8))
 for ax, (label, (param, idx, true_val)) in zip(axes, params_to_check.items()):
-    draws = idata.posterior[param].sel({f"{param.split('_')[1]}_predictors": idata.posterior[param].coords[f"{param.split('_')[1]}_predictors"].values[idx]}).values.flatten()
+    draws = (
+        idata
+        .posterior[param]
+        .sel({
+            f"{param.split('_')[1]}_predictors": idata
+            .posterior[param]
+            .coords[f"{param.split('_')[1]}_predictors"]
+            .values[idx]
+        })
+        .values.flatten()
+    )
     az.plot_kde(draws, ax=ax)
     ax.axvline(true_val, color="k", ls="--", lw=1.5)
     ax.set_title(label)
@@ -242,9 +252,9 @@ print(f"Outcome values: {sorted(df_bin['Y'].unique())}")
 ```
 
 ```{python}
-#| label: fig-binary-scatter
-#| fig-cap: "Simulated binary outcome colored by Y. The decision boundary (P(Y=1) = 0.5) is shown as a black dashed line."
-#| code-fold: true
+# | label: fig-binary-scatter
+# | fig-cap: "Simulated binary outcome colored by Y. The decision boundary (P(Y=1) = 0.5) is shown as a black dashed line."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 colors = ["C3" if y == 1 else "C0" for y in df_bin["Y"]]
@@ -252,16 +262,35 @@ ax.scatter(df_bin["X1"], df_bin["X2"], c=colors, alpha=0.3, s=15)
 
 # Decision boundary: -0.5 + 1.2*X1 - 0.8*X2 = 0  →  X2 = (-0.5 + 1.2*X1) / 0.8
 x1_grid = np.linspace(df_bin["X1"].min(), df_bin["X1"].max(), 100)
-x2_boundary = (truth_bin["beta_Y"][0] + truth_bin["beta_Y"][1] * x1_grid) / -truth_bin["beta_Y"][2]
+x2_boundary = (truth_bin["beta_Y"][0] + truth_bin["beta_Y"][1] * x1_grid) / -truth_bin[
+    "beta_Y"
+][2]
 ax.plot(x1_grid, x2_boundary, "k--", lw=2, label="Decision boundary (P=0.5)")
 ax.set_xlabel("X1")
 ax.set_ylabel("X2")
 
 from matplotlib.lines import Line2D
+
 legend_elements = [
-    Line2D([0], [0], marker='o', color='w', markerfacecolor='C0', markersize=8, label='Y = 0'),
-    Line2D([0], [0], marker='o', color='w', markerfacecolor='C3', markersize=8, label='Y = 1'),
-    Line2D([0], [0], color='k', ls='--', lw=2, label='Decision boundary'),
+    Line2D(
+        [0],
+        [0],
+        marker="o",
+        color="w",
+        markerfacecolor="C0",
+        markersize=8,
+        label="Y = 0",
+    ),
+    Line2D(
+        [0],
+        [0],
+        marker="o",
+        color="w",
+        markerfacecolor="C3",
+        markersize=8,
+        label="Y = 1",
+    ),
+    Line2D([0], [0], color="k", ls="--", lw=2, label="Decision boundary"),
 ]
 ax.legend(handles=legend_elements)
 plt.show()

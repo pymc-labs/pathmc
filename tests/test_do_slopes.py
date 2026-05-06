@@ -44,15 +44,13 @@ def panel_df():
             spend = rng.uniform(5, 30)
             slopes = {"A": 1.0, "B": 2.0, "C": 3.0}
             sales = 50 + slopes[region] * spend + 0.1 * week + rng.normal(scale=1.0)
-            rows.append(
-                {
-                    "region": region,
-                    "week": week,
-                    "spend": spend,
-                    "trend": week,
-                    "sales": sales,
-                }
-            )
+            rows.append({
+                "region": region,
+                "week": week,
+                "spend": spend,
+                "trend": week,
+                "sales": sales,
+            })
     return pd.DataFrame(rows)
 
 

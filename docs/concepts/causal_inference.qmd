@@ -112,9 +112,9 @@ model.fit(draws=1000, chains=2)
 baseline = model.do(set={"X": 0.0})
 treatment = model.do(set={"X": 1.0})
 
-ate = treatment - baseline        # contrast arithmetic
-ate.mean("Y")                     # posterior mean of the ATE
-ate.hdi("Y", prob=0.94)           # 94% highest density interval
+ate = treatment - baseline  # contrast arithmetic
+ate.mean("Y")  # posterior mean of the ATE
+ate.hdi("Y", prob=0.94)  # 94% highest density interval
 ```
 
 The result is a full posterior distribution over the causal effect, computed via PyMC graph surgery on the generative model.
@@ -136,8 +136,8 @@ pathmc provides convenience methods for common causal estimands, built on top of
 
 ```python
 ate = model.ate("Y", "X", values=(0.0, 1.0))
-ate.mean("Y")       # E[Y | do(X=1)] - E[Y | do(X=0)]
-ate.hdi("Y")        # 94% HDI of the ATE
+ate.mean("Y")  # E[Y | do(X=1)] - E[Y | do(X=0)]
+ate.hdi("Y")  # 94% HDI of the ATE
 ```
 
 ### Conditional average treatment effect
@@ -146,7 +146,7 @@ ate.hdi("Y")        # 94% HDI of the ATE
 
 ```python
 cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": 2.0})
-cate.mean("Y")      # ATE of X on Y, with Z fixed at 2
+cate.mean("Y")  # ATE of X on Y, with Z fixed at 2
 ```
 
 ### Average treatment effect on the treated (ATT)
@@ -155,7 +155,7 @@ cate.mean("Y")      # ATE of X on Y, with Z fixed at 2
 
 ```python
 att = model.att("Y", "T", values=(0.0, 1.0), treated_value=1.0)
-att.mean("Y")       # E[Y(1) - Y(0) | T = 1]
+att.mean("Y")  # E[Y(1) - Y(0) | T = 1]
 ```
 
 ATT answers: *"Among those who were treated, what was the average effect of the treatment?"* This is a natural estimand for evaluating a policy that has already been deployed — you want to know how much it helped the people it actually reached, not a hypothetical random population.
@@ -166,7 +166,7 @@ ATT answers: *"Among those who were treated, what was the average effect of the 
 
 ```python
 atu = model.atu("Y", "T", values=(0.0, 1.0), untreated_value=0.0)
-atu.mean("Y")       # E[Y(1) - Y(0) | T = 0]
+atu.mean("Y")  # E[Y(1) - Y(0) | T = 0]
 ```
 
 ATU answers: *"If we extended the treatment to those who did not receive it, what effect would we expect?"* This is useful for policy expansion decisions.
@@ -189,7 +189,7 @@ When treatment assignment is correlated with these effect-modifying covariates (
 `.prob()` computes `P(expression | do(set))` using predictive draws:
 
 ```python
-model.prob("Y > 0", set={"X": 1.0})   # fraction of draws where Y > 0
+model.prob("Y > 0", set={"X": 1.0})  # fraction of draws where Y > 0
 ```
 
 ## Standardized effects
@@ -231,7 +231,7 @@ When backdoor identification fails because of an unmeasured confounder, the fron
 ```python
 identifiable, message = model.frontdoor_identifiable("X", "M", "Y")
 print(identifiable)  # True / False
-print(message)       # Diagnostic explaining the result
+print(message)  # Diagnostic explaining the result
 ```
 
 The three conditions are: (1) `M` intercepts all directed paths from `X` to `Y`, (2) there is no unblocked backdoor path from `X` to `M`, and (3) all backdoor paths from `M` to `Y` are blocked by conditioning on `X`. See the [front-door section](../examples/causal_identification.qmd#sec-front-door) for a worked demonstration.

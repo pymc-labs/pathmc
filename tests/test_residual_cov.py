@@ -55,13 +55,11 @@ class TestResidualCovGuards:
         """~~ between a Bernoulli and a Gaussian outcome should raise."""
         spec = "Y1 ~ X\nY2 ~ X\nY1 ~~ Y2"
         rng = np.random.default_rng(99)
-        data = pd.DataFrame(
-            {
-                "X": rng.normal(size=100),
-                "Y1": rng.binomial(1, 0.5, size=100).astype(float),
-                "Y2": rng.normal(size=100),
-            }
-        )
+        data = pd.DataFrame({
+            "X": rng.normal(size=100),
+            "Y1": rng.binomial(1, 0.5, size=100).astype(float),
+            "Y2": rng.normal(size=100),
+        })
         with pytest.raises(
             Exception, match="(?i)(gaussian|continuous|family|bernoulli|covariance)"
         ):
