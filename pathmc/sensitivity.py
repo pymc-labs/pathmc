@@ -27,7 +27,7 @@ would need to be to overturn the causal conclusion.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import arviz as az
 import numpy as np
@@ -144,7 +144,7 @@ class SensitivityResult:
         if ax is None:
             fig, ax = plt.subplots(figsize=(8, 6))
         else:
-            fig = ax.get_figure()
+            fig = cast("matplotlib.figure.Figure", ax.get_figure())
 
         G, D = np.meshgrid(self.gamma_values, self.delta_values, indexing="ij")
 
@@ -250,15 +250,15 @@ def compute_sensitivity(
     flat_bias = bias_grid.ravel()
 
     if abs(observed_mean) < 1e-15:
-        prob_sign = np.full_like(flat_bias, 0.5)
+        prob_sign_flat = np.full(flat_bias.shape, 0.5, dtype=float)
     elif observed_mean > 0:
         idx = np.searchsorted(sorted_draws, flat_bias).astype(float)
-        prob_sign = idx / n_draws
+        prob_sign_flat = idx / n_draws
     else:
         idx = np.searchsorted(sorted_draws, flat_bias, side="right").astype(float)
-        prob_sign = 1.0 - idx / n_draws
+        prob_sign_flat = 1.0 - idx / n_draws
 
-    prob_sign = prob_sign.reshape(G.shape)
+    prob_sign = prob_sign_flat.reshape(G.shape)
 
     return SensitivityResult(
         outcome=outcome,

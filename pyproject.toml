@@ -49,7 +49,7 @@ Documentation = "https://pymc-labs.github.io/pathmc/"
 Issues = "https://github.com/pymc-labs/pathmc/issues"
 
 [project.optional-dependencies]
-dev = ["mypy", "prek", "pytest", "ruff"]
+dev = ["build", "mypy", "prek", "pytest", "ruff"]
 docs = ["ipykernel", "jupyter", "pyyaml"]
 samplers = ["nutpie", "numpyro", "jax"]
 
@@ -83,6 +83,7 @@ module = [
     "patsy.*",
     "pymc.*",
     "pymc_marketing.*",
+    "pymc_extras.*",
     "pytensor.*",
     "graphviz.*",
     "scipy.*",

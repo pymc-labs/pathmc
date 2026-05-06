@@ -29,22 +29,30 @@ Update after changes to `environment.yml`:
 conda env update -f environment.yml --prune
 ```
 
+Install pathmc in editable mode with development dependencies and hooks:
+
+```bash
+make setup
+```
+
+Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, environment sync, and build targets.
+
 ### Changing dependencies
 
-Edit dependency metadata in `pyproject.toml`, not `environment.yml`. The conda environment file is generated from `pyproject.toml`; run `prek run pyproject2conda-yaml --all-files` after dependency changes, or let the pre-commit hook regenerate it.
+Edit dependency metadata in `pyproject.toml`, not `environment.yml`. The conda environment file is generated from `pyproject.toml`; run `make sync-env` after dependency changes, or let the pre-commit hook regenerate it.
 
 ## Tests
 
 Run fast tests only (no MCMC sampling):
 
 ```bash
-pytest -x -v -m "not slow"
+make test-fast
 ```
 
 Run all tests including slow integration tests:
 
 ```bash
-pytest -x -v
+make test
 ```
 
 Run a specific milestone's gate tests:
@@ -74,7 +82,7 @@ quarto preview
 Build the static site to `docs/_site/`:
 
 ```bash
-quarto render docs/
+make docs
 ```
 
 ### Rendering after code changes
@@ -91,5 +99,5 @@ quarto render docs/examples/<notebook_name>.qmd
 Full rebuild from scratch (clears all caches):
 
 ```bash
-rm -rf docs/_freeze docs/.quarto && quarto render docs/
+make cleandocs && make docs
 ```

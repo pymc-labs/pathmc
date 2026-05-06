@@ -1,6 +1,9 @@
 *.DS_Store
 __pycache__/
 *.egg-info/
+build/
+dist/
+.build-check/
 .pytest_cache/
 docs/_site/
 /docs/site_libs

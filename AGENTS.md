@@ -18,7 +18,7 @@ All v1 milestones (M1–M31) are complete. See `docs/dev/roadmap_post_v1.md` for
 2. Run the milestone's gate tests: `pytest tests/test_<module>.py -x -v`
 3. Implement until all gate tests pass.
 4. **Do not modify test files.**
-5. Run `ruff check --fix && ruff format` before considering a milestone done.
+5. Run `make lint` before considering a milestone done.
 6. Move to the next milestone.
 
 ## Required Module Structure
@@ -66,7 +66,7 @@ The docs site uses `execute: freeze: auto` in `docs/_quarto.yml`, which caches n
 rm -rf docs/_freeze/examples/<notebook_name> docs/.quarto/_freeze/examples/<notebook_name>
 
 # Full rebuild from scratch
-rm -rf docs/_freeze docs/.quarto && quarto render docs/
+make cleandocs && make docs
 ```
 
 Without this, Quarto will serve stale cached figures/outputs even though the underlying code has changed.
@@ -75,13 +75,13 @@ Without this, Quarto will serve stale cached figures/outputs even though the und
 
 ```bash
 # Fast tests only (no MCMC sampling)
-pytest -x -v -m "not slow"
+make test-fast
 
 # Specific milestone gate
 pytest tests/test_parse.py -x -v
 
 # All tests including slow (sampling) tests
-pytest -x -v
+make test
 
 # Single test class
 pytest tests/test_compile.py::TestDesignMatrix -x -v
