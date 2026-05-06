@@ -5,15 +5,15 @@ changelog:
     labels:
       - wontfix
   categories:
-    - title: New features and enhancements
+    - title: New Features 🎉
       labels:
         - enhancement
-    - title: Bug fixes
+    - title: Bugfixes 🐛
       labels:
         - bug
-    - title: Documentation
+    - title: Documentation 📖
       labels:
         - documentation
-    - title: Maintenance
+    - title: Maintenance 🔧
       labels:
         - "*"
