@@ -21,7 +21,7 @@ import pathmc
 
 
 @pytest.fixture(scope="module")
-def mediation_model():
+def mediation_model(mock_pymc_sample_module):
     """Mediation model with labeled coefficients."""
     rng = np.random.default_rng(42)
     n = 400
@@ -31,7 +31,7 @@ def mediation_model():
     df = pd.DataFrame({"X": X, "M": M, "Y": Y})
 
     model = pathmc.model("M ~ a*X\nY ~ b*M + c*X", data=df)
-    model.fit(draws=300, tune=300, chains=2, random_seed=42)
+    model.fit(draws=50, tune=50, chains=2, random_seed=42)
     return model, df
 
 

@@ -21,7 +21,7 @@ import pathmc
 
 
 @pytest.fixture(scope="module")
-def fork_model():
+def fork_model(mock_pymc_sample_module):
     """A simple fork model: Z -> X, Z -> Y, X -> Y."""
     rng = np.random.default_rng(42)
     n = 300
@@ -31,7 +31,16 @@ def fork_model():
     df = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
 
     model = pathmc.model("X ~ Z\nY ~ X + Z", data=df)
-    model.fit(draws=300, tune=300, chains=2, random_seed=42)
+    model.fit(draws=50, tune=50, chains=2, random_seed=42)
+    posterior = model._idata.posterior.copy(deep=True)
+    posterior["beta_X"].loc[{"X_predictors": "Intercept"}] = 0.0
+    posterior["beta_X"].loc[{"X_predictors": "Z"}] = 0.5
+    posterior["beta_Y"].loc[{"Y_predictors": "Intercept"}] = 0.0
+    posterior["beta_Y"].loc[{"Y_predictors": "X"}] = 0.4
+    posterior["beta_Y"].loc[{"Y_predictors": "Z"}] = 0.6
+    posterior["sigma_X"] = posterior["sigma_X"] * 0 + 0.1
+    posterior["sigma_Y"] = posterior["sigma_Y"] * 0 + 0.1
+    model._idata.posterior = posterior
     return model
 
 

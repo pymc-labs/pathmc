@@ -20,7 +20,7 @@ import pytest
 import pathmc
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def panel_lag_data():
     """Panel with lagged structure: sales ~ lag(spend), 3 regions, 15 weeks."""
     rng = np.random.default_rng(42)
@@ -42,7 +42,7 @@ def panel_lag_data():
     return pd.DataFrame(rows)
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def panel_lag_model(panel_lag_data):
     """Fitted panel model with lag structure."""
     model = pathmc.model(
@@ -83,7 +83,7 @@ class TestPanelDoAPI:
         n = 50
         df = pd.DataFrame({"X": rng.normal(size=n), "Y": rng.normal(size=n)})
         model = pathmc.model("Y ~ X", data=df)
-        model.fit(draws=100, tune=100, chains=1, cores=1, random_seed=42)
+        model._idata = True
         with pytest.raises(ValueError, match="panel"):
             model.do(set={"X": 1.0}, simulate_over="time")
 

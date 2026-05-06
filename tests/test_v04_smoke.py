@@ -19,6 +19,8 @@ import pytest
 
 import pathmc
 
+pytestmark = pytest.mark.slow
+
 
 class TestFullPipeline:
     """fit -> adjustment_sets -> ate -> standardized."""

@@ -31,7 +31,7 @@ import pathmc
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture(scope="module")
 def simple_panel():
     """No temporal state: sales ~ spend."""
     rng = np.random.default_rng(42)
@@ -57,7 +57,7 @@ def simple_panel():
     return model
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture(scope="module")
 def lag_panel():
     """Temporal state via lag() syntax: sales ~ spend + lag(sales)."""
     rng = np.random.default_rng(42)
@@ -83,7 +83,7 @@ def lag_panel():
     return model
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture(scope="module")
 def adstock_panel():
     """Temporal state via adstock + saturation transform chain."""
     rng = np.random.default_rng(42)
@@ -322,11 +322,31 @@ class TestPredictiveModeTemporal:
 class TestInputValidation:
     """Validate error messages for malformed inputs."""
 
-    def test_wrong_length_array_raises(self, simple_panel):
+    def test_wrong_length_array_raises(self):
         """Array intervention with wrong length should raise ValueError."""
+        rng = np.random.default_rng(42)
+        rows = []
+        for region in ["A", "B", "C"]:
+            for week in range(1, 16):
+                spend = rng.uniform(10, 50)
+                sales = 50 + 0.5 * spend + rng.normal(0, 2)
+                rows.append({
+                    "region": region,
+                    "week": week,
+                    "spend": spend,
+                    "sales": sales,
+                })
+        df = pd.DataFrame(rows)
+        model = pathmc.model(
+            "sales ~ spend",
+            data=df,
+            panel={"unit": "region", "time": "week"},
+            pooling="partial",
+        )
+        model._idata = True
         wrong_length = np.full(5, 30.0)  # panel has 15 time steps
         with pytest.raises(ValueError, match="expected"):
-            simple_panel.do(
+            model.do(
                 set={"spend": wrong_length},
                 simulate_over="time",
             )

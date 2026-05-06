@@ -40,14 +40,10 @@ Y ~ b*M + d*X + e*X:M
 """
 
 
-@pytest.fixture
-def rng():
-    return np.random.default_rng(42)
-
-
-@pytest.fixture
-def interaction_data(rng):
+@pytest.fixture(scope="module")
+def interaction_data():
     """Data with true moderation: Y = 1*X + 0.5*Z + 0.8*X*Z + noise."""
+    rng = np.random.default_rng(42)
     n = 300
     X = rng.normal(size=n)
     Z = rng.normal(size=n)
@@ -55,9 +51,10 @@ def interaction_data(rng):
     return pd.DataFrame({"X": X, "Z": Z, "Y": Y})
 
 
-@pytest.fixture
-def mediation_interaction_data(rng):
+@pytest.fixture(scope="module")
+def mediation_interaction_data():
     """X -> M and X*M -> Y."""
+    rng = np.random.default_rng(42)
     n = 300
     X = rng.normal(size=n)
     M = 0.5 * X + rng.normal(scale=0.5, size=n)
@@ -284,36 +281,40 @@ class TestInteractionIntrospection:
 
 @pytest.mark.slow
 class TestInteractionSampling:
-    def test_fit_and_sample(self, interaction_data):
-        model = pathmc.model(LABELED_INTERACTION_SPEC, data=interaction_data)
-        model.fit(draws=200, tune=200, chains=1, random_seed=42)
-        summary = model.summary()
-        assert "beta_Y" in summary.index[0]
-
-    def test_interaction_coefficient_recovery(self, interaction_data):
-        """True c (interaction) = 0.8. Check it's in a reasonable range."""
+    @pytest.fixture(scope="class")
+    def sampled_labeled_interaction(self, interaction_data):
         model = pathmc.model(LABELED_INTERACTION_SPEC, data=interaction_data)
         model.fit(draws=500, tune=500, chains=2, random_seed=42)
-        effects = model.effects_summary()
+        return model
+
+    @pytest.fixture(scope="class")
+    def sampled_interaction(self, interaction_data):
+        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
+        model.fit(draws=200, tune=200, chains=1, random_seed=42)
+        return model
+
+    def test_fit_and_sample(self, sampled_labeled_interaction):
+        summary = sampled_labeled_interaction.summary()
+        assert "beta_Y" in summary.index[0]
+
+    def test_interaction_coefficient_recovery(self, sampled_labeled_interaction):
+        """True c (interaction) = 0.8. Check it's in a reasonable range."""
+        effects = sampled_labeled_interaction.effects_summary()
         assert "c" in effects.index
         c_mean = effects.loc["c", "mean"]
         assert 0.3 < c_mean < 1.3, f"Interaction coef c={c_mean}, expected ~0.8"
 
-    def test_do_propagates_through_interaction(self, interaction_data):
+    def test_do_propagates_through_interaction(self, sampled_interaction):
         """do(X=1) vs do(X=0) with Z held at its mean should differ."""
-        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
-        model.fit(draws=200, tune=200, chains=1, random_seed=42)
-        r0 = model.do(set={"X": 0.0})
-        r1 = model.do(set={"X": 1.0})
+        r0 = sampled_interaction.do(set={"X": 0.0})
+        r1 = sampled_interaction.do(set={"X": 1.0})
         diff = r1.mean("Y") - r0.mean("Y")
         assert abs(diff) > 0.1, "Intervention should propagate through interaction"
 
-    def test_do_interaction_depends_on_moderator(self, interaction_data):
+    def test_do_interaction_depends_on_moderator(self, sampled_interaction):
         """The effect of X on Y should differ at Z=-1 vs Z=+1 (moderation)."""
-        model = pathmc.model(INTERACTION_SPEC, data=interaction_data)
-        model.fit(draws=200, tune=200, chains=1, random_seed=42)
-        cate_low = model.cate("Y", "X", condition={"Z": -1.0})
-        cate_high = model.cate("Y", "X", condition={"Z": 1.0})
+        cate_low = sampled_interaction.cate("Y", "X", condition={"Z": -1.0})
+        cate_high = sampled_interaction.cate("Y", "X", condition={"Z": 1.0})
         diff_low = cate_low.mean("Y")
         diff_high = cate_high.mean("Y")
         assert abs(diff_high - diff_low) > 0.5, (

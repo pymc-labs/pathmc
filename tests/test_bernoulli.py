@@ -24,7 +24,7 @@ import pytest
 import pathmc
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def binary_data():
     """X -> Y (binary) with logistic link. True coefficient ~1.5."""
     rng = np.random.default_rng(42)
@@ -35,7 +35,7 @@ def binary_data():
     return pd.DataFrame({"X": X, "Y": Y})
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def mixed_data():
     """X -> M (continuous) -> Y (binary)."""
     rng = np.random.default_rng(42)
@@ -45,6 +45,21 @@ def mixed_data():
     p = 1 / (1 + np.exp(-(0.3 + 0.8 * M)))
     Y = rng.binomial(1, p, size=n).astype(float)
     return pd.DataFrame({"X": X, "M": M, "Y": Y})
+
+
+@pytest.fixture(scope="module")
+def fitted_bernoulli(binary_data):
+    model = pathmc.model("Y ~ X", data=binary_data, families={"Y": "bernoulli"})
+    model.fit(draws=200, tune=200, chains=1, random_seed=42)
+    return model
+
+
+@pytest.fixture(scope="module")
+def fitted_mixed_bernoulli(mixed_data):
+    spec = "M ~ a*X\nY ~ b*M"
+    model = pathmc.model(spec, data=mixed_data, families={"Y": "bernoulli"})
+    model.fit(draws=100, tune=100, chains=1, random_seed=42)
+    return model
 
 
 class TestBernoulliCompilation:
@@ -80,18 +95,13 @@ class TestBernoulliMixed:
 
 @pytest.mark.slow
 class TestBernoulliSampling:
-    def test_bernoulli_samples(self, binary_data):
-        model = pathmc.model("Y ~ X", data=binary_data, families={"Y": "bernoulli"})
-        model.fit(draws=100, tune=100, chains=1, random_seed=42)
-        summary = model.summary()
+    def test_bernoulli_samples(self, fitted_bernoulli):
+        summary = fitted_bernoulli.summary()
         assert summary is not None
         assert len(summary) > 0
 
-    def test_do_returns_probabilities(self, binary_data):
-        model = pathmc.model("Y ~ X", data=binary_data, families={"Y": "bernoulli"})
-        model.fit(draws=100, tune=100, chains=1, random_seed=42)
-
-        result = model.do(set={"X": 1.0})
+    def test_do_returns_probabilities(self, fitted_bernoulli):
+        result = fitted_bernoulli.do(set={"X": 1.0})
         y_mean = result.mean("Y")
         assert 0 < y_mean < 1, f"Expected probability in (0,1), got {y_mean}"
 
@@ -113,22 +123,16 @@ class TestBernoulliSampling:
         ate = model.ate("Y", "T", values=(0.0, 1.0))
         assert np.isfinite(ate.mean("Y"))
 
-    def test_do_higher_x_higher_prob(self, binary_data):
+    def test_do_higher_x_higher_prob(self, fitted_bernoulli):
         """Positive coefficient means higher X should give higher P(Y=1)."""
-        model = pathmc.model("Y ~ X", data=binary_data, families={"Y": "bernoulli"})
-        model.fit(draws=200, tune=200, chains=1, random_seed=42)
-
-        r_low = model.do(set={"X": -1.0})
-        r_high = model.do(set={"X": 1.0})
+        r_low = fitted_bernoulli.do(set={"X": -1.0})
+        r_high = fitted_bernoulli.do(set={"X": 1.0})
         assert r_high.mean("Y") > r_low.mean("Y")
 
 
 @pytest.mark.slow
 class TestBernoulliEffects:
-    def test_effects_summary_with_mixed(self, mixed_data):
-        spec = "M ~ a*X\nY ~ b*M"
-        model = pathmc.model(spec, data=mixed_data, families={"Y": "bernoulli"})
-        model.fit(draws=100, tune=100, chains=1, random_seed=42)
-        effects = model.effects_summary()
+    def test_effects_summary_with_mixed(self, fitted_mixed_bernoulli):
+        effects = fitted_mixed_bernoulli.effects_summary()
         assert "a" in str(effects)
         assert "b" in str(effects)
