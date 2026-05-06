@@ -1281,9 +1281,9 @@ def _compile_scan_panel(
         exog_keys = sorted(exog_data_nodes.keys())
 
         # Exogenous variables referenced by lag columns need carry state
-        exog_lag_bases = sorted(
-            {base for _col, (base, _k) in lag_cols.items() if base not in endo_set}
-        )
+        exog_lag_bases = sorted({
+            base for _col, (base, _k) in lag_cols.items() if base not in endo_set
+        })
 
         init_endo: dict[str, np.ndarray] = {
             var: np.zeros(n_units, dtype="float64") for var in endo_keys
@@ -1315,9 +1315,9 @@ def _compile_scan_panel(
         # Flag toggled by caller: 0 for generative recursion, 1 for observed carry.
         use_observed_carry = pm.Data("_use_observed_carry", np.array(0, dtype="int8"))
 
-        endo_lag_bases = sorted(
-            {base for _col, (base, _k) in lag_cols.items() if base in endo_set}
-        )
+        endo_lag_bases = sorted({
+            base for _col, (base, _k) in lag_cols.items() if base in endo_set
+        })
         stochastic_carry_vars = sorted(
             v
             for v in endo_lag_bases

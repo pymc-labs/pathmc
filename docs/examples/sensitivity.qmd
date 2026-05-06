@@ -119,9 +119,9 @@ The **tipping point** is the γ × δ product that would exactly nullify the obs
 The `.plot()` method maps the adjusted ATE across the full (γ, δ) grid:
 
 ```{python}
-#| label: fig-sensitivity-robust
-#| fig-cap: "Sensitivity contour for a robust causal effect (true ATE = 0.5). Blue indicates the adjusted effect remains positive. The black tipping line (ATE = 0) separates the region where the conclusion holds (lower-left) from the region where confounding would reverse it (upper-right)."
-#| code-fold: true
+# | label: fig-sensitivity-robust
+# | fig-cap: "Sensitivity contour for a robust causal effect (true ATE = 0.5). Blue indicates the adjusted effect remains positive. The black tipping line (ATE = 0) separates the region where the conclusion holds (lower-left) from the region where confounding would reverse it (upper-right)."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 result.plot(ax=ax)
@@ -191,9 +191,9 @@ print(result2)
 The tipping point is far smaller than in the robust case. A confounder with symmetric effects of only ~0.3 on treatment and outcome would overturn the conclusion — much weaker than the observed confounder Z.
 
 ```{python}
-#| label: fig-sensitivity-fragile
-#| fig-cap: "Sensitivity contour for a fragile causal effect (true ATE ≈ 0.1). The tipping line sits much closer to the origin than in @fig-sensitivity-robust, meaning even modest confounding would reverse the conclusion."
-#| code-fold: true
+# | label: fig-sensitivity-fragile
+# | fig-cap: "Sensitivity contour for a fragile causal effect (true ATE ≈ 0.1). The tipping line sits much closer to the origin than in @fig-sensitivity-robust, meaning even modest confounding would reverse the conclusion."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 result2.plot(ax=ax)

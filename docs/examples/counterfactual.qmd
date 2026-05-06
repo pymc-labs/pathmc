@@ -260,9 +260,9 @@ The posterior mean lands close to the analytical result of 1.90. The HDI reflect
 ## Population intervention vs individual counterfactual
 
 ```{python}
-#| label: fig-intervention-vs-counterfactual
-#| fig-cap: "Population-level intervention E[Y | do(H=2)] vs Joe's individual counterfactual Y_{H=2}. The do-operator predicts the average outcome across all students; the counterfactual uses Joe's specific characteristics to predict his personal outcome. Black dashed lines mark the analytical values."
-#| code-fold: true
+# | label: fig-intervention-vs-counterfactual
+# | fig-cap: "Population-level intervention E[Y | do(H=2)] vs Joe's individual counterfactual Y_{H=2}. The do-operator predicts the average outcome across all students; the counterfactual uses Joe's specific characteristics to predict his personal outcome. Black dashed lines mark the analytical values."
+# | code-fold: true
 import matplotlib.pyplot as plt
 
 FIG_WIDTH = 7
@@ -277,15 +277,23 @@ do_val = do_result.mean("Y")
 do_hdi = do_result.hdi("Y", prob=0.94)
 
 ax.errorbar(
-    do_val, 1,
+    do_val,
+    1,
     xerr=[[do_val - do_hdi[0]], [do_hdi[1] - do_val]],
-    fmt="o", color=COLOR_POP, capsize=5, markersize=8,
+    fmt="o",
+    color=COLOR_POP,
+    capsize=5,
+    markersize=8,
     label="Population: E[Y | do(H=2)]",
 )
 ax.errorbar(
-    y_cf_mean, 0,
+    y_cf_mean,
+    0,
     xerr=[[y_cf_mean - y_cf_hdi[0]], [y_cf_hdi[1] - y_cf_mean]],
-    fmt="s", color=COLOR_JOE, capsize=5, markersize=8,
+    fmt="s",
+    color=COLOR_JOE,
+    capsize=5,
+    markersize=8,
     label=r"Joe: $Y_{H=2}$ (counterfactual)",
 )
 
@@ -307,18 +315,32 @@ The gap between the two estimates reflects the difference between asking about t
 @fig-counterfactual-posterior shows the full posterior distribution over Joe's counterfactual score. The distribution is narrow because the coefficient $c$ is well-identified with 2000 observations, but smaller samples or weaker identification would produce greater uncertainty.
 
 ```{python}
-#| label: fig-counterfactual-posterior
-#| fig-cap: "Posterior distribution of Joe's counterfactual exam score under H = 2. The analytical answer (1.90, black dashed) falls within the posterior. Joe's observed score (1.50, gray dashed) provides a reference for the counterfactual improvement."
-#| code-fold: true
+# | label: fig-counterfactual-posterior
+# | fig-cap: "Posterior distribution of Joe's counterfactual exam score under H = 2. The analytical answer (1.90, black dashed) falls within the posterior. Joe's observed score (1.50, gray dashed) provides a reference for the counterfactual improvement."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.75))
 
-az.plot_kde(y_counterfactual, ax=ax, plot_kwargs={"color": COLOR_JOE, "lw": 2},
-            fill_kwargs={"alpha": 0.6, "color": COLOR_JOE})
-ax.axvline(1.90, color="black", linestyle="--", linewidth=1.5,
-           label="Analytical counterfactual (1.90)")
-ax.axvline(JOE_Y, color="gray", linestyle="--", linewidth=1.5,
-           label=f"Observed score ({JOE_Y})")
+az.plot_kde(
+    y_counterfactual,
+    ax=ax,
+    plot_kwargs={"color": COLOR_JOE, "lw": 2},
+    fill_kwargs={"alpha": 0.6, "color": COLOR_JOE},
+)
+ax.axvline(
+    1.90,
+    color="black",
+    linestyle="--",
+    linewidth=1.5,
+    label="Analytical counterfactual (1.90)",
+)
+ax.axvline(
+    JOE_Y,
+    color="gray",
+    linestyle="--",
+    linewidth=1.5,
+    label=f"Observed score ({JOE_Y})",
+)
 ax.set_xlabel(r"$Y_{H=2}$ (Joe's counterfactual score)")
 ax.set_ylabel("Density")
 ax.legend(fontsize=9)

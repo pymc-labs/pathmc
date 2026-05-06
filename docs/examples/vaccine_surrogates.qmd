@@ -90,10 +90,7 @@ true_age_hosp = 0.4
 true_comorbidity_hosp = 0.5
 
 antibody = (
-    3.0
-    + true_a * vaccine
-    + true_age_antibody * age
-    + rng.normal(scale=0.8, size=n)
+    3.0 + true_a * vaccine + true_age_antibody * age + rng.normal(scale=0.8, size=n)
 )
 
 logit_hosp = (
@@ -128,39 +125,56 @@ Older patients are both more likely to be vaccinated *and* more likely to be hos
 ## Visualise the data
 
 ```{python}
-#| label: fig-antibody-by-vaccine
-#| fig-cap: "Antibody level distributions by vaccination status. The vaccine causes a clear upward shift in antibody levels — this is the a path in the mediation structure."
-#| code-fold: true
+# | label: fig-antibody-by-vaccine
+# | fig-cap: "Antibody level distributions by vaccination status. The vaccine causes a clear upward shift in antibody levels — this is the a path in the mediation structure."
+# | code-fold: true
 
 fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 ax = axes[0]
-for vax_val, color, label in [(0, COLOR_HOSPITALIZED, "Unvaccinated"), (1, COLOR_VACCINE, "Vaccinated")]:
+for vax_val, color, label in [
+    (0, COLOR_HOSPITALIZED, "Unvaccinated"),
+    (1, COLOR_VACCINE, "Vaccinated"),
+]:
     vals = antibody[vaccine == vax_val]
-    az.plot_kde(vals, ax=ax, plot_kwargs={"color": color, "lw": 2},
-                fill_kwargs={"alpha": 0.3, "color": color}, label=label)
+    az.plot_kde(
+        vals,
+        ax=ax,
+        plot_kwargs={"color": color, "lw": 2},
+        fill_kwargs={"alpha": 0.3, "color": color},
+        label=label,
+    )
 ax.set_xlabel("Antibody level")
 ax.set_ylabel("Density")
 ax.legend()
 
 ax = axes[1]
 hosp_by_vax = df.groupby("vaccine")["hospitalized"].mean()
-bars = ax.bar(["Unvaccinated", "Vaccinated"], [hosp_by_vax[0], hosp_by_vax[1]],
-              color=[COLOR_HOSPITALIZED, COLOR_VACCINE], alpha=0.7)
+bars = ax.bar(
+    ["Unvaccinated", "Vaccinated"],
+    [hosp_by_vax[0], hosp_by_vax[1]],
+    color=[COLOR_HOSPITALIZED, COLOR_VACCINE],
+    alpha=0.7,
+)
 ax.set_ylabel("Hospitalization rate")
 ax.set_ylim(0, max(hosp_by_vax) * 1.3)
 for bar, val in zip(bars, [hosp_by_vax[0], hosp_by_vax[1]]):
-    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
-            f"{val:.1%}", ha="center", fontsize=10)
+    ax.text(
+        bar.get_x() + bar.get_width() / 2,
+        bar.get_height() + 0.01,
+        f"{val:.1%}",
+        ha="center",
+        fontsize=10,
+    )
 
 plt.tight_layout()
 plt.show()
 ```
 
 ```{python}
-#| label: fig-confounding
-#| fig-cap: "Age confounding: older patients have higher hospitalization rates (left) and are slightly more likely to be vaccinated (right). Ignoring this confounder attenuates the estimated vaccine effect."
-#| code-fold: true
+# | label: fig-confounding
+# | fig-cap: "Age confounding: older patients have higher hospitalization rates (left) and are slightly more likely to be vaccinated (right). Ignoring this confounder attenuates the estimated vaccine effect."
+# | code-fold: true
 
 fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
@@ -210,8 +224,8 @@ model.equations()
 ### PyMC model graph
 
 ```{python}
-#| label: fig-pymc-graph
-#| fig-cap: "PyMC plate diagram for the surrogate endpoint model. The antibody equation has a Gaussian likelihood (with sigma), while the hospitalization equation has a Bernoulli-logit likelihood."
+# | label: fig-pymc-graph
+# | fig-cap: "PyMC plate diagram for the surrogate endpoint model. The antibody equation has a Gaussian likelihood (with sigma), while the hospitalization equation has a Bernoulli-logit likelihood."
 pm.model_to_graphviz(model.pymc_model)
 ```
 
@@ -244,7 +258,9 @@ model.effects_summary()
 ### Identification check
 
 ```{python}
-print(f"Is vaccine → hospitalized identifiable? {model.is_identifiable('vaccine', 'hospitalized')}")
+print(
+    f"Is vaccine → hospitalized identifiable? {model.is_identifiable('vaccine', 'hospitalized')}"
+)
 print(f"Adjustment sets: {model.adjustment_sets('vaccine', 'hospitalized')}")
 ```
 
@@ -277,7 +293,9 @@ r_vax = model.do(set={"vaccine": 1.0}, kind="mean")
 
 print(f"E[antibody | do(vaccine=0)]: {r_unvax.mean('antibody'):.2f}")
 print(f"E[antibody | do(vaccine=1)]: {r_vax.mean('antibody'):.2f}")
-print(f"Antibody lift from vaccination: {r_vax.mean('antibody') - r_unvax.mean('antibody'):.2f}")
+print(
+    f"Antibody lift from vaccination: {r_vax.mean('antibody') - r_unvax.mean('antibody'):.2f}"
+)
 ```
 
 ## Decomposing the vaccine effect: is the surrogate sufficient?
@@ -311,7 +329,9 @@ r_cde_0 = model.do(set={"vaccine": 0.0, "antibody": mean_antibody}, kind="mean")
 r_cde_1 = model.do(set={"vaccine": 1.0, "antibody": mean_antibody}, kind="mean")
 
 controlled_direct = r_cde_1 - r_cde_0
-print(f"Controlled direct effect on P(hospitalized): {controlled_direct.mean('hospitalized'):.4f}")
+print(
+    f"Controlled direct effect on P(hospitalized): {controlled_direct.mean('hospitalized'):.4f}"
+)
 ```
 
 ### Indirect effect (through antibodies)
@@ -319,7 +339,9 @@ print(f"Controlled direct effect on P(hospitalized): {controlled_direct.mean('ho
 The indirect effect is the difference between the total and direct effects:
 
 ```{python}
-indirect_draws = total_effect.draws("hospitalized") - controlled_direct.draws("hospitalized")
+indirect_draws = total_effect.draws("hospitalized") - controlled_direct.draws(
+    "hospitalized"
+)
 
 print(f"Indirect effect (via antibodies): {indirect_draws.mean():.4f}")
 
@@ -332,9 +354,9 @@ print(f"Proportion mediated:             {np.mean(prop_mediated):.2f}")
 ```
 
 ```{python}
-#| label: fig-effect-decomposition
-#| fig-cap: "Posterior distributions of the total, indirect (antibody-mediated), and controlled direct (non-antibody) effects of vaccination on hospitalization probability. The indirect effect dominates, but the direct effect is non-negligible — antibodies are a useful but imperfect surrogate."
-#| code-fold: true
+# | label: fig-effect-decomposition
+# | fig-cap: "Posterior distributions of the total, indirect (antibody-mediated), and controlled direct (non-antibody) effects of vaccination on hospitalization probability. The indirect effect dominates, but the direct effect is non-negligible — antibodies are a useful but imperfect surrogate."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
@@ -343,8 +365,13 @@ for draws, color, label in [
     (indirect_draws, COLOR_ANTIBODY, "Indirect (via antibodies)"),
     (controlled_direct.draws("hospitalized"), COLOR_DIRECT, "Direct (non-antibody)"),
 ]:
-    az.plot_kde(draws, ax=ax, plot_kwargs={"color": color, "lw": 2},
-                fill_kwargs={"alpha": 0.25, "color": color}, label=label)
+    az.plot_kde(
+        draws,
+        ax=ax,
+        plot_kwargs={"color": color, "lw": 2},
+        fill_kwargs={"alpha": 0.25, "color": color},
+        label=label,
+    )
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -395,14 +422,22 @@ Does the vaccine work equally well for everyone?
 The `cate()` method lets us check whether vaccine efficacy varies with patient characteristics.
 
 ```{python}
-cate_young = model.cate("hospitalized", "vaccine", values=(0.0, 1.0), condition={"age": -1.0})
-cate_old = model.cate("hospitalized", "vaccine", values=(0.0, 1.0), condition={"age": 1.0})
+cate_young = model.cate(
+    "hospitalized", "vaccine", values=(0.0, 1.0), condition={"age": -1.0}
+)
+cate_old = model.cate(
+    "hospitalized", "vaccine", values=(0.0, 1.0), condition={"age": 1.0}
+)
 
 print("Vaccine effect by age group:")
-print(f"  Young (age = -1 SD): ΔP(hosp) = {cate_young.mean('hospitalized'):.4f}"
-      f"  HDI: {cate_young.hdi('hospitalized', prob=0.94)}")
-print(f"  Old (age = +1 SD):   ΔP(hosp) = {cate_old.mean('hospitalized'):.4f}"
-      f"  HDI: {cate_old.hdi('hospitalized', prob=0.94)}")
+print(
+    f"  Young (age = -1 SD): ΔP(hosp) = {cate_young.mean('hospitalized'):.4f}"
+    f"  HDI: {cate_young.hdi('hospitalized', prob=0.94)}"
+)
+print(
+    f"  Old (age = +1 SD):   ΔP(hosp) = {cate_old.mean('hospitalized'):.4f}"
+    f"  HDI: {cate_old.hdi('hospitalized', prob=0.94)}"
+)
 ```
 
 ::: {.callout-note collapse="true"}
@@ -416,22 +451,31 @@ This is a fundamental property of nonlinear models: the treatment effect on the 
 :::
 
 ```{python}
-#| label: fig-cate-by-age
-#| fig-cap: "Vaccine efficacy (absolute risk reduction in hospitalization) at different baseline ages. The effect is larger for older patients because the logistic link amplifies log-odds differences near the center of the probability scale."
-#| code-fold: true
+# | label: fig-cate-by-age
+# | fig-cap: "Vaccine efficacy (absolute risk reduction in hospitalization) at different baseline ages. The effect is larger for older patients because the logistic link amplifies log-odds differences near the center of the probability scale."
+# | code-fold: true
 
 ages = np.array([-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5])
 cate_draws_list = []
 
 for a in ages:
-    cate = model.cate("hospitalized", "vaccine", values=(0.0, 1.0), condition={"age": float(a)})
+    cate = model.cate(
+        "hospitalized", "vaccine", values=(0.0, 1.0), condition={"age": float(a)}
+    )
     cate_draws_list.append(cate.draws("hospitalized"))
 
 cate_draws_2d = np.column_stack(cate_draws_list)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 ax.plot(ages, cate_draws_2d.mean(axis=0), "o-", color=COLOR_VACCINE, lw=2, ms=6)
-az.plot_hdi(ages, cate_draws_2d, ax=ax, smooth=False, color=COLOR_VACCINE, fill_kwargs={"alpha": 0.2})
+az.plot_hdi(
+    ages,
+    cate_draws_2d,
+    ax=ax,
+    smooth=False,
+    color=COLOR_VACCINE,
+    fill_kwargs={"alpha": 0.2},
+)
 ax.axhline(0, color="black", ls=":", alpha=0.3)
 ax.set_xlabel("Age (standardized)")
 ax.set_ylabel("ΔP(hospitalized) from vaccination")

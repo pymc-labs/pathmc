@@ -269,18 +269,11 @@ smoking = rng.choice([0.0, 1.0], size=n_bw, p=[0.7, 0.3])
 birth_defect = rng.choice([0.0, 1.0], size=n_bw, p=[0.90, 0.10])
 
 birth_weight = (
-    3.5
-    - 0.5 * smoking
-    - 1.5 * birth_defect
-    + rng.normal(scale=0.4, size=n_bw)
+    3.5 - 0.5 * smoking - 1.5 * birth_defect + rng.normal(scale=0.4, size=n_bw)
 )
 
 TRUE_SMOKING_EFFECT = 0.5
-logit_mortality = (
-    -3.0
-    + TRUE_SMOKING_EFFECT * smoking
-    + 4.0 * birth_defect
-)
+logit_mortality = -3.0 + TRUE_SMOKING_EFFECT * smoking + 4.0 * birth_defect
 p_mortality = 1 / (1 + np.exp(-logit_mortality))
 mortality = rng.binomial(1, p_mortality).astype(float)
 
@@ -300,9 +293,9 @@ print(f"Mortality | no smoking:  {df_bw.query('smoking == 0')['mortality'].mean(
 Before fitting models, we can see collider bias operating in the raw data. @fig-collider-scatter splits the sample at the median birth weight. In the full population, smoking raises mortality (as expected). But among low-birth-weight babies, the pattern reverses — smoking appears *protective*.
 
 ```{python}
-#| label: fig-collider-scatter
-#| fig-cap: "Mortality rates by smoking status, stratified by birth weight. In the full population (left), smoking raises mortality. Among low-birth-weight babies (right), the relationship reverses — conditioning on the collider creates a spurious protective signal."
-#| code-fold: true
+# | label: fig-collider-scatter
+# | fig-cap: "Mortality rates by smoking status, stratified by birth weight. In the full population (left), smoking raises mortality. Among low-birth-weight babies (right), the relationship reverses — conditioning on the collider creates a spurious protective signal."
+# | code-fold: true
 
 COLOR_FULL = "#4575b4"
 COLOR_LOW_BW = "#d73027"
@@ -317,19 +310,34 @@ for ax, subset, title, color in [
     (axes[1], low_bw, "Low birth weight only", COLOR_LOW_BW),
 ]:
     rates = subset.groupby("smoking")["mortality"].mean()
-    bars = ax.bar([0, 1], [rates.get(0, 0), rates.get(1, 0)], color=color, alpha=0.7,
-                  width=0.5, edgecolor=color)
+    bars = ax.bar(
+        [0, 1],
+        [rates.get(0, 0), rates.get(1, 0)],
+        color=color,
+        alpha=0.7,
+        width=0.5,
+        edgecolor=color,
+    )
     for bar, val in zip(bars, [rates.get(0, 0), rates.get(1, 0)]):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005,
-                f"{val:.1%}", ha="center", fontsize=10, fontweight="bold")
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.005,
+            f"{val:.1%}",
+            ha="center",
+            fontsize=10,
+            fontweight="bold",
+        )
     ax.set_xticks([0, 1])
     ax.set_xticklabels(["No smoking", "Smoking"])
     ax.set_title(title)
 
-ymax = max(
-    df_bw.groupby("smoking")["mortality"].mean().max(),
-    low_bw.groupby("smoking")["mortality"].mean().max(),
-) * 1.3
+ymax = (
+    max(
+        df_bw.groupby("smoking")["mortality"].mean().max(),
+        low_bw.groupby("smoking")["mortality"].mean().max(),
+    )
+    * 1.3
+)
 axes[0].set_ylim(0, ymax)
 axes[0].set_ylabel("Mortality rate")
 plt.tight_layout()
@@ -404,9 +412,9 @@ print(f"94% HDI:    {biased_ate.hdi('mortality', prob=0.94)}")
 @fig-collider-comparison shows the core result: the correct model recovers the true harmful effect of smoking, while the biased model (conditioning on the collider) attenuates it toward zero or reverses its sign.
 
 ```{python}
-#| label: fig-collider-comparison
-#| fig-cap: "Correct vs biased ATE estimates. The correct model (including birth defects, not conditioning on the collider) recovers the true harmful effect. The biased model (conditioning on birth weight without birth defects) attenuates the effect toward zero."
-#| code-fold: true
+# | label: fig-collider-comparison
+# | fig-cap: "Correct vs biased ATE estimates. The correct model (including birth defects, not conditioning on the collider) recovers the true harmful effect. The biased model (conditioning on birth weight without birth defects) attenuates the effect toward zero."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
@@ -416,14 +424,22 @@ biased_val = biased_ate.mean("mortality")
 biased_hdi = biased_ate.hdi("mortality", prob=0.94)
 
 ax.errorbar(
-    biased_val, 1,
+    biased_val,
+    1,
     xerr=[[biased_val - biased_hdi[0]], [biased_hdi[1] - biased_val]],
-    fmt="o", color="C3", capsize=5, label="Biased (conditions on collider)",
+    fmt="o",
+    color="C3",
+    capsize=5,
+    label="Biased (conditions on collider)",
 )
 ax.errorbar(
-    correct_val, 0,
+    correct_val,
+    0,
     xerr=[[correct_val - correct_hdi[0]], [correct_hdi[1] - correct_val]],
-    fmt="o", color="C0", capsize=5, label="Correct (full DAG)",
+    fmt="o",
+    color="C0",
+    capsize=5,
+    label="Correct (full DAG)",
 )
 ax.axvline(0, color="gray", linestyle=":", alpha=0.5)
 ax.set_yticks([0, 1])
@@ -518,9 +534,9 @@ Notice that `U` is **not** in the DataFrame — it is unobserved.
 @fig-front-door-scatter shows why a naive analysis fails. The scatter of `X` vs `Y` has a steep slope because the confounder `U` pushes both variables in the same direction. The true causal effect (0.3) is much weaker than the observed association.
 
 ```{python}
-#| label: fig-front-door-scatter
-#| fig-cap: "X vs Y colored by the unobserved confounder U. The raw regression slope (gray dashed) is steeper than the true causal effect (black dashed) because U inflates both X and Y."
-#| code-fold: true
+# | label: fig-front-door-scatter
+# | fig-cap: "X vs Y colored by the unobserved confounder U. The raw regression slope (gray dashed) is steeper than the true causal effect (black dashed) because U inflates both X and Y."
+# | code-fold: true
 
 from numpy.polynomial.polynomial import polyfit
 
@@ -531,10 +547,22 @@ cbar = plt.colorbar(scatter, ax=ax, label="Confounder U (unobserved)")
 
 raw_coeffs = polyfit(X_fd, Y_fd, 1)
 x_range = np.linspace(X_fd.min(), X_fd.max(), 100)
-ax.plot(x_range, raw_coeffs[0] + raw_coeffs[1] * x_range, "--", color="gray",
-        linewidth=2, label=f"Raw slope = {raw_coeffs[1]:.2f} (confounded)")
-ax.plot(x_range, np.mean(Y_fd) + TRUE_INDIRECT * (x_range - np.mean(X_fd)), "--", color="black",
-        linewidth=2, label=f"True causal slope = {TRUE_INDIRECT} (front-door)")
+ax.plot(
+    x_range,
+    raw_coeffs[0] + raw_coeffs[1] * x_range,
+    "--",
+    color="gray",
+    linewidth=2,
+    label=f"Raw slope = {raw_coeffs[1]:.2f} (confounded)",
+)
+ax.plot(
+    x_range,
+    np.mean(Y_fd) + TRUE_INDIRECT * (x_range - np.mean(X_fd)),
+    "--",
+    color="black",
+    linewidth=2,
+    label=f"True causal slope = {TRUE_INDIRECT} (front-door)",
+)
 
 ax.set_xlabel("X")
 ax.set_ylabel("Y")
@@ -644,9 +672,9 @@ For the front-door criterion, the correct estimate is the **defined parameter** 
 @fig-front-door-comparison summarizes the core result: the naive regression overshoots because of confounding, while the front-door indirect effect `a × b` recovers the true causal effect.
 
 ```{python}
-#| label: fig-front-door-comparison
-#| fig-cap: "Naive regression vs front-door indirect effect. The naive estimate (confounded by U) overestimates the causal effect. The front-door mediation model recovers the true effect of 0.3 via the indirect path a × b. Black dashed line marks the true DGP value."
-#| code-fold: true
+# | label: fig-front-door-comparison
+# | fig-cap: "Naive regression vs front-door indirect effect. The naive estimate (confounded by U) overestimates the causal effect. The front-door mediation model recovers the true effect of 0.3 via the indirect path a × b. Black dashed line marks the true DGP value."
+# | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
@@ -654,16 +682,29 @@ naive_val = naive_ate.mean("Y")
 naive_hdi = naive_ate.hdi("Y", prob=0.94)
 
 ax.errorbar(
-    naive_val, 1,
+    naive_val,
+    1,
     xerr=[[naive_val - naive_hdi[0]], [naive_hdi[1] - naive_val]],
-    fmt="o", color="C3", capsize=5, label="Naive (confounded)",
+    fmt="o",
+    color="C3",
+    capsize=5,
+    label="Naive (confounded)",
 )
 ax.errorbar(
-    fd_mean, 0,
+    fd_mean,
+    0,
     xerr=[[fd_mean - fd_hdi_low], [fd_hdi_high - fd_mean]],
-    fmt="o", color="C0", capsize=5, label="Front-door (indirect a×b)",
+    fmt="o",
+    color="C0",
+    capsize=5,
+    label="Front-door (indirect a×b)",
 )
-ax.axvline(TRUE_INDIRECT, color="black", linestyle="--", label=f"True causal effect ({TRUE_INDIRECT})")
+ax.axvline(
+    TRUE_INDIRECT,
+    color="black",
+    linestyle="--",
+    label=f"True causal effect ({TRUE_INDIRECT})",
+)
 ax.set_yticks([0, 1])
 ax.set_yticklabels(["Front-door", "Naive"])
 ax.set_xlabel("ATE of X on Y")

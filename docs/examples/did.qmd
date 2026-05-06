@@ -51,8 +51,12 @@ treatment_start = 11
 true_att = 2.0
 
 true_unit_effects = {
-    "T1": 3.0, "T2": 4.0, "T3": 5.0,
-    "C1": 2.0, "C2": 3.5, "C3": 4.5,
+    "T1": 3.0,
+    "T2": 4.0,
+    "T3": 5.0,
+    "C1": 2.0,
+    "C2": 3.5,
+    "C3": 4.5,
 }
 
 rows = []
@@ -68,9 +72,12 @@ for unit in all_units:
             + rng.normal(scale=0.5)
         )
         rows.append({
-            "unit": unit, "time": t,
-            "treated": is_treated, "post": post,
-            "treat_post": treat_post, "Y": y,
+            "unit": unit,
+            "time": t,
+            "treated": is_treated,
+            "post": post,
+            "treat_post": treat_post,
+            "Y": y,
         })
 
 df = pd.DataFrame(rows)
@@ -80,8 +87,8 @@ df.head(10)
 ## Visualise the raw data
 
 ```{python}
-#| fig-cap: "Outcome by group over time. Dashed line marks treatment onset."
-#| fig-width: 8
+# | fig-cap: "Outcome by group over time. Dashed line marks treatment onset."
+# | fig-width: 8
 
 fig, ax = plt.subplots(figsize=(8, 4))
 for unit in units_treated:
@@ -141,8 +148,8 @@ model.summary()
 The coefficient on `treat_post` *is* the ATT. We can visualise its full posterior distribution and compare it to the true value used in the simulation.
 
 ```{python}
-#| fig-cap: "Posterior distribution of the ATT. The dashed line marks the true value (2.0)."
-#| fig-width: 8
+# | fig-cap: "Posterior distribution of the ATT. The dashed line marks the true value (2.0)."
+# | fig-width: 8
 
 az.plot_posterior(
     idata,
@@ -175,8 +182,8 @@ With `time` as a continuous predictor, the model fits trend lines through each g
 The **counterfactual** extrapolates the treated group's pre-treatment trend forward — the gap between the counterfactual and the actual treated fit is the ATT.
 
 ```{python}
-#| fig-cap: "DiD results: observed group means, model trend lines, and counterfactual for the treated group."
-#| fig-width: 9
+# | fig-cap: "DiD results: observed group means, model trend lines, and counterfactual for the treated group."
+# | fig-width: 9
 
 stacked = idata.posterior.stack(sample=("chain", "draw"))
 beta = stacked["beta_Y"]
@@ -186,6 +193,7 @@ b0 = beta.sel(Y_predictors="Intercept").values
 b_treated = beta.sel(Y_predictors="treated").values
 b_time = beta.sel(Y_predictors="time").values
 b_tp = beta.sel(Y_predictors="treat_post").values
+
 
 def group_mu(units, t, treat_post_val):
     """Posterior draws of group-averaged mu at a single time point."""
@@ -197,36 +205,69 @@ def group_mu(units, t, treat_post_val):
         preds.append(mu)
     return np.mean(preds, axis=0)
 
+
 times = np.arange(1, n_periods + 1, dtype=float)
 
-treated_fit = np.array([group_mu(units_treated, t, 1.0 if t >= treatment_start else 0.0).mean() for t in times])
-treated_cf  = np.array([group_mu(units_treated, t, 0.0).mean() for t in times])
+treated_fit = np.array([
+    group_mu(units_treated, t, 1.0 if t >= treatment_start else 0.0).mean()
+    for t in times
+])
+treated_cf = np.array([group_mu(units_treated, t, 0.0).mean() for t in times])
 control_fit = np.array([group_mu(units_control, t, 0.0).mean() for t in times])
 
 fig, ax = plt.subplots(figsize=(9, 5))
 
 treated_obs = df[df["treated"] == 1].groupby("time")["Y"].mean()
 control_obs = df[df["treated"] == 0].groupby("time")["Y"].mean()
-ax.scatter(treated_obs.index, treated_obs.values, color="steelblue",
-           alpha=0.4, s=25, zorder=5, label="Treated (observed)")
-ax.scatter(control_obs.index, control_obs.values, color="coral",
-           alpha=0.4, s=25, zorder=5, label="Control (observed)")
+ax.scatter(
+    treated_obs.index,
+    treated_obs.values,
+    color="steelblue",
+    alpha=0.4,
+    s=25,
+    zorder=5,
+    label="Treated (observed)",
+)
+ax.scatter(
+    control_obs.index,
+    control_obs.values,
+    color="coral",
+    alpha=0.4,
+    s=25,
+    zorder=5,
+    label="Control (observed)",
+)
 
 ax.plot(times, treated_fit, color="steelblue", lw=2.5, label="Treated (fitted)")
 ax.plot(times, control_fit, color="coral", lw=2.5, label="Control (fitted)")
-ax.plot(times, treated_cf, color="steelblue", ls="--", lw=2,
-        label="Treated (counterfactual)")
+ax.plot(
+    times,
+    treated_cf,
+    color="steelblue",
+    ls="--",
+    lw=2,
+    label="Treated (counterfactual)",
+)
 
 post_mask = times >= treatment_start
 ax.fill_between(
-    times[post_mask], treated_cf[post_mask], treated_fit[post_mask],
-    color="steelblue", alpha=0.15, label="Causal effect (ATT)",
+    times[post_mask],
+    treated_cf[post_mask],
+    treated_fit[post_mask],
+    color="steelblue",
+    alpha=0.15,
+    label="Causal effect (ATT)",
 )
 
 ax.axvline(treatment_start - 0.5, ls=":", color="gray", alpha=0.7)
-ax.annotate("Treatment onset", xy=(treatment_start - 0.5, ax.get_ylim()[1]),
-            fontsize=9, color="gray", ha="right",
-            xytext=(treatment_start - 1, ax.get_ylim()[1] - 0.3))
+ax.annotate(
+    "Treatment onset",
+    xy=(treatment_start - 0.5, ax.get_ylim()[1]),
+    fontsize=9,
+    color="gray",
+    ha="right",
+    xytext=(treatment_start - 1, ax.get_ylim()[1] - 0.3),
+)
 
 ax.set_xlabel("Time")
 ax.set_ylabel("Y")

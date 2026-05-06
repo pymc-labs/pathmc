@@ -90,7 +90,8 @@ def extract_labeled_draws(
         for term in reg.terms:
             if term.label is not None:
                 draws = (
-                    idata.posterior[beta_name]  # type: ignore[attr-defined]
+                    idata
+                    .posterior[beta_name]  # type: ignore[attr-defined]
                     .sel({coord_name: term.variable})
                     .values.flatten()
                 )
@@ -156,15 +157,13 @@ def build_effects_summary(
     rows = []
     for name, draws in all_draws.items():
         hdi = az.hdi(draws, hdi_prob=0.94)
-        rows.append(
-            {
-                "name": name,
-                "mean": float(np.mean(draws)),
-                "sd": float(np.std(draws)),
-                "hdi_3%": float(hdi[0]),
-                "hdi_97%": float(hdi[1]),
-            }
-        )
+        rows.append({
+            "name": name,
+            "mean": float(np.mean(draws)),
+            "sd": float(np.std(draws)),
+            "hdi_3%": float(hdi[0]),
+            "hdi_97%": float(hdi[1]),
+        })
 
     if not rows:
         return pd.DataFrame(columns=["mean", "sd", "hdi_3%", "hdi_97%"]).rename_axis(
@@ -236,17 +235,15 @@ def build_standardized_effects(
             raw_draws = labeled_draws[term.label]
             std_draws = raw_draws * sd_x / sd_y
             hdi = az.hdi(std_draws, hdi_prob=0.94)
-            rows.append(
-                {
-                    "name": term.label,
-                    "predictor": var,
-                    "outcome": lhs,
-                    "mean": float(np.mean(std_draws)),
-                    "sd": float(np.std(std_draws)),
-                    "hdi_3%": float(hdi[0]),
-                    "hdi_97%": float(hdi[1]),
-                }
-            )
+            rows.append({
+                "name": term.label,
+                "predictor": var,
+                "outcome": lhs,
+                "mean": float(np.mean(std_draws)),
+                "sd": float(np.std(std_draws)),
+                "hdi_3%": float(hdi[0]),
+                "hdi_97%": float(hdi[1]),
+            })
 
     if not rows:
         return pd.DataFrame(

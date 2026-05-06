@@ -1371,7 +1371,8 @@ def model(
             from pymc_extras.prior import Prior
 
             m = pathmc.model(
-                spec, data,
+                spec,
+                data,
                 priors={"beta_Y": Prior("Normal", mu=0, sigma=2)},
             )
 

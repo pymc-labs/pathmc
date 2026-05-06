@@ -257,71 +257,59 @@ class TestSensitivityErrorHandling:
     """Test error conditions."""
 
     def test_no_samples_raises(self):
-        df = pd.DataFrame(
-            {
-                "X": np.random.normal(size=50),
-                "Y": np.random.normal(size=50),
-            }
-        )
+        df = pd.DataFrame({
+            "X": np.random.normal(size=50),
+            "Y": np.random.normal(size=50),
+        })
         model = pathmc.model("Y ~ X", data=df)
         with pytest.raises(RuntimeError, match="No posterior samples"):
             model.sensitivity("Y", "X")
 
     def test_bad_gamma_range_raises(self):
-        df = pd.DataFrame(
-            {
-                "X": np.random.normal(size=50),
-                "Y": np.random.normal(size=50),
-            }
-        )
+        df = pd.DataFrame({
+            "X": np.random.normal(size=50),
+            "Y": np.random.normal(size=50),
+        })
         model = pathmc.model("Y ~ X", data=df)
         model._idata = True  # bypass sampling check
         with pytest.raises(ValueError, match="gamma_range"):
             model.sensitivity("Y", "X", gamma_range=(1.0, 0.0))
 
     def test_bad_delta_range_raises(self):
-        df = pd.DataFrame(
-            {
-                "X": np.random.normal(size=50),
-                "Y": np.random.normal(size=50),
-            }
-        )
+        df = pd.DataFrame({
+            "X": np.random.normal(size=50),
+            "Y": np.random.normal(size=50),
+        })
         model = pathmc.model("Y ~ X", data=df)
         model._idata = True
         with pytest.raises(ValueError, match="delta_range"):
             model.sensitivity("Y", "X", delta_range=(1.0, 0.0))
 
     def test_bad_n_grid_raises(self):
-        df = pd.DataFrame(
-            {
-                "X": np.random.normal(size=50),
-                "Y": np.random.normal(size=50),
-            }
-        )
+        df = pd.DataFrame({
+            "X": np.random.normal(size=50),
+            "Y": np.random.normal(size=50),
+        })
         model = pathmc.model("Y ~ X", data=df)
         model._idata = True
         with pytest.raises(ValueError, match="n_grid"):
             model.sensitivity("Y", "X", n_grid=1)
 
     def test_unknown_treatment_raises(self):
-        df = pd.DataFrame(
-            {
-                "X": np.random.normal(size=50),
-                "Y": np.random.normal(size=50),
-            }
-        )
+        df = pd.DataFrame({
+            "X": np.random.normal(size=50),
+            "Y": np.random.normal(size=50),
+        })
         model = pathmc.model("Y ~ X", data=df)
         model._idata = True
         with pytest.raises(ValueError, match="not in model"):
             model.sensitivity("Y", "UNKNOWN")
 
     def test_unknown_outcome_raises(self):
-        df = pd.DataFrame(
-            {
-                "X": np.random.normal(size=50),
-                "Y": np.random.normal(size=50),
-            }
-        )
+        df = pd.DataFrame({
+            "X": np.random.normal(size=50),
+            "Y": np.random.normal(size=50),
+        })
         model = pathmc.model("Y ~ X", data=df)
         model._idata = True
         with pytest.raises(ValueError, match="not in model"):

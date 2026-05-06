@@ -40,9 +40,12 @@ def simple_panel():
         for week in range(1, 16):
             spend = rng.uniform(10, 50)
             sales = 50 + 0.5 * spend + rng.normal(0, 2)
-            rows.append(
-                {"region": region, "week": week, "spend": spend, "sales": sales}
-            )
+            rows.append({
+                "region": region,
+                "week": week,
+                "spend": spend,
+                "sales": sales,
+            })
     df = pd.DataFrame(rows)
     model = pathmc.model(
         "sales ~ spend",
@@ -63,9 +66,12 @@ def lag_panel():
         for week in range(1, 16):
             spend = rng.uniform(10, 50)
             sales = 50 + 0.5 * spend + rng.normal(0, 2)
-            rows.append(
-                {"region": region, "week": week, "spend": spend, "sales": sales}
-            )
+            rows.append({
+                "region": region,
+                "week": week,
+                "spend": spend,
+                "sales": sales,
+            })
     df = pd.DataFrame(rows)
     model = pathmc.model(
         "sales ~ spend + lag(sales)",
@@ -89,15 +95,13 @@ def adstock_panel():
             adstocked = tv + 0.7 * adstocked
             sat = 1 - np.exp(-0.3 * adstocked)
             sales = 50 + 8.0 * sat + 0.1 * week + rng.normal(0, 1.5)
-            rows.append(
-                {
-                    "region": region,
-                    "week": week,
-                    "tv": tv,
-                    "trend": week,
-                    "sales": sales,
-                }
-            )
+            rows.append({
+                "region": region,
+                "week": week,
+                "tv": tv,
+                "trend": week,
+                "sales": sales,
+            })
     df = pd.DataFrame(rows)
     model = pathmc.model(
         "sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)"

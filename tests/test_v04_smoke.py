@@ -80,14 +80,12 @@ class TestPanelRandomSlopesPipeline:
             for week in range(1, n_weeks + 1):
                 spend = rng.uniform(5, 25)
                 sales = 50 + slopes[region] * spend + rng.normal(scale=1.0)
-                rows.append(
-                    {
-                        "region": region,
-                        "week": week,
-                        "spend": spend,
-                        "sales": sales,
-                    }
-                )
+                rows.append({
+                    "region": region,
+                    "week": week,
+                    "spend": spend,
+                    "sales": sales,
+                })
         df = pd.DataFrame(rows)
 
         model = pathmc.model(

@@ -556,17 +556,15 @@ def test_implications(
         )
 
         cond_str = ", ".join(sorted(ci.conditioning_set))
-        rows.append(
-            {
-                "x": ci.x,
-                "y": ci.y,
-                "conditioning_set": cond_str,
-                "partial_corr": r,
-                "p_value": p,
-                "n_obs": n,
-                "significant": (not np.isnan(p)) and p < alpha,
-            }
-        )
+        rows.append({
+            "x": ci.x,
+            "y": ci.y,
+            "conditioning_set": cond_str,
+            "partial_corr": r,
+            "p_value": p,
+            "n_obs": n,
+            "significant": (not np.isnan(p)) and p < alpha,
+        })
 
     if rows:
         df = pd.DataFrame(rows)
