@@ -4,100 +4,44 @@
   <img src="docs/assets/logo.png" alt="pathmc logo" width="75%">
 </p>
 
+[![Status: beta](https://img.shields.io/badge/status-beta-orange)](https://pypi.org/project/pathmc/)
+
 **Structural causal models with Bayesian estimation and interventional simulation via a concise DSL.**
 
-pathmc compiles a lavaan-inspired formula language into PyMC models.
-Specify a system of structural equations, build a model, fit with MCMC, and reason about causal effects using the do-operator.
+## What is pathmc?
 
-## Setup
+pathmc is a Python package for Bayesian path analysis and structural causal modeling. It compiles a lavaan-inspired formula DSL into PyMC models, keeps the DAG at the center of the workflow, and lets you estimate effects with full posterior uncertainty. Use it to specify structural equations, fit with MCMC, inspect the implied graph, and run causal `do()` queries from the same model object.
 
-Create the conda environment:
-
-```bash
-conda env create -f environment.yml
-```
-
-Activate it:
+## Installation
 
 ```bash
-conda activate pathmc
+pip install pathmc
 ```
 
-Update after changes to `environment.yml`:
+## Quickstart
 
-```bash
-conda env update -f environment.yml --prune
+Pass a pandas DataFrame with columns matching the variables in your structural equations:
+
+```python
+import pathmc
+
+spec = """
+M ~ a*X
+Y ~ b*M + c*X
+indirect := a*b
+"""
+
+m = pathmc.model(spec, data=df)
+m.fit(draws=1000, chains=2)
+m.ate("Y", "X", values=(0, 1))
 ```
 
-Install pathmc in editable mode with development dependencies and hooks:
+The same model object can also render the DAG, summarize labeled coefficients and defined parameters, check identification, and run sensitivity analyses.
 
-```bash
-make setup
-```
+## Documentation
 
-Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, environment sync, and build targets.
+Documentation, concepts, and worked examples are available at [pymc-labs.github.io/pathmc](https://pymc-labs.github.io/pathmc/).
 
-### Changing dependencies
+## Citation
 
-Edit dependency metadata in `pyproject.toml`, not `environment.yml`. The conda environment file is generated from `pyproject.toml`; run `make sync-env` after dependency changes, or let the pre-commit hook regenerate it.
-
-## Tests
-
-Run fast tests only (no MCMC sampling):
-
-```bash
-make test-fast
-```
-
-Run all tests including slow integration tests:
-
-```bash
-make test
-```
-
-Run a specific milestone's gate tests:
-
-```bash
-pytest tests/test_parse.py -x -v
-```
-
-## Docs
-
-Requires [Quarto](https://quarto.org/docs/get-started/) to be installed.
-
-Register the conda environment as a Jupyter kernel (one-time setup):
-
-```bash
-conda activate pathmc
-python -m ipykernel install --user --name pathmc
-```
-
-Preview the docs locally (live-reloads on save):
-
-```bash
-cd docs
-quarto preview
-```
-
-Build the static site to `docs/_site/`:
-
-```bash
-make docs
-```
-
-### Rendering after code changes
-
-The docs site uses `freeze: auto` to cache notebook outputs. If you change Python source code that affects notebook results, **you must clear the freeze cache** — otherwise Quarto will serve stale outputs from a previous render.
-
-Clear the cache for a single notebook:
-
-```bash
-rm -rf docs/_freeze/examples/<notebook_name> docs/.quarto/_freeze/examples/<notebook_name>
-quarto render docs/examples/<notebook_name>.qmd
-```
-
-Full rebuild from scratch (clears all caches):
-
-```bash
-make cleandocs && make docs
-```
+If you use pathmc in academic work, please cite the project using the metadata in the repository's [CITATION.cff](https://github.com/pymc-labs/pathmc/blob/main/CITATION.cff). The citation metadata will be updated before the final 0.1.0 release.

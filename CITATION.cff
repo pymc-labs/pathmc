@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use pathmc in academic work, please cite it using these metadata."
+title: "pathmc: Bayesian path analysis and structural causal modeling in PyMC"
+version: 0.1.0
+type: software
+license: Apache-2.0
+authors:
+  - family-names: Vincent
+    given-names: Benjamin
+repository-code: "https://github.com/pymc-labs/pathmc"
+url: "https://pymc-labs.github.io/pathmc/"
