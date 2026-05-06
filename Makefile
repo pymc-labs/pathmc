@@ -21,9 +21,8 @@ setup: ## Set up the complete development environment
 	prek install -f
 	@echo "Development environment ready!"
 
-lint: ## Run ruff linter and formatter, applying fixes
-	ruff check --fix .
-	ruff format .
+lint: ## Run prek hooks, applying fixes
+	prek run --all-files
 
 check_lint: ## Check formatting, linting, and types without making changes
 	ruff check .

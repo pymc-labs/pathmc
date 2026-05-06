@@ -22,13 +22,11 @@ import pathmc
 
 def test_mean_do_propagates_bernoulli_mediator_on_response_scale() -> None:
     """Bernoulli mediators should feed E[M], not dummy zeros, into Y."""
-    data = pd.DataFrame(
-        {
-            "X": np.array([0.0, 1.0, 0.0, 1.0]),
-            "M": np.array([0.0, 1.0, 0.0, 1.0]),
-            "Y": np.array([0.0, 2.0, 0.0, 2.0]),
-        }
-    )
+    data = pd.DataFrame({
+        "X": np.array([0.0, 1.0, 0.0, 1.0]),
+        "M": np.array([0.0, 1.0, 0.0, 1.0]),
+        "Y": np.array([0.0, 2.0, 0.0, 2.0]),
+    })
     model = pathmc.model("M ~ X\nY ~ M", data=data, families={"M": "bernoulli"})
     model._idata = az.from_dict(
         posterior={
@@ -56,13 +54,11 @@ def test_mean_do_propagates_bernoulli_mediator_on_response_scale() -> None:
 
 def test_mean_do_propagates_poisson_mediator_on_response_scale() -> None:
     """Poisson mediators should feed E[M], not dummy zeros, into Y."""
-    data = pd.DataFrame(
-        {
-            "X": np.array([0.0, 1.0, 0.0, 1.0]),
-            "M": np.array([1.0, 3.0, 1.0, 3.0]),
-            "Y": np.array([2.0, 6.0, 2.0, 6.0]),
-        }
-    )
+    data = pd.DataFrame({
+        "X": np.array([0.0, 1.0, 0.0, 1.0]),
+        "M": np.array([1.0, 3.0, 1.0, 3.0]),
+        "Y": np.array([2.0, 6.0, 2.0, 6.0]),
+    })
     model = pathmc.model("M ~ X\nY ~ M", data=data, families={"M": "poisson"})
     model._idata = az.from_dict(
         posterior={
