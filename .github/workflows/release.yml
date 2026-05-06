@@ -1,0 +1,134 @@
+name: PyPI release
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build source and wheel distributions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Build distributions
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m build
+      - name: Check the sdist installs and imports
+        run: |
+          mkdir -p test-sdist
+          cd test-sdist
+          python -m venv venv-sdist
+          venv-sdist/bin/python -m pip install --upgrade pip
+          venv-sdist/bin/python -m pip install ../dist/pathmc*.tar.gz
+          venv-sdist/bin/python - <<'PY'
+          import importlib.metadata
+          import os
+          import pathmc
+
+          installed_version = importlib.metadata.version("pathmc")
+          assert pathmc.__version__ == installed_version
+          if os.environ["REF_TYPE"] == "tag":
+              assert installed_version == os.environ["REF_NAME"].removeprefix("v")
+          print(installed_version)
+          PY
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+      - name: Check the wheel installs and imports
+        run: |
+          mkdir -p test-wheel
+          cd test-wheel
+          python -m venv venv-wheel
+          venv-wheel/bin/python -m pip install --upgrade pip
+          venv-wheel/bin/python -m pip install ../dist/pathmc*.whl
+          venv-wheel/bin/python - <<'PY'
+          import importlib.metadata
+          import os
+          import pathmc
+
+          installed_version = importlib.metadata.version("pathmc")
+          assert pathmc.__version__ == installed_version
+          if os.environ["REF_TYPE"] == "tag":
+              assert installed_version == os.environ["REF_NAME"].removeprefix("v")
+          print(installed_version)
+          PY
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: dist/*
+
+  test-pypi:
+    name: Upload to Test PyPI
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          skip-existing: true
+          repository-url: https://test.pypi.org/legacy/
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Test pip install from Test PyPI
+        run: |
+          sleep 5s
+          python -m venv venv-test-pypi
+          venv-test-pypi/bin/python -m pip install --upgrade pip
+          venv-test-pypi/bin/python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple pathmc
+          venv-test-pypi/bin/python - <<'PY'
+          import os
+          import pathmc
+
+          assert pathmc.__version__ == os.environ["REF_NAME"].removeprefix("v")
+          print(pathmc.__version__)
+          PY
+        env:
+          REF_NAME: ${{ github.ref_name }}
+
+  publish:
+    name: Upload release to PyPI
+    needs: [build, test-pypi]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
