@@ -13,6 +13,7 @@ channels:
 dependencies:
   - python=3.12
   - arviz<1
+  - build
   - graphviz
   - ipykernel
   - jax
