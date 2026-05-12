@@ -33,4 +33,4 @@ dependencies:
   - pip:
       - --editable=.[dev,docs,samplers]
       - build
-      - great-docs
+      - great-docs@git+https://github.com/posit-dev/great-docs.git@4dbe5099620d5b8e8107c7fada2822bf65d1520d

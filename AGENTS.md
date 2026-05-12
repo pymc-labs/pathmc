@@ -71,11 +71,21 @@ great-docs preview              # local server on http://localhost:3000
 
 The `great-docs/` directory is **ephemeral**: it is wiped at the start of every build and listed in `.gitignore`. Never edit files under `great-docs/` directly — change source files (`docs/user_guide/*.qmd`, `docs/examples/*.qmd`, `great-docs.yml`, `skills/pathmc/SKILL.md`) instead.
 
-#### Render cache caveat — local builds are the only path
+#### Notebooks are frozen — refresh after edits
 
-Great Docs does not currently expose Quarto's `execute: freeze` setting and wipes `great-docs/` (including any freeze cache) on every build. As a result, every `great-docs build` re-executes every example notebook from scratch (~30–45 minutes for pathmc's 18 MCMC notebooks). The CI doc-build workflow is therefore disabled (`if: false` in `.github/workflows/docs.yml`) until upstream lands a freeze-cache hook — see `docs/dev/great_docs_migration.md` for the upstream issue draft and rationale.
+`great-docs.yml` sets `freeze: true` project-wide. The committed `_freeze/` directory at the repo root stores Quarto's cached cell outputs; `great-docs build` (locally and in CI) restores it before rendering and never spawns a Jupyter kernel. **Local previews show the last-frozen output, not your in-progress edits.**
 
-**Practical implications:** docs are built locally only. For day-to-day iteration on prose / API reference, prefer `great-docs build --no-refresh` and temporarily move heavyweight `.qmd` files out of `docs/examples/` while editing. For pre-release verification, run a full build on a non-fanless machine.
+After editing an executable page, or after a pathmc API change that affects rendered output:
+
+```bash
+great-docs freeze docs/examples/my_page.qmd     # or multiple paths
+git add _freeze/
+git commit -m "Refresh freeze cache for my_page"
+```
+
+`great-docs freeze --info` shows per-page cache status; `great-docs freeze --clean <pages>` wipes and regenerates specific entries.
+
+**Homepage caveat.** `docs/user_guide/00-welcome.qmd` is mapped to the site index, and the freeze CLI cannot resolve it (looks for `user-guide/welcome.qmd`, finds `index.qmd`). To refresh the welcome cache: run `great-docs build` once (which executes welcome and writes `great-docs/_freeze/index/`), then `cp -r great-docs/_freeze/index _freeze/` and commit. See `docs/dev/great_docs_migration.md` ("How freeze works for pathmc") for the full rationale, version-pin notes, and upstream issue list.
 
 ## Running Tests
 

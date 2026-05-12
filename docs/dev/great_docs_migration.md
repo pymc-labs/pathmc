@@ -12,7 +12,7 @@ The PR for this migration tracks progress against the phased plan below. Tick it
 - [x] **Phase 1** — non-destructive spike with `great-docs init/build/preview`
 - [x] **Phase 2** — content migration (`great-docs.yml`, per-page frontmatter); landed in same commits as Phase 1
 - [x] **Phase 3** — curated `skills/pathmc/SKILL.md`
-- [x] **Phase 4a** — CI workflow scaffolding present but `Build Docs` is `if: false` until upstream lands a freeze-cache hook (see "CI build is disabled — why" below). Local builds remain the source of truth for the rendered site.
+- [x] **Phase 4a** — CI build job (`Build Docs`) is enabled and renders the committed `_freeze/` cache without executing notebooks. `Publish Docs` and `Preview Docs` remain guarded until Phase 4b. See "How freeze works for pathmc" below.
 - [x] **Phase 5** — cleanup (`docs/_quarto.yml`, freeze cache, `AGENTS.md`)
 - [ ] **Phase 4b** — *deferred to launch day, not part of this PR.* Flip Settings → Pages → Source → GitHub Actions; add `Documentation` URL to `pyproject.toml`.
 
@@ -38,45 +38,34 @@ The PR for this migration tracks progress against the phased plan below. Tick it
 **Open issues to file upstream against `posit-dev/great-docs`:**
 
 1. **Hero block emits invalid Quarto attribute.** `great_docs/core.py:4886` produces `` ```{=html}  # pragma: no cover `` which Quarto can't parse. The `# pragma: no cover` is a Python coverage marker that has leaked into a doc string. Workaround: `hero: false`.
-2. **No way to persist Quarto's freeze cache across builds.** See the dedicated section below — this is the most impactful gap for any package with non-trivial example notebooks. We've disabled CI doc builds entirely until upstream lands a fix.
+2. ~~**No way to persist Quarto's freeze cache across builds.**~~ Resolved upstream by [posit-dev/great-docs#158](https://github.com/posit-dev/great-docs/pull/158) (closes [#155](https://github.com/posit-dev/great-docs/issues/155)). pathmc adopts the new `freeze: true` config and the `great-docs freeze` CLI; see "How freeze works for pathmc" below.
 3. **Bare module names in `reference.contents` silently expand.** This is documented behaviour from reading the source, but undocumented in the user-facing config reference. Worth a docs improvement upstream.
+4. **`great-docs freeze` cannot resolve the homepage.** When a page is mapped to the site index via `homepage:`, the freeze CLI fails with `not found in build directory` because it looks under the page's source-relative path (e.g. `user-guide/welcome.qmd`) rather than `index.qmd`. Workaround for `docs/user_guide/00-welcome.qmd`: run `great-docs build` once to populate `great-docs/_freeze/index/`, then copy that subtree to `_freeze/index/` and commit. Repeat after edits.
 
-### CI build is disabled — why
+### How freeze works for pathmc
 
-The `Build Docs` job in `.github/workflows/docs.yml` is guarded by `if: false` and will not run on any PR or push until the freeze-cache situation is resolved upstream. Rationale:
+The CI `Build Docs` job renders HTML without executing any notebook. The mechanism is upstream's [Freeze & Caching](https://posit-dev.github.io/great-docs/user_guide/freeze.html) feature (added by [posit-dev/great-docs#158](https://github.com/posit-dev/great-docs/pull/158), `upcoming: "0.11.0"` at the time of this PR), which we configure project-wide:
 
-- pathmc has 18 example notebooks, all of which run MCMC sampling. End-to-end execution is ~30–45 minutes on a typical CI runner.
-- Quarto natively supports a `freeze` cache (`docs/_freeze/` in a hand-rolled Quarto project) that stores executed notebook outputs and lets subsequent renders skip execution entirely. Every comparable Python project (PyMC, ArviZ, Bambi, PyMC-Marketing) commits this cache to git and CI just renders HTML without ever executing a kernel.
-- great-docs renders with `great-docs/` as its Quarto project root, so Quarto looks for `great-docs/_freeze/` — not `docs/_freeze/`. great-docs wipes `great-docs/` at the start of every build (`shutil.rmtree(self.project_path)` in `_prepare_build_directory()`), and it offers no `pre-render` hook, no project-level `freeze: true` knob, and no public API to insert work between its setup and Quarto's render step. The build is one Python method with sequential steps and no extension points.
-- Net effect: there is currently no supported way to seed Quarto's cache before great-docs runs Quarto, so every build starts from cold. A monkey-patching wrapper is technically possible but is fragile against great-docs upgrades and not worth maintaining for a young, fast-moving tool.
+- [`great-docs.yml`](../../great-docs.yml) sets `freeze: true`, applying to every executable `.qmd` page (examples and user guide).
+- The committed `_freeze/` directory at the repo root stores Quarto's cached cell outputs.
+- On every `great-docs build`, a built-in pre-render step copies `_freeze/` into the (otherwise wiped) build directory before `quarto render` runs, so Quarto reads the cache instead of spawning a kernel.
 
-**Decision:** disable the CI build for now. Author builds locally on a non-fanless machine; the artifact is only produced on demand. When upstream lands a hook (see issue draft below), we re-enable the CI job in a one-line change.
+`true` (rather than `auto`) is deliberate: `auto` re-executes a page when its source hash drifts from the cached hash, which would let CI fire up a Jupyter kernel for any contributor edit that wasn't paired with a `great-docs freeze` run. `true` makes the rule absolute — *local builds execute and freeze; remote builds only render* — and matches upstream's documented use case for non-deterministic / locally-runnable / draw-stable pages.
 
-### Upstream issue draft (file against `posit-dev/great-docs`)
+**Refresh workflow.** After editing an executable page, or after a pathmc API change that affects any rendered output:
 
-Drop this verbatim as a new GitHub issue. It is written from the perspective of someone evaluating great-docs for a project with computationally expensive notebooks; treat the wording as a starting point, not a final draft.
+```bash
+conda activate pathmc
+great-docs freeze docs/examples/my_page.qmd      # or multiple paths
+git add _freeze/
+git commit -m "Refresh freeze cache for my_page"
+```
 
-> **Title:** Allow persisting Quarto's freeze cache across builds (or expose a `pre-render` hook)
->
-> **Problem.** Projects whose docs include computationally expensive notebooks (Bayesian MCMC, deep learning, large simulations) cannot use great-docs in CI without re-executing every notebook on every build. For pathmc, that's ~30–45 minutes per CI run for 18 MCMC notebooks, which is fragile (transient sampler issues fail unrelated PRs) and prohibitively slow for PR review cycles.
->
-> Quarto solves this natively with `execute: freeze: auto` (per file or project-level) plus a `_freeze/` directory that stores executed outputs. Every comparable Python project (PyMC, ArviZ, Bambi, PyMC-Marketing) commits `_freeze/` to git and CI renders HTML without ever spawning a Jupyter kernel. Authors execute locally when source changes; CI is fast.
->
-> **Why it doesn't work today with great-docs.** great-docs renders with `great-docs/` as the Quarto project root, so Quarto looks for `great-docs/_freeze/`. great-docs wipes `great-docs/` at the start of every build (`shutil.rmtree(self.project_path)` in `_prepare_build_directory`). There's no `pre-render` hook in `great-docs.yml`, no project-level `freeze: true` knob, and no API to insert work between great-docs' setup and `quarto render`. The freeze cache is structurally impossible to persist across builds.
->
-> **Proposal.** Any one of these would unblock the use case:
->
-> 1. **Expose a `pre-render` hook.** great-docs already injects `post-render: scripts/post-render.py` into the generated `_quarto.yml`. Adding `pre-render` (Quarto natively supports it) lets users write a small script that copies their persisted `_freeze/` into the build directory before `quarto render` runs. **Smallest change, most flexible.** Two-line addition to `_update_quarto_config()`.
-> 2. **Add `freeze: auto` (or `freezer`) to `great-docs.yml`.** Translate to project-level `execute: freeze: auto` in the generated `_quarto.yml` plus an optional `freezer:` pointing at a path *outside* `great-docs/` so the cache survives `_prepare_build_directory()`. More opinionated but easier for users.
-> 3. **Make `_prepare_build_directory()` preserve `_freeze/`.** Instead of `shutil.rmtree(self.project_path)`, recreate everything except `_freeze/` (and `_site/` if desired). Least invasive but doesn't help users whose persisted cache lives in their source tree.
->
-> **Concrete example use case.** [link to this PR / repo for context]
->
-> Happy to send a PR if you'd accept option 1 or 3.
+`great-docs freeze --info` shows per-page cache status. `great-docs freeze --clean <pages>` wipes and regenerates specific entries (useful after a dependency upgrade that changes plot styling).
 
-**Local verification status:**
+**Local previews show stale outputs by design.** With `freeze: true`, `great-docs preview` displays the last-frozen output until you re-run `great-docs freeze`. This is the trade-off for CI determinism — explicit refresh, never accidental execution.
 
-A constrained local build (1 of 18 example notebooks) has rendered cleanly in ~3.5 minutes. The user guide, API reference, `llms.txt`, `llms-full.txt`, and `skill.md` all generate as expected. Full-render verification (all 18 examples) will be done on a Mac Studio before merge; CI will not be exercising it.
+**Version pin.** [`pyproject.toml`](../../pyproject.toml)'s `docs` extra pins great-docs to a specific `main` commit until v0.11.0 is tagged on PyPI; see the TODO comment there.
 
 ## Goals
 

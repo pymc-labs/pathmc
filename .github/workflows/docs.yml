@@ -10,18 +10,11 @@ jobs:
   build-docs:
     name: "Build Docs"
     runs-on: ubuntu-latest
-    # TODO: re-enable once great-docs supports persisting Quarto's freeze cache
-    # across builds. See `docs/dev/great_docs_migration.md` (section "CI build is
-    # disabled — why") for the upstream issue tracker link and the rationale.
-    #
-    # Briefly: great-docs wipes its build directory on every invocation and does
-    # not expose a `pre-render` hook or project-level `freeze: true` knob, so
-    # there is no way to seed Quarto's freeze cache from a committed source-tree
-    # location before `quarto render` runs. Without that, every CI build would
-    # re-execute all 18 MCMC notebooks from scratch (~30 min, often failing on
-    # transient sampler issues that have nothing to do with the change under
-    # review). Until upstream lands a hook, docs are built locally only.
-    if: false
+    # Notebooks are NOT executed in CI. Project-level `freeze: true` in
+    # great-docs.yml plus the committed `_freeze/` cache means Quarto restores
+    # cached outputs and renders HTML only — no kernel ever spawns here.
+    # Authors refresh the cache locally via `great-docs freeze <page>` (see
+    # docs/dev/great_docs_migration.md, "How freeze works for pathmc").
     steps:
       - uses: actions/checkout@v6
         with:

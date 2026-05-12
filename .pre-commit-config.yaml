@@ -2,10 +2,17 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      # `_freeze/` is the great-docs/Quarto cache; entries are produced by
+      # `great-docs freeze` and (for upstream-provided files like
+      # `site_libs/clipboard/clipboard.min.js`) are vendored verbatim.
+      # Whitespace/EOL fixups would either churn the cache on every refresh
+      # or corrupt third-party assets.
       - id: trailing-whitespace
         exclude_types: [svg]
+        exclude: ^_freeze/
       - id: end-of-file-fixer
         exclude_types: [svg]
+        exclude: ^_freeze/
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict
@@ -62,3 +69,6 @@ repos:
           # would invalidate `skills-lock.json` content hashes used by
           # `great-docs skill check`. Keep them verbatim.
           - --exclude=.agents/
+          # Quarto/great-docs freeze cache. Includes upstream-vendored assets
+          # like clipboard.js (MIT, © Zeno Rocha) that must not be relicensed.
+          - --exclude=_freeze/
