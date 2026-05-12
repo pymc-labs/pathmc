@@ -1,5 +1,6 @@
 ---
 title: "Why Panel Interventions Need Time-Forward Simulation"
+guide-section: "Panel Data"
 description: "When does panel do() require simulate_over='time', and why? A visual explanation of how adstock and lagged variables create temporal state that a single-step intervention can't handle."
 categories: [Fundamentals, Panel Data]
 jupyter: pathmc

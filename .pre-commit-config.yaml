@@ -57,3 +57,8 @@ repos:
           - --author=The PyMC Labs Developers
           - --start-year=2025
           - --exclude=docs/
+          # Vendored upstream skills installed via `npx skills add` are MIT
+          # licensed (per their own SKILL.md frontmatter) and modifying them
+          # would invalidate `skills-lock.json` content hashes used by
+          # `great-docs skill check`. Keep them verbatim.
+          - --exclude=.agents/

@@ -1,5 +1,6 @@
 ---
 title: "Overview"
+guide-section: "Getting Started"
 subtitle: "Birds-eye architecture overview"
 ---
 

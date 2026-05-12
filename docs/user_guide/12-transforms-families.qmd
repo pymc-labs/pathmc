@@ -1,5 +1,6 @@
 ---
 title: "Transforms and Families"
+guide-section: "Concepts"
 ---
 
 pathmc supports **named transforms with estimable parameters** directly in the DSL, and multiple outcome distribution **families** beyond the default Gaussian.

@@ -1,5 +1,6 @@
 ---
 title: "Panel Data"
+guide-section: "Panel Data"
 ---
 
 pathmc supports **panel (longitudinal) data** — repeated observations of multiple units over time.

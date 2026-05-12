@@ -1,5 +1,6 @@
 ---
 title: "Estimation Approaches"
+guide-section: "Concepts"
 subtitle: "Structural models vs. regression adjustment — when to use which"
 ---
 

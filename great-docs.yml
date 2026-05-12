@@ -4,6 +4,13 @@
 module: pathmc
 display_name: pathmc
 
+# Explicit GitHub repo (auto-detection from pyproject.toml URLs works but is
+# silent on failure; pinning it here makes source links and the changelog
+# fail loudly if the repo ever moves).
+repo: pymc-labs/pathmc
+github_style:
+  source: true
+
 parser: numpy
 dynamic: false  # cyclic alias detected; griffe AST analysis is sufficient
 

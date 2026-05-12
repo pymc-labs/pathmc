@@ -1,5 +1,6 @@
 ---
 title: "Model Specification"
+guide-section: "Concepts"
 ---
 
 pathmc is a Python package for **Bayesian path analysis** — a form of observed-variable structural equation modeling (SEM) — built on [PyMC](https://www.pymc.io).

@@ -1,5 +1,6 @@
 ---
 title: "Comparison with Other Packages"
+guide-section: "Getting Started"
 subtitle: "Where pathmc fits in the Python causal inference ecosystem"
 ---
 

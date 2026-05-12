@@ -1,5 +1,6 @@
 ---
 title: "Causal Inference"
+guide-section: "Concepts"
 ---
 
 pathmc implements Pearl's do-operator for **interventional reasoning** and provides tools to check whether causal effects are identifiable from the DAG structure.

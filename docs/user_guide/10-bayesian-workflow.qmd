@@ -1,5 +1,6 @@
 ---
 title: "Bayesian Workflow"
+guide-section: "Concepts"
 jupyter: pathmc
 ---
 

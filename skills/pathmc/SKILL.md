@@ -12,6 +12,8 @@ description: >
 license: MIT
 compatibility: Requires Python >=3.11, PyMC >=5.22.0.
 metadata:
+  author: drbenvincent
+  version: "0.1"
   homepage: https://github.com/pymc-labs/pathmc
   tags:
     - causal-inference
@@ -26,6 +28,14 @@ metadata:
 `pathmc` lets you specify a system of structural equations as a string,
 compile it to a generative PyMC model, fit with MCMC, and reason about
 causal effects using the do-operator.
+
+## Installation
+
+```bash
+pip install pathmc
+# Optional faster samplers (nutpie, numpyro, jax):
+pip install "pathmc[samplers]"
+```
 
 ## Quick start
 
