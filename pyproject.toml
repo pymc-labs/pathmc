@@ -38,7 +38,7 @@ dependencies = [
     "patsy",
     "pymc>=5.27.0,<6",
     "pymc-extras",
-    "pymc-marketing==0.19.04",
+    "pymc-marketing==0.19.4",
     "pytensor>=2.38,<3",
 ]
 
