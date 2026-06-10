@@ -14,9 +14,7 @@ dependencies:
   - python=3.12
   - arviz<1
   - graphviz
-  - ipykernel
   - jax
-  - jupyter
   - mypy
   - narwhals>=1.20
   - networkx
@@ -33,9 +31,9 @@ dependencies:
   - pymc<6,>=5.27.0
   - pytensor<3,>=2.38
   - pytest
-  - pyyaml
   - ruff
   - pip
   - pip:
       - --editable=.[dev,test,docs,samplers]
       - build
+      - great-docs@git+https://github.com/posit-dev/great-docs.git@4dbe5099620d5b8e8107c7fada2822bf65d1520d

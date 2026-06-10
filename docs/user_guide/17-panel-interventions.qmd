@@ -1,0 +1,387 @@
+---
+title: "Why Panel Interventions Need Time-Forward Simulation"
+guide-section: "Panel Data"
+description: "When does panel do() require simulate_over='time', and why? A visual explanation of how adstock and lagged variables create temporal state that a single-step intervention can't handle."
+categories: [Fundamentals, Panel Data]
+jupyter: pathmc
+---
+
+You fit a model with adstock transforms on panel data.
+You call `model.do(set={"digital": 20})` to simulate a counterfactual.
+pathmc tells you to add `simulate_over="time"`.
+Why?
+
+The short answer: **only when your model has temporal state** — adstock accumulation or lagged endogenous variables.
+Without these, panel interventions work exactly like cross-sectional ones.
+With them, a single-step replacement produces the wrong answer, and time-forward simulation is the fix.
+
+This page walks through why, with concrete numbers and diagrams.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import arviz as az
+import pathmc
+
+FIG_WIDTH = 8
+FIG_HEIGHT = 4
+COLOR_CORRECT = "#2171b5"
+COLOR_NAIVE = "#e6550d"
+COLOR_OBSERVED = "#636363"
+COLOR_BOOST = "#31a354"
+
+rng = np.random.default_rng(42)
+```
+
+## Cross-sectional interventions are straightforward
+
+In a cross-sectional model, every observation is independent.
+The intervention `do(X = x*)` replaces the observed value of `X` with `x*`, then forward-propagates through the DAG using the estimated coefficients.
+
+```{dot}
+//| label: fig-cross-sectional-do
+//| fig-cap: "Cross-sectional do(). Replace X with the intervention value, propagate through the structural equation to compute Y. Each observation is independent — no state carries between them."
+//| fig-width: 5
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+
+  X [label="X\n(replaced)", style="filled,rounded", fillcolor="#c6dbef"]
+  Y [label="Y\n(recomputed)", style="filled,rounded", fillcolor="#fcbba1"]
+
+  X -> Y [label="  β"]
+}
+```
+
+This is a single matrix multiply: `Y = β × X + intercept`.
+No loops, no state, no temporal reasoning.
+pathmc implements this via `pm.do()` on the generative model — one call, done.
+
+## Panel data without temporal state: still simple
+
+Adding a panel dimension (units × time) with partial pooling does *not* change the intervention logic.
+Random intercepts shift the baseline for each unit, but the causal mechanism `X → Y` is still instantaneous.
+
+```{dot}
+//| label: fig-panel-no-state
+//| fig-cap: "Panel model with random intercepts but no temporal state. The intervention do(X = x*) works the same way as in the cross-sectional case — unit-specific intercepts shift the level but don't create dependencies between time steps."
+//| fig-width: 5
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+
+  alpha [label="αᵢ\n(unit intercept)", style="filled,rounded", fillcolor="lightyellow"]
+  X [label="X\n(replaced)", style="filled,rounded", fillcolor="#c6dbef"]
+  Y [label="Y\n(recomputed)", style="filled,rounded", fillcolor="#fcbba1"]
+
+  alpha -> Y [label=" +"]
+  X -> Y [label="  β"]
+}
+```
+
+Each (unit, time) observation is still independent.
+The `do()` call replaces X, adds the unit-specific intercept, and computes Y.
+No time-forward simulation needed.
+
+::: {.callout-important}
+## The complexity isn't about panel data itself
+
+Having multiple units observed over time does not, by itself, require time-forward simulation.
+Random intercepts, random slopes, trend terms — none of these create the problem.
+The problem starts when **the output of one time step feeds into the input of the next**.
+:::
+
+## Adstock creates hidden temporal state
+
+Now consider a marketing model with an adstock transform:
+
+```
+sales ~ b * logistic_saturation(adstock(digital, decay=θ))
+```
+
+The adstock function is **recursive** — its output at time *t* depends on its output at time *t* − 1:
+
+$$\text{adstock}_t = \text{digital}_t + \theta \cdot \text{adstock}_{t-1}$$
+
+This means the effective marketing input at any given week is not just that week's spend — it's the accumulated stock of all past spend, geometrically decayed.
+
+```{dot}
+//| label: fig-adstock-cascade
+//| fig-cap: "Adstock creates temporal state. Each week's effective input depends on the accumulated stock from all previous weeks. Changing digital spend at week t alters the adstock at t, t+1, t+2, ... — a cascade through time."
+//| fig-width: 6.5
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded, fontsize=11]
+  edge [fontsize=10]
+
+  subgraph cluster_t1 {
+    label="Week 1"; style=dashed; color=gray; fontcolor=gray
+    d1 [label="digital₁", style="filled,rounded", fillcolor="#c6dbef"]
+    a1 [label="adstock₁", style="filled,rounded", fillcolor="#ffffb2"]
+    s1 [label="sales₁", style="filled,rounded", fillcolor="#fcbba1"]
+    d1 -> a1
+    a1 -> s1
+  }
+
+  subgraph cluster_t2 {
+    label="Week 2"; style=dashed; color=gray; fontcolor=gray
+    d2 [label="digital₂", style="filled,rounded", fillcolor="#c6dbef"]
+    a2 [label="adstock₂", style="filled,rounded", fillcolor="#ffffb2"]
+    s2 [label="sales₂", style="filled,rounded", fillcolor="#fcbba1"]
+    d2 -> a2
+    a2 -> s2
+  }
+
+  subgraph cluster_t3 {
+    label="Week 3"; style=dashed; color=gray; fontcolor=gray
+    d3 [label="digital₃", style="filled,rounded", fillcolor="#c6dbef"]
+    a3 [label="adstock₃", style="filled,rounded", fillcolor="#ffffb2"]
+    s3 [label="sales₃", style="filled,rounded", fillcolor="#fcbba1"]
+    d3 -> a3
+    a3 -> s3
+  }
+
+  a1 -> a2 [label="× θ", style=dashed, color="#e6550d", fontcolor="#e6550d"]
+  a2 -> a3 [label="× θ", style=dashed, color="#e6550d", fontcolor="#e6550d"]
+}
+```
+
+The dashed orange arrows are the problem.
+They carry state from one time step to the next.
+Under the observed data, the adstock values at each time step were computed from the actual spending history.
+Under an intervention, the spending changes — so the adstock trajectory must be **re-computed from scratch**.
+
+## What goes wrong with naive replacement
+
+Suppose the model was estimated on data where digital spend averaged 15 per week, and the fitted adstock decay is θ = 0.7.
+After many weeks, the adstock reaches a steady state of approximately 15 / (1 − 0.7) = 50.
+
+Now you want to simulate a counterfactual: "what if digital spend had been 20 every week?"
+The naive approach: replace the `digital` node with 20 and forward-sample sales.
+
+The problem: the model's observed adstock values are still baked into the computation.
+The adstock at each time step was computed from the *observed* spending history (averaging 15), not from the *counterfactual* spending (20).
+The saturation function sees adstock ≈ 50 (from observed history) instead of adstock ≈ 67 (from the counterfactual steady state of 20 / 0.3).
+
+```{python}
+# | label: fig-naive-vs-correct
+# | fig-cap: "Adstock trajectories under a counterfactual spend of 20/week. Naive replacement (orange) uses the observed adstock values — which reflect historic spend of ~15 — producing the wrong effective input. Correct time-forward simulation (blue) re-computes the adstock recursion from scratch, reaching the true steady state."
+# | code-fold: true
+
+theta = 0.7
+observed_spend = np.full(25, 15.0)
+counterfactual_spend = np.full(25, 20.0)
+
+# Observed adstock (from fitting period)
+adstock_obs = np.zeros(25)
+adstock_obs[0] = observed_spend[0]
+for t in range(1, 25):
+    adstock_obs[t] = observed_spend[t] + theta * adstock_obs[t - 1]
+
+# Correct counterfactual adstock (re-computed)
+adstock_correct = np.zeros(25)
+adstock_correct[0] = counterfactual_spend[0]
+for t in range(1, 25):
+    adstock_correct[t] = counterfactual_spend[t] + theta * adstock_correct[t - 1]
+
+# Naive: uses observed adstock but with counterfactual spend at the "current" step
+# This incorrectly carries the observed history
+adstock_naive = np.zeros(25)
+for t in range(25):
+    adstock_naive[t] = counterfactual_spend[t] + theta * (
+        adstock_obs[t - 1] if t > 0 else 0.0
+    )
+
+weeks = np.arange(1, 26)
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.plot(
+    weeks,
+    adstock_obs,
+    color=COLOR_OBSERVED,
+    ls="--",
+    lw=1.5,
+    label="Observed adstock (spend=15)",
+)
+ax.plot(
+    weeks, adstock_naive, color=COLOR_NAIVE, lw=2, label="Naive replacement (wrong)"
+)
+ax.plot(
+    weeks,
+    adstock_correct,
+    color=COLOR_CORRECT,
+    lw=2,
+    label="Time-forward simulation (correct)",
+)
+ax.axhline(
+    20 / (1 - theta),
+    color=COLOR_CORRECT,
+    ls=":",
+    alpha=0.5,
+    label=f"True steady state ({20 / (1 - theta):.0f})",
+)
+ax.axhline(
+    15 / (1 - theta),
+    color=COLOR_OBSERVED,
+    ls=":",
+    alpha=0.5,
+    label=f"Observed steady state ({15 / (1 - theta):.0f})",
+)
+ax.set_xlabel("Week")
+ax.set_ylabel("Effective adstock input")
+ax.legend(fontsize=9)
+plt.tight_layout()
+plt.show()
+```
+
+The naive approach (orange) produces adstock values close to the observed trajectory — the intervention barely shifts the effective input because the accumulated stock from the old spending history dominates.
+The correct approach (blue) re-builds the adstock accumulation from scratch using the counterfactual spend at every step, reaching the proper steady state.
+
+This difference flows through the saturation function into sales, producing an underestimated causal effect if you skip time-forward simulation.
+
+## The fix: re-compute the temporal trajectory step by step
+
+Time-forward simulation walks through each time step in order, computing the intervention's effects and carrying them forward:
+
+1. **Week 1**: Set digital = 20. Compute adstock₁ = 20 (no prior state). Compute sales₁.
+2. **Week 2**: Set digital = 20. Compute adstock₂ = 20 + θ × adstock₁. Compute sales₂.
+3. **Week 3**: Set digital = 20. Compute adstock₃ = 20 + θ × adstock₂. Compute sales₃.
+4. **...and so on** until the trajectory converges to steady state.
+
+Each step uses the *simulated* adstock from the previous step, not the *observed* one.
+This is what `simulate_over="time"` activates.
+
+::: {.callout-note collapse="true"}
+## The same logic applies to lagged endogenous variables
+
+If your model includes `lag(sales)` as a predictor of sales (an autoregressive term), the same cascade occurs: an intervention that changes sales at time *t* changes `lag(sales)` at time *t*+1, which changes sales at *t*+1, which changes `lag(sales)` at *t*+2, and so on. See the [Panel Data Models](../docs/examples/panel_data.qmd) example for a worked-through case with lagged promo effects.
+:::
+
+## Seeing it in pathmc
+
+Here is a concrete model with adstock where we can compare the time-forward result to the time-averaged result.
+The key feature of the time-forward output is that it reveals the **temporal shape** of the effect — the ramp-up as adstock accumulates and the ramp-down as it decays.
+
+```{python}
+n_weeks = 30
+regions = ["North", "South"]
+true_decay = 0.7
+true_lam = 0.02
+true_b = 30.0
+
+rows = []
+for region in regions:
+    adstocked = 0.0
+    for week in range(1, n_weeks + 1):
+        x = rng.uniform(5, 25)
+        adstocked = x + true_decay * adstocked
+        sat = 1 - np.exp(-true_lam * adstocked)
+        y = 50 + true_b * sat + rng.normal(scale=1.5)
+        rows.append({"region": region, "week": week, "x": x, "y": y})
+
+df = pd.DataFrame(rows)
+```
+
+```{python}
+model = pathmc.model(
+    "y ~ b*logistic_saturation(adstock(x, decay=theta), lam=lam)",
+    data=df,
+    panel={"unit": "region", "time": "week"},
+    pooling="partial",
+)
+model.fit(draws=500, tune=500, chains=2, random_seed=42, nuts_sampler="nutpie")
+```
+
+Now we intervene: boost `x` by 25% during weeks 8–18, then return to baseline.
+The time-forward simulation re-computes the adstock accumulation under the new spend pattern.
+
+```{python}
+mean_x = df["x"].mean()
+baseline_x = np.full(n_weeks, mean_x)
+scenario_x = baseline_x.copy()
+scenario_x[7:18] = mean_x * 1.25  # 25% boost, weeks 8-18
+
+result_base = model.do(set={"x": baseline_x}, simulate_over="time")
+result_scen = model.do(set={"x": scenario_x}, simulate_over="time")
+contrast = result_scen - result_base
+```
+
+```{python}
+# | label: fig-ramp-up-down
+# | fig-cap: "Incremental effect of a temporary 25% spend increase (weeks 8–18, shaded). The adstock creates a visible ramp-up as the stock accumulates during the boost, and a gradual ramp-down afterward as the stock decays. This temporal shape is only visible with time-forward simulation."
+# | code-fold: true
+
+weeks = np.arange(1, n_weeks + 1)
+sales_by_time = contrast.by_time("y")
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+az.plot_hdi(
+    weeks,
+    sales_by_time.T,
+    ax=ax,
+    smooth=False,
+    color=COLOR_CORRECT,
+    fill_kwargs={"alpha": 0.15},
+)
+ax.plot(
+    weeks,
+    sales_by_time.mean(axis=1),
+    color=COLOR_CORRECT,
+    lw=2,
+    label="Incremental sales",
+)
+ax.axvspan(8, 18, alpha=0.08, color=COLOR_BOOST)
+ax.axhline(0, color="black", ls=":", alpha=0.4)
+ax.set_xlabel("Week")
+ax.set_ylabel("Incremental sales (scenario − baseline)")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+Three phases are visible:
+
+1. **Before the boost** (weeks 1–7): identical inputs, zero effect.
+2. **During the boost** (weeks 8–18): effect ramps up as the adstock stock accumulates from the extra spend.
+3. **After the boost** (weeks 19+): spend returns to baseline, but the accumulated adstock decays gradually — producing a tail of residual effect that a single-step intervention would miss entirely.
+
+## When do you need `simulate_over="time"`?
+
+| Model feature | Creates temporal state? | Needs `simulate_over="time"`? |
+|---|---|---|
+| **Random intercepts / slopes** | No — unit-level shifts, no time dependency | No |
+| **Trend term** (`week`) | No — deterministic, known at all time steps | No |
+| **Adstock transform** | **Yes** — recursive accumulation across time | **Yes** |
+| **Lagged exogenous** (`lag(promo)`) | **Yes** — previous value feeds current step | **Yes** |
+| **Lagged endogenous** (`lag(sales)`) | **Yes** — previous outcome feeds current step | **Yes** |
+
+The rule is simple: if any predictor at time *t* depends on a value computed at time *t* − 1, the intervention must walk through time in order.
+
+::: {.callout-tip}
+## In practice
+
+If your model has no adstock transforms and no lagged variables, you can use `do()` without `simulate_over="time"` — it works like a cross-sectional intervention applied independently at each (unit, time) point.
+
+If your model has adstock or lagged variables, use `do(simulate_over="time")` so the temporal dynamics are re-computed under the intervention.
+:::
+
+## Summary
+
+- **Cross-sectional `do()`** replaces a variable and forward-propagates in one step. This is correct when each observation is independent.
+- **Panel data does not automatically require time-forward simulation.** Random intercepts, trend terms, and other non-temporal features don't create dependencies between time steps.
+- **Adstock and lagged variables create temporal state.** The adstock at time *t* depends on the adstock at *t* − 1. A lagged endogenous variable at *t* depends on the outcome at *t* − 1. Both create chains of dependency across time.
+- **Naive single-step replacement produces wrong counterfactuals** because it uses the observed temporal state (from the pre-intervention history) instead of re-computing it under the intervention.
+- **`simulate_over="time"` fixes this** by walking through time in order, carrying simulated state forward from each step to the next.
+- **The temporal shape matters.** Time-forward simulation reveals ramp-up (stock accumulating) and ramp-down (stock decaying) dynamics that a single-step intervention collapses into a single number.
+
+::: {.callout-note}
+## Reflection
+
+Consider the temporal dynamics in your own models:
+
+- **Marketing / MMM**: adstock transforms are the canonical example — ad spend accumulates and decays over weeks. A 15% budget increase this quarter doesn't reach full effect until the stock builds up, and residual effects persist after the campaign ends.
+- **Public health**: vaccination rates build herd immunity over time. A policy intervention that increases vaccination this month changes the susceptible population next month, affecting disease spread in a cascade that a single-step model misses.
+- **Finance**: credit risk models often include lagged default rates or economic indicators. A policy shock to interest rates at time *t* alters default rates at *t*+1, which feeds back into portfolio risk at *t*+2.
+
+If the effect you care about unfolds over time, your counterfactual simulation needs to unfold over time too.
+:::

@@ -1,0 +1,83 @@
+# Great Docs Configuration
+# See https://posit-dev.github.io/great-docs/user-guide/03-configuration.html
+
+module: pathmc
+display_name: pathmc
+
+# Explicit GitHub repo (auto-detection from pyproject.toml URLs works but is
+# silent on failure; pinning it here makes source links and the changelog
+# fail loudly if the repo ever moves).
+repo: pymc-labs/pathmc
+github_style:
+  source: true
+
+parser: numpy
+dynamic: false  # cyclic alias detected; griffe AST analysis is sufficient
+
+# Re-exports from upstream packages do not belong in our reference.
+exclude:
+  - Prior
+
+# Use the existing curated landing page from docs/index.qmd (mirrored into
+# the user_guide directory below) instead of generating one from README.md.
+homepage: user_guide
+
+# User Guide -----------------------------------------------------------------
+# Source directory for the user guide. Files are auto-discovered and ordered
+# by filename, so numeric prefixes determine the sidebar order.
+user_guide: docs/user_guide
+
+# Custom Sections ------------------------------------------------------------
+sections:
+  - title: Examples
+    dir: docs/examples
+    index: true
+    index_columns: 3
+    navbar_after: User Guide
+
+# API Reference --------------------------------------------------------------
+# Public surface only: model() / simulate() / add_lags() and the PathModel
+# class with its methods. Internal helpers (build_*, compute_*, etc.) are
+# implementation details and excluded.
+reference:
+  - title: Modeling
+    desc: Build, fit, and query Bayesian path models.
+    contents:
+      - model.model
+      - model.PathModel
+  - title: Simulation
+    desc: Time-forward and counterfactual simulation helpers.
+    contents:
+      - model.simulate
+      - model.DoResult
+  - title: Panel data
+    desc: Helpers for panel / longitudinal data.
+    contents:
+      - panel.add_lags
+
+# Site appearance ------------------------------------------------------------
+logo: docs/assets/logo.png
+navbar_style: mint
+dark_mode_toggle: true
+# We use docs/user_guide/00-welcome.qmd as the homepage. It already has its
+# own logo/tagline/showcase, so suppress the auto-generated hero block.
+hero: false
+
+# Bibliography lives in docs/ and is referenced from individual pages.
+bibliography: docs/references.bib
+
+# Jupyter kernel for executable code cells (matches the conda env)
+jupyter: pathmc
+
+# Freeze cache --------------------------------------------------------------
+# Local builds execute and cache; remote builds only render from the committed
+# `_freeze/` cache. Refresh after editing a page with `great-docs freeze <page>`.
+# `true` (not `auto`) ensures CI never re-executes a page even if its source
+# hash drifted: pathmc's MCMC outputs are non-deterministic and the runner
+# does not have the conda environment needed to sample successfully.
+freeze: true
+
+# Curated agent SKILL.md (see Phase 3 of the migration plan)
+skill:
+  enabled: true
+  file: skills/pathmc/SKILL.md

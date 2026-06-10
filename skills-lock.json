@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "author-skills": {
+      "source": "posit-dev.github.io",
+      "sourceType": "well-known",
+      "computedHash": "4ece22a284f8f4c4a5dc4cc2536892fdfcc65498d192a067c0a9c59c71d44c09"
+    },
+    "configure-site": {
+      "source": "posit-dev.github.io",
+      "sourceType": "well-known",
+      "computedHash": "0af9ca6931197d0b51fcce90ae59aaf2911a84f686ccb23e90267ef5e1dc1115"
+    },
+    "great-docs": {
+      "source": "posit-dev.github.io",
+      "sourceType": "well-known",
+      "computedHash": "213521fc2bbb8ff74831f14eecd0f2ee7acd1906bcd69f40189901581217e36f"
+    },
+    "revise-docstrings": {
+      "source": "posit-dev.github.io",
+      "sourceType": "well-known",
+      "computedHash": "74f88889950abbc8ae1b186ca2bc9651583a646a42681a951fd2994afbebe18c"
+    },
+    "write-user-guide": {
+      "source": "posit-dev.github.io",
+      "sourceType": "well-known",
+      "computedHash": "1e69653123a94b783cb15acdcce82352ba73e6632d1706797d6c89118b476788"
+    }
+  }
+}

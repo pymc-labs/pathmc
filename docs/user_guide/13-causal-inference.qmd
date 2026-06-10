@@ -1,0 +1,293 @@
+---
+title: "Causal Inference"
+guide-section: "Concepts"
+---
+
+pathmc implements Pearl's do-operator for **interventional reasoning** and provides tools to check whether causal effects are identifiable from the DAG structure.
+For how pathmc compiles structural equations into a generative PyMC model — and the distinction between the causal DAG and the estimation graph — see the [architecture overview](how-it-works.qmd#from-structural-equations-to-the-generative-model).
+
+## Estimand, estimator, estimate
+
+Modern causal inference — across the Pearl, potential outcomes, and epidemiology traditions — organizes the workflow into three stages:
+
+| Stage | Definition | pathmc mapping |
+|---|---|---|
+| **Estimand** | The causal quantity defined by the research question and the DAG — *what* you want to learn | A query like "What is the ATE of X on Y?" expressed via `ate()`, `cate()`, or `prob()` |
+| **Estimator** | The statistical procedure that computes the estimand from data — *how* you learn it | G-computation: fit the structural model, then forward-simulate under the intervention via `do()` |
+| **Estimate** | The numerical result | The posterior distribution in the `DoResult` returned by `do()`, `ate()`, or `cate()` |
+
+The **estimand** is determined by your research question and the causal assumptions encoded in the DAG.
+pathmc's **estimator** is [g-computation](https://en.wikipedia.org/wiki/G-computation) (Robins, 1986) — also known as the *truncated factorization formula* in Pearl's framework.
+Rather than reweighting observed data (as in IPW or matching), g-computation forward-simulates the structural model under the intervention, propagating uncertainty through the full Bayesian posterior.
+The **estimate** is the resulting posterior distribution — not a single point estimate, but a full distribution over the causal effect, with uncertainty quantified by the model.
+
+## Pearl ↔ Potential Outcomes
+
+Causal inference has two dominant formal frameworks: Pearl's **Structural Causal Model (SCM)** framework and the **Potential Outcomes (PO)** framework associated with Rubin, Imbens, and Robins.
+pathmc is built on Pearl's SCM framework — DAGs, structural equations, and the do-operator — but the quantities it computes are meaningful in both traditions.
+This section maps the key concepts so that readers from either background can locate pathmc in their conceptual vocabulary.
+
+### Term mapping
+
+| Pearl / SCM | Potential Outcomes / Epidemiology | pathmc API |
+|---|---|---|
+| $P(Y \mid do(X = x))$ | $E[Y(x)]$ (mean potential outcome) | `model.do(set={"X": x})` |
+| $E[Y \mid do(X=1)] - E[Y \mid do(X=0)]$ | $E[Y(1) - Y(0)]$ (ATE) | `model.ate("Y", "X", values=(0, 1))` |
+| — | $E[Y(1) - Y(0) \mid T{=}1]$ (ATT) | `model.att("Y", "T")` |
+| — | $E[Y(1) - Y(0) \mid T{=}0]$ (ATU) | `model.atu("Y", "T")` |
+| Backdoor criterion | Conditional ignorability (unconfoundedness) | `model.adjustment_sets("X", "Y")` |
+| G-computation / truncated factorization | Standardization / G-formula | `do()` forward-simulates through the structural model |
+| Graph surgery (remove edges into $X$) | — (no graphical analog) | Internal mechanism behind `do()` |
+| Consistency ($Y = Y(x)$ when $X = x$) | SUTVA component: well-defined interventions | Assumed; see [Causal assumptions](#causal-assumptions-and-limitations) |
+| No interference | SUTVA component: no spillovers | Assumed; see [Causal assumptions](#causal-assumptions-and-limitations) |
+
+### Key equivalences
+
+**ATE.** Under the same identification assumptions (correct DAG, no unmeasured confounders, consistency, positivity), the Pearlian ATE and the PO ATE are numerically identical:
+
+$$E[Y \mid do(X=1)] - E[Y \mid do(X=0)] \;=\; E[Y(1) - Y(0)]$$
+
+pathmc computes the left-hand side via g-computation on the structural model. The result is the same quantity that PO-tradition methods (IPW, AIPW, matching) target — the difference is the estimation strategy, not the estimand.
+
+**Identification.** The backdoor criterion (Pearl) and conditional ignorability (PO) are two expressions of the same identification condition. When pathmc's `adjustment_sets("X", "Y")` returns a valid set $\mathbf{Z}$, that set satisfies both:
+
+- *Pearl*: $\mathbf{Z}$ blocks all backdoor paths from $X$ to $Y$
+- *PO*: $Y(x) \perp\!\!\!\perp X \mid \mathbf{Z}$ (potential outcomes are independent of treatment assignment, given $\mathbf{Z}$)
+
+**Estimation.** pathmc's `do()` implements g-computation (Robins, 1986) — the structural analog of standardization (the G-formula) in the epidemiology tradition. Rather than reweighting observed data (IPW) or matching units, g-computation forward-simulates the fitted structural model under the intervention, propagating Bayesian posterior uncertainty through the full causal chain.
+
+::: {.callout-tip}
+## Coming from DoWhy?
+
+pathmc's `ate()` and `cate()` produce the same estimands as DoWhy's estimation step — the difference is that pathmc computes them via a generative structural model rather than a generic estimator API.
+Where DoWhy emphasizes a flexible pipeline (model → identify → estimate → refute) with many pluggable estimators, pathmc provides a single coherent Bayesian model of the entire system that you can query with `do()`.
+:::
+
+## The do-operator
+
+The `do()` method simulates what would happen if we *intervened* to fix a variable at a specific value, severing all incoming edges to that variable in the DAG.
+Rather than conditioning on observed data ("what is Y when X happens to be 1?"), `do()` answers the causal question: "what *would* Y be if we *set* X to 1?"
+
+The key mechanism is **graph surgery**: `do(X = x*)` replaces the variable X with a constant and removes all arrows pointing *into* X.
+The arrows pointing *out of* X remain — downstream variables still see the intervened value.
+
+```{dot}
+//| label: fig-graph-surgery
+//| fig-cap: "Graph surgery under do(X = 1). Left: the observational DAG — Z confounds X and Y. Right: after do(X = 1), the incoming edge Z → X is severed and X is fixed at 1. The causal effect X → Y is now identified because the confounding path through Z is blocked."
+//| fig-width: 6.5
+digraph {
+  rankdir=TB
+  node [shape=box, style=rounded]
+  compound=true
+
+  subgraph cluster_obs {
+    label="Observational"
+    style=rounded; fontsize=14; fontname="Helvetica-Bold"; color="#636363"
+
+    Z_obs [label="Z\n(confounder)", style="filled,rounded", fillcolor="lightyellow"]
+    X_obs [label="X", style="filled,rounded", fillcolor="lightgreen"]
+    Y_obs [label="Y", style="filled,rounded", fillcolor="lightcoral"]
+
+    Z_obs -> X_obs
+    Z_obs -> Y_obs
+    X_obs -> Y_obs
+  }
+
+  subgraph cluster_do {
+    label="do(X = 1)"
+    style=rounded; fontsize=14; fontname="Helvetica-Bold"; color="#2171b5"
+
+    Z_do [label="Z\n(confounder)", style="filled,rounded", fillcolor="lightyellow"]
+    X_do [label="X = 1\n(fixed)", style="filled,rounded", fillcolor="#c6dbef", penwidth=2]
+    Y_do [label="Y\n(recomputed)", style="filled,rounded", fillcolor="lightcoral"]
+
+    Z_do -> Y_do
+    X_do -> Y_do
+  }
+}
+```
+
+```python
+model.fit(draws=1000, chains=2)
+
+baseline = model.do(set={"X": 0.0})
+treatment = model.do(set={"X": 1.0})
+
+ate = treatment - baseline  # contrast arithmetic
+ate.mean("Y")  # posterior mean of the ATE
+ate.hdi("Y", prob=0.94)  # 94% highest density interval
+```
+
+The result is a full posterior distribution over the causal effect, computed via PyMC graph surgery on the generative model.
+
+::: {.callout-note}
+## `kind="mean"` vs `kind="predictive"`
+
+- `kind="mean"` (default): propagates the expected value through the causal chain — no residual noise. Good for estimating average effects.
+- `kind="predictive"`: forward-samples through the causal chain with residual noise at each endogenous variable. Good for prediction intervals and probabilistic queries.
+:::
+
+## Causal queries
+
+pathmc provides convenience methods for common causal estimands, built on top of `do()`.
+
+### Average treatment effect
+
+`.ate()` computes the contrast between two intervention levels:
+
+```python
+ate = model.ate("Y", "X", values=(0.0, 1.0))
+ate.mean("Y")  # E[Y | do(X=1)] - E[Y | do(X=0)]
+ate.hdi("Y")  # 94% HDI of the ATE
+```
+
+### Conditional average treatment effect
+
+`.cate()` holds additional variables fixed to examine effect modification:
+
+```python
+cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": 2.0})
+cate.mean("Y")  # ATE of X on Y, with Z fixed at 2
+```
+
+### Average treatment effect on the treated (ATT)
+
+`.att()` computes the treatment effect averaged over the covariate distribution of the **treated** subgroup — the units that actually received treatment:
+
+```python
+att = model.att("Y", "T", values=(0.0, 1.0), treated_value=1.0)
+att.mean("Y")  # E[Y(1) - Y(0) | T = 1]
+```
+
+ATT answers: *"Among those who were treated, what was the average effect of the treatment?"* This is a natural estimand for evaluating a policy that has already been deployed — you want to know how much it helped the people it actually reached, not a hypothetical random population.
+
+### Average treatment effect on the untreated (ATU)
+
+`.atu()` computes the treatment effect averaged over the covariate distribution of the **untreated** subgroup:
+
+```python
+atu = model.atu("Y", "T", values=(0.0, 1.0), untreated_value=0.0)
+atu.mean("Y")  # E[Y(1) - Y(0) | T = 0]
+```
+
+ATU answers: *"If we extended the treatment to those who did not receive it, what effect would we expect?"* This is useful for policy expansion decisions.
+
+::: {.callout-note}
+## When do ATE, ATT, and ATU differ?
+
+In a linear model without interactions, `ATE = ATT = ATU` — the treatment effect is constant across individuals.
+
+They diverge when the treatment effect varies with covariates (effect modification), which can happen due to:
+
+- **Interaction terms**: `Y ~ T + X + T:X` where the effect of `T` depends on `X`
+- **Nonlinear link functions**: logistic or Poisson models where the marginal effect depends on baseline risk
+
+When treatment assignment is correlated with these effect-modifying covariates (as in most observational studies), the treated and untreated groups have different covariate distributions, leading to different average effects.
+:::
+
+### Probability queries
+
+`.prob()` computes `P(expression | do(set))` using predictive draws:
+
+```python
+model.prob("Y > 0", set={"X": 1.0})  # fraction of draws where Y > 0
+```
+
+## Standardized effects
+
+After fitting, `.standardized()` computes **stdyx-standardized coefficients** for all labeled effects:
+
+```python
+model.standardized()
+```
+
+Each coefficient is standardized as `coef × sd(X) / sd(Y)`, giving the expected change in Y (in standard deviation units) per standard deviation change in X.
+This enables comparing effect magnitudes across predictors measured on different scales.
+
+## Identification helpers
+
+Before running interventional queries, it is useful to verify whether the causal effect is identifiable from the DAG structure.
+
+### Backdoor adjustment sets
+
+`.adjustment_sets()` finds all valid backdoor adjustment sets for a treatment-outcome pair:
+
+```python
+model.adjustment_sets("X", "Y")
+# [{'Z'}] — must adjust for Z to identify the causal effect of X on Y
+```
+
+### Identifiability check
+
+`.is_identifiable()` returns `True` if at least one valid backdoor adjustment set exists:
+
+```python
+model.is_identifiable("X", "Y")  # True
+```
+
+### Front-door criterion
+
+When backdoor identification fails because of an unmeasured confounder, the front-door criterion (Pearl, 2009) may still identify the causal effect through a mediator. `.frontdoor_identifiable()` checks whether a given mediator satisfies the three front-door conditions:
+
+```python
+identifiable, message = model.frontdoor_identifiable("X", "M", "Y")
+print(identifiable)  # True / False
+print(message)  # Diagnostic explaining the result
+```
+
+The three conditions are: (1) `M` intercepts all directed paths from `X` to `Y`, (2) there is no unblocked backdoor path from `X` to `M`, and (3) all backdoor paths from `M` to `Y` are blocked by conditioning on `X`. See the [front-door section](../docs/examples/causal_identification.qmd#sec-front-door) for a worked demonstration.
+
+::: {.callout-note}
+This check uses the DAG derived from the model spec. If the estimation spec includes adjustment variables that add edges absent from the true causal structure (e.g. including `X` in the `Y` equation to block a backdoor), build a `GraphInfo` from the causal DAG separately for an accurate check.
+:::
+
+### Collider warnings
+
+`.collider_warnings()` flags variables in a proposed adjustment set that are colliders, conditioning on which would open spurious paths:
+
+```python
+model.collider_warnings({"C"}, "X", "Y")
+# ["'C' is a collider between 'X' and 'Y'. Conditioning on it may open a spurious path..."]
+```
+
+## Causal assumptions and limitations
+
+pathmc makes causal reasoning *possible* but not *automatic*.
+The validity of any causal claim depends on assumptions that pathmc cannot verify from data alone:
+
+1. **Correct DAG structure.** The user must specify the right causal graph. A misspecified DAG (e.g., omitting a confounder) produces biased effect estimates regardless of the statistical method.
+
+2. **No unmeasured confounders.** The do-operator assumes that all common causes of the treatment and outcome are observed and included in the model.
+If there are unobserved confounders, the `do()` results are biased. (When unmeasured confounding exists but a clean mediator is available, the [front-door criterion](../docs/examples/causal_identification.qmd#sec-front-door) may still permit identification.)
+
+3. **Consistency (well-defined interventions).** If a unit actually receives treatment value $x$, their observed outcome equals the potential outcome $Y(x)$.
+This rules out "multiple versions of treatment" — e.g., if `do(X = 1)` could mean different real-world interventions with different effects, the causal quantity is ill-defined.
+
+4. **No interference (SUTVA).** One unit's treatment assignment does not affect another unit's outcome.
+This is particularly relevant for panel models where units may interact — e.g., treating one region's advertising spend may spill over into neighboring regions.
+pathmc's structural equations assume each observation is generated independently given its parents in the DAG.
+
+5. **No model misspecification.** pathmc uses linear structural equations (with optional transforms for nonlinearity) and supports Gaussian, Bernoulli, Poisson, NegBinomial, and StudentT families. If the true data-generating process differs substantially, the model may be a poor approximation.
+
+6. **Positivity.** Interventional queries at values far outside the observed data range are extrapolations and should be interpreted with caution.
+
+pathmc provides identification helpers (backdoor adjustment sets, front-door criterion, collider warnings) to assist with checking causal identifiability, but the analyst is ultimately responsible for specifying the correct DAG and defending the causal assumptions.
+
+::: {.callout-important}
+## pathmc computes; you identify
+
+The `do()` operator computes the mechanical consequence of an intervention *given* the model.
+Whether that computation has a valid causal interpretation depends entirely on the assumptions encoded in the DAG.
+Always state and defend your causal assumptions before interpreting `do()` results as causal effects.
+:::
+
+## Worked examples
+
+For hands-on demonstrations of the concepts on this page, see:
+
+- [Mediation Analysis](../docs/examples/mediation.qmd) — direct/indirect effects, path-specific contrasts, and the link from manual `do()` to `.ate()`
+- [The do() Operator](../docs/examples/causal_do_operator.qmd) — seeing vs doing, ATE, CATE, ATT/ATU, and contrast arithmetic
+- [Causal Identification](../docs/examples/causal_identification.qmd) — adjustment sets, collider bias, and the front-door criterion
+- [Treatment Effects with Non-Linear Models](../docs/examples/ate_estimation.qmd) — why coefficients ≠ ATE in logistic models, g-computation
+- [Moderation](../docs/examples/moderation.qmd) — interaction terms, CATE, and when ATT ≠ ATU
+- [The do() Operator](../docs/examples/causal_do_operator.qmd) — confounding, Simpson's paradox, and interventional queries
