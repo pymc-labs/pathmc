@@ -3,58 +3,50 @@
 #################################################################################
 
 PACKAGE_NAME = pathmc
-DOCS_DIR = docs
 BUILD_CHECK_DIR = .build-check
 
 #################################################################################
 # COMMANDS                                                                      #
 #################################################################################
 
-.PHONY: init setup lint check_lint test-fast test docs cleandocs sync-env build check-build help
+.PHONY: setup lint check_lint test-fast test docs cleandocs build check-build help
 
-init: ## Install the package in editable mode without dependencies
-	python -m pip install -e . --no-deps
-
-setup: ## Set up the complete development environment
-	python -m pip install --no-deps -e .
-	python -m pip install -e '.[dev,docs,samplers]'
-	prek install -f
+setup: ## Set up the complete development environment (uv)
+	uv sync --all-extras
+	uv run prek install -f
 	@echo "Development environment ready!"
 
 lint: ## Run prek hooks, applying fixes
-	prek run --all-files
+	uv run prek run --all-files
 
 check_lint: ## Check formatting, linting, and types without making changes
-	ruff check .
-	ruff format --diff --check .
-	mypy --ignore-missing-imports
+	uv run ruff check .
+	uv run ruff format --diff --check .
+	uv run mypy --ignore-missing-imports
 
 test-fast: ## Run fast tests, excluding slow MCMC tests
-	pytest -x -v -m "not slow"
+	uv run pytest -x -v -m "not slow"
 
 test: ## Run all tests, including slow integration tests
-	pytest -x -v
+	uv run pytest -x -v
 
 docs: ## Build the documentation site
-	quarto render $(DOCS_DIR)/
+	uv run great-docs build
 
-cleandocs: ## Clean generated documentation files and Quarto caches
-	rm -rf $(DOCS_DIR)/_site $(DOCS_DIR)/_freeze $(DOCS_DIR)/.quarto
-
-sync-env: ## Regenerate environment.yml from pyproject.toml
-	prek run pyproject2conda-yaml --all-files
+cleandocs: ## Clean the ephemeral great-docs build directory
+	rm -rf great-docs
 
 build: ## Build source and wheel distributions
 	rm -rf dist build *.egg-info
-	python -m build
+	uv build
 
 check-build: build ## Build artifacts and smoke-test sdist and wheel installs
 	rm -rf $(BUILD_CHECK_DIR)
-	python -m venv $(BUILD_CHECK_DIR)/sdist
-	$(BUILD_CHECK_DIR)/sdist/bin/python -m pip install dist/$(PACKAGE_NAME)-*.tar.gz
+	uv venv $(BUILD_CHECK_DIR)/sdist
+	uv pip install --python $(BUILD_CHECK_DIR)/sdist/bin/python dist/$(PACKAGE_NAME)-*.tar.gz
 	$(BUILD_CHECK_DIR)/sdist/bin/python -c "import $(PACKAGE_NAME); print($(PACKAGE_NAME).__name__)"
-	python -m venv $(BUILD_CHECK_DIR)/wheel
-	$(BUILD_CHECK_DIR)/wheel/bin/python -m pip install dist/$(PACKAGE_NAME)-*.whl
+	uv venv $(BUILD_CHECK_DIR)/wheel
+	uv pip install --python $(BUILD_CHECK_DIR)/wheel/bin/python dist/$(PACKAGE_NAME)-*.whl
 	$(BUILD_CHECK_DIR)/wheel/bin/python -c "import $(PACKAGE_NAME); print($(PACKAGE_NAME).__name__)"
 	rm -rf $(BUILD_CHECK_DIR)
 

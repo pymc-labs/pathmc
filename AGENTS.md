@@ -15,10 +15,10 @@ All v1 milestones (M1–M31) are complete. See `docs/dev/roadmap_post_v1.md` for
 ## How to Work
 
 1. Read `docs/dev/milestones.md` to identify the current milestone.
-2. Run the milestone's gate tests: `pytest tests/test_<module>.py -x -v`
+2. Run the milestone's gate tests: `uv run pytest tests/test_<module>.py -x -v`
 3. Implement until all gate tests pass.
 4. **Do not modify test files.**
-5. Run `make lint` before considering a milestone done or creating a commit. This runs `prek run --all-files`, including the configured `ruff`, `ruff-format`, `mypy`, YAML/TOML, environment sync, and license checks.
+5. Run `make lint` before considering a milestone done or creating a commit. This runs `prek run --all-files`, including the configured `ruff`, `ruff-format`, `mypy`, YAML/TOML, and license checks.
 6. Move to the next milestone.
 
 ## Required Module Structure
@@ -45,28 +45,28 @@ Additional internal helpers and submodules can be organized freely, but the impo
 
 ## Environment
 
-All commands (tests, scripts, docs builds) **must** run in the `pathmc` conda environment:
+The development environment is a [uv](https://docs.astral.sh/uv/)-managed virtualenv at `.venv/`, pinned by `uv.lock` and `.python-version`. Create or update it with:
 
 ```bash
-conda activate pathmc
+make setup        # uv sync --all-extras + pre-commit hook install
 ```
 
-The Jupyter kernel used by Quarto notebooks is named `pathmc` and points to this environment's Python (`miniforge3/envs/pathmc/bin/python`). When running Python snippets to verify behavior, always use this environment — **not** the base conda env. If using a full path:
+All commands (tests, scripts, docs builds) **must** run in this environment. The Makefile targets already invoke tools through `uv run`. When running Python snippets to verify behavior, do the same — **not** the system or base conda Python:
 
 ```bash
-/Users/benjamv/miniforge3/envs/pathmc/bin/python -c "..."
+uv run python -c "..."
 ```
+
+The Jupyter kernel used by Quarto notebooks is named `pathmc` and must point to this environment's Python. Register it once with `uv run python -m ipykernel install --user --name pathmc`.
 
 ### Building the docs
 
 The site is built with [Great Docs](https://posit-dev.github.io/great-docs/), driven by `great-docs.yml` at the repo root. Quarto is still the underlying renderer.
 
 ```bash
-conda activate pathmc
-pip install -e ".[docs]"        # one-time: installs great-docs + transitive Jupyter
-great-docs build                # full build to great-docs/_site/
-great-docs build --no-refresh   # faster rebuild — skips API rediscovery
-great-docs preview              # local server on http://localhost:3000
+uv run great-docs build                # full build to great-docs/_site/
+uv run great-docs build --no-refresh   # faster rebuild — skips API rediscovery
+uv run great-docs preview              # local server on http://localhost:3000
 ```
 
 The `great-docs/` directory is **ephemeral**: it is wiped at the start of every build and listed in `.gitignore`. Never edit files under `great-docs/` directly — change source files (`docs/user_guide/*.qmd`, `docs/examples/*.qmd`, `great-docs.yml`, `skills/pathmc/SKILL.md`) instead.
@@ -78,7 +78,7 @@ The `great-docs/` directory is **ephemeral**: it is wiped at the start of every 
 After editing an executable page, or after a pathmc API change that affects rendered output:
 
 ```bash
-great-docs freeze docs/examples/my_page.qmd     # or multiple paths
+uv run great-docs freeze docs/examples/my_page.qmd     # or multiple paths
 git add _freeze/
 git commit -m "Refresh freeze cache for my_page"
 ```
@@ -94,13 +94,13 @@ git commit -m "Refresh freeze cache for my_page"
 make test-fast
 
 # Specific milestone gate
-pytest tests/test_parse.py -x -v
+uv run pytest tests/test_parse.py -x -v
 
 # All tests including slow (sampling) tests
 make test
 
 # Single test class
-pytest tests/test_compile.py::TestDesignMatrix -x -v
+uv run pytest tests/test_compile.py::TestDesignMatrix -x -v
 ```
 
 ## Style Guide
@@ -120,7 +120,7 @@ pytest tests/test_compile.py::TestDesignMatrix -x -v
 - **do() planner** is logically separate from the do() executor — plan determines propagation order; execute applies posterior draws.
 - **Residual covariance** uses an abstraction layer, not hardcoded LKJ. The roadmap calls for alternative residual structures (low-rank, group shocks); the design should accommodate this without major refactors.
 - **Parameter naming** must be predictable, documented, and stable across runs. Use ArviZ/xarray coords for equations, coefficients, and multivariate blocks.
-- **Dependencies**: `networkx` (graph/identification), `graphviz` (DAG rendering), `pymc-marketing` (adstock/saturation transform backends) are already in `pyproject.toml`.
+- **Dependencies**: `networkx` (graph/identification) and `graphviz` (DAG rendering) are already in `pyproject.toml`. The adstock/saturation transform kernels are implemented directly in `pathmc/transforms.py`; delegating to `pymc-marketing` again is planned once it supports PyMC 6.
 
 ## Do NOT
 

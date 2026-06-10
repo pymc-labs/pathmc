@@ -66,15 +66,16 @@ hero: false
 # Bibliography lives in docs/ and is referenced from individual pages.
 bibliography: docs/references.bib
 
-# Jupyter kernel for executable code cells (matches the conda env)
+# Jupyter kernel for executable code cells. Register it from the uv-managed
+# venv with: uv run python -m ipykernel install --user --name pathmc
 jupyter: pathmc
 
 # Freeze cache --------------------------------------------------------------
 # Local builds execute and cache; remote builds only render from the committed
 # `_freeze/` cache. Refresh after editing a page with `great-docs freeze <page>`.
 # `true` (not `auto`) ensures CI never re-executes a page even if its source
-# hash drifted: pathmc's MCMC outputs are non-deterministic and the runner
-# does not have the conda environment needed to sample successfully.
+# hash drifted: pathmc's MCMC outputs are non-deterministic and pages should
+# only be re-executed deliberately via `great-docs freeze`.
 freeze: true
 
 # Curated agent SKILL.md (see Phase 3 of the migration plan)

@@ -29,10 +29,12 @@ def test_mean_do_propagates_bernoulli_mediator_on_response_scale() -> None:
     })
     model = pathmc.model("M ~ X\nY ~ M", data=data, families={"M": "bernoulli"})
     model._idata = az.from_dict(
-        posterior={
-            "beta_M": np.array([[[-2.0, 4.0]]]),
-            "beta_Y": np.array([[[0.0, 2.0]]]),
-            "sigma_Y": np.array([[1.0]]),
+        {
+            "posterior": {
+                "beta_M": np.array([[[-2.0, 4.0]]]),
+                "beta_Y": np.array([[[0.0, 2.0]]]),
+                "sigma_Y": np.array([[1.0]]),
+            }
         },
         coords={
             "M_predictors": ["Intercept", "X"],
@@ -61,10 +63,12 @@ def test_mean_do_propagates_poisson_mediator_on_response_scale() -> None:
     })
     model = pathmc.model("M ~ X\nY ~ M", data=data, families={"M": "poisson"})
     model._idata = az.from_dict(
-        posterior={
-            "beta_M": np.array([[[0.0, np.log(3.0)]]]),
-            "beta_Y": np.array([[[0.0, 2.0]]]),
-            "sigma_Y": np.array([[1.0]]),
+        {
+            "posterior": {
+                "beta_M": np.array([[[0.0, np.log(3.0)]]]),
+                "beta_Y": np.array([[[0.0, 2.0]]]),
+                "sigma_Y": np.array([[1.0]]),
+            }
         },
         coords={
             "M_predictors": ["Intercept", "X"],

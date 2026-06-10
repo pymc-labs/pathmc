@@ -55,8 +55,7 @@ The CI `Build Docs` job renders HTML without executing any notebook. The mechani
 **Refresh workflow.** After editing an executable page, or after a pathmc API change that affects any rendered output:
 
 ```bash
-conda activate pathmc
-great-docs freeze docs/examples/my_page.qmd      # or multiple paths
+uv run great-docs freeze docs/examples/my_page.qmd      # or multiple paths
 git add _freeze/
 git commit -m "Refresh freeze cache for my_page"
 ```

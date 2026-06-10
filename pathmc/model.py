@@ -432,7 +432,7 @@ class PathModel:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .summary()."
             )
-        return az.summary(self._idata)
+        return az.summary(self._idata, round_to="none")
 
     def effects_summary(self) -> pd.DataFrame:
         """Return a posterior summary of labeled coefficients and defined parameters.
@@ -565,10 +565,9 @@ class PathModel:
         assert self._pymc_model is not None
         if sys.platform == "darwin" and "mp_ctx" not in kwargs:
             kwargs.setdefault("mp_ctx", "forkserver")
-        kwargs.setdefault("idata_kwargs", {})
-        kwargs["idata_kwargs"].setdefault("log_likelihood", True)
         with self._pymc_model:
             self._idata = pm.sample(**kwargs)
+            pm.compute_log_likelihood(self._idata, progressbar=False)
         return self._idata
 
     def predict(self, **kwargs: Any) -> az.InferenceData:
@@ -599,9 +598,9 @@ class PathModel:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .predict()."
             )
+        kwargs.setdefault("extend_inferencedata", True)
         with self._pymc_model:
-            pp = pm.sample_posterior_predictive(self._idata, **kwargs)
-        self._idata.extend(pp)
+            pm.sample_posterior_predictive(self._idata, **kwargs)
         return self._idata
 
     def adjustment_sets(
