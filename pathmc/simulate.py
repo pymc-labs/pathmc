@@ -29,8 +29,8 @@ import warnings
 from typing import Any
 
 import arviz as az
+import narwhals.stable.v1 as nw
 import numpy as np
-import pandas as pd
 import pymc as pm
 import pytensor.tensor as pt
 from pytensor.graph.replace import graph_replace
@@ -213,7 +213,7 @@ def run_do_pymc(
     gen_model: pm.Model,
     graph_info: GraphInfo,
     idata: az.InferenceData,
-    data: pd.DataFrame,
+    data: nw.DataFrame,
     set: dict[str, float | np.ndarray] | None = None,
     kind: str = "mean",
     families: dict[str, str] | None = None,
@@ -237,7 +237,7 @@ def run_do_pymc(
         DAG with topological order and node classification.
     idata : az.InferenceData
         Posterior samples from ``pm.sample()``.
-    data : pd.DataFrame
+    data : nw.DataFrame
         Observed data (used for sizing intervention arrays).
     set : dict[str, float] | None
         Variables to intervene on, with their fixed values.
@@ -356,7 +356,7 @@ def run_do_pymc(
             elif var in graph_info.exogenous:
                 if var in data.columns:
                     if subgroup_indices is not None:
-                        fill = float(data[var].iloc[subgroup_indices].mean())
+                        fill = float(data[var].to_numpy()[subgroup_indices].mean())
                     else:
                         fill = float(data[var].mean())
                     values[var] = np.full(n_samples, fill)
@@ -423,7 +423,7 @@ def run_do_pymc(
         elif var in graph_info.exogenous:
             if var in data.columns:
                 if subgroup_indices is not None:
-                    fill = float(data[var].iloc[subgroup_indices].mean())
+                    fill = float(data[var].to_numpy()[subgroup_indices].mean())
                 else:
                     fill = float(data[var].mean())
                 values[var] = np.full(n_samples, fill)

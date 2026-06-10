@@ -18,12 +18,15 @@ dependencies:
   - jax
   - jupyter
   - mypy
+  - narwhals>=1.20
   - networkx
   - numpy<2.4
   - numpyro
   - nutpie
   - pandas
+  - pandas-stubs
   - patsy
+  - polars
   - prek
   - pymc-extras
   - pymc-marketing==0.19.4
@@ -34,5 +37,5 @@ dependencies:
   - ruff
   - pip
   - pip:
-      - --editable=.[dev,docs,samplers]
+      - --editable=.[dev,test,docs,samplers]
       - build

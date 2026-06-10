@@ -22,7 +22,8 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass
 
-import pandas as pd
+import narwhals.stable.v1 as nw
+from narwhals.stable.v1.typing import IntoFrameT
 
 
 @dataclass
@@ -45,17 +46,17 @@ class PanelInfo:
 
 
 def add_lags(
-    df: pd.DataFrame,
+    df: IntoFrameT,
     variables: list[str],
     lags: int | list[int],
     panel: dict[str, str],
-) -> pd.DataFrame:
+) -> IntoFrameT:
     """Create lag columns within each panel unit.
 
     Parameters
     ----------
-    df : pd.DataFrame
-        Panel data in long format.
+    df : IntoFrame
+        Panel data in long format (pandas or polars DataFrame).
     variables : list[str]
         Column names to lag.
     lags : int | list[int]
@@ -66,10 +67,10 @@ def add_lags(
 
     Returns
     -------
-    pd.DataFrame
-        Copy of *df* with additional ``{var}_lag{k}`` columns, sorted by
-        unit then time. Rows at the start of each unit's series will
-        contain ``NaN`` for the lag columns.
+    IntoFrame
+        Copy of *df* (same backend as the input) with additional
+        ``{var}_lag{k}`` columns, sorted by unit then time. Rows at the
+        start of each unit's series will contain null for the lag columns.
 
     Raises
     ------
@@ -83,7 +84,8 @@ def add_lags(
         DeprecationWarning,
         stacklevel=2,
     )
-    _validate_panel_args(df, panel, variables)
+    data = nw.from_native(df, eager_only=True)
+    _validate_panel_args(data, panel, variables)
 
     unit_col = panel["unit"]
     time_col = panel["time"]
@@ -93,19 +95,18 @@ def add_lags(
     else:
         lag_orders = list(lags)
 
-    result = df.sort_values([unit_col, time_col]).copy()
-    result.reset_index(drop=True, inplace=True)
+    result = data.sort([unit_col, time_col])
+    result = result.with_columns(
+        nw.col(var).shift(k).over(unit_col).alias(f"{var}_lag{k}")
+        for var in variables
+        for k in lag_orders
+    )
 
-    grouped = result.groupby(unit_col, sort=False)
-    for var in variables:
-        for k in lag_orders:
-            result[f"{var}_lag{k}"] = grouped[var].shift(k)
-
-    return result
+    return result.to_native()
 
 
 def _validate_panel_args(
-    df: pd.DataFrame,
+    df: nw.DataFrame,
     panel: dict[str, str],
     variables: list[str],
 ) -> None:
@@ -143,12 +144,12 @@ def _validate_panel_args(
             )
 
 
-def build_panel_info(df: pd.DataFrame, panel: dict[str, str]) -> PanelInfo:
+def build_panel_info(df: nw.DataFrame, panel: dict[str, str]) -> PanelInfo:
     """Build panel metadata from data and panel specification.
 
     Parameters
     ----------
-    df : pd.DataFrame
+    df : nw.DataFrame
         Panel data.
     panel : dict[str, str]
         Must contain ``"unit"`` and ``"time"`` keys.
@@ -160,5 +161,5 @@ def build_panel_info(df: pd.DataFrame, panel: dict[str, str]) -> PanelInfo:
     """
     unit_col = panel["unit"]
     time_col = panel["time"]
-    unit_labels = sorted(df[unit_col].unique().tolist())
+    unit_labels = sorted(df[unit_col].unique().to_list())
     return PanelInfo(unit=unit_col, time=time_col, unit_labels=unit_labels)

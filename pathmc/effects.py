@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import arviz as az
+import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
 
@@ -175,7 +176,7 @@ def build_effects_summary(
 def build_standardized_effects(
     spec: Spec,
     idata: az.InferenceData,
-    data: pd.DataFrame,
+    data: nw.DataFrame,
     latent: set[str] | None = None,
 ) -> pd.DataFrame:
     """Compute stdyx-standardized coefficients from posterior draws.
@@ -193,7 +194,7 @@ def build_standardized_effects(
         Parsed model specification with labeled terms.
     idata : az.InferenceData
         Posterior samples from MCMC.
-    data : pd.DataFrame
+    data : nw.DataFrame
         Observed data used to compute variable standard deviations.
     latent : set[str] | None
         Latent variable names (skipped for standardization).

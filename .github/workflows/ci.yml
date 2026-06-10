@@ -53,13 +53,13 @@ jobs:
         run: pip install "pyproject2conda>=0.22.1,<0.23"
       - name: Regenerate environment.yml
         run: |
-          pyproject2conda yaml -e dev -e docs -e samplers \
+          pyproject2conda yaml -e dev -e test -e docs -e samplers \
             -o /tmp/environment.generated.yml \
             -n pathmc \
             -w force \
             --no-header \
             --python-include "python=3.12" \
-            -r "--editable=.[dev,docs,samplers]"
+            -r "--editable=.[dev,test,docs,samplers]"
       - name: Check environment.yml is in sync with pyproject.toml
         run: |
           tail -n +10 environment.yml > /tmp/environment.current.yml

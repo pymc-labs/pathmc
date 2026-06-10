@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations
 
+import narwhals.stable.v1 as nw
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -505,7 +506,7 @@ def implied_independences(
 
 def test_implications(
     independences: list[ConditionalIndependence],
-    data: pd.DataFrame,
+    data: nw.DataFrame,
     alpha: float = 0.05,
 ) -> ImplicationTestResult:
     """Test implied conditional independences against observed data.
@@ -523,7 +524,7 @@ def test_implications(
     ----------
     independences : list[ConditionalIndependence]
         Independence statements to test (from :func:`implied_independences`).
-    data : pd.DataFrame
+    data : nw.DataFrame
         Observed data. Must contain columns for all variables referenced
         in the independence statements.
     alpha : float
@@ -584,7 +585,7 @@ def test_implications(
 
 
 def _partial_correlation_test(
-    data: pd.DataFrame,
+    data: nw.DataFrame,
     x: str,
     y: str,
     z_vars: list[str],
@@ -595,21 +596,21 @@ def _partial_correlation_test(
     observations for the test, returns (nan, nan, n_obs).
     """
     cols = [x, y, *z_vars]
-    sub = data[cols].dropna()
+    sub = data.select(cols).drop_nulls()
     n = len(sub)
     k = len(z_vars)
 
     if n < k + 3:
         return np.nan, np.nan, n
 
-    x_vals = sub[x].to_numpy(dtype=float)
-    y_vals = sub[y].to_numpy(dtype=float)
+    x_vals = sub[x].to_numpy().astype(float)
+    y_vals = sub[y].to_numpy().astype(float)
 
     if not z_vars:
         r, p = stats.pearsonr(x_vals, y_vals)
         return float(r), float(p), n
 
-    z_mat = sub[z_vars].to_numpy(dtype=float)
+    z_mat = sub.select(z_vars).to_numpy().astype(float)
     z_with_intercept = np.column_stack([np.ones(n), z_mat])
 
     beta_x, _, _, _ = np.linalg.lstsq(z_with_intercept, x_vals, rcond=None)

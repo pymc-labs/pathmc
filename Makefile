@@ -17,7 +17,7 @@ init: ## Install the package in editable mode without dependencies
 
 setup: ## Set up the complete development environment
 	python -m pip install --no-deps -e .
-	python -m pip install -e '.[dev,docs,samplers]'
+	python -m pip install -e '.[dev,test,docs,samplers]'
 	prek install -f
 	@echo "Development environment ready!"
 

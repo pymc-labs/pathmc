@@ -26,7 +26,7 @@ repos:
       - id: mypy
         args: [--ignore-missing-imports]
         files: ^pathmc/
-        additional_dependencies: [numpy>=1.20, pandas-stubs]
+        additional_dependencies: [narwhals, numpy>=1.20, pandas-stubs]
   - repo: https://github.com/usnistgov/pyproject2conda
     rev: v0.22.1
     hooks:
@@ -35,6 +35,8 @@ repos:
         args:
           - -e
           - dev
+          - -e
+          - test
           - -e
           - docs
           - -e
@@ -48,7 +50,7 @@ repos:
           - --python-include
           - "python=3.12"
           - -r
-          - "--editable=.[dev,docs,samplers]"
+          - "--editable=.[dev,test,docs,samplers]"
   - repo: https://github.com/lucianopaz/head_of_apache
     rev: "0.1.1"
     hooks:

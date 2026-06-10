@@ -38,9 +38,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
+import narwhals.stable.v1 as nw
 import networkx as nx
 import numpy as np
-import pandas as pd
 import patsy
 import pymc as pm
 
@@ -239,24 +239,26 @@ def build_mu_specs(spec: Spec) -> dict[str, MuSpec]:
     return result
 
 
-def build_design_matrix(reg: Regression, data: pd.DataFrame) -> pd.DataFrame:
+def build_design_matrix(reg: Regression, data: nw.DataFrame) -> nw.DataFrame:
     """Build a patsy design matrix for a single regression equation.
 
     Parameters
     ----------
     reg : Regression
         Parsed regression with terms and intercept flag.
-    data : pd.DataFrame
+    data : nw.DataFrame
         Observed data containing the predictor columns.
 
     Returns
     -------
-    pd.DataFrame
-        Design matrix with named columns (including ``Intercept`` when applicable).
-        For equations with latent (unobserved) parents, returns a DataFrame with
+    nw.DataFrame
+        Design matrix with named columns (including ``Intercept`` when
+        applicable), backed by the same native backend as *data*. For
+        equations with latent (unobserved) parents, returns a frame with
         correct column names but NaN for the latent columns.
     """
     rhs_parts = [t.variable for t in reg.terms]
+    n = len(data)
 
     missing: list[str] = []
     for term in reg.terms:
@@ -265,39 +267,44 @@ def build_design_matrix(reg: Regression, data: pd.DataFrame) -> pd.DataFrame:
                 missing.append(v)
 
     if missing:
-        cols = get_predictor_columns(reg)
-        dm = pd.DataFrame(index=range(len(data)), columns=cols, dtype=float)
+        columns: dict[str, np.ndarray] = {}
         if reg.has_intercept:
-            dm["Intercept"] = 1.0
+            columns["Intercept"] = np.ones(n)
         for term in reg.terms:
             v = term.variable
             if term.interaction_of is not None:
-                product = np.ones(len(data))
+                product = np.ones(n)
                 for part in term.interaction_of:
                     if part in data.columns:
-                        product = product * data[part].to_numpy(dtype=float)
+                        product = product * data[part].to_numpy().astype(float)
                     else:
                         product = product * np.nan
-                dm[v] = product
+                columns[v] = product
             elif v in data.columns:
-                dm[v] = data[v].values
+                columns[v] = data[v].to_numpy().astype(float)
             else:
-                dm[v] = np.nan
-        return dm
+                columns[v] = np.full(n, np.nan)
+        return nw.from_dict(
+            {c: columns[c] for c in get_predictor_columns(reg)},
+            backend=data.implementation,
+        )
 
     if reg.has_intercept:
         formula_str = " + ".join(rhs_parts)
     else:
         formula_str = "0 + " + " + ".join(rhs_parts)
 
-    dm = patsy.dmatrix(formula_str, data=data, return_type="dataframe")
-    return dm
+    dm = patsy.dmatrix(formula_str, data=data.to_pandas(), return_type="dataframe")
+    return nw.from_dict(
+        {str(col): dm[col].to_numpy() for col in dm.columns},
+        backend=data.implementation,
+    )
 
 
 def compile_to_pymc(
     spec: Spec,
-    data: pd.DataFrame,
-    design_matrices: dict[str, pd.DataFrame],
+    data: nw.DataFrame,
+    design_matrices: dict[str, nw.DataFrame],
     families: dict[str, str] | None = None,
     panel_info: PanelInfo | None = None,
     pooling: str | dict | None = None,
@@ -320,9 +327,9 @@ def compile_to_pymc(
     ----------
     spec : Spec
         Parsed model specification.
-    data : pd.DataFrame
+    data : nw.DataFrame
         Observed data.
-    design_matrices : dict[str, pd.DataFrame]
+    design_matrices : dict[str, nw.DataFrame]
         Pre-built design matrices keyed by endogenous variable name.
     families : dict[str, str] | None
         Per-variable distribution families. Defaults to ``"gaussian"``
@@ -408,8 +415,8 @@ def compile_to_pymc(
     sparse_data: dict[str, np.ma.MaskedArray] = {}
     for reg in spec.regressions:
         v = reg.lhs
-        if v not in latent and v in data.columns and data[v].isna().any():
-            vals = np.asarray(data[v].values, dtype=float)
+        if v not in latent and v in data.columns and data[v].is_null().any():
+            vals = np.asarray(data[v].to_numpy(), dtype=float)
             sparse_data[v] = np.ma.masked_invalid(vals)
 
     with pm.Model(coords=coords) as pymc_model:
@@ -420,7 +427,7 @@ def compile_to_pymc(
         data_vars: dict[str, Any] = {}
         for var in graph_info.topological_order:
             if var in graph_info.exogenous and var in data.columns:
-                data_vars[var] = pm.Data(var, data[var].values.astype(float))
+                data_vars[var] = pm.Data(var, data[var].to_numpy().astype(float))
 
         endogenous_rvs: dict[str, Any] = {}
 
@@ -557,7 +564,7 @@ def build_mu(
 
 
 def _make_cross_sectional_resolver(
-    data: pd.DataFrame,
+    data: nw.DataFrame,
     data_vars: dict[str, Any],
     endogenous_rvs: dict[str, Any],
     transform_map: dict[str, TransformCall],
@@ -577,7 +584,7 @@ def _make_cross_sectional_resolver(
             return endogenous_rvs[name]
         if name in data_vars:
             return data_vars[name]
-        return pt.as_tensor_variable(data[name].values.astype(float))
+        return pt.as_tensor_variable(data[name].to_numpy().astype(float))
 
     def resolve(slot: PredictorSlot) -> Any:
         if slot.kind == "transform":
@@ -678,10 +685,11 @@ def _get_slope_vars(pooling: str | dict | None) -> list[str]:
     return []
 
 
-def _build_unit_index(data: pd.DataFrame, panel_info: PanelInfo) -> np.ndarray:
+def _build_unit_index(data: nw.DataFrame, panel_info: PanelInfo) -> np.ndarray:
     """Map each row to an integer unit index."""
     label_to_idx = {label: i for i, label in enumerate(panel_info.unit_labels)}
-    return data[panel_info.unit].map(label_to_idx).to_numpy()
+    units = data[panel_info.unit].to_numpy()
+    return np.array([label_to_idx[u] for u in units])
 
 
 def _compile_random_intercept(
@@ -739,7 +747,7 @@ def _compile_random_slopes(
 
 def _compile_residual_block(
     block: set[str],
-    data: pd.DataFrame,
+    data: nw.DataFrame,
     mu_specs: dict[str, MuSpec],
     data_vars: dict[str, Any],
     endogenous_rvs: dict[str, Any],
@@ -937,7 +945,7 @@ def _emit_transform_call_priors(
 
 def _apply_transform_chain(
     tc: TransformCall,
-    data: pd.DataFrame,
+    data: nw.DataFrame,
     param_rvs: dict[str, Any],
     panel_info: PanelInfo | None = None,
     data_vars: dict[str, Any] | None = None,
@@ -966,7 +974,7 @@ def _apply_transform_chain(
             input_tensor = endogenous_rvs[tc.input_expr]
         else:
             input_tensor = pt.as_tensor_variable(
-                data[tc.input_expr].values.astype(float)
+                data[tc.input_expr].to_numpy().astype(float)
             )
 
     transform = get_transform(tc.name)
@@ -1123,7 +1131,7 @@ def _has_adstock(tc: TransformCall) -> bool:
 
 
 def _reshape_to_panel(
-    data_sorted: pd.DataFrame,
+    data_sorted: nw.DataFrame,
     column: str,
     n_units: int,
     n_times: int,
@@ -1167,8 +1175,8 @@ def _apply_step_transform(
 
 def _compile_scan_panel(
     spec: Spec,
-    data: pd.DataFrame,
-    design_matrices: dict[str, pd.DataFrame],
+    data: nw.DataFrame,
+    design_matrices: dict[str, nw.DataFrame],
     families: dict[str, str],
     panel_info: PanelInfo,
     pooling: str | dict | None,
@@ -1203,13 +1211,15 @@ def _compile_scan_panel(
     # --- sort data ---
     unit_col = panel_info.unit
     time_col = panel_info.time
-    data_sorted = data.sort_values([unit_col, time_col]).reset_index(drop=True)
-    sort_idx = np.array(data.sort_values([unit_col, time_col]).index)
+    data_sorted = data.sort([unit_col, time_col])
+    sort_idx = (
+        data.with_row_index("__pos__").sort([unit_col, time_col])["__pos__"].to_numpy()
+    )
     reverse_idx = np.argsort(sort_idx)
     units = panel_info.unit_labels
     n_units = len(units)
     n_times = len(data) // n_units
-    time_values = sorted(data_sorted[time_col].unique())
+    time_values = sorted(data_sorted[time_col].unique().to_list())
 
     # --- classify columns ---
     lag_map = _build_lag_map(spec)
@@ -1254,8 +1264,8 @@ def _compile_scan_panel(
     sparse_panel_data: dict[str, np.ma.MaskedArray] = {}
     for reg in spec.regressions:
         v = reg.lhs
-        if v not in latent and v in data.columns and data[v].isna().any():
-            raw = np.asarray(data_sorted[v].values, dtype=float)
+        if v not in latent and v in data.columns and data[v].is_null().any():
+            raw = np.asarray(data_sorted[v].to_numpy(), dtype=float)
             panel_vals = raw.reshape(n_units, n_times).T
             sparse_panel_data[v] = np.ma.masked_invalid(panel_vals)
 
