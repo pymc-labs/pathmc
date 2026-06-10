@@ -44,7 +44,7 @@ The PR for this migration tracks progress against the phased plan below. Tick it
 
 ### How freeze works for pathmc
 
-The CI `Build Docs` job renders HTML without executing any notebook. The mechanism is upstream's [Freeze & Caching](https://posit-dev.github.io/great-docs/user_guide/freeze.html) feature (added by [posit-dev/great-docs#158](https://github.com/posit-dev/great-docs/pull/158), `upcoming: "0.11.0"` at the time of this PR), which we configure project-wide:
+The CI `Build Docs` job renders HTML without executing any notebook. The mechanism is upstream's [Freeze & Caching](https://posit-dev.github.io/great-docs/user_guide/freeze.html) feature (added by [posit-dev/great-docs#158](https://github.com/posit-dev/great-docs/pull/158) and released in `great-docs>=0.11.0`), which we configure project-wide:
 
 - [`great-docs.yml`](../../great-docs.yml) sets `freeze: true`, applying to every executable `.qmd` page (examples and user guide).
 - The committed `_freeze/` directory at the repo root stores Quarto's cached cell outputs.
@@ -64,7 +64,7 @@ git commit -m "Refresh freeze cache for my_page"
 
 **Local previews show stale outputs by design.** With `freeze: true`, `great-docs preview` displays the last-frozen output until you re-run `great-docs freeze`. This is the trade-off for CI determinism — explicit refresh, never accidental execution.
 
-**Version pin.** [`pyproject.toml`](../../pyproject.toml)'s `docs` extra pins great-docs to a specific `main` commit until v0.11.0 is tagged on PyPI; see the TODO comment there.
+**Version pin.** [`pyproject.toml`](../../pyproject.toml)'s `docs` extra requires `great-docs>=0.11.0`, the first PyPI release with the freeze workflow we depend on. This keeps `pip install pathmc[docs]` on tagged releases while allowing compatible Great Docs updates.
 
 ## Goals
 
