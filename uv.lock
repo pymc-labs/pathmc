@@ -798,8 +798,8 @@ wheels = [
 
 [[package]]
 name = "great-docs"
-version = "0.10.1.dev131+g4dbe50996"
-source = { git = "https://github.com/posit-dev/great-docs.git?rev=4dbe5099620d5b8e8107c7fada2822bf65d1520d#4dbe5099620d5b8e8107c7fada2822bf65d1520d" }
+version = "0.13.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "griffe" },
@@ -809,6 +809,10 @@ dependencies = [
     { name = "pygments" },
     { name = "requests" },
     { name = "ruff" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ab/e6/12f41bfa1e94f23ac8d6853b07ee84b6f52fad22ecbbfb5c2d218f5064c4/great_docs-0.13.0.tar.gz", hash = "sha256:7feaca8a3be353a23fc324b6954f75c709fa62972af1a48d6e74879b6160ee00", size = 5610976, upload-time = "2026-06-03T03:49:59.513Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/96/a76aa11115fd12596bece1abea390c4506c10c4a25097fa339118618e387/great_docs-0.13.0-py3-none-any.whl", hash = "sha256:351589ee30f3d040aa5a303cd9898ef680ce27615e2f6d2b7fc1a85bbe1f9b60", size = 892266, upload-time = "2026-06-03T03:49:58.005Z" },
 ]
 
 [[package]]
@@ -2221,7 +2225,7 @@ requires-dist = [
     { name = "arviz", specifier = ">=1.1,<2" },
     { name = "build", marker = "extra == 'dev'" },
     { name = "graphviz" },
-    { name = "great-docs", marker = "extra == 'docs'", git = "https://github.com/posit-dev/great-docs.git?rev=4dbe5099620d5b8e8107c7fada2822bf65d1520d" },
+    { name = "great-docs", marker = "extra == 'docs'", specifier = ">=0.11.0" },
     { name = "ipykernel", marker = "extra == 'dev'" },
     { name = "jax", marker = "extra == 'samplers'" },
     { name = "mypy", marker = "extra == 'dev'" },
