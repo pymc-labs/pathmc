@@ -44,6 +44,12 @@ def _geometric_adstock(x: Any, *, alpha: Any, l_max: int) -> Any:
     for NUTS sampling. Batch axes after the first (e.g. panel units) are
     broadcast over.
     """
+    if l_max < 1:
+        raise ValueError(
+            f"l_max must be >= 1, got {l_max}. Geometric adstock needs at "
+            f"least one lag weight; set l_max to the maximum carryover "
+            f"duration in time steps."
+        )
     w = pt.power(alpha, pt.arange(l_max))
     result = w[0] * x
     for i in range(1, l_max):

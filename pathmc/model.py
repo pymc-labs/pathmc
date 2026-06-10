@@ -567,7 +567,12 @@ class PathModel:
             kwargs.setdefault("mp_ctx", "forkserver")
         with self._pymc_model:
             self._idata = pm.sample(**kwargs)
-            pm.compute_log_likelihood(self._idata, progressbar=False)
+            # Silent unless the caller explicitly asked for progress bars;
+            # matches the pre-PyMC 6 behavior where the log-likelihood was
+            # computed inside pm.sample() without its own bar.
+            pm.compute_log_likelihood(
+                self._idata, progressbar=kwargs.get("progressbar", False)
+            )
         return self._idata
 
     def predict(self, **kwargs: Any) -> az.InferenceData:
@@ -580,11 +585,16 @@ class PathModel:
         ----------
         **kwargs
             Passed directly to ``pm.sample_posterior_predictive()``.
+            Pass ``extend_inferencedata=False`` to leave the stored
+            InferenceData untouched and get the standalone posterior
+            predictive samples back instead.
 
         Returns
         -------
         az.InferenceData
-            InferenceData with ``posterior_predictive`` group added.
+            The stored InferenceData with a ``posterior_predictive``
+            group added, or the standalone posterior predictive samples
+            when ``extend_inferencedata=False`` is passed.
 
         Raises
         ------
@@ -600,7 +610,9 @@ class PathModel:
             )
         kwargs.setdefault("extend_inferencedata", True)
         with self._pymc_model:
-            pm.sample_posterior_predictive(self._idata, **kwargs)
+            pp = pm.sample_posterior_predictive(self._idata, **kwargs)
+        if not kwargs["extend_inferencedata"]:
+            return pp
         return self._idata
 
     def adjustment_sets(
