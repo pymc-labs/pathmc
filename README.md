@@ -53,7 +53,7 @@ If you use pathmc in academic work, please cite the project using the metadata i
 ## Thanks to our contributors
 
 <a href="https://github.com/pymc-labs/pathmc/graphs/contributors">
-  <img src="https://raw.githubusercontent.com/pymc-labs/pathmc/main/docs/assets/contributors.svg" alt="pathmc contributors" />
+  <img src="docs/assets/contributors.svg" alt="pathmc contributors" />
 </a>
 
 The contributor image is regenerated weekly by a GitHub Actions workflow (`.github/workflows/contributors.yml`) that opens a PR when the contributor list changes.
