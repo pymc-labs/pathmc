@@ -146,7 +146,7 @@ class PathModel:
             if missing:
                 cols = get_predictor_columns(reg)
                 self._design_matrices[reg.lhs] = nw.from_dict(
-                    {c: [] for c in cols},
+                    {c: np.array([], dtype=float) for c in cols},
                     backend=data.implementation,
                 )
             else:
@@ -1555,7 +1555,7 @@ def simulate(
     data_sim = nw_data
     zero_cols = [var for var in endogenous_lhs if var not in data_sim.columns]
     if zero_cols:
-        data_sim = data_sim.with_columns(nw.lit(0.0).alias(var) for var in zero_cols)
+        data_sim = data_sim.with_columns([nw.lit(0.0).alias(var) for var in zero_cols])
 
     design_matrices: dict[str, nw.DataFrame] = {}
     for reg in spec.regressions:
@@ -1622,5 +1622,5 @@ def simulate(
             var, np.asarray(values), backend=nw_data.implementation
         )
 
-    result = nw_data.with_columns(**new_columns)
+    result = nw_data.with_columns(list(new_columns.values()))
     return result.to_native()

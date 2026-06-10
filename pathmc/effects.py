@@ -94,7 +94,8 @@ def extract_labeled_draws(
                     idata
                     .posterior[beta_name]  # type: ignore[attr-defined]
                     .sel({coord_name: term.variable})
-                    .values.flatten()
+                    .to_numpy()
+                    .flatten()
                 )
                 labeled_draws[term.label] = draws
 
@@ -215,9 +216,12 @@ def build_standardized_effects(
         lhs = reg.lhs
         if lhs in latent or lhs not in data.columns:
             continue
-        sd_y = float(data[lhs].std())
-        if sd_y == 0:
+        # narwhals Series.std() returns None for an all-null column; treat that
+        # (and a zero-variance column) as non-standardizable and skip.
+        _sd_y = data[lhs].std()
+        if _sd_y is None or float(_sd_y) == 0:
             continue
+        sd_y = float(_sd_y)
 
         for term in reg.terms:
             if term.label is None or term.label not in labeled_draws:
@@ -229,9 +233,10 @@ def build_standardized_effects(
             var = term.variable
             if var in latent or var not in data.columns:
                 continue
-            sd_x = float(data[var].std())
-            if sd_x == 0:
+            _sd_x = data[var].std()
+            if _sd_x is None or float(_sd_x) == 0:
                 continue
+            sd_x = float(_sd_x)
 
             raw_draws = labeled_draws[term.label]
             std_draws = raw_draws * sd_x / sd_y
@@ -311,7 +316,11 @@ def compute_path_effect(
             beta_name = f"beta_{target}"
             coord_name = f"{target}_predictors"
             draws = (
-                idata.posterior[beta_name].sel({coord_name: source}).values.flatten()  # type: ignore[attr-defined]
+                idata
+                .posterior[beta_name]
+                .sel({coord_name: source})
+                .to_numpy()
+                .flatten()  # type: ignore[attr-defined]
             )
 
         edge_draws.append(draws)

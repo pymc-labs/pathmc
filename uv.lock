@@ -2236,7 +2236,7 @@ requires-dist = [
     { name = "ipykernel", marker = "extra == 'dev'" },
     { name = "jax", marker = "extra == 'samplers'" },
     { name = "mypy", marker = "extra == 'dev'" },
-    { name = "narwhals", specifier = ">=1.20" },
+    { name = "narwhals", specifier = ">=1.20,<3" },
     { name = "networkx" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "numpyro", marker = "extra == 'samplers'" },

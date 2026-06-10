@@ -32,7 +32,7 @@ classifiers = [
 dependencies = [
     "arviz>=1.1,<2",
     "graphviz",
-    "narwhals>=1.20",
+    "narwhals>=1.20,<3",
     "networkx",
     "numpy>=2.0",
     "pandas",

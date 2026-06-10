@@ -355,12 +355,15 @@ def run_do_pymc(
                     if subgroup_indices is not None:
                         fill = float(data[var].to_numpy()[subgroup_indices].mean())
                     else:
-                        fill = float(data[var].mean())
+                        # narwhals Series.mean() returns None for an all-null
+                        # column; map that to nan (matching the old pandas path).
+                        _mean = data[var].mean()
+                        fill = float(_mean) if _mean is not None else float("nan")
                     values[var] = np.full(n_samples, fill)
                 else:
                     values[var] = np.zeros(n_samples)
             else:
-                mu_raw = det[mean_det_names[var]].values
+                mu_raw = det[mean_det_names[var]].to_numpy()
                 if subgroup_indices is not None and mu_raw.ndim >= 3:
                     mu_raw = mu_raw[:, :, subgroup_indices]
                 mu_vals = mu_raw.flatten()
@@ -422,22 +425,25 @@ def run_do_pymc(
                 if subgroup_indices is not None:
                     fill = float(data[var].to_numpy()[subgroup_indices].mean())
                 else:
-                    fill = float(data[var].mean())
+                    # narwhals Series.mean() returns None for an all-null
+                    # column; map that to nan (matching the old pandas path).
+                    _mean = data[var].mean()
+                    fill = float(_mean) if _mean is not None else float("nan")
                 values[var] = np.full(n_samples, fill)
             else:
                 values[var] = np.zeros(n_samples)
         elif var in ppc.posterior_predictive:
-            raw = ppc.posterior_predictive[var].values
+            raw = ppc.posterior_predictive[var].to_numpy()
             if subgroup_indices is not None and raw.ndim >= 3:
                 raw = raw[:, :, subgroup_indices]
             values[var] = raw.flatten()
         elif f"mu_{var}" in ppc.posterior_predictive:
-            raw = ppc.posterior_predictive[f"mu_{var}"].values
+            raw = ppc.posterior_predictive[f"mu_{var}"].to_numpy()
             if subgroup_indices is not None and raw.ndim >= 3:
                 raw = raw[:, :, subgroup_indices]
             values[var] = raw.flatten()
         elif extra_det is not None and f"mu_{var}" in extra_det:
-            raw = extra_det[f"mu_{var}"].values
+            raw = extra_det[f"mu_{var}"].to_numpy()
             if subgroup_indices is not None and raw.ndim >= 3:
                 raw = raw[:, :, subgroup_indices]
             values[var] = raw.flatten()
@@ -545,7 +551,7 @@ def run_do_panel_unified(
                 values[var] = np.zeros(n_samples)
             elif var in graph_info.endogenous:
                 det_key = var if var in stochastic_latent else f"mu_{var}"
-                mu_raw = det[det_key].values
+                mu_raw = det[det_key].to_numpy()
                 mu_flat = mu_raw.reshape(-1, n_times, n_units)
                 by_time = mu_flat.mean(axis=2).T
                 values_by_time[var] = by_time
@@ -599,7 +605,7 @@ def run_do_panel_unified(
         elif var in graph_info.exogenous:
             values[var] = np.zeros(n_samples)
         elif var in ppc.posterior_predictive:
-            raw = ppc.posterior_predictive[var].values
+            raw = ppc.posterior_predictive[var].to_numpy()
             flat = raw.reshape(-1, n_times, n_units)
             by_time = flat.mean(axis=2).T
             values_by_time[var] = by_time
@@ -607,7 +613,7 @@ def run_do_panel_unified(
         elif latent_det is not None:
             det_key = var if var in stochastic_latent else f"mu_{var}"
             if det_key in latent_det:
-                mu_raw = latent_det[det_key].values
+                mu_raw = latent_det[det_key].to_numpy()
                 mu_flat = mu_raw.reshape(-1, n_times, n_units)
                 by_time = mu_flat.mean(axis=2).T
                 values_by_time[var] = by_time

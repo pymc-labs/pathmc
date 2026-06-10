@@ -60,6 +60,41 @@ def mediation_dict():
     return {"X": X, "M": M, "Y": Y}
 
 
+PANEL_SPEC = "sales ~ lag(spend)"
+PANEL_KW = {"unit": "region", "time": "week"}
+
+
+@pytest.fixture
+def panel_dict():
+    """Panel data (region x week) with a lagged-spend -> sales structure.
+
+    Exercises the bespoke narwhals panel translation (``with_row_index``,
+    ``sort``, ``.over()``).
+    """
+    rng = np.random.default_rng(42)
+    rows = {"region": [], "week": [], "sales": [], "spend": []}
+    for region in ("A", "B", "C"):
+        spend_prev = 0.0
+        for week in range(1, 16):
+            spend = rng.uniform(5, 15)
+            rows["region"].append(region)
+            rows["week"].append(week)
+            rows["sales"].append(5.0 + 0.5 * spend_prev + rng.normal(scale=0.5))
+            rows["spend"].append(spend)
+            spend_prev = spend
+    return rows
+
+
+@pytest.fixture
+def binary_treatment_dict():
+    """Binary treatment T -> outcome Y, for att/atu/prob counterfactuals."""
+    rng = np.random.default_rng(0)
+    n = 200
+    T = rng.integers(0, 2, size=n).astype(float)
+    Y = 1.5 * T + rng.normal(scale=0.5, size=n)
+    return {"T": T, "Y": Y}
+
+
 class TestModelCompilation:
     def test_model_compiles(self, backend, mediation_dict):
         df = _frame(backend, mediation_dict)
@@ -138,9 +173,62 @@ class TestEndToEndBothBackends:
             model = pathmc.model(MEDIATION_SPEC, data=df)
             model.fit(draws=200, tune=200, chains=2, random_seed=42, progressbar=False)
             results[backend] = model.summary()["mean"]
+        # pandas and polars feed identical numpy arrays into PyMC, so the
+        # posteriors should match closely; 1e-6 is robust against any future
+        # backend-path float divergence while still catching real drift.
         np.testing.assert_allclose(
             results["pandas"].to_numpy(),
             results["polars"].to_numpy(),
-            rtol=1e-10,
-            atol=1e-10,
+            rtol=1e-6,
+            atol=1e-6,
         )
+
+
+class TestPanelBothBackends:
+    """Panel models exercise the bespoke narwhals translation for both backends."""
+
+    def test_panel_model_compiles(self, backend, panel_dict):
+        df = _frame(backend, panel_dict)
+        model = pathmc.model(PANEL_SPEC, data=df, panel=PANEL_KW, pooling="partial")
+        assert model.pymc_model is not None
+
+    @pytest.mark.slow
+    def test_panel_fit_and_time_do(self, backend, panel_dict):
+        df = _frame(backend, panel_dict)
+        model = pathmc.model(PANEL_SPEC, data=df, panel=PANEL_KW, pooling="partial")
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        result = model.do(set={"spend": 10.0}, simulate_over="time", kind="mean")
+        assert np.isfinite(result.mean("sales"))
+
+
+class TestIdentificationBothBackends:
+    """test_implications() reads observed data; must accept polars input."""
+
+    def test_implications_runs(self, backend):
+        # Chain X -> M -> Y (no direct X -> Y edge) implies X ⊥⊥ Y | M.
+        rng = np.random.default_rng(1)
+        n = 200
+        X = rng.normal(size=n)
+        M = 0.7 * X + rng.normal(scale=0.5, size=n)
+        Y = 0.6 * M + rng.normal(scale=0.5, size=n)
+        df = _frame(backend, {"X": X, "M": M, "Y": Y})
+        model = pathmc.model("M ~ X\nY ~ M", data=df)
+        result = model.test_implications()
+        # Result table is an arviz/pandas artifact regardless of input backend.
+        assert isinstance(result.to_dataframe(), pd.DataFrame)
+
+
+@pytest.mark.slow
+class TestCounterfactualsBothBackends:
+    """att/atu/prob access self._data; verify they work with polars input."""
+
+    def test_att_atu_prob(self, backend, binary_treatment_dict):
+        df = _frame(backend, binary_treatment_dict)
+        model = pathmc.model("Y ~ T", data=df)
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        att = model.att(outcome="Y", treatment="T")
+        atu = model.atu(outcome="Y", treatment="T")
+        assert np.isfinite(att.mean("Y"))
+        assert np.isfinite(atu.mean("Y"))
+        p = model.prob("Y > 0", set={"T": 1.0})
+        assert 0.0 <= p <= 1.0

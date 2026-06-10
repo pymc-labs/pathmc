@@ -256,6 +256,13 @@ def build_design_matrix(reg: Regression, data: nw.DataFrame) -> nw.DataFrame:
         applicable), backed by the same native backend as *data*. For
         equations with latent (unobserved) parents, returns a frame with
         correct column names but NaN for the latent columns.
+
+    Notes
+    -----
+    The patsy path materialises *data* to pandas via ``data.to_pandas()``
+    because ``patsy.dmatrix`` only understands pandas frames; the result is
+    rewrapped to the input backend with ``nw.from_dict(...)``. Do not remove
+    the ``.to_pandas()`` call — polars (and other non-pandas) inputs rely on it.
     """
     rhs_parts = [t.variable for t in reg.terms]
     n = len(data)
