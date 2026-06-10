@@ -419,7 +419,9 @@ class PathModel:
         Returns
         -------
         pd.DataFrame
-            ArviZ summary of all model parameters.
+            ArviZ summary of all model parameters. Columns are
+            full-precision floats; apply ``.round()`` downstream as
+            needed.
 
         Raises
         ------
