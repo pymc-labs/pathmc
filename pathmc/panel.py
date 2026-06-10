@@ -96,11 +96,11 @@ def add_lags(
         lag_orders = list(lags)
 
     result = data.sort([unit_col, time_col])
-    result = result.with_columns(
+    result = result.with_columns([
         nw.col(var).shift(k).over(unit_col).alias(f"{var}_lag{k}")
         for var in variables
         for k in lag_orders
-    )
+    ])
 
     return result.to_native()
 
