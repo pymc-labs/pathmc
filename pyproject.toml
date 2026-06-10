@@ -35,6 +35,7 @@ dependencies = [
     "narwhals>=1.20",
     "networkx",
     "numpy<2.4",
+    "pandas",
     "patsy",
     "pymc>=5.27.0,<6",
     "pymc-extras",
@@ -51,7 +52,7 @@ Contributing = "https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md"
 
 [project.optional-dependencies]
 dev = ["build", "mypy", "pandas-stubs", "prek", "ruff"]
-test = ["pytest", "pandas", "polars"]
+test = ["pytest", "polars"]
 # TODO: switch to "great-docs>=0.11.0" once it's tagged on PyPI. The freeze
 # feature we depend on (https://posit-dev.github.io/great-docs/user_guide/freeze.html,
 # `upcoming: "0.11.0"`) landed on `main` via posit-dev/great-docs#158 after
