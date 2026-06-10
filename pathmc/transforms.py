@@ -16,12 +16,12 @@
 Each transform produces PyMC tensor operations for model compilation and
 provides a ``step()`` method for use inside ``pytensor.scan`` bodies.
 
-Both built-in transforms delegate to ``pymc_marketing.mmm.transformers``. That
-module exposes its transforms through the xtensor API (``pymc-marketing >=
-0.19``), so the small ``_pmm_*`` helpers below bridge plain ``TensorVariable``s
-to xtensor and back. The unwrapped results also lower correctly inside
-``pytensor.scan`` bodies, so the same helpers serve both the graph and the
-scan-step paths.
+The built-in transforms are implemented directly in pytensor. They previously
+delegated to ``pymc_marketing.mmm.transformers``, but pymc-marketing does not
+yet support PyMC 6 / ArviZ 1, so the two small kernels are vendored here (see
+the geometric-adstock truncation note on :func:`_geometric_adstock`). Once
+pymc-marketing ships PyMC 6 support we may delegate again — tracked in a
+follow-up issue.
 """
 
 from __future__ import annotations
@@ -31,34 +31,37 @@ from typing import Any
 
 import numpy as np
 import pymc as pm
-from pymc_marketing.mmm.transformers import (
-    geometric_adstock as _pmm_geometric_adstock,
-)
-from pymc_marketing.mmm.transformers import (
-    logistic_saturation as _pmm_logistic_saturation,
-)
-from pytensor.xtensor.type import as_xtensor
+import pytensor.tensor as pt
 
 
-def _adstock_pmm(x: Any, *, alpha: Any, l_max: int, dims: tuple[str, ...]) -> Any:
-    """Geometric adstock convolved along the leading (time) axis.
+def _geometric_adstock(x: Any, *, alpha: Any, l_max: int) -> Any:
+    """Geometric adstock along the leading (time) axis.
 
-    ``dims`` labels each axis of ``x``; ``dims[0]`` is the time axis the
-    convolution runs over. The result is unwrapped back to a ``TensorVariable``.
+    ``y[t] = sum_{i=0}^{l_max-1} alpha**i * x[t-i]``, with zero padding before
+    ``t = 0``. The carryover is truncated at ``l_max`` lags, matching the
+    convolution-based implementation in ``pymc_marketing.mmm.transformers``,
+    and is significantly faster than ``pytensor.scan`` with cleaner gradients
+    for NUTS sampling. Batch axes after the first (e.g. panel units) are
+    broadcast over.
     """
-    xx = as_xtensor(x, dims=dims)
-    adstocked = _pmm_geometric_adstock(xx, alpha=alpha, l_max=l_max, dim=dims[0])
-    return adstocked.values
+    if l_max < 1:
+        raise ValueError(
+            f"l_max must be >= 1, got {l_max}. Geometric adstock needs at "
+            f"least one lag weight; set l_max to the maximum carryover "
+            f"duration in time steps."
+        )
+    w = pt.power(alpha, pt.arange(l_max))
+    result = w[0] * x
+    for i in range(1, l_max):
+        shifted = pt.zeros_like(x)
+        shifted = pt.set_subtensor(shifted[i:], x[:-i])
+        result = result + w[i] * shifted
+    return result
 
 
-def _logistic_saturation_pmm(x: Any, *, lam: Any) -> Any:
-    """Pointwise logistic saturation: ``(1 - exp(-lam*x)) / (1 + exp(-lam*x))``.
-
-    The transform is elementwise, so the xtensor dim labels are immaterial; the
-    result is unwrapped back to a plain ``TensorVariable``.
-    """
-    dims = tuple(f"d{i}" for i in range(x.ndim))
-    return _pmm_logistic_saturation(as_xtensor(x, dims=dims), lam=lam).values
+def _logistic_saturation(x: Any, *, lam: Any) -> Any:
+    """Pointwise logistic saturation: ``(1 - exp(-lam*x)) / (1 + exp(-lam*x))``."""
+    return (1 - pt.exp(-lam * x)) / (1 + pt.exp(-lam * x))
 
 
 @dataclass
@@ -165,10 +168,9 @@ class Adstock(Transform):
     Applied along the time axis within each panel unit.
     For cross-sectional data, applied along the row axis.
 
-    The PyMC graph uses the convolution-based implementation from
-    ``pymc_marketing.mmm.transformers.geometric_adstock``, which is
-    significantly faster than ``pytensor.scan`` and produces cleaner
-    gradients for NUTS sampling.
+    The PyMC graph uses the vectorized :func:`_geometric_adstock`
+    kernel, which is significantly faster than ``pytensor.scan`` and
+    produces cleaner gradients for NUTS sampling.
     """
 
     name = "adstock"
@@ -189,7 +191,7 @@ class Adstock(Transform):
 
         if panel_info is not None and data is not None:
             return self._apply_pymc_panel(x, decay, panel_info, data)
-        return _adstock_pmm(x, alpha=decay, l_max=self.l_max, dims=("time",))
+        return _geometric_adstock(x, alpha=decay, l_max=self.l_max)
 
     def _apply_pymc_panel(self, x: Any, decay: Any, panel_info: Any, data: Any) -> Any:
         """Apply adstock per unit via matrix reshaping, not per-unit scans."""
@@ -205,9 +207,7 @@ class Adstock(Transform):
         x_sorted = x[sorted_idx]
         x_matrix = x_sorted.reshape((n_units, n_time)).T  # (time, units)
 
-        adstocked = _adstock_pmm(
-            x_matrix, alpha=decay, l_max=self.l_max, dims=("time", "unit")
-        )
+        adstocked = _geometric_adstock(x_matrix, alpha=decay, l_max=self.l_max)
 
         result_flat = adstocked.T.flatten()  # back to unit-major order
         return result_flat[reverse_idx]
@@ -224,12 +224,9 @@ class Adstock(Transform):
 
 
 class LogisticSaturation(Transform):
-    """Logistic saturation: ``y = 1 - exp(-lam * x)``.
+    """Logistic saturation: ``y = (1 - exp(-lam*x)) / (1 + exp(-lam*x))``.
 
     Pointwise — no temporal dependence.
-
-    The PyMC graph uses ``pymc_marketing.mmm.transformers.logistic_saturation``
-    for consistency with the adstock implementation.
     """
 
     name = "logistic_saturation"
@@ -246,7 +243,7 @@ class LogisticSaturation(Transform):
         data: Any | None = None,
     ) -> Any:
         lam = params["lam"]
-        return _logistic_saturation_pmm(x, lam=lam)
+        return _logistic_saturation(x, lam=lam)
 
 
 REGISTRY: dict[str, Transform] = {

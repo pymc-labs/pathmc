@@ -52,7 +52,7 @@ class EffectResult:
 
     def hdi(self, prob: float = 0.94) -> np.ndarray:
         """Highest density interval for the effect."""
-        return az.hdi(self.draws, hdi_prob=prob)
+        return az.hdi(self.draws, prob=prob)
 
     def __repr__(self) -> str:
         lo, hi = self.hdi()
@@ -156,7 +156,7 @@ def build_effects_summary(
 
     rows = []
     for name, draws in all_draws.items():
-        hdi = az.hdi(draws, hdi_prob=0.94)
+        hdi = az.hdi(draws, prob=0.94)
         rows.append({
             "name": name,
             "mean": float(np.mean(draws)),
@@ -234,7 +234,7 @@ def build_standardized_effects(
 
             raw_draws = labeled_draws[term.label]
             std_draws = raw_draws * sd_x / sd_y
-            hdi = az.hdi(std_draws, hdi_prob=0.94)
+            hdi = az.hdi(std_draws, prob=0.94)
             rows.append({
                 "name": term.label,
                 "predictor": var,

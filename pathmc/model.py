@@ -419,7 +419,9 @@ class PathModel:
         Returns
         -------
         pd.DataFrame
-            ArviZ summary of all model parameters.
+            ArviZ summary of all model parameters. Columns are
+            full-precision floats; apply ``.round()`` downstream as
+            needed.
 
         Raises
         ------
@@ -432,7 +434,7 @@ class PathModel:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .summary()."
             )
-        return az.summary(self._idata)
+        return az.summary(self._idata, round_to="none")
 
     def effects_summary(self) -> pd.DataFrame:
         """Return a posterior summary of labeled coefficients and defined parameters.
@@ -565,10 +567,14 @@ class PathModel:
         assert self._pymc_model is not None
         if sys.platform == "darwin" and "mp_ctx" not in kwargs:
             kwargs.setdefault("mp_ctx", "forkserver")
-        kwargs.setdefault("idata_kwargs", {})
-        kwargs["idata_kwargs"].setdefault("log_likelihood", True)
         with self._pymc_model:
             self._idata = pm.sample(**kwargs)
+            # Silent unless the caller explicitly asked for progress bars;
+            # matches the pre-PyMC 6 behavior where the log-likelihood was
+            # computed inside pm.sample() without its own bar.
+            pm.compute_log_likelihood(
+                self._idata, progressbar=kwargs.get("progressbar", False)
+            )
         return self._idata
 
     def predict(self, **kwargs: Any) -> az.InferenceData:
@@ -581,11 +587,16 @@ class PathModel:
         ----------
         **kwargs
             Passed directly to ``pm.sample_posterior_predictive()``.
+            Pass ``extend_inferencedata=False`` to leave the stored
+            InferenceData untouched and get the standalone posterior
+            predictive samples back instead.
 
         Returns
         -------
         az.InferenceData
-            InferenceData with ``posterior_predictive`` group added.
+            The stored InferenceData with a ``posterior_predictive``
+            group added, or the standalone posterior predictive samples
+            when ``extend_inferencedata=False`` is passed.
 
         Raises
         ------
@@ -599,9 +610,11 @@ class PathModel:
             raise RuntimeError(
                 "No posterior samples available. Call .fit() before .predict()."
             )
+        kwargs.setdefault("extend_inferencedata", True)
         with self._pymc_model:
             pp = pm.sample_posterior_predictive(self._idata, **kwargs)
-        self._idata.extend(pp)
+        if not kwargs["extend_inferencedata"]:
+            return pp
         return self._idata
 
     def adjustment_sets(

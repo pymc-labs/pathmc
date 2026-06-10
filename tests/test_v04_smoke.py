@@ -116,7 +116,7 @@ class TestPanelRandomSlopesPipeline:
     def test_slopes_contribute(self, panel_model):
         """Verify random slopes are present in the posterior."""
         idata = panel_model._idata
-        stacked = idata.posterior.stack(sample=("chain", "draw"))
+        stacked = idata.posterior.to_dataset().stack(sample=("chain", "draw"))
         assert "slope_sales_spend" in stacked
 
 
