@@ -16,8 +16,12 @@
 Each transform produces PyMC tensor operations for model compilation and
 provides a ``step()`` method for use inside ``pytensor.scan`` bodies.
 
-PyMC graph operations delegate to ``pymc_marketing.mmm.transformers`` for
-optimised convolution-based adstock and vectorised saturation.
+Both built-in transforms delegate to ``pymc_marketing.mmm.transformers``. That
+module exposes its transforms through the xtensor API (``pymc-marketing >=
+0.19``), so the small ``_pmm_*`` helpers below bridge plain ``TensorVariable``s
+to xtensor and back. The unwrapped results also lower correctly inside
+``pytensor.scan`` bodies, so the same helpers serve both the graph and the
+scan-step paths.
 """
 
 from __future__ import annotations
@@ -29,8 +33,32 @@ import numpy as np
 import pymc as pm
 from pymc_marketing.mmm.transformers import (
     geometric_adstock as _pmm_geometric_adstock,
+)
+from pymc_marketing.mmm.transformers import (
     logistic_saturation as _pmm_logistic_saturation,
 )
+from pytensor.xtensor.type import as_xtensor
+
+
+def _adstock_pmm(x: Any, *, alpha: Any, l_max: int, dims: tuple[str, ...]) -> Any:
+    """Geometric adstock convolved along the leading (time) axis.
+
+    ``dims`` labels each axis of ``x``; ``dims[0]`` is the time axis the
+    convolution runs over. The result is unwrapped back to a ``TensorVariable``.
+    """
+    xx = as_xtensor(x, dims=dims)
+    adstocked = _pmm_geometric_adstock(xx, alpha=alpha, l_max=l_max, dim=dims[0])
+    return adstocked.values
+
+
+def _logistic_saturation_pmm(x: Any, *, lam: Any) -> Any:
+    """Pointwise logistic saturation: ``(1 - exp(-lam*x)) / (1 + exp(-lam*x))``.
+
+    The transform is elementwise, so the xtensor dim labels are immaterial; the
+    result is unwrapped back to a plain ``TensorVariable``.
+    """
+    dims = tuple(f"d{i}" for i in range(x.ndim))
+    return _pmm_logistic_saturation(as_xtensor(x, dims=dims), lam=lam).values
 
 
 @dataclass
@@ -161,7 +189,7 @@ class Adstock(Transform):
 
         if panel_info is not None and data is not None:
             return self._apply_pymc_panel(x, decay, panel_info, data)
-        return _pmm_geometric_adstock(x, alpha=decay, l_max=self.l_max, axis=0)
+        return _adstock_pmm(x, alpha=decay, l_max=self.l_max, dims=("time",))
 
     def _apply_pymc_panel(self, x: Any, decay: Any, panel_info: Any, data: Any) -> Any:
         """Apply adstock per unit via matrix reshaping, not per-unit scans."""
@@ -177,8 +205,8 @@ class Adstock(Transform):
         x_sorted = x[sorted_idx]
         x_matrix = x_sorted.reshape((n_units, n_time)).T  # (time, units)
 
-        adstocked = _pmm_geometric_adstock(
-            x_matrix, alpha=decay, l_max=self.l_max, axis=0
+        adstocked = _adstock_pmm(
+            x_matrix, alpha=decay, l_max=self.l_max, dims=("time", "unit")
         )
 
         result_flat = adstocked.T.flatten()  # back to unit-major order
@@ -218,7 +246,7 @@ class LogisticSaturation(Transform):
         data: Any | None = None,
     ) -> Any:
         lam = params["lam"]
-        return _pmm_logistic_saturation(x, lam=lam)
+        return _logistic_saturation_pmm(x, lam=lam)
 
 
 REGISTRY: dict[str, Transform] = {
