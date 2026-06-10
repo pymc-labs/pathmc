@@ -4,18 +4,16 @@ pathmc welcomes contributions from users, researchers, and developers interested
 
 ## Quick Start
 
-After forking this repository on GitHub, get up and running in a few commands:
+The development environment is managed with [uv](https://docs.astral.sh/uv/); [install it](https://docs.astral.sh/uv/getting-started/installation/) first if you don't have it. After forking this repository on GitHub, get up and running in a few commands:
 
 ```bash
 git clone git@github.com:<your-github-handle>/pathmc.git
 cd pathmc
-conda env create -f environment.yml
-conda activate pathmc
 make setup
 make test-fast
 ```
 
-Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, environment sync, and build targets.
+`make setup` runs `uv sync --all-extras` (creating `.venv/` with the package installed in editable mode plus all dev, docs, and sampler dependencies) and installs the pre-commit hooks. Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, and build targets. The Makefile targets invoke tools through `uv run`, so you never need to activate the virtual environment manually.
 
 ## Opening issues
 
@@ -49,26 +47,19 @@ Create a feature branch for your work:
 git checkout -b my-feature
 ```
 
-Create and activate the conda environment:
-
-```bash
-conda env create -f environment.yml
-conda activate pathmc
-```
-
-Update an existing environment after pulling changes to `environment.yml`:
-
-```bash
-conda env update -f environment.yml --prune
-```
-
-Install pathmc in editable mode with development dependencies and hooks:
+Create the development environment and install the pre-commit hooks:
 
 ```bash
 make setup
 ```
 
-Edit dependency metadata in `pyproject.toml`, not `environment.yml`. The conda environment file is generated from `pyproject.toml`; run `make sync-env` after dependency changes, or let the pre-commit hook regenerate it.
+Update an existing environment after pulling changes that touch dependencies:
+
+```bash
+uv sync --all-extras
+```
+
+Edit dependency metadata in `pyproject.toml`. The `uv.lock` lockfile pins exact versions for reproducible contributor environments; `uv sync` updates it automatically after `pyproject.toml` changes, and the updated lockfile should be committed.
 
 Run fast tests only, excluding slow MCMC sampling tests:
 
@@ -111,39 +102,31 @@ make lint
 
 ## Building the documentation locally
 
-The documentation site is built with [Quarto](https://quarto.org/docs/get-started/). Install Quarto separately before running the docs commands.
+The documentation site is built with [Great Docs](https://posit-dev.github.io/great-docs/), with [Quarto](https://quarto.org/docs/get-started/) as the underlying renderer. Install Quarto separately before running the docs commands.
 
-Register the conda environment as a Jupyter kernel once:
-
-```bash
-conda activate pathmc
-python -m ipykernel install --user --name pathmc
-```
-
-Preview the docs locally with live reload:
+Register the development environment as a Jupyter kernel once (executable pages declare `jupyter: pathmc`):
 
 ```bash
-cd docs
-quarto preview
+uv run python -m ipykernel install --user --name pathmc
 ```
 
-Build the static site to `docs/_site/` from the project root:
+Build the static site to `great-docs/_site/` from the project root:
 
 ```bash
 make docs
 ```
 
-The docs site uses `freeze: auto` to cache notebook outputs. If you change Python source code that affects notebook results, clear the affected freeze cache before rendering or Quarto may serve stale outputs.
-
-Clear the cache for a single notebook and render it again:
+Preview the docs locally:
 
 ```bash
-rm -rf docs/_freeze/examples/<notebook_name> docs/.quarto/_freeze/examples/<notebook_name>
-quarto render docs/examples/<notebook_name>.qmd
+uv run great-docs preview
 ```
 
-Full rebuild from scratch:
+The site uses `freeze: true` to cache notebook outputs in the committed `_freeze/` directory, so builds never re-execute notebooks. After editing an executable page (or changing pathmc behavior that affects rendered output), refresh the cache and commit it:
 
 ```bash
-make cleandocs && make docs
+uv run great-docs freeze docs/examples/<notebook_name>.qmd
+git add _freeze/
 ```
+
+See the "Building the docs" section of [AGENTS.md](https://github.com/pymc-labs/pathmc/blob/main/AGENTS.md) for freeze-cache details and caveats.

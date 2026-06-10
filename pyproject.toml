@@ -9,7 +9,7 @@ description = "Bayesian path analysis and structural causal modeling in PyMC."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [{ name = "Benjamin Vincent" }]
 maintainers = [{ name = "PyMC Labs" }]
 keywords = [
@@ -24,23 +24,22 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
 dependencies = [
-    "arviz<1",
+    "arviz>=1.1,<2",
     "graphviz",
     "narwhals>=1.20",
     "networkx",
-    "numpy<2.4",
+    "numpy>=2.0",
     "pandas",
     "patsy",
-    "pymc>=5.27.0,<6",
-    "pymc-extras",
-    "pymc-marketing==0.19.4",
-    "pytensor>=2.38,<3",
+    "pymc>=6.0,<7",
+    "pymc-extras>=0.12",
+    "pytensor>=3.0,<4",
 ]
 
 [project.urls]
@@ -51,8 +50,7 @@ Issues = "https://github.com/pymc-labs/pathmc/issues"
 Contributing = "https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md"
 
 [project.optional-dependencies]
-dev = ["build", "mypy", "pandas-stubs", "prek", "ruff"]
-test = ["pytest", "polars"]
+dev = ["build", "ipykernel", "mypy", "polars", "prek", "pytest", "ruff"]
 # TODO: switch to "great-docs>=0.11.0" once it's tagged on PyPI. The freeze
 # feature we depend on (https://posit-dev.github.io/great-docs/user_guide/freeze.html,
 # `upcoming: "0.11.0"`) landed on `main` via posit-dev/great-docs#158 after
@@ -61,13 +59,6 @@ docs = [
     "great-docs @ git+https://github.com/posit-dev/great-docs.git@4dbe5099620d5b8e8107c7fada2822bf65d1520d",
 ]
 samplers = ["nutpie", "numpyro", "jax"]
-
-[tool.pyproject2conda]
-channels = ["conda-forge"]
-
-[tool.pyproject2conda.dependencies]
-build = { channel = "pip" }
-great-docs = { pip = true }
 
 [tool.setuptools.packages.find]
 include = ["pathmc*"]
@@ -102,7 +93,6 @@ module = [
     "patsy.*",
     "polars.*",
     "pymc.*",
-    "pymc_marketing.*",
     "pymc_extras.*",
     "pytensor.*",
     "graphviz.*",

@@ -36,31 +36,3 @@ jobs:
         uses: j178/prek-action@6ad80277337ad479fe43bd70701c3f7f8aa74db3 # v2
         with:
           extra-args: --all-files
-
-  check-environment-yml:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.12"
-      - name: Install pyproject2conda
-        run: pip install "pyproject2conda>=0.22.1,<0.23"
-      - name: Regenerate environment.yml
-        run: |
-          pyproject2conda yaml -e dev -e test -e docs -e samplers \
-            -o /tmp/environment.generated.yml \
-            -n pathmc \
-            -w force \
-            --no-header \
-            --python-include "python=3.12" \
-            -r "--editable=.[dev,test,docs,samplers]"
-      - name: Check environment.yml is in sync with pyproject.toml
-        run: |
-          tail -n +10 environment.yml > /tmp/environment.current.yml
-          diff -u /tmp/environment.current.yml /tmp/environment.generated.yml

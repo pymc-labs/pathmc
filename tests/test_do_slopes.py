@@ -128,7 +128,7 @@ class TestCrossSectionalDoSlopes:
     def test_slopes_in_posterior(self, slope_model):
         """Random slope parameters should exist in the posterior."""
         idata = slope_model._idata
-        stacked = idata.posterior.stack(sample=("chain", "draw"))
+        stacked = idata.posterior.to_dataset().stack(sample=("chain", "draw"))
         assert "slope_sales_spend" in stacked
 
 

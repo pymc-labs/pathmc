@@ -319,7 +319,7 @@ class TestSamplePriorPredictive:
         m = model("Y ~ X", simple_data)
         ppc = m.sample_prior_predictive(draws=5, random_seed=42)
         assert isinstance(ppc, az.InferenceData)
-        assert "prior" in ppc.groups()
+        assert "prior" in ppc.children
 
     def test_prior_predictive_has_model_vars(self, simple_data: pd.DataFrame) -> None:
         m = model("Y ~ X", simple_data)

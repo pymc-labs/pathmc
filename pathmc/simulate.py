@@ -104,7 +104,7 @@ class DoResult:
         np.ndarray
             Array of ``[lower, upper]``.
         """
-        return az.hdi(self._values[var], hdi_prob=prob)
+        return az.hdi(self._values[var], prob=prob)
 
     def by_time(self, var: str) -> np.ndarray:
         """Return per-time-step posterior draws, shape ``(n_times, n_samples)``.
@@ -344,8 +344,8 @@ def run_do_pymc(
             progressbar=False,
         )
 
-        stacked = idata.posterior.stack(sample=("chain", "draw"))  # type: ignore[attr-defined]
-        n_samples = stacked.sizes["sample"]
+        post = idata.posterior  # type: ignore[attr-defined]
+        n_samples = post.sizes["chain"] * post.sizes["draw"]
         values: dict[str, np.ndarray] = {}
         for var in graph_info.topological_order:
             if var in set:
@@ -411,8 +411,8 @@ def run_do_pymc(
     else:
         extra_det = None
 
-    stacked = idata.posterior.stack(sample=("chain", "draw"))  # type: ignore[attr-defined]
-    n_samples = stacked.sizes["sample"]
+    post = idata.posterior  # type: ignore[attr-defined]
+    n_samples = post.sizes["chain"] * post.sizes["draw"]
     values = {}
     for var in graph_info.topological_order:
         if var in set:
@@ -524,8 +524,8 @@ def run_do_panel_unified(
             progressbar=False,
         )
 
-        stacked = idata.posterior.stack(sample=("chain", "draw"))  # type: ignore[attr-defined]
-        n_samples = stacked.sizes["sample"]
+        post = idata.posterior  # type: ignore[attr-defined]
+        n_samples = post.sizes["chain"] * post.sizes["draw"]
 
         values: dict[str, np.ndarray] = {}
         values_by_time: dict[str, np.ndarray] = {}
@@ -586,8 +586,8 @@ def run_do_panel_unified(
     else:
         latent_det = None
 
-    stacked = idata.posterior.stack(sample=("chain", "draw"))  # type: ignore[attr-defined]
-    n_samples = stacked.sizes["sample"]
+    post = idata.posterior  # type: ignore[attr-defined]
+    n_samples = post.sizes["chain"] * post.sizes["draw"]
 
     values = {}
     values_by_time = {}

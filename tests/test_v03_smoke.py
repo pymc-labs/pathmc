@@ -169,6 +169,6 @@ class TestTransformParameterRecovery:
         model.fit(draws=500, tune=500, chains=2, cores=1, random_seed=42)
         import arviz as az
 
-        summary = az.summary(model._idata, var_names=["theta"])
+        summary = az.summary(model._idata, var_names=["theta"], round_to="none")
         theta_mean = summary["mean"].iloc[0]
         assert 0.3 < theta_mean < 0.95, f"theta_mean={theta_mean}"

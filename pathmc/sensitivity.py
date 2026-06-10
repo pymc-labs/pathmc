@@ -86,7 +86,7 @@ class SensitivityResult:
     @property
     def observed_ate_hdi(self) -> np.ndarray:
         """94% highest density interval of the unadjusted ATE."""
-        return az.hdi(self.observed_ate_draws, hdi_prob=0.94)
+        return az.hdi(self.observed_ate_draws, prob=0.94)
 
     @property
     def tipping_point(self) -> float:

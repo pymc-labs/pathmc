@@ -33,31 +33,7 @@ repos:
       - id: mypy
         args: [--ignore-missing-imports]
         files: ^pathmc/
-        additional_dependencies: [narwhals, numpy>=1.20, pandas-stubs]
-  - repo: https://github.com/usnistgov/pyproject2conda
-    rev: v0.22.1
-    hooks:
-      - id: pyproject2conda-yaml
-        name: Sync environment.yml from pyproject.toml
-        args:
-          - -e
-          - dev
-          - -e
-          - test
-          - -e
-          - docs
-          - -e
-          - samplers
-          - -o
-          - environment.yml
-          - -n
-          - pathmc
-          - -w
-          - force
-          - --python-include
-          - "python=3.12"
-          - -r
-          - "--editable=.[dev,test,docs,samplers]"
+        additional_dependencies: [numpy>=1.20, pandas-stubs, narwhals]
   - repo: https://github.com/lucianopaz/head_of_apache
     rev: "0.1.1"
     hooks:
