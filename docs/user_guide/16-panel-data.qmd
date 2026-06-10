@@ -1,0 +1,132 @@
+---
+title: "Panel Data"
+guide-section: "Panel Data"
+---
+
+pathmc supports **panel (longitudinal) data** — repeated observations of multiple units over time.
+Panel structure enables modeling temporal effects like carry-over and lagged dependencies, and borrowing strength across units via hierarchical pooling.
+
+## Temporal dependencies with `lag()`
+
+Use the `lag(var)` term directly in your formula to include lag-1 values within each unit:
+
+```python
+model = pathmc.model(
+    "sales ~ lag(spend) + trend",
+    data=df,
+    panel={"unit": "region", "time": "week"},
+)
+```
+
+The `lag()` term is a structural part of the formula, not a data preprocessing step.
+pathmc computes lag-1 values from the previous time step *within the same unit* — never from a different unit.
+The first time step of each unit has no valid lag and is dropped.
+
+When you call `model.graph()`, lagged terms appear as **dashed edges** labeled with their coefficient and **(t−1)**.
+A self-lag like `lag(Y)` in `Y ~ lag(Y)` renders as a dashed self-loop on Y.
+A cross-variable lag like `lag(X)` in `Y ~ lag(X)` renders as a dashed edge from X to Y, alongside any contemporaneous edge.
+
+```{dot}
+//| label: fig-panel-lags
+//| fig-cap: "Lag-1 temporal structure respects panel boundaries. Dashed arrows connect consecutive time steps within each unit. No arrows cross unit boundaries — Region B's week 1 does not leak into Region A's lag."
+//| fig-width: 6.5
+digraph {
+  rankdir=LR
+  node [shape=record, style="filled,rounded", fontsize=10]
+  edge [fontsize=9]
+
+  subgraph cluster_A {
+    label="Region A"; style=rounded; color="#2171b5"; fontcolor="#2171b5"; fontname="Helvetica-Bold"
+    A1 [label="wk 1 | sales=50", fillcolor="#deebf7"]
+    A2 [label="wk 2 | sales=55", fillcolor="#deebf7"]
+    A3 [label="wk 3 | sales=48", fillcolor="#deebf7"]
+    A1 -> A2 [label="lag1=50", style=dashed, color="#2171b5"]
+    A2 -> A3 [label="lag1=55", style=dashed, color="#2171b5"]
+  }
+
+  subgraph cluster_B {
+    label="Region B"; style=rounded; color="#e6550d"; fontcolor="#e6550d"; fontname="Helvetica-Bold"
+    B1 [label="wk 1 | sales=70", fillcolor="#fee0d2"]
+    B2 [label="wk 2 | sales=65", fillcolor="#fee0d2"]
+    B3 [label="wk 3 | sales=72", fillcolor="#fee0d2"]
+    B1 -> B2 [label="lag1=70", style=dashed, color="#e6550d"]
+    B2 -> B3 [label="lag1=65", style=dashed, color="#e6550d"]
+  }
+}
+```
+
+## Fitting with random intercepts
+
+Partial pooling adds a hierarchical intercept per unit, borrowing strength across units:
+
+```python
+model = pathmc.model(
+    "sales ~ lag(spend) + trend",
+    data=df,
+    panel={"unit": "region", "time": "week"},
+    pooling="partial",
+)
+```
+
+Each region gets its own intercept, drawn from a shared distribution: `alpha_region ~ Normal(mu_alpha, sigma_alpha)`.
+
+## Random slopes
+
+For varying effects across units, specify which predictors get random slopes:
+
+```python
+model = pathmc.model(
+    "sales ~ spend + lag(spend)",
+    data=df,
+    panel={"unit": "region", "time": "week"},
+    pooling={"intercept": True, "slopes": ["spend"]},
+)
+```
+
+## Time-forward simulation
+
+When a model includes temporal state — adstock transforms or lagged variables — the `do()` operator must walk through time step by step to correctly re-compute the temporal dynamics under the intervention.
+Activate this with `simulate_over="time"`:
+
+```python
+scenario = model.do(
+    set={"spend": 120},
+    simulate_over="time",
+    kind="mean",
+)
+```
+
+### Time-varying interventions
+
+The `set=` parameter accepts arrays of shape `(n_times,)` for per-time-step interventions, enabling scenarios like a temporary spend increase:
+
+```python
+import numpy as np
+
+spend_scenario = np.full(n_weeks, 100.0)
+spend_scenario[10:20] = 150.0  # boost during weeks 11-20
+
+result = model.do(
+    set={"spend": spend_scenario},
+    simulate_over="time",
+)
+```
+
+### Per-time-step results
+
+Panel `do()` results include per-time-step data accessible via `.by_time()`:
+
+```python
+contrast = scenario - baseline
+curve = contrast.by_time("sales")  # shape: (n_times, n_samples)
+mean_by_week = curve.mean(axis=1)  # posterior mean at each week
+time_labels = contrast.time_index  # the time column values
+```
+
+::: {.callout-tip}
+## When is `simulate_over="time"` needed?
+
+Not always! If your panel model has only random intercepts, random slopes, or trend terms — but no adstock transforms or lagged variables — a regular `do()` call works fine. See [Time-Forward Panel Simulation](panel-interventions.qmd) for the full explanation.
+:::
+
+See the [Panel Data Models](../docs/examples/panel_data.qmd), [Difference-in-Differences](../docs/examples/did.qmd), and [Media Mix Models](../docs/examples/mmm.qmd) examples for panel mode in action.

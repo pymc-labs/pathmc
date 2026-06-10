@@ -1,0 +1,51 @@
+---
+title: "Standardized Effects"
+guide-section: "Concepts"
+---
+
+When a path model includes predictors on different scales — dollars, clicks, percentages — the raw (unstandardized) coefficients are not directly comparable.
+**Stdyx standardization** rescales each coefficient into a common unit: standard deviations of the outcome per standard deviation of the predictor.
+
+## The stdyx formula
+
+For an unstandardized coefficient $\beta$ on the edge $X \to Y$:
+
+$$\beta_{\text{stdyx}} = \beta \times \frac{\text{SD}(X)}{\text{SD}(Y)}$$
+
+The interpretation is: *a one standard deviation increase in X is associated with a $\beta_{\text{stdyx}}$ standard deviation change in Y*.
+
+In pathmc this is computed draw-by-draw from the posterior, so the result is a full distribution over the standardized coefficient — not a point estimate.
+
+```python
+model.fit()
+model.standardized()
+```
+
+The returned DataFrame reports the posterior mean, standard deviation, and 94% highest density interval for each labeled coefficient.
+
+## Why "stdyx"?
+
+The name comes from [Mplus](https://www.statmodel.com/) [@muthen2017mplus], which distinguishes three standardization variants.
+[lavaan](https://lavaan.ugent.be/) [@rosseel2012lavaan] adopted the same naming, and pathmc follows suit since it uses a lavaan-inspired DSL.
+
+| Variant | Formula | When to use |
+|---|---|---|
+| **STDYX** | $\beta \times \text{SD}(X) / \text{SD}(Y)$ | Continuous predictors and outcomes (default) |
+| **STDY** | $\beta / \text{SD}(Y)$ | Binary or categorical predictors, where standardizing $X$ is not meaningful |
+| **STD** | $\beta \times \text{SD}_{\text{model}}$ | Standardize by model-implied (latent) SD only |
+
+pathmc currently implements STDYX. For binary predictors, the coefficient is skipped rather than producing a misleading value (since $\text{SD}(X)$ for a 0/1 variable depends on the base rate, not the scale of the effect).
+
+## What standardized coefficients are good for
+
+**Comparing relative importance.** If `ad_spend` has $\beta_{\text{stdyx}} = 0.35$ and `organic_search` has $\beta_{\text{stdyx}} = 0.12$ in the same equation, then a one-SD change in ad spend moves the outcome roughly three times as much as a one-SD change in organic search — regardless of the original units.
+
+**Not for causal effect sizes.** Standardized coefficients describe *relative importance within a model*, not the size of an intervention. For causal effect sizes in natural units, use `do()`, `ate()`, or `cate()`. For a discussion of the distinction, see @baguley2009standardized.
+
+## Interaction terms
+
+Interaction terms (e.g., `X:Z`) are skipped during standardization. Standardizing an interaction is ambiguous — the product $X \times Z$ does not have a single predictor SD — and the resulting value would be misleading. Report interaction effects on their original scale or use conditional predictions (`cate()`) to interpret them.
+
+## Latent variables
+
+Variables that appear as latent mediators (defined by a `:=` expression or absent from the data) are also skipped: there is no observed $\text{SD}(X)$ or $\text{SD}(Y)$ to standardize with.

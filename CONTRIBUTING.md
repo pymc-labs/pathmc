@@ -25,7 +25,9 @@ Usage questions can also start as issues while the project is young; if GitHub D
 
 ## Use of agents
 
-Pull requests with agent-generated code are welcome, but contributors are responsible for understanding, testing, and maintaining the code they submit. See [AGENTS.md](./AGENTS.md) for repository-specific guidance used by maintainers and coding agents.
+Pull requests with agent-generated code are welcome, but contributors are responsible for understanding, testing, and maintaining the code they submit. See [AGENTS.md](https://github.com/pymc-labs/pathmc/blob/main/AGENTS.md) for repository-specific guidance used by maintainers and coding agents.
+
+The repository ships five [Great Docs Agent Skills](https://posit-dev.github.io/great-docs/) under `.agents/skills/` (`great-docs`, `configure-site`, `write-user-guide`, `revise-docstrings`, `author-skills`) so that AI coding agents working on the documentation site have structured context about Great Docs configuration, build steps, user-guide authoring, docstring conventions, and skill anatomy. The files are checked in and pinned via `skills-lock.json`; you do not need to install anything to use them. To refresh against the latest upstream skills, run `npx skills add https://posit-dev.github.io/great-docs/` from the repo root and commit the result.
 
 ## Contributing code via pull requests
 

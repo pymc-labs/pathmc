@@ -5,7 +5,14 @@ build/
 dist/
 .build-check/
 .pytest_cache/
-docs/_site/
-/docs/site_libs
-/docs/_freeze
 .github/pr-summaries/
+
+# Great Docs build directory at repo root (regenerated on every `great-docs build`).
+# Anchor to root with leading slash so it does not also match `.agents/skills/great-docs/`,
+# which is the npx-installed Great Docs *skill* and is checked in.
+/great-docs/
+
+# Legacy Quarto output/cache directories from the pre-Great Docs site
+docs/_site/
+docs/_freeze/
+docs/.quarto/

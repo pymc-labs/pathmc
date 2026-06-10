@@ -179,15 +179,12 @@ def _replace_graph(expr: Any, replacements: dict[Any, Any]) -> Any:
     """Clone *expr* with only the replacements that appear in its graph."""
     if not replacements:
         return expr
-    graph_vars = set(ancestors([expr]))
-    used_replacements = {
-        var: replacement
-        for var, replacement in replacements.items()
-        if var in graph_vars
-    }
-    if not used_replacements:
-        return expr
-    return graph_replace(expr, replace=used_replacements, strict=False)
+    result = expr
+    for var, replacement in replacements.items():
+        graph_vars = set(ancestors([result]))
+        if var in graph_vars:
+            result = graph_replace(result, replace={var: replacement}, strict=False)
+    return result
 
 
 def _float_descendants_of(source_var: Any, exprs: list[Any]) -> list[Any]:

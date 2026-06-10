@@ -243,7 +243,7 @@ Call `.equations()` on any model to see both the structural equations and the fu
 - **`.set_priors()`** merges overrides into the current prior configuration and recompiles the model. Only the specified parameters change; everything else keeps its current value.
 - **`model(priors=...)`** accepts priors at creation time for a one-step workflow.
 - **Any PyMC distribution** can serve as a prior via `Prior("DistName", ...)` from `pymc_extras`.
-- The **iterative workflow** --- inspect, check, refine, re-check, sample --- is the principled approach to prior specification in Bayesian modeling. See [Bayesian Workflow](../concepts/bayesian_workflow.qmd) for the full end-to-end cycle from model specification through causal queries.
+- The **iterative workflow** --- inspect, check, refine, re-check, sample --- is the principled approach to prior specification in Bayesian modeling. See [Bayesian Workflow](../../user-guide/bayesian-workflow.qmd) for the full end-to-end cycle from model specification through causal queries.
 
 ::: {.callout-note}
 ## Adapt this to your domain
