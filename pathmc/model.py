@@ -191,7 +191,7 @@ class PathModel:
             if var in block_vars:
                 continue
             if var not in self._latent and var in self._data.columns:
-                if self._data[var].is_null().any():
+                if np.isnan(np.asarray(self._data[var].to_numpy(), dtype=float)).any():
                     continue
                 family = self._families.get(var, "gaussian")
                 vals = self._data[var].to_numpy()

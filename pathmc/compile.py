@@ -415,9 +415,10 @@ def compile_to_pymc(
     sparse_data: dict[str, np.ma.MaskedArray] = {}
     for reg in spec.regressions:
         v = reg.lhs
-        if v not in latent and v in data.columns and data[v].is_null().any():
+        if v not in latent and v in data.columns:
             vals = np.asarray(data[v].to_numpy(), dtype=float)
-            sparse_data[v] = np.ma.masked_invalid(vals)
+            if np.isnan(vals).any():
+                sparse_data[v] = np.ma.masked_invalid(vals)
 
     with pm.Model(coords=coords) as pymc_model:
         import pytensor.tensor as pt
@@ -1264,10 +1265,11 @@ def _compile_scan_panel(
     sparse_panel_data: dict[str, np.ma.MaskedArray] = {}
     for reg in spec.regressions:
         v = reg.lhs
-        if v not in latent and v in data.columns and data[v].is_null().any():
+        if v not in latent and v in data.columns:
             raw = np.asarray(data_sorted[v].to_numpy(), dtype=float)
-            panel_vals = raw.reshape(n_units, n_times).T
-            sparse_panel_data[v] = np.ma.masked_invalid(panel_vals)
+            if np.isnan(raw).any():
+                panel_vals = raw.reshape(n_units, n_times).T
+                sparse_panel_data[v] = np.ma.masked_invalid(panel_vals)
 
     # --- coords ---
     coords: dict[str, Any] = {}

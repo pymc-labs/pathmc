@@ -592,25 +592,29 @@ def _partial_correlation_test(
 ) -> tuple[float, float, int]:
     """Test conditional independence via partial correlation.
 
-    Returns (partial_r, p_value, n_obs). If there are insufficient
-    observations for the test, returns (nan, nan, n_obs).
+    Rows with any missing value (null or float NaN) in the involved
+    columns are dropped. Returns (partial_r, p_value, n_obs). If there
+    are insufficient observations for the test, returns (nan, nan, n_obs).
     """
     cols = [x, y, *z_vars]
-    sub = data.select(cols).drop_nulls()
-    n = len(sub)
+    # Filter in numpy space: nulls become NaN on conversion, so a single
+    # isnan mask handles both pandas NaN and polars null/NaN semantics.
+    arr = data.select(cols).to_numpy().astype(float)
+    arr = arr[~np.isnan(arr).any(axis=1)]
+    n = arr.shape[0]
     k = len(z_vars)
 
     if n < k + 3:
         return np.nan, np.nan, n
 
-    x_vals = sub[x].to_numpy().astype(float)
-    y_vals = sub[y].to_numpy().astype(float)
+    x_vals = arr[:, 0]
+    y_vals = arr[:, 1]
 
     if not z_vars:
         r, p = stats.pearsonr(x_vals, y_vals)
         return float(r), float(p), n
 
-    z_mat = sub.select(z_vars).to_numpy().astype(float)
+    z_mat = arr[:, 2:]
     z_with_intercept = np.column_stack([np.ones(n), z_mat])
 
     beta_x, _, _, _ = np.linalg.lstsq(z_with_intercept, x_vals, rcond=None)
