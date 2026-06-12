@@ -40,6 +40,22 @@ jobs:
       - name: Build docs
         run: uv run great-docs build
 
+      - name: Verify agent-context files were generated
+        # great-docs builds llms.txt / llms-full.txt / skill.md at build step 3,
+        # but llms-full.txt is written only if `import pathmc` succeeds at build
+        # time, and that import failure is swallowed (the step still reports
+        # success). Assert the files landed in _site so a silent skip fails CI
+        # instead of shipping an incomplete site. These are required outputs per
+        # docs/dev/great_docs_migration.md acceptance criteria.
+        run: |
+          for f in llms.txt llms-full.txt skill.md; do
+            if [[ ! -s "great-docs/_site/$f" ]]; then
+              echo "::error::great-docs/_site/$f missing or empty after build"
+              exit 1
+            fi
+            echo "OK: $f ($(wc -c < "great-docs/_site/$f") bytes)"
+          done
+
       - name: Save docs artifact
         uses: actions/upload-artifact@v7
         with:
