@@ -63,6 +63,13 @@ dark_mode_toggle: true
 # own logo/tagline/showcase, so suppress the auto-generated hero block.
 hero: false
 
+# SEO ------------------------------------------------------------------------
+# Public GitHub Pages URL (matches pyproject.toml [project.urls] Documentation).
+# Required for sitemap.xml, canonical links, and social-card absolute URLs.
+seo:
+  canonical:
+    base_url: https://pymc-labs.github.io/pathmc/
+
 # Bibliography lives in docs/ and is referenced from individual pages.
 bibliography: docs/references.bib
 
