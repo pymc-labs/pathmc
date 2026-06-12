@@ -83,6 +83,10 @@ docstring-code-format = true
 "tests/**" = ["F841"]
 
 [tool.pytest.ini_options]
+addopts = [
+    "-v",
+    "--color=yes",
+]
 markers = [
     "slow: marks tests that require MCMC sampling (deselect with '-m \"not slow\"')",
 ]
