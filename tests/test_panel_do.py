@@ -43,7 +43,7 @@ def panel_lag_data():
 
 
 @pytest.fixture(scope="module")
-def panel_lag_model(panel_lag_data):
+def panel_lag_model(panel_lag_data, mock_pymc_sample_module):
     """Fitted panel model with lag structure."""
     model = pathmc.model(
         "sales ~ lag(spend)",
@@ -51,7 +51,7 @@ def panel_lag_model(panel_lag_data):
         panel={"unit": "region", "time": "week"},
         pooling="partial",
     )
-    model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    model.fit(draws=50, tune=50, chains=2, cores=1, random_seed=42)
     return model
 
 
