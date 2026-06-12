@@ -51,9 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: "build-docs"
     # TODO: re-enable on launch — see Phase 4b in docs/dev/great_docs_migration.md.
-    # Also depends on `build-docs` above being re-enabled (which depends on the
-    # upstream great-docs freeze-cache work). On launch day, all three guards
-    # need to come off in sequence: build-docs → publish-docs → Settings → Pages.
+    # On launch day: remove this guard, then configure Settings → Pages → GitHub Actions.
     if: false && github.ref == 'refs/heads/main'
     permissions:
       pages: write
@@ -75,44 +73,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
-
-  preview-docs:
-    name: "Preview Docs"
-    runs-on: ubuntu-latest
-    needs: "build-docs"
-    # TODO: re-enable on launch — see Phase 4b in docs/dev/great_docs_migration.md.
-    # The generated preview-docs job is also incomplete (no upload/deploy step)
-    # and would need finishing before use.
-    if: false && github.event_name == 'pull_request'
-    permissions:
-      deployments: write
-      pull-requests: write
-    steps:
-      - uses: actions/download-artifact@v7
-        with:
-          name: docs-html
-          path: great-docs/_site
-
-      # Start deployment
-      - name: Configure pull release name
-        if: ${{ github.event_name == 'pull_request' }}
-        run: |
-          echo "RELEASE_NAME=pr-${{ github.event.number }}" >> $GITHUB_ENV
-
-      - name: Configure branch release name
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          # use branch name, but replace slashes. E.g. feat/a -> feat-a
-          echo "RELEASE_NAME=${GITHUB_REF_NAME//\//-}" >> $GITHUB_ENV
-
-      # Deploy
-      - name: Create Github Deployment
-        uses: bobheadxi/deployments@v1
-        id: deployment
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        with:
-          step: start
-          token: ${{ secrets.GITHUB_TOKEN }}
-          env: ${{ env.RELEASE_NAME }}
-          ref: ${{ github.head_ref }}
-          logs: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
