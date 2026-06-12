@@ -17,3 +17,12 @@ dist/
 docs/_site/
 docs/_freeze/
 docs/.quarto/
+
+# In-place Quarto render artifacts (e.g. from `great-docs freeze <page>`).
+# Only .qmd sources and the executed _freeze/ cache at the repo root are tracked.
+docs/**/*.html
+docs/**/*_files/
+
+# Single-page `great-docs freeze` bundles HTML support libs into the freeze
+# cache; the full build does not. Keep only execute-results/ and figure-html/.
+_freeze/**/libs/
