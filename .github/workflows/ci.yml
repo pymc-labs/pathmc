@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Install uv
-        uses: hynek/setup-cached-uv@4300ec2180bc77d705e626a34e381b81a4772c51 # v2
+        uses: astral-sh/setup-uv@v8
       - name: Install dependencies
         # Locked install (same as `make setup`) so the mypy hook sees the
         # project dependencies, matching local `make lint` behavior.
