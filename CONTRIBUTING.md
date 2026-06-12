@@ -4,16 +4,19 @@ pathmc welcomes contributions from users, researchers, and developers interested
 
 ## Quick Start
 
-The development environment is managed with [uv](https://docs.astral.sh/uv/); [install it](https://docs.astral.sh/uv/getting-started/installation/) first if you don't have it. After forking this repository on GitHub, get up and running in a few commands:
+The development environment is managed with [uv](https://docs.astral.sh/uv/), a fast Python package and project manager that replaces the old conda-based setup. [Install uv](https://docs.astral.sh/uv/getting-started/installation/) first if you don't have it. After forking this repository on GitHub, get up and running in a few commands:
 
 ```bash
 git clone git@github.com:<your-github-handle>/pathmc.git
 cd pathmc
-make setup
-make test-fast
+uv sync --all-extras
+uv run prek install -f
+uv run pytest -x -v -m "not slow"
 ```
 
-`make setup` runs `uv sync --all-extras` (creating `.venv/` with the package installed in editable mode plus all dev, docs, and sampler dependencies) and installs the pre-commit hooks. Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, and build targets. The Makefile targets invoke tools through `uv run`, so you never need to activate the virtual environment manually.
+`uv sync --all-extras` reads `pyproject.toml` and `uv.lock`, then creates a project virtual environment at `.venv/` containing the correct Python (per `.python-version`), pathmc installed in editable mode, and every dependency from the `dev`, `docs`, and `samplers` extras. `uv run prek install -f` installs the pre-commit hooks. You do not need to `source .venv/bin/activate` or otherwise activate the environment by hand: prefix any command with `uv run` (for example `uv run pytest` or `uv run python -c "import pathmc"`) and uv runs it inside `.venv/`, syncing first if anything is stale.
+
+The root `Makefile` bundles these same `uv` commands behind short aliases (`make setup` is just `uv sync --all-extras` plus the hook install; `make test-fast` is `uv run pytest -x -v -m "not slow"`). The aliases are a convenience, not a requirement; run `make help` to list them, and read the `Makefile` if you want to see the exact `uv` command each one runs.
 
 ## Opening issues
 
@@ -50,7 +53,8 @@ git checkout -b my-feature
 Create the development environment and install the pre-commit hooks:
 
 ```bash
-make setup
+uv sync --all-extras
+uv run prek install -f
 ```
 
 Update an existing environment after pulling changes that touch dependencies:
@@ -59,36 +63,38 @@ Update an existing environment after pulling changes that touch dependencies:
 uv sync --all-extras
 ```
 
-Edit dependency metadata in `pyproject.toml`. The `uv.lock` lockfile pins exact versions for reproducible contributor environments; `uv sync` updates it automatically after `pyproject.toml` changes, and the updated lockfile should be committed.
+Dependencies and their version constraints are declared in `pyproject.toml` under `[project].dependencies` (the runtime stack, including the `pymc>=6.0,<7` and matching `pytensor>=3.0,<4` pins) and `[project.optional-dependencies]` (the `dev`, `docs`, and `samplers` extras). Edit those lists to add or bump a dependency. The `uv.lock` lockfile then pins exact resolved versions for reproducible contributor environments; `uv sync` updates it automatically after `pyproject.toml` changes, and the updated lockfile should be committed alongside the metadata edit.
 
 Run fast tests only, excluding slow MCMC sampling tests:
 
 ```bash
-make test-fast
+uv run pytest -x -v -m "not slow"
 ```
 
 Run the full test suite, including slow integration tests:
 
 ```bash
-make test
+uv run pytest -x -v
 ```
 
 Run a targeted milestone or module test while iterating:
 
 ```bash
-pytest tests/test_parse.py -x -v
+uv run pytest tests/test_parse.py -x -v
 ```
 
-Check formatting, linting, and types before opening a pull request:
+Check formatting, linting, and types before opening a pull request (this is `make check_lint`):
 
 ```bash
-make check_lint
+uv run ruff check .
+uv run ruff format --diff --check .
+uv run mypy --ignore-missing-imports
 ```
 
-To apply automatic lint and format fixes:
+To apply automatic lint and format fixes by running the pre-commit hooks (this is `make lint`):
 
 ```bash
-make lint
+uv run prek run --all-files
 ```
 
 ## Pull request checklist
