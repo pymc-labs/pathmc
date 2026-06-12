@@ -850,8 +850,12 @@ class PathModel:
             for var, val in set.items():
                 if var not in self._data.columns:
                     continue
-                lo = float(self._data[var].min())
-                hi = float(self._data[var].max())
+                col_min = self._data[var].min()
+                col_max = self._data[var].max()
+                if col_min is None or col_max is None:
+                    continue
+                lo = float(col_min)
+                hi = float(col_max)
                 if isinstance(val, np.ndarray):
                     val_lo, val_hi = float(val.min()), float(val.max())
                     out_of_range = val_lo < lo or val_hi > hi

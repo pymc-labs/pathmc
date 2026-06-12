@@ -697,7 +697,15 @@ def _build_unit_index(data: nw.DataFrame, panel_info: PanelInfo) -> np.ndarray:
     """Map each row to an integer unit index."""
     label_to_idx = {label: i for i, label in enumerate(panel_info.unit_labels)}
     units = data[panel_info.unit].to_numpy()
-    return np.array([label_to_idx[u] for u in units])
+    try:
+        return np.array([label_to_idx[u] for u in units])
+    except KeyError as exc:
+        raise ValueError(
+            f"Panel unit column '{panel_info.unit}' contains a value "
+            f"({exc.args[0]!r}) that is not among the known unit labels. "
+            f"This usually means a null/NaN unit id. Drop rows with missing "
+            f"unit identifiers before fitting."
+        ) from exc
 
 
 def _compile_random_intercept(
