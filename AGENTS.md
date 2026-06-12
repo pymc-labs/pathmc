@@ -69,7 +69,7 @@ uv run great-docs build --no-refresh   # faster rebuild — skips API rediscover
 uv run great-docs preview              # local server on http://localhost:3000
 ```
 
-The `great-docs/` directory is **ephemeral**: it is wiped at the start of every build and listed in `.gitignore`. Never edit files under `great-docs/` directly — change source files (`docs/user_guide/*.qmd`, `docs/examples/*.qmd`, `great-docs.yml`, `skills/pathmc/SKILL.md`) instead.
+The `great-docs/` directory is **ephemeral**: it is wiped at the start of every build and listed in `.gitignore`. Never edit files under `great-docs/` directly — change source files (`docs/user_guide/*.qmd`, `docs/examples/*.qmd`, `great-docs.yml`, `pathmc/skills/pathmc/SKILL.md`) instead.
 
 #### Notebooks are frozen — refresh after edits
 

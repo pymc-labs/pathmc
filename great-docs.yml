@@ -78,7 +78,9 @@ jupyter: pathmc
 # only be re-executed deliberately via `great-docs freeze`.
 freeze: true
 
-# Curated agent SKILL.md (see Phase 3 of the migration plan)
+# Curated agent SKILL.md (see Phase 3 of the migration plan). Lives inside the
+# package directory so it ships in the wheel and `great-docs skill install
+# pathmc` resolves it for pip-installed users (issue #209).
 skill:
   enabled: true
-  file: skills/pathmc/SKILL.md
+  file: pathmc/skills/pathmc/SKILL.md
