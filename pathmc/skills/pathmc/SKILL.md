@@ -10,7 +10,7 @@ description: >
   identification with adjustment sets or the front-door criterion;
   or simulate panel/longitudinal counterfactuals.
 license: MIT
-compatibility: Requires Python >=3.11, PyMC >=5.22.0.
+compatibility: Requires Python >=3.12, PyMC >=6.0.
 metadata:
   author: drbenvincent
   version: "0.1"
