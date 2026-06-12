@@ -32,11 +32,6 @@ classifiers = [
 dependencies = [
     "arviz>=1.1,<2",
     "graphviz",
-    # matplotlib 3.11 removed matplotlib.style.core, which arviz-plots
-    # (pulled in by arviz) still references at import time, breaking
-    # `import pathmc` entirely. Drop this ceiling once arviz-plots ships
-    # the fix for https://github.com/arviz-devs/arviz-plots/issues/453
-    # and arviz allows that release.
     "matplotlib>=3.9,<3.11",
     "narwhals>=1.20,<3",
     "networkx",
