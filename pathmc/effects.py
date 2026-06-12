@@ -26,6 +26,7 @@ import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
 
+from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi
 from pathmc.parse import Spec
 
 
@@ -51,9 +52,9 @@ class EffectResult:
         """Posterior standard deviation of the effect."""
         return float(np.std(self.draws))
 
-    def hdi(self, prob: float = 0.94) -> np.ndarray:
+    def hdi(self, prob: float = DEFAULT_HDI_PROB) -> np.ndarray:
         """Highest density interval for the effect."""
-        return az.hdi(self.draws, prob=prob)
+        return hdi(self.draws, prob=prob)
 
     def __repr__(self) -> str:
         lo, hi = self.hdi()
@@ -90,13 +91,7 @@ def extract_labeled_draws(
 
         for term in reg.terms:
             if term.label is not None:
-                draws = (
-                    idata
-                    .posterior[beta_name]  # type: ignore[attr-defined]
-                    .sel({coord_name: term.variable})
-                    .to_numpy()
-                    .flatten()
-                )
+                draws = beta_draws(idata, beta_name, coord_name, term.variable)
                 labeled_draws[term.label] = draws
 
     return labeled_draws
@@ -158,13 +153,13 @@ def build_effects_summary(
 
     rows = []
     for name, draws in all_draws.items():
-        hdi = az.hdi(draws, prob=0.94)
+        interval = hdi(draws)
         rows.append({
             "name": name,
             "mean": float(np.mean(draws)),
             "sd": float(np.std(draws)),
-            "hdi_3%": float(hdi[0]),
-            "hdi_97%": float(hdi[1]),
+            "hdi_3%": float(interval[0]),
+            "hdi_97%": float(interval[1]),
         })
 
     if not rows:
@@ -240,15 +235,15 @@ def build_standardized_effects(
 
             raw_draws = labeled_draws[term.label]
             std_draws = raw_draws * sd_x / sd_y
-            hdi = az.hdi(std_draws, prob=0.94)
+            interval = hdi(std_draws)
             rows.append({
                 "name": term.label,
                 "predictor": var,
                 "outcome": lhs,
                 "mean": float(np.mean(std_draws)),
                 "sd": float(np.std(std_draws)),
-                "hdi_3%": float(hdi[0]),
-                "hdi_97%": float(hdi[1]),
+                "hdi_3%": float(interval[0]),
+                "hdi_97%": float(interval[1]),
             })
 
     if not rows:
@@ -315,13 +310,7 @@ def compute_path_effect(
         else:
             beta_name = f"beta_{target}"
             coord_name = f"{target}_predictors"
-            draws = (
-                idata
-                .posterior[beta_name]  # type: ignore[attr-defined]
-                .sel({coord_name: source})
-                .to_numpy()
-                .flatten()
-            )
+            draws = beta_draws(idata, beta_name, coord_name, source)
 
         edge_draws.append(draws)
 

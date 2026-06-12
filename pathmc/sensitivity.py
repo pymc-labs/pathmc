@@ -29,8 +29,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-import arviz as az
 import numpy as np
+
+from pathmc.idata import hdi
 
 if TYPE_CHECKING:
     import matplotlib.axes
@@ -86,7 +87,7 @@ class SensitivityResult:
     @property
     def observed_ate_hdi(self) -> np.ndarray:
         """94% highest density interval of the unadjusted ATE."""
-        return az.hdi(self.observed_ate_draws, prob=0.94)
+        return hdi(self.observed_ate_draws)
 
     @property
     def tipping_point(self) -> float:

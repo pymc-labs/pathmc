@@ -37,6 +37,7 @@ from pytensor.graph.replace import graph_replace
 from pytensor.graph.traversal import ancestors
 
 from pathmc.graph import GraphInfo
+from pathmc.idata import hdi, posterior
 from pathmc.panel import PanelInfo
 
 
@@ -104,7 +105,7 @@ class DoResult:
         np.ndarray
             Array of ``[lower, upper]``.
         """
-        return az.hdi(self._values[var], prob=prob)
+        return hdi(self._values[var], prob=prob)
 
     def by_time(self, var: str) -> np.ndarray:
         """Return per-time-step posterior draws, shape ``(n_times, n_samples)``.
@@ -332,7 +333,7 @@ def run_do_pymc(
                     elif mu_name in do_model.named_vars:
                         expr_replacements[do_model[mu_name]] = response_expr
 
-        posterior_ds = idata.posterior  # type: ignore[attr-defined]
+        posterior_ds = posterior(idata)
         missing_rv_names = [
             rv.name for rv in do_model.free_RVs if rv.name not in posterior_ds
         ]
@@ -359,7 +360,7 @@ def run_do_pymc(
             progressbar=False,
         )
 
-        post = idata.posterior  # type: ignore[attr-defined]
+        post = posterior(idata)
         n_samples = post.sizes["chain"] * post.sizes["draw"]
         values: dict[str, np.ndarray] = {}
         for var in graph_info.topological_order:
@@ -396,7 +397,7 @@ def run_do_pymc(
         if var not in set and (var in latent or var in block_vars)
     ]
     if extra_det_names:
-        posterior_ds = idata.posterior  # type: ignore[attr-defined]
+        posterior_ds = posterior(idata)
         missing_rv_names = [
             rv.name for rv in do_model.free_RVs if rv.name not in posterior_ds
         ]
@@ -425,7 +426,7 @@ def run_do_pymc(
     else:
         extra_det = None
 
-    post = idata.posterior  # type: ignore[attr-defined]
+    post = posterior(idata)
     n_samples = post.sizes["chain"] * post.sizes["draw"]
     values = {}
     for var in graph_info.topological_order:
@@ -531,13 +532,13 @@ def run_do_panel_unified(
                 else:
                     det_names.append(f"mu_{var}")
         det = pm.compute_deterministics(
-            idata.posterior,  # type: ignore[attr-defined]
+            posterior(idata),
             model=do_model,
             var_names=det_names,
             progressbar=False,
         )
 
-        post = idata.posterior  # type: ignore[attr-defined]
+        post = posterior(idata)
         n_samples = post.sizes["chain"] * post.sizes["draw"]
 
         values: dict[str, np.ndarray] = {}
@@ -591,7 +592,7 @@ def run_do_panel_unified(
             latent_det_names.append(var if var in stochastic_latent else f"mu_{var}")
     if latent_det_names:
         latent_det = pm.compute_deterministics(
-            idata.posterior,  # type: ignore[attr-defined]
+            posterior(idata),
             model=do_model,
             var_names=latent_det_names,
             progressbar=False,
@@ -599,7 +600,7 @@ def run_do_panel_unified(
     else:
         latent_det = None
 
-    post = idata.posterior  # type: ignore[attr-defined]
+    post = posterior(idata)
     n_samples = post.sizes["chain"] * post.sizes["draw"]
 
     values = {}

@@ -162,6 +162,19 @@ class PathModel:
                 f"m = pathmc.model(spec, data=df)"
             )
 
+    def _require_fitted(self, method_name: str) -> az.InferenceData:
+        """Return the posterior InferenceData, or raise if not fitted.
+
+        Also verifies the model is data-bound (a fitted model always has
+        data), so callers can drop the separate ``_require_data`` check.
+        """
+        self._require_data(method_name)
+        if self._idata is None:
+            raise RuntimeError(
+                f"No posterior samples available. Call .fit() before .{method_name}()."
+            )
+        return self._idata
+
     def _compile(self) -> None:
         """Compile the generative PyMC model and attach observations."""
         assert self._data is not None
@@ -433,12 +446,8 @@ class PathModel:
             If the model was created without data, or called before
             ``.fit()``.
         """
-        self._require_data("summary")
-        if self._idata is None:
-            raise RuntimeError(
-                "No posterior samples available. Call .fit() before .summary()."
-            )
-        return az.summary(self._idata, round_to="none")
+        idata = self._require_fitted("summary")
+        return az.summary(idata, round_to="none")
 
     def effects_summary(self) -> pd.DataFrame:
         """Return a posterior summary of labeled coefficients and defined parameters.
@@ -455,11 +464,7 @@ class PathModel:
             If the model was created without data, or called before
             ``.fit()``.
         """
-        self._require_data("effects_summary")
-        if self._idata is None:
-            raise RuntimeError(
-                "No posterior samples available. Call .fit() before .effects_summary()."
-            )
+        idata = self._require_fitted("effects_summary")
         if not _has_labeled_terms(self._spec) and not self._spec.defined_params:
             warnings.warn(
                 "No labeled coefficients or defined parameters (:=) in the spec. "
@@ -469,7 +474,7 @@ class PathModel:
                 UserWarning,
                 stacklevel=2,
             )
-        return build_effects_summary(self._spec, self._idata)
+        return build_effects_summary(self._spec, idata)
 
     def standardized(self) -> pd.DataFrame:
         """Return stdyx-standardized coefficients for labeled effects.
@@ -488,11 +493,7 @@ class PathModel:
             If the model was created without data, or called before
             ``.fit()``.
         """
-        self._require_data("standardized")
-        if self._idata is None:
-            raise RuntimeError(
-                "No posterior samples available. Call .fit() before .standardized()."
-            )
+        idata = self._require_fitted("standardized")
         if not _has_labeled_terms(self._spec):
             warnings.warn(
                 "No labeled coefficients in the spec. "
@@ -504,7 +505,7 @@ class PathModel:
             )
         assert self._data is not None
         return build_standardized_effects(
-            self._spec, self._idata, self._data, latent=self._latent
+            self._spec, idata, self._data, latent=self._latent
         )
 
     def effect(self, path: str) -> EffectResult:
@@ -529,12 +530,8 @@ class PathModel:
         ValueError
             If a node is not endogenous or an edge does not exist.
         """
-        self._require_data("effect")
-        if self._idata is None:
-            raise RuntimeError(
-                "No posterior samples available. Call .fit() before .effect()."
-            )
-        return compute_path_effect(path, self._spec, self._idata)
+        idata = self._require_fitted("effect")
+        return compute_path_effect(path, self._spec, idata)
 
     def fit(self, **kwargs: Any) -> az.InferenceData:
         """Run MCMC sampling and store the resulting InferenceData.
@@ -608,18 +605,14 @@ class PathModel:
             If the model was created without data, or called before
             ``.fit()``.
         """
-        self._require_data("predict")
+        idata = self._require_fitted("predict")
         assert self._pymc_model is not None
-        if self._idata is None:
-            raise RuntimeError(
-                "No posterior samples available. Call .fit() before .predict()."
-            )
         kwargs.setdefault("extend_inferencedata", True)
         with self._pymc_model:
-            pp = pm.sample_posterior_predictive(self._idata, **kwargs)
+            pp = pm.sample_posterior_predictive(idata, **kwargs)
         if not kwargs["extend_inferencedata"]:
             return pp
-        return self._idata
+        return idata
 
     def adjustment_sets(
         self,
@@ -795,6 +788,72 @@ class PathModel:
         indeps = self.implied_independences()
         return _test_implications(indeps, self._data, alpha=alpha)
 
+    def _run_do(
+        self,
+        set: dict[str, float | np.ndarray] | None,
+        kind: str,
+        *,
+        subgroup_indices: np.ndarray | None = None,
+    ) -> DoResult:
+        """Run a cross-sectional do() via graph surgery on instance state.
+
+        Centralizes the ``run_do_pymc`` call so the instance fields
+        (generative model, graph, posterior, data, families) are wired in
+        one place. Callers must have passed ``_require_fitted`` first.
+        """
+        assert self._gen_model is not None
+        assert self._data is not None
+        assert self._idata is not None
+        return run_do_pymc(
+            gen_model=self._gen_model,
+            graph_info=self._graph_info,
+            idata=self._idata,
+            data=self._data,
+            set=set,
+            kind=kind,
+            families=self._families,
+            subgroup_indices=subgroup_indices,
+        )
+
+    def _subgroup_effect(
+        self,
+        method_name: str,
+        treatment: str,
+        values: tuple[float, float],
+        subgroup_value: float,
+        kind: str,
+    ) -> DoResult:
+        """Shared implementation of ``att`` and ``atu``.
+
+        Estimates ``E[Y(hi) - Y(lo) | treatment = subgroup_value]`` by
+        empirical integration over the covariate distribution of the
+        subgroup whose treatment equals ``subgroup_value``.
+        """
+        self._require_fitted(method_name)
+        assert self._data is not None
+        assert self._gen_model is not None
+        if self._panel_info is not None:
+            raise NotImplementedError(
+                f"{method_name}() is not yet supported for panel models. "
+                "Use do() with manual subgroup selection instead."
+            )
+
+        mask = np.isclose(
+            np.asarray(self._data[treatment].to_numpy(), dtype=float),
+            subgroup_value,
+        )
+        subgroup_idx = np.where(mask)[0]
+        if len(subgroup_idx) == 0:
+            raise ValueError(
+                f"No observations with {treatment} ≈ {subgroup_value}. "
+                f"Check the subgroup value parameter or data values."
+            )
+
+        lo, hi = values
+        r_lo = self._run_do({treatment: lo}, kind, subgroup_indices=subgroup_idx)
+        r_hi = self._run_do({treatment: hi}, kind, subgroup_indices=subgroup_idx)
+        return r_hi - r_lo
+
     def do(
         self,
         set: dict[str, float | np.ndarray] | None = None,
@@ -838,13 +897,9 @@ class PathModel:
         ValueError
             If ``simulate_over="time"`` without panel.
         """
-        self._require_data("do")
+        idata = self._require_fitted("do")
         assert self._data is not None
         assert self._gen_model is not None
-        if self._idata is None:
-            raise RuntimeError(
-                "No posterior samples available. Call .fit() before .do()."
-            )
 
         if set:
             for var, val in set.items():
@@ -900,33 +955,16 @@ class PathModel:
                 return run_do_panel_unified(
                     gen_model=self._gen_model,
                     graph_info=self._graph_info,
-                    idata=self._idata,
+                    idata=idata,
                     panel_info=self._panel_info,
                     scan_info=scan_info,
                     set=set,
                     kind=kind,
                     families=self._families,
                 )
+            # Non-scan panel models fall through to the cross-sectional path.
 
-            return run_do_pymc(
-                gen_model=self._gen_model,
-                graph_info=self._graph_info,
-                idata=self._idata,
-                data=self._data,
-                set=set,
-                kind=kind,
-                families=self._families,
-            )
-
-        return run_do_pymc(
-            gen_model=self._gen_model,
-            graph_info=self._graph_info,
-            idata=self._idata,
-            data=self._data,
-            set=set,
-            kind=kind,
-            families=self._families,
-        )
+        return self._run_do(set, kind)
 
     def ate(
         self,
@@ -1061,51 +1099,9 @@ class PathModel:
         >>> att = model.att("Y", "T")
         >>> att.mean("Y")  # E[Y(1) - Y(0) | T=1]
         """
-        self._require_data("att")
-        assert self._data is not None
-        assert self._gen_model is not None
-        if self._idata is None:
-            raise RuntimeError(
-                "No posterior samples available. Call .fit() before .att()."
-            )
-        if self._panel_info is not None:
-            raise NotImplementedError(
-                "att() is not yet supported for panel models. "
-                "Use do() with manual subgroup selection instead."
-            )
-
-        mask = np.isclose(
-            np.asarray(self._data[treatment].to_numpy(), dtype=float), treated_value
+        return self._subgroup_effect(
+            "att", treatment, values, subgroup_value=treated_value, kind=kind
         )
-        subgroup_idx = np.where(mask)[0]
-        if len(subgroup_idx) == 0:
-            raise ValueError(
-                f"No observations with {treatment} ≈ {treated_value}. "
-                f"Check the treated_value parameter or data values."
-            )
-
-        lo, hi = values
-        r_lo = run_do_pymc(
-            gen_model=self._gen_model,
-            graph_info=self._graph_info,
-            idata=self._idata,
-            data=self._data,
-            set={treatment: lo},
-            kind=kind,
-            families=self._families,
-            subgroup_indices=subgroup_idx,
-        )
-        r_hi = run_do_pymc(
-            gen_model=self._gen_model,
-            graph_info=self._graph_info,
-            idata=self._idata,
-            data=self._data,
-            set={treatment: hi},
-            kind=kind,
-            families=self._families,
-            subgroup_indices=subgroup_idx,
-        )
-        return r_hi - r_lo
 
     def atu(
         self,
@@ -1165,51 +1161,9 @@ class PathModel:
         >>> atu = model.atu("Y", "T")
         >>> atu.mean("Y")  # E[Y(1) - Y(0) | T=0]
         """
-        self._require_data("atu")
-        assert self._data is not None
-        assert self._gen_model is not None
-        if self._idata is None:
-            raise RuntimeError(
-                "No posterior samples available. Call .fit() before .atu()."
-            )
-        if self._panel_info is not None:
-            raise NotImplementedError(
-                "atu() is not yet supported for panel models. "
-                "Use do() with manual subgroup selection instead."
-            )
-
-        mask = np.isclose(
-            np.asarray(self._data[treatment].to_numpy(), dtype=float), untreated_value
+        return self._subgroup_effect(
+            "atu", treatment, values, subgroup_value=untreated_value, kind=kind
         )
-        subgroup_idx = np.where(mask)[0]
-        if len(subgroup_idx) == 0:
-            raise ValueError(
-                f"No observations with {treatment} ≈ {untreated_value}. "
-                f"Check the untreated_value parameter or data values."
-            )
-
-        lo, hi = values
-        r_lo = run_do_pymc(
-            gen_model=self._gen_model,
-            graph_info=self._graph_info,
-            idata=self._idata,
-            data=self._data,
-            set={treatment: lo},
-            kind=kind,
-            families=self._families,
-            subgroup_indices=subgroup_idx,
-        )
-        r_hi = run_do_pymc(
-            gen_model=self._gen_model,
-            graph_info=self._graph_info,
-            idata=self._idata,
-            data=self._data,
-            set={treatment: hi},
-            kind=kind,
-            families=self._families,
-            subgroup_indices=subgroup_idx,
-        )
-        return r_hi - r_lo
 
     def sensitivity(
         self,
@@ -1263,11 +1217,7 @@ class PathModel:
         ValueError
             If the ranges are invalid or ``n_grid < 2``.
         """
-        self._require_data("sensitivity")
-        if self._idata is None:
-            raise RuntimeError(
-                "No posterior samples available. Call .fit() before .sensitivity()."
-            )
+        self._require_fitted("sensitivity")
 
         all_vars = self._graph_info.exogenous | self._graph_info.endogenous
         if treatment not in all_vars:
