@@ -37,7 +37,8 @@ from pytensor.graph.replace import graph_replace
 from pytensor.graph.traversal import ancestors
 
 from pathmc.graph import GraphInfo
-from pathmc.idata import hdi, posterior
+from pathmc.idata import hdi as compute_hdi
+from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
 
 
@@ -105,7 +106,7 @@ class DoResult:
         np.ndarray
             Array of ``[lower, upper]``.
         """
-        return hdi(self._values[var], prob=prob)
+        return compute_hdi(self._values[var], prob=prob)
 
     def by_time(self, var: str) -> np.ndarray:
         """Return per-time-step posterior draws, shape ``(n_times, n_samples)``.

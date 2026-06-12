@@ -5,6 +5,10 @@ on:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    # Nightly full suite (incl. slow MCMC tests) at 06:00 UTC, so sampling-path
+    # regressions are caught daily rather than only on push to main.
+    - cron: "0 6 * * *"
 
 permissions: {}
 
@@ -59,7 +63,7 @@ jobs:
         run: uv sync --all-extras
       - name: Run fast tests (PRs)
         if: github.event_name == 'pull_request'
-        run: uv run pytest -v -m "not slow" --cov=pathmc --cov-report=term-missing
-      - name: Run full test suite (push to main)
-        if: github.event_name != 'pull_request'
-        run: uv run pytest -v --cov=pathmc --cov-report=term-missing
+        run: uv run pytest -m "not slow" --cov=pathmc --cov-report=term-missing
+      - name: Run full test suite (push to main / nightly)
+        if: github.event_name == 'push' || github.event_name == 'schedule'
+        run: uv run pytest --cov=pathmc --cov-report=term-missing

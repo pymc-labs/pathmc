@@ -821,6 +821,7 @@ class PathModel:
         treatment: str,
         values: tuple[float, float],
         subgroup_value: float,
+        value_param: str,
         kind: str,
     ) -> DoResult:
         """Shared implementation of ``att`` and ``atu``.
@@ -846,7 +847,7 @@ class PathModel:
         if len(subgroup_idx) == 0:
             raise ValueError(
                 f"No observations with {treatment} ≈ {subgroup_value}. "
-                f"Check the subgroup value parameter or data values."
+                f"Check the {value_param} parameter or data values."
             )
 
         lo, hi = values
@@ -1100,7 +1101,12 @@ class PathModel:
         >>> att.mean("Y")  # E[Y(1) - Y(0) | T=1]
         """
         return self._subgroup_effect(
-            "att", treatment, values, subgroup_value=treated_value, kind=kind
+            "att",
+            treatment,
+            values,
+            subgroup_value=treated_value,
+            value_param="treated_value",
+            kind=kind,
         )
 
     def atu(
@@ -1162,7 +1168,12 @@ class PathModel:
         >>> atu.mean("Y")  # E[Y(1) - Y(0) | T=0]
         """
         return self._subgroup_effect(
-            "atu", treatment, values, subgroup_value=untreated_value, kind=kind
+            "atu",
+            treatment,
+            values,
+            subgroup_value=untreated_value,
+            value_param="untreated_value",
+            kind=kind,
         )
 
     def sensitivity(
