@@ -21,9 +21,11 @@ from typing import Any, Literal
 
 import arviz as az
 import graphviz
+import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
 import pymc as pm
+from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
 from pathmc.compile import build_design_matrix, compile_to_pymc, get_predictor_columns
 from pathmc.effects import (
@@ -79,7 +81,7 @@ class PathModel:
         Parsed model specification.
     graph_info : GraphInfo
         DAG with topological order and node classification.
-    data : pd.DataFrame | None
+    data : nw.DataFrame | None
         Observed data used to build design matrices. ``None`` for
         data-free DAG exploration.
     families : dict[str, str] | None
@@ -99,7 +101,7 @@ class PathModel:
         self,
         spec: Spec,
         graph_info: GraphInfo,
-        data: pd.DataFrame | None,
+        data: nw.DataFrame | None,
         families: dict[str, str] | None = None,
         panel_info: PanelInfo | None = None,
         pooling: str | dict | None = None,
@@ -125,7 +127,7 @@ class PathModel:
         self._priors = merge_priors(defaults, priors)
 
         if data is None:
-            self._design_matrices: dict[str, pd.DataFrame] = {}
+            self._design_matrices: dict[str, nw.DataFrame] = {}
             self._gen_model: pm.Model | None = None
             self._pymc_model: pm.Model | None = None
             self._idata: az.InferenceData | None = None
@@ -143,8 +145,9 @@ class PathModel:
                     missing.append(t.variable)
             if missing:
                 cols = get_predictor_columns(reg)
-                self._design_matrices[reg.lhs] = pd.DataFrame(
-                    columns=cols,
+                self._design_matrices[reg.lhs] = nw.from_dict(
+                    {c: np.array([], dtype=float) for c in cols},
+                    backend=data.implementation,
                 )
             else:
                 self._design_matrices[reg.lhs] = build_design_matrix(reg, data)
@@ -188,10 +191,10 @@ class PathModel:
             if var in block_vars:
                 continue
             if var not in self._latent and var in self._data.columns:
-                if self._data[var].isna().any():
+                if np.isnan(np.asarray(self._data[var].to_numpy(), dtype=float)).any():
                     continue
                 family = self._families.get(var, "gaussian")
-                vals = self._data[var].values
+                vals = self._data[var].to_numpy()
                 if family in ("bernoulli", "poisson", "negbinomial"):
                     vals = vals.astype(int)
 
@@ -246,7 +249,7 @@ class PathModel:
         assert self._pymc_model is not None
         return self._pymc_model.to_graphviz()
 
-    def design(self, var: str) -> pd.DataFrame:
+    def design(self, var: str) -> IntoFrame:
         """Return the design matrix for an endogenous variable's equation.
 
         Parameters
@@ -256,8 +259,9 @@ class PathModel:
 
         Returns
         -------
-        pd.DataFrame
-            Design matrix with named columns.
+        IntoFrame
+            Design matrix with named columns, backed by the same DataFrame
+            library as the data passed to :func:`model`.
 
         Raises
         ------
@@ -272,7 +276,7 @@ class PathModel:
             raise KeyError(
                 f"No equation for '{var}'. Available endogenous variables: {available}"
             )
-        return self._design_matrices[var]
+        return self._design_matrices[var].to_native()
 
     def graph(self) -> graphviz.Digraph:
         """Return a graphviz DAG of the structural model.
@@ -846,8 +850,12 @@ class PathModel:
             for var, val in set.items():
                 if var not in self._data.columns:
                     continue
-                lo = float(self._data[var].min())
-                hi = float(self._data[var].max())
+                col_min = self._data[var].min()
+                col_max = self._data[var].max()
+                if col_min is None or col_max is None:
+                    continue
+                lo = float(col_min)
+                hi = float(col_max)
                 if isinstance(val, np.ndarray):
                     val_lo, val_hi = float(val.min()), float(val.max())
                     out_of_range = val_lo < lo or val_hi > hi
@@ -1067,7 +1075,7 @@ class PathModel:
             )
 
         mask = np.isclose(
-            np.asarray(self._data[treatment].values, dtype=float), treated_value
+            np.asarray(self._data[treatment].to_numpy(), dtype=float), treated_value
         )
         subgroup_idx = np.where(mask)[0]
         if len(subgroup_idx) == 0:
@@ -1171,7 +1179,7 @@ class PathModel:
             )
 
         mask = np.isclose(
-            np.asarray(self._data[treatment].values, dtype=float), untreated_value
+            np.asarray(self._data[treatment].to_numpy(), dtype=float), untreated_value
         )
         subgroup_idx = np.where(mask)[0]
         if len(subgroup_idx) == 0:
@@ -1337,7 +1345,7 @@ class PathModel:
 
 def model(
     spec_string: str,
-    data: pd.DataFrame | None = None,
+    data: IntoFrame | None = None,
     families: dict[str, str] | None = None,
     panel: dict[str, str] | None = None,
     pooling: str | dict | None = None,
@@ -1357,9 +1365,10 @@ def model(
     ----------
     spec_string : str
         Model specification in the pathmc DSL.
-    data : pd.DataFrame | None
-        Observed data. When ``None``, the model is created in data-free
-        mode for DAG exploration and identification.
+    data : IntoFrame | None
+        Observed data as a pandas or polars DataFrame. When ``None``, the
+        model is created in data-free mode for DAG exploration and
+        identification.
     families : dict[str, str] | None
         Per-variable distribution families (default ``"gaussian"``).
     panel : dict[str, str] | None
@@ -1408,6 +1417,8 @@ def model(
     latent_set = set(latent) if latent is not None else set()
     graph_info = build_graph(spec, latent=latent_set)
 
+    nw_data = nw.from_native(data, eager_only=True) if data is not None else None
+
     has_lag_terms = any(
         term.lag_of is not None for reg in spec.regressions for term in reg.terms
     )
@@ -1417,10 +1428,10 @@ def model(
             "'time': ...} to model()."
         )
 
-    if data is not None:
+    if nw_data is not None:
         endogenous_lhs = {reg.lhs for reg in spec.regressions}
         for var in endogenous_lhs:
-            if var not in latent_set and var not in data.columns:
+            if var not in latent_set and var not in nw_data.columns:
                 raise ValueError(
                     f"Endogenous variable '{var}' not found in data columns. "
                     f"If '{var}' is an unobserved mediator, declare it via "
@@ -1429,17 +1440,17 @@ def model(
 
     panel_info: PanelInfo | None = None
     if panel is not None:
-        if data is None:
+        if nw_data is None:
             raise ValueError(
                 "panel= requires data. Provide data= alongside panel=, "
                 "or omit panel= for data-free DAG exploration."
             )
-        panel_info = build_panel_info(data, panel)
+        panel_info = build_panel_info(nw_data, panel)
 
     return PathModel(
         spec=spec,
         graph_info=graph_info,
-        data=data,
+        data=nw_data,
         families=families,
         panel_info=panel_info,
         pooling=pooling,
@@ -1450,12 +1461,12 @@ def model(
 
 def simulate(
     spec_string: str,
-    data: pd.DataFrame,
+    data: IntoFrameT,
     params: dict[str, Any],
     families: dict[str, str] | None = None,
     latent: list[str] | set[str] | None = None,
     random_seed: int | np.random.Generator | None = None,
-) -> pd.DataFrame:
+) -> IntoFrameT:
     """Simulate data from a pathmc model with known parameter values.
 
     Builds a generative PyMC model from the specification, fixes all
@@ -1477,10 +1488,10 @@ def simulate(
     spec_string : str
         Model specification in the pathmc DSL. All regressions define
         the generative structure (e.g. ``"M ~ X\\nY ~ M + X"``).
-    data : pd.DataFrame
-        DataFrame containing the exogenous variables (predictors).
-        Endogenous (outcome) columns need not be present — they will
-        be simulated. If present, they are ignored.
+    data : IntoFrame
+        pandas or polars DataFrame containing the exogenous variables
+        (predictors). Endogenous (outcome) columns need not be present —
+        they will be simulated. If present, they are ignored.
     params : dict[str, Any]
         True parameter values keyed by PyMC variable name. Typical
         keys are ``"beta_{var}"`` (coefficient vector) and
@@ -1502,9 +1513,9 @@ def simulate(
 
     Returns
     -------
-    pd.DataFrame
-        Copy of *data* with simulated endogenous columns appended
-        (including latent variables).
+    IntoFrame
+        Copy of *data* (same backend as the input) with simulated
+        endogenous columns appended (including latent variables).
 
     Raises
     ------
@@ -1540,15 +1551,17 @@ def simulate(
 
     graph_info = build_graph(spec, latent=latent_set)
 
+    nw_data = nw.from_native(data, eager_only=True)
+
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
 
-    data_sim = data.copy()
-    for var in endogenous_lhs:
-        if var not in data_sim.columns:
-            data_sim[var] = 0.0
+    data_sim = nw_data
+    zero_cols = [var for var in endogenous_lhs if var not in data_sim.columns]
+    if zero_cols:
+        data_sim = data_sim.with_columns([nw.lit(0.0).alias(var) for var in zero_cols])
 
-    design_matrices: dict[str, pd.DataFrame] = {}
+    design_matrices: dict[str, nw.DataFrame] = {}
     for reg in spec.regressions:
         design_matrices[reg.lhs] = build_design_matrix(reg, data_sim)
 
@@ -1602,11 +1615,16 @@ def simulate(
     if not isinstance(drawn, list):
         drawn = [drawn]
 
-    result = data.copy()
     n_endo = len(endo_order)
+    new_columns: dict[str, nw.Series] = {}
     for var, values in zip(endo_order, drawn[:n_endo]):
-        result[var] = values
+        new_columns[var] = nw.new_series(
+            var, np.asarray(values), backend=nw_data.implementation
+        )
     for var, values in zip(latent_det_vars, drawn[n_endo:]):
-        result[var] = values
+        new_columns[var] = nw.new_series(
+            var, np.asarray(values), backend=nw_data.implementation
+        )
 
-    return result
+    result = nw_data.with_columns(list(new_columns.values()))
+    return result.to_native()

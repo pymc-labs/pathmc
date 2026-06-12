@@ -32,6 +32,8 @@ classifiers = [
 dependencies = [
     "arviz>=1.1,<2",
     "graphviz",
+    "matplotlib>=3.9,<3.11",
+    "narwhals>=1.20,<3",
     "networkx",
     "numpy>=2.0",
     "pandas",
@@ -49,7 +51,11 @@ Issues = "https://github.com/pymc-labs/pathmc/issues"
 Contributing = "https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md"
 
 [project.optional-dependencies]
-dev = ["build", "ipykernel", "mypy", "prek", "pytest", "ruff"]
+# TODO: switch to "great-docs>=0.11.0" once it's tagged on PyPI. The freeze
+# feature we depend on (https://posit-dev.github.io/great-docs/user_guide/freeze.html,
+# `upcoming: "0.11.0"`) landed on `main` via posit-dev/great-docs#158 after
+# v0.10.0 was cut, so we pin to a specific main commit for reproducible builds.
+dev = ["build", "ipykernel", "mypy", "polars", "prek", "pytest", "ruff"]
 docs = [
     "great-docs>=0.11.0",
 ]
@@ -86,6 +92,7 @@ module = [
     "numpy.*",
     "pandas.*",
     "patsy.*",
+    "polars.*",
     "pymc.*",
     "pymc_extras.*",
     "pytensor.*",
