@@ -13,6 +13,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test-fast:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+      - name: Install dependencies
+        run: uv sync --all-extras
+      - name: Run fast tests
+        run: uv run pytest -x -v -m "not slow"
+
   prek:
     runs-on: ubuntu-latest
     permissions:

@@ -100,7 +100,7 @@ make lint
 - Link the issue being addressed, preferably with `Closes #<issue-number>` in the pull request description.
 - Add or update tests for user-facing behavior changes.
 - Update documentation, examples, or README content when behavior or setup instructions change.
-- Run the relevant targeted tests, `make test-fast`, and `make check_lint` before requesting review.
+- Run the relevant targeted tests, `make test-fast`, and `make check_lint` before requesting review. Pull requests also run `make test-fast` in GitHub Actions (slow MCMC tests are excluded; run `make test` locally for the full suite).
 - Label the pull request before merge so GitHub's generated release notes place it in the correct category; use labels such as `bug`, `documentation`, or `enhancement` when they apply.
 - Mark work-in-progress pull requests as drafts until the implementation and test plan are ready for review.
 
