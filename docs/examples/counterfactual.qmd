@@ -248,7 +248,7 @@ y_counterfactual = intercept_Y + b_draws * JOE_X + c_draws * H_NEW + u_y
 import arviz as az
 
 y_cf_mean = y_counterfactual.mean()
-y_cf_hdi = az.hdi(y_counterfactual, hdi_prob=0.94)
+y_cf_hdi = az.hdi(y_counterfactual, prob=0.94)
 
 print("Joe's counterfactual score (H → 2)")
 print(f"  Posterior mean:  {y_cf_mean:.3f}   (analytical = 1.90)")
@@ -321,12 +321,9 @@ The gap between the two estimates reflects the difference between asking about t
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.75))
 
-az.plot_kde(
-    y_counterfactual,
-    ax=ax,
-    plot_kwargs={"color": COLOR_JOE, "lw": 2},
-    fill_kwargs={"alpha": 0.6, "color": COLOR_JOE},
-)
+x_kde, y_kde, _ = az.kde(y_counterfactual)
+ax.plot(x_kde, y_kde, color=COLOR_JOE, lw=2)
+ax.fill_between(x_kde, y_kde, alpha=0.6, color=COLOR_JOE)
 ax.axvline(
     1.90,
     color="black",

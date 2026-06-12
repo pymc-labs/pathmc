@@ -91,13 +91,9 @@ ppc_default = model.sample_prior_predictive(draws=500, random_seed=42)
 y_prior = ppc_default.prior["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_kde(
-    y_prior,
-    ax=ax,
-    plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
-    fill_kwargs={"alpha": 0.6, "color": COLOR_DEFAULT},
-    label="Prior predictive (default)",
-)
+x_kde, y_kde, _ = az.kde(y_prior)
+ax.plot(x_kde, y_kde, color=COLOR_DEFAULT, lw=2, label="Prior predictive (default)")
+ax.fill_between(x_kde, y_kde, alpha=0.6, color=COLOR_DEFAULT)
 ax.axvline(
     df["Y"].mean(),
     color=COLOR_TRUE,
@@ -146,20 +142,12 @@ y_custom = ppc_custom.prior["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-az.plot_kde(
-    y_default,
-    ax=ax,
-    plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
-    fill_kwargs={"alpha": 0.45, "color": COLOR_DEFAULT},
-    label="Default priors",
-)
-az.plot_kde(
-    y_custom,
-    ax=ax,
-    plot_kwargs={"color": COLOR_CUSTOM, "lw": 2},
-    fill_kwargs={"alpha": 0.55, "color": COLOR_CUSTOM},
-    label="Custom priors",
-)
+x_kde, y_kde, _ = az.kde(y_default)
+ax.plot(x_kde, y_kde, color=COLOR_DEFAULT, lw=2, label="Default priors")
+ax.fill_between(x_kde, y_kde, alpha=0.45, color=COLOR_DEFAULT)
+x_kde, y_kde, _ = az.kde(y_custom)
+ax.plot(x_kde, y_kde, color=COLOR_CUSTOM, lw=2, label="Custom priors")
+ax.fill_between(x_kde, y_kde, alpha=0.55, color=COLOR_CUSTOM)
 ax.axvline(
     df["Y"].mean(),
     color=COLOR_TRUE,

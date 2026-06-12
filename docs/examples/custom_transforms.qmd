@@ -207,17 +207,21 @@ model.effects_summary()
 
 import arviz as az
 
-fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
-
-for ax, var, true_val, label in zip(
-    axes,
-    ["n", "K"],
+az.plot_dist(
+    idata,
+    var_names=["n", "K"],
+    ci_kind="hdi",
+    ci_prob=0.94,
+    visuals={"title": False, "point_estimate_text": False},
+    figure_kwargs={"figsize": (FIG_WIDTH, FIG_HEIGHT)},
+)
+for ax, true_val, label in zip(
+    plt.gcf().axes,
     [TRUE_N, TRUE_K],
     ["n (Hill coefficient)", "K (EC50)"],
 ):
-    az.plot_posterior(idata, var_names=[var], ref_val=true_val, ax=ax)
+    ax.axvline(true_val, color="k", ls="--", lw=1.5)
     ax.set_xlabel(label)
-
 plt.tight_layout()
 plt.show()
 ```
@@ -245,13 +249,14 @@ means = response_draws_2d.mean(axis=0)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-az.plot_hdi(
+hdi_1 = az.hdi(response_draws_2d, prob=0.94, axis=0)
+ax.fill_between(
     dose_grid_do,
-    response_draws_2d,
-    ax=ax,
-    smooth=False,
+    hdi_1[:, 0],
+    hdi_1[:, 1],
+    alpha=0.3,
     color=COLOR_POSTERIOR,
-    fill_kwargs={"alpha": 0.3, "label": "94% HDI"},
+    label="94% HDI",
 )
 ax.plot(
     dose_grid_do,

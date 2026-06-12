@@ -338,12 +338,9 @@ for ax, draws, color, label, true_val in [
         TRUE_CONTEMP + TRUE_LAG,
     ),
 ]:
-    az.plot_kde(
-        draws,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.3, "color": color},
-    )
+    x_kde, y_kde, _ = az.kde(draws)
+    ax.plot(x_kde, y_kde, color=color, lw=2)
+    ax.fill_between(x_kde, y_kde, alpha=0.3, color=color)
     ax.axvline(draws.mean(), color=color, ls="--", lw=1.5, alpha=0.7)
     ax.axvline(true_val, color="black", ls="--", lw=1.5, alpha=0.5)
     ax.set_xlabel(label)
@@ -406,13 +403,9 @@ for draws, color, label in [
     (naive_draws, COLOR_CONTEMP, "Naive (no lag)"),
     (total_draws, COLOR_PROMO, "Panel (contemp + lag)"),
 ]:
-    az.plot_kde(
-        draws,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.25, "color": color},
-        label=label,
-    )
+    x_kde, y_kde, _ = az.kde(draws)
+    ax.plot(x_kde, y_kde, color=color, lw=2, label=label)
+    ax.fill_between(x_kde, y_kde, alpha=0.25, color=color)
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(
@@ -578,13 +571,9 @@ rho_draws = (
 longrun_draws = b_x_draws / (1 - rho_draws)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_kde(
-    longrun_draws,
-    ax=ax,
-    plot_kwargs={"color": COLOR_EFFECT, "lw": 2},
-    fill_kwargs={"alpha": 0.25, "color": COLOR_EFFECT},
-    label="Posterior",
-)
+x_kde, y_kde, _ = az.kde(longrun_draws)
+ax.plot(x_kde, y_kde, color=COLOR_EFFECT, lw=2, label="Posterior")
+ax.fill_between(x_kde, y_kde, alpha=0.25, color=COLOR_EFFECT)
 ax.axvline(
     true_longrun, color=COLOR_THEORY, ls="--", lw=2, label=f"True = {true_longrun:.1f}"
 )
@@ -630,13 +619,9 @@ ax.plot(
     lw=2,
     label="Posterior mean",
 )
-az.plot_hdi(
-    weeks_ar,
-    engagement_by_time.T,
-    ax=ax,
-    smooth=False,
-    color=COLOR_EFFECT,
-    fill_kwargs={"alpha": 0.15, "label": "94% HDI"},
+hdi_1 = az.hdi(engagement_by_time.T, prob=0.94, axis=0)
+ax.fill_between(
+    weeks_ar, hdi_1[:, 0], hdi_1[:, 1], alpha=0.15, color=COLOR_EFFECT, label="94% HDI"
 )
 
 delta_x = 8.0 - 2.0
@@ -818,13 +803,9 @@ ax.plot(
     lw=2,
     label="Posterior mean",
 )
-az.plot_hdi(
-    weeks_mmm,
-    sales_by_time.T,
-    ax=ax,
-    smooth=False,
-    color=COLOR_EFFECT,
-    fill_kwargs={"alpha": 0.15, "label": "94% HDI"},
+hdi_2 = az.hdi(sales_by_time.T, prob=0.94, axis=0)
+ax.fill_between(
+    weeks_mmm, hdi_2[:, 0], hdi_2[:, 1], alpha=0.15, color=COLOR_EFFECT, label="94% HDI"
 )
 ax.axvspan(boost_start + 1, boost_end, alpha=0.08, color="gray")
 ax.axhline(0, color="black", ls=":", alpha=0.4)
