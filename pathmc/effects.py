@@ -317,10 +317,10 @@ def compute_path_effect(
             coord_name = f"{target}_predictors"
             draws = (
                 idata
-                .posterior[beta_name]
+                .posterior[beta_name]  # type: ignore[attr-defined]
                 .sel({coord_name: source})
                 .to_numpy()
-                .flatten()  # type: ignore[attr-defined]
+                .flatten()
             )
 
         edge_draws.append(draws)

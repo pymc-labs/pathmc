@@ -20,6 +20,7 @@ tables (``summary``/``standardized``) come from arviz and are always
 pandas regardless of input backend.
 """
 
+import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -232,3 +233,45 @@ class TestCounterfactualsBothBackends:
         assert np.isfinite(atu.mean("Y"))
         p = model.prob("Y > 0", set={"T": 1.0})
         assert 0.0 <= p <= 1.0
+
+
+@pytest.mark.slow
+class TestMissingDataBothBackends:
+    """Regression coverage for the att/atu subgroup-mean NaN handling.
+
+    The subgroup empirical-integration path slices an exogenous covariate
+    and fills it with the subgroup mean. That mean must skip nulls/NaN
+    (matching the historical pandas ``skipna=True`` behavior) so a single
+    missing value does not poison the whole result. An exogenous root
+    covariate cannot carry NaN through fitting (only endogenous variables
+    get the masked-array path), so we fit on complete data and then inject
+    a missing value into the stored covariate before exercising the
+    subgroup fill via ``att()``/``atu()``.
+    """
+
+    def test_att_atu_skip_missing_covariate(self, backend):
+        rng = np.random.default_rng(0)
+        n = 200
+        T = rng.integers(0, 2, size=n).astype(float)
+        X = rng.normal(size=n)
+        Y = 1.5 * T + 0.7 * X + rng.normal(scale=0.5, size=n)
+
+        df = _frame(backend, {"T": T, "X": X, "Y": Y})
+        model = pathmc.model("Y ~ T + X", data=df)
+        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+
+        treated_rows = np.where(np.isclose(T, 1.0))[0]
+        X_missing = X.copy()
+        X_missing[treated_rows[0]] = np.nan
+        model._data = nw.from_native(_frame(backend, {"T": T, "X": X_missing, "Y": Y}))
+
+        att = model.att(outcome="Y", treatment="T")
+        atu = model.atu(outcome="Y", treatment="T")
+
+        # The outcome contrast and the filled covariate must both stay
+        # finite: the buggy path propagated the injected NaN into the
+        # subgroup fill, turning these into NaN.
+        assert np.isfinite(att.mean("Y"))
+        assert np.isfinite(atu.mean("Y"))
+        assert np.all(np.isfinite(att.draws("X")))
+        assert np.all(np.isfinite(atu.draws("X")))

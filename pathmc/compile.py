@@ -1219,10 +1219,9 @@ def _compile_scan_panel(
     # --- sort data ---
     unit_col = panel_info.unit
     time_col = panel_info.time
-    data_sorted = data.sort([unit_col, time_col])
-    sort_idx = (
-        data.with_row_index("__pos__").sort([unit_col, time_col])["__pos__"].to_numpy()
-    )
+    sorted_with_pos = data.with_row_index("__nw_row_pos__").sort([unit_col, time_col])
+    sort_idx = sorted_with_pos["__nw_row_pos__"].to_numpy()
+    data_sorted = sorted_with_pos.drop("__nw_row_pos__")
     reverse_idx = np.argsort(sort_idx)
     units = panel_info.unit_labels
     n_units = len(units)

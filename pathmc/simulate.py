@@ -206,6 +206,21 @@ def _float_descendants_of(source_var: Any, exprs: list[Any]) -> list[Any]:
     return descendants
 
 
+def _exogenous_fill(values: np.ndarray) -> float:
+    """Mean used to fill an exogenous variable for empirical integration.
+
+    Skips NaN/null entries (matching the historical pandas ``skipna=True``
+    behavior) and maps an all-missing column to ``nan`` without emitting the
+    ``RuntimeWarning`` that ``np.nanmean`` raises on an empty/all-NaN slice.
+    Both the full-column and subgroup-slice paths share this policy so they
+    cannot diverge on missing-value handling.
+    """
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0 or np.all(np.isnan(arr)):
+        return float("nan")
+    return float(np.nanmean(arr))
+
+
 def run_do_pymc(
     gen_model: pm.Model,
     graph_info: GraphInfo,
@@ -352,14 +367,10 @@ def run_do_pymc(
                 values[var] = np.full(n_samples, set[var])
             elif var in graph_info.exogenous:
                 if var in data.columns:
+                    col = data[var].to_numpy()
                     if subgroup_indices is not None:
-                        fill = float(data[var].to_numpy()[subgroup_indices].mean())
-                    else:
-                        # narwhals Series.mean() returns None for an all-null
-                        # column; map that to nan (matching the old pandas path).
-                        _mean = data[var].mean()
-                        fill = float(_mean) if _mean is not None else float("nan")
-                    values[var] = np.full(n_samples, fill)
+                        col = col[subgroup_indices]
+                    values[var] = np.full(n_samples, _exogenous_fill(col))
                 else:
                     values[var] = np.zeros(n_samples)
             else:
@@ -422,14 +433,10 @@ def run_do_pymc(
             values[var] = np.full(n_samples, set[var])
         elif var in graph_info.exogenous:
             if var in data.columns:
+                col = data[var].to_numpy()
                 if subgroup_indices is not None:
-                    fill = float(data[var].to_numpy()[subgroup_indices].mean())
-                else:
-                    # narwhals Series.mean() returns None for an all-null
-                    # column; map that to nan (matching the old pandas path).
-                    _mean = data[var].mean()
-                    fill = float(_mean) if _mean is not None else float("nan")
-                values[var] = np.full(n_samples, fill)
+                    col = col[subgroup_indices]
+                values[var] = np.full(n_samples, _exogenous_fill(col))
             else:
                 values[var] = np.zeros(n_samples)
         elif var in ppc.posterior_predictive:

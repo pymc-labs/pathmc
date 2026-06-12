@@ -203,8 +203,8 @@ class Adstock(Transform):
 
         sorted_idx = (
             data
-            .with_row_index("__pos__")
-            .sort([unit_col, time_col])["__pos__"]
+            .with_row_index("__nw_row_pos__")
+            .sort([unit_col, time_col])["__nw_row_pos__"]
             .to_numpy()
         )
         reverse_idx = np.argsort(sorted_idx)
