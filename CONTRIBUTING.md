@@ -120,17 +120,28 @@ Build the static site to `great-docs/_site/` from the project root:
 make docs
 ```
 
+`make docs` renders HTML from the committed `_freeze/` cache. It does not re-execute notebook cells. `make cleandocs` only removes the ephemeral `great-docs/` build directory and leaves `_freeze/` untouched, so `make cleandocs && make docs` still shows the last-frozen outputs.
+
 Preview the docs locally:
 
 ```bash
 uv run great-docs preview
 ```
 
-The site uses `freeze: true` to cache notebook outputs in the committed `_freeze/` directory, so builds never re-execute notebooks. After editing an executable page (or changing pathmc behavior that affects rendered output), refresh the cache and commit it:
+The site uses `freeze: true` to cache notebook outputs in the committed `_freeze/` directory, so ordinary builds never spawn a Jupyter kernel. After editing a single executable page (or changing pathmc behavior that affects that page's rendered output), refresh its cache and commit it:
 
 ```bash
 uv run great-docs freeze docs/examples/<notebook_name>.qmd
 git add _freeze/
 ```
+
+To re-execute every `.qmd` page after a dependency upgrade or other change that may affect outputs site-wide, run:
+
+```bash
+make refreeze-docs
+git add _freeze/
+```
+
+This wipes `_freeze/`, re-runs all example and user-guide notebooks except the homepage (which needs a separate build step because of an upstream path-mapping quirk), copies the refreshed homepage cache, and prints a reminder to commit `_freeze/`. Expect this to take a long time: many example notebooks run MCMC sampling.
 
 See the "Building the docs" section of [AGENTS.md](https://github.com/pymc-labs/pathmc/blob/main/AGENTS.md) for freeze-cache details and caveats.

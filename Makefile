@@ -4,12 +4,13 @@
 
 PACKAGE_NAME = pathmc
 BUILD_CHECK_DIR = .build-check
+REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' ! -name '00-welcome.qmd' | sort)
 
 #################################################################################
 # COMMANDS                                                                      #
 #################################################################################
 
-.PHONY: setup lint check_lint test-fast test docs cleandocs build check-build help
+.PHONY: setup lint check_lint test-fast test docs refreeze-docs cleandocs build check-build help
 
 setup: ## Set up the complete development environment (uv)
 	uv sync --all-extras
@@ -32,6 +33,12 @@ test: ## Run all tests, including slow integration tests
 
 docs: ## Build the documentation site
 	uv run great-docs build
+
+refreeze-docs: ## Re-execute all doc notebooks and refresh the committed _freeze/ cache
+	uv run great-docs freeze --clean $(REFREEZE_QMD_PAGES)
+	uv run great-docs build
+	cp -r great-docs/_freeze/index _freeze/
+	@echo "Freeze cache refreshed. Commit with: git add _freeze/"
 
 cleandocs: ## Clean the ephemeral great-docs build directory
 	rm -rf great-docs
