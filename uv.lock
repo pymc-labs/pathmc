@@ -2193,6 +2193,7 @@ source = { editable = "." }
 dependencies = [
     { name = "arviz" },
     { name = "graphviz" },
+    { name = "matplotlib" },
     { name = "networkx" },
     { name = "numpy" },
     { name = "pandas" },
@@ -2228,6 +2229,7 @@ requires-dist = [
     { name = "great-docs", marker = "extra == 'docs'", specifier = ">=0.11.0" },
     { name = "ipykernel", marker = "extra == 'dev'" },
     { name = "jax", marker = "extra == 'samplers'" },
+    { name = "matplotlib", specifier = "<3.11" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "networkx" },
     { name = "numpy", specifier = ">=2.0" },

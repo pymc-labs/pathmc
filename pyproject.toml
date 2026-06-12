@@ -32,6 +32,9 @@ classifiers = [
 dependencies = [
     "arviz>=1.1,<2",
     "graphviz",
+    # matplotlib 3.11 removed matplotlib.style.core, which arviz_plots<=1.1 still
+    # imports at module load. Remove this pin once arviz_plots ships a fix.
+    "matplotlib<3.11",
     "networkx",
     "numpy>=2.0",
     "pandas",
