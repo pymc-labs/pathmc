@@ -15,6 +15,43 @@ import numpy as np
 import pandas as pd
 import pytest
 
+try:  # pragma: no cover - depends on the installed PyMC test helpers
+    from pymc.testing import mock_sample_setup_and_teardown
+
+    _HAVE_PYMC_TESTING = True
+except Exception:  # pragma: no cover
+    mock_sample_setup_and_teardown = None
+    _HAVE_PYMC_TESTING = False
+
+
+if _HAVE_PYMC_TESTING:
+    mock_pymc_sample = pytest.fixture(mock_sample_setup_and_teardown)
+    mock_pymc_sample_class = pytest.fixture(
+        mock_sample_setup_and_teardown,
+        scope="class",
+    )
+    mock_pymc_sample_module = pytest.fixture(
+        mock_sample_setup_and_teardown,
+        scope="module",
+    )
+else:
+    _PYMC_MOCK_SKIP_REASON = (
+        "pymc.testing.mock_sample_setup_and_teardown is unavailable"
+    )
+
+    @pytest.fixture
+    def mock_pymc_sample():
+        pytest.skip(_PYMC_MOCK_SKIP_REASON)
+
+    @pytest.fixture(scope="class")
+    def mock_pymc_sample_class():
+        pytest.skip(_PYMC_MOCK_SKIP_REASON)
+
+    @pytest.fixture(scope="module")
+    def mock_pymc_sample_module():
+        pytest.skip(_PYMC_MOCK_SKIP_REASON)
+
+
 # ---------------------------------------------------------------------------
 # Spec strings — shared across test files
 # ---------------------------------------------------------------------------

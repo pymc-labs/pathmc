@@ -24,7 +24,7 @@ import pytest
 import pathmc
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def mmm_transform_data():
     """Panel MMM data with known adstock + saturation structure.
 
@@ -54,7 +54,7 @@ def mmm_transform_data():
     return pd.DataFrame(rows)
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def poisson_dgp_data():
     """Poisson count data with known DGP: Y ~ Poisson(exp(1 + 0.3*X))."""
     rng = np.random.default_rng(42)
@@ -68,7 +68,8 @@ def poisson_dgp_data():
 class TestMMMWithTransforms:
     """Full MMM pipeline: adstock + saturation + panel + do() + PPC."""
 
-    def test_mmm_pipeline(self, mmm_transform_data):
+    @pytest.fixture(scope="class")
+    def mmm_model(self, mmm_transform_data):
         spec = (
             "sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)"
         )
@@ -79,39 +80,21 @@ class TestMMMWithTransforms:
             pooling="partial",
         )
         model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-        summary = model.summary()
+        return model
+
+    def test_mmm_pipeline(self, mmm_model):
+        summary = mmm_model.summary()
         assert summary is not None
         assert len(summary) > 0
 
-    def test_mmm_do_counterfactual(self, mmm_transform_data):
-        spec = (
-            "sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)"
-        )
-        model = pathmc.model(
-            spec,
-            data=mmm_transform_data,
-            panel={"unit": "region", "time": "week"},
-            pooling="partial",
-        )
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-
-        r_low = model.do(set={"tv": 5.0}, simulate_over="time", kind="mean")
-        r_high = model.do(set={"tv": 25.0}, simulate_over="time", kind="mean")
+    def test_mmm_do_counterfactual(self, mmm_model):
+        r_low = mmm_model.do(set={"tv": 5.0}, simulate_over="time", kind="mean")
+        r_high = mmm_model.do(set={"tv": 25.0}, simulate_over="time", kind="mean")
         contrast = r_high - r_low
         assert contrast.mean("sales") > 0
 
-    def test_mmm_predict(self, mmm_transform_data):
-        spec = (
-            "sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)"
-        )
-        model = pathmc.model(
-            spec,
-            data=mmm_transform_data,
-            panel={"unit": "region", "time": "week"},
-            pooling="partial",
-        )
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-        idata = model.predict()
+    def test_mmm_predict(self, mmm_model):
+        idata = mmm_model.predict()
         assert hasattr(idata, "posterior_predictive")
 
 

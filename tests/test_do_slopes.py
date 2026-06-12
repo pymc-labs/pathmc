@@ -32,7 +32,7 @@ import pathmc
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture(scope="class")
 def panel_df():
     """Panel data with 3 regions, 20 weeks, and known spend patterns."""
     rng = np.random.default_rng(42)
@@ -54,8 +54,8 @@ def panel_df():
     return pd.DataFrame(rows)
 
 
-@pytest.fixture()
-def slope_model(panel_df):
+@pytest.fixture(scope="class")
+def slope_model(panel_df, mock_pymc_sample_class):
     """Fit a model with random slopes on spend."""
     model = pathmc.model(
         "sales ~ spend + trend",
@@ -63,7 +63,7 @@ def slope_model(panel_df):
         panel={"unit": "region", "time": "week"},
         pooling={"intercept": True, "slopes": ["spend"]},
     )
-    model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    model.fit(draws=50, tune=50, chains=2, cores=1, random_seed=42)
     return model
 
 

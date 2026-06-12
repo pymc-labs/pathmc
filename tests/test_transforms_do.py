@@ -24,7 +24,7 @@ import pytest
 import pathmc
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def adstock_data():
     """Time series with adstocked effect: true decay=0.7, coefficient=0.5."""
     rng = np.random.default_rng(42)
@@ -37,7 +37,7 @@ def adstock_data():
     return pd.DataFrame({"X": x, "Y": y})
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def saturation_data():
     """Data with saturated effect: true lam=0.3, coefficient=3.0."""
     rng = np.random.default_rng(42)
@@ -48,7 +48,7 @@ def saturation_data():
     return pd.DataFrame({"X": x, "Y": y})
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def panel_data_for_do():
     """Panel data for adstock do(): 3 regions, 15 weeks."""
     rng = np.random.default_rng(42)
@@ -65,36 +65,60 @@ def panel_data_for_do():
     return pd.DataFrame(rows)
 
 
+@pytest.fixture(scope="module")
+def fitted_adstock(adstock_data):
+    model = pathmc.model("Y ~ adstock(X, decay=theta)", data=adstock_data)
+    model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    return model
+
+
+@pytest.fixture(scope="module")
+def fitted_saturation(saturation_data):
+    model = pathmc.model("Y ~ logistic_saturation(X, lam=lam_x)", data=saturation_data)
+    model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    return model
+
+
+@pytest.fixture(scope="module")
+def fitted_nested_transform(adstock_data):
+    spec = "Y ~ logistic_saturation(adstock(X, decay=theta), lam=lam_x)"
+    model = pathmc.model(spec, data=adstock_data)
+    model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    return model
+
+
+@pytest.fixture(scope="module")
+def fitted_panel_adstock(panel_data_for_do):
+    model = pathmc.model(
+        "Y ~ adstock(X, decay=theta)",
+        data=panel_data_for_do,
+        panel={"unit": "region", "time": "week"},
+        pooling="partial",
+    )
+    model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    return model
+
+
 @pytest.mark.slow
 class TestCrossSectionalTransformDo:
     """do() recomputes transforms in cross-sectional mode."""
 
-    def test_adstock_do_returns_result(self, adstock_data):
-        model = pathmc.model("Y ~ adstock(X, decay=theta)", data=adstock_data)
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-        result = model.do(set={"X": 5.0})
+    def test_adstock_do_returns_result(self, fitted_adstock):
+        result = fitted_adstock.do(set={"X": 5.0})
         assert np.isfinite(result.mean("Y"))
 
-    def test_different_interventions_different_means(self, adstock_data):
-        model = pathmc.model("Y ~ adstock(X, decay=theta)", data=adstock_data)
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-        r_low = model.do(set={"X": 1.0})
-        r_high = model.do(set={"X": 10.0})
+    def test_different_interventions_different_means(self, fitted_adstock):
+        r_low = fitted_adstock.do(set={"X": 1.0})
+        r_high = fitted_adstock.do(set={"X": 10.0})
         assert r_high.mean("Y") > r_low.mean("Y")
 
-    def test_saturation_do_returns_result(self, saturation_data):
-        model = pathmc.model(
-            "Y ~ logistic_saturation(X, lam=lam_x)", data=saturation_data
-        )
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-        result = model.do(set={"X": 5.0})
+    def test_saturation_do_returns_result(self, fitted_saturation):
+        result = fitted_saturation.do(set={"X": 5.0})
         assert np.isfinite(result.mean("Y"))
 
-    def test_contrast_arithmetic_with_transforms(self, adstock_data):
-        model = pathmc.model("Y ~ adstock(X, decay=theta)", data=adstock_data)
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-        r0 = model.do(set={"X": 0.0})
-        r1 = model.do(set={"X": 5.0})
+    def test_contrast_arithmetic_with_transforms(self, fitted_adstock):
+        r0 = fitted_adstock.do(set={"X": 0.0})
+        r1 = fitted_adstock.do(set={"X": 5.0})
         contrast = r1 - r0
         assert np.isfinite(contrast.mean("Y"))
         hdi = contrast.hdi("Y")
@@ -105,19 +129,13 @@ class TestCrossSectionalTransformDo:
 class TestComposedTransformDo:
     """do() with nested/composed transforms."""
 
-    def test_nested_do_returns_result(self, adstock_data):
-        spec = "Y ~ logistic_saturation(adstock(X, decay=theta), lam=lam_x)"
-        model = pathmc.model(spec, data=adstock_data)
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-        result = model.do(set={"X": 5.0})
+    def test_nested_do_returns_result(self, fitted_nested_transform):
+        result = fitted_nested_transform.do(set={"X": 5.0})
         assert np.isfinite(result.mean("Y"))
 
-    def test_nested_higher_x_different_mean(self, adstock_data):
-        spec = "Y ~ logistic_saturation(adstock(X, decay=theta), lam=lam_x)"
-        model = pathmc.model(spec, data=adstock_data)
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-        r_low = model.do(set={"X": 1.0})
-        r_high = model.do(set={"X": 10.0})
+    def test_nested_higher_x_different_mean(self, fitted_nested_transform):
+        r_low = fitted_nested_transform.do(set={"X": 1.0})
+        r_high = fitted_nested_transform.do(set={"X": 10.0})
         assert r_high.mean("Y") != r_low.mean("Y")
 
 
@@ -125,27 +143,19 @@ class TestComposedTransformDo:
 class TestPanelTransformDo:
     """Panel do() with adstock: time-forward accumulation."""
 
-    def test_panel_adstock_do_returns(self, panel_data_for_do):
-        model = pathmc.model(
-            "Y ~ adstock(X, decay=theta)",
-            data=panel_data_for_do,
-            panel={"unit": "region", "time": "week"},
-            pooling="partial",
+    def test_panel_adstock_do_returns(self, fitted_panel_adstock):
+        result = fitted_panel_adstock.do(
+            set={"X": 10.0}, simulate_over="time", kind="mean"
         )
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-        result = model.do(set={"X": 10.0}, simulate_over="time", kind="mean")
         assert np.isfinite(result.mean("Y"))
 
-    def test_panel_higher_spend_higher_outcome(self, panel_data_for_do):
-        model = pathmc.model(
-            "Y ~ adstock(X, decay=theta)",
-            data=panel_data_for_do,
-            panel={"unit": "region", "time": "week"},
-            pooling="partial",
+    def test_panel_higher_spend_higher_outcome(self, fitted_panel_adstock):
+        r_low = fitted_panel_adstock.do(
+            set={"X": 5.0}, simulate_over="time", kind="mean"
         )
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-        r_low = model.do(set={"X": 5.0}, simulate_over="time", kind="mean")
-        r_high = model.do(set={"X": 15.0}, simulate_over="time", kind="mean")
+        r_high = fitted_panel_adstock.do(
+            set={"X": 15.0}, simulate_over="time", kind="mean"
+        )
         assert r_high.mean("Y") > r_low.mean("Y")
 
 
@@ -153,10 +163,8 @@ class TestPanelTransformDo:
 class TestPredictiveWithTransforms:
     """kind='predictive' works with transforms."""
 
-    def test_predictive_do_with_adstock(self, adstock_data):
-        model = pathmc.model("Y ~ adstock(X, decay=theta)", data=adstock_data)
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
-        result = model.do(set={"X": 5.0}, kind="predictive")
+    def test_predictive_do_with_adstock(self, fitted_adstock):
+        result = fitted_adstock.do(set={"X": 5.0}, kind="predictive")
         assert np.isfinite(result.mean("Y"))
         hdi = result.hdi("Y")
         assert hdi[0] < hdi[1]

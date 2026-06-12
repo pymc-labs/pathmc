@@ -43,37 +43,25 @@ class TestDoAPI:
 class TestDoSemantics:
     """Slow tests: verify do() propagation and arithmetic."""
 
-    def test_do_baseline_returns_result(self, fitted_mediation):
+    def test_do_mean_result_and_contrast(self, fitted_mediation):
         result = fitted_mediation.do(kind="mean")
         assert result is not None
         assert np.isfinite(result.mean("Y"))
-
-    def test_do_set_returns_result(self, fitted_mediation):
-        result = fitted_mediation.do(set={"X": 1.0}, kind="mean")
-        assert np.isfinite(result.mean("Y"))
-        assert np.isfinite(result.mean("M"))
-
-    def test_do_contrast_arithmetic(self, fitted_mediation):
-        baseline = fitted_mediation.do(kind="mean")
         scenario = fitted_mediation.do(set={"X": 1.0}, kind="mean")
-        contrast = scenario - baseline
+        assert np.isfinite(scenario.mean("Y"))
+        assert np.isfinite(scenario.mean("M"))
+        contrast = scenario - result
         assert np.isfinite(contrast.mean("Y"))
 
-    def test_do_hdi_has_two_bounds(self, fitted_mediation):
+    def test_do_hdi_and_intervention_difference(self, fitted_mediation):
         result = fitted_mediation.do(set={"X": 1.0}, kind="mean")
         hdi = result.hdi("Y")
         assert len(hdi) == 2
         assert hdi[0] < hdi[1]
-
-    def test_different_interventions_produce_different_means(self, fitted_mediation):
         r0 = fitted_mediation.do(set={"X": 0.0}, kind="mean")
         r2 = fitted_mediation.do(set={"X": 2.0}, kind="mean")
         assert r0.mean("Y") != r2.mean("Y")
-
-    def test_do_contrast_hdi(self, fitted_mediation):
-        baseline = fitted_mediation.do(set={"X": 0.0}, kind="mean")
-        scenario = fitted_mediation.do(set={"X": 1.0}, kind="mean")
-        contrast = scenario - baseline
+        contrast = result - r0
         hdi = contrast.hdi("Y")
         assert len(hdi) == 2
         assert hdi[0] < hdi[1]

@@ -20,7 +20,7 @@ import pytest
 import pathmc
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def panel_data():
     """Panel data: 3 regions, 20 weeks, Y ~ X with region-level intercepts."""
     rng = np.random.default_rng(42)
@@ -36,7 +36,7 @@ def panel_data():
     return pd.DataFrame(rows)
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def simple_spec():
     return "Y ~ X"
 
@@ -121,7 +121,8 @@ class TestCrossSectionalUnchanged:
 class TestPanelSampling:
     """Panel model samples correctly."""
 
-    def test_sampling_completes(self, panel_data, simple_spec):
+    @pytest.fixture(scope="class")
+    def fitted_panel(self, panel_data, simple_spec):
         model = pathmc.model(
             simple_spec,
             data=panel_data,
@@ -129,27 +130,19 @@ class TestPanelSampling:
             pooling="partial",
         )
         idata = model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        return model, idata
+
+    def test_sampling_completes(self, fitted_panel):
+        _, idata = fitted_panel
         assert idata is not None
 
-    def test_summary_includes_alpha(self, panel_data, simple_spec):
-        model = pathmc.model(
-            simple_spec,
-            data=panel_data,
-            panel={"unit": "region", "time": "week"},
-            pooling="partial",
-        )
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    def test_summary_includes_alpha(self, fitted_panel):
+        model, _ = fitted_panel
         summary = model.summary()
         assert any("alpha_Y" in idx for idx in summary.index)
 
-    def test_do_works_with_panel(self, panel_data, simple_spec):
-        model = pathmc.model(
-            simple_spec,
-            data=panel_data,
-            panel={"unit": "region", "time": "week"},
-            pooling="partial",
-        )
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    def test_do_works_with_panel(self, fitted_panel):
+        model, _ = fitted_panel
         r0 = model.do(set={"X": 0.0})
         r1 = model.do(set={"X": 1.0})
         ate = r1 - r0

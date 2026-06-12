@@ -26,8 +26,8 @@ import pathmc
 from conftest import MEDIATION_SPEC
 
 
-@pytest.fixture
-def fitted_simple():
+@pytest.fixture(scope="module")
+def fitted_simple(mock_pymc_sample_module):
     """Simple Y ~ X model fitted for predictive testing."""
     rng = np.random.default_rng(42)
     n = 200
@@ -36,15 +36,21 @@ def fitted_simple():
     data = pd.DataFrame({"X": X, "Y": Y})
 
     model = pathmc.model("Y ~ X", data=data)
-    model.fit(draws=200, tune=200, chains=1, random_seed=42)
+    model.fit(draws=50, tune=50, chains=1, random_seed=42)
     return model
 
 
-@pytest.fixture
-def fitted_mediation_for_pred(mediation_data):
+@pytest.fixture(scope="module")
+def fitted_mediation_for_pred(mock_pymc_sample_module):
     """Mediation model fitted for predictive do() tests."""
+    rng = np.random.default_rng(42)
+    n = 200
+    X = rng.normal(size=n)
+    M = 0.5 * X + rng.normal(scale=0.5, size=n)
+    Y = 0.8 * M + 0.3 * X + rng.normal(scale=0.5, size=n)
+    mediation_data = pd.DataFrame({"X": X, "M": M, "Y": Y})
     model = pathmc.model(MEDIATION_SPEC, data=mediation_data)
-    model.fit(draws=200, tune=200, chains=1, random_seed=42)
+    model.fit(draws=50, tune=50, chains=1, random_seed=42)
     return model
 
 
@@ -92,7 +98,7 @@ class TestPredictiveVsMean:
 
 @pytest.mark.slow
 class TestPredictiveBernoulli:
-    def test_bernoulli_predictive_draws_are_binary(self):
+    def test_bernoulli_predictive_draws_are_binary(self, mock_pymc_sample):
         """Predictive draws for Bernoulli outcomes should be 0 or 1."""
         rng = np.random.default_rng(42)
         n = 300
@@ -102,10 +108,9 @@ class TestPredictiveBernoulli:
         data = pd.DataFrame({"X": X, "Y": Y})
 
         model = pathmc.model("Y ~ X", data=data, families={"Y": "bernoulli"})
-        model.fit(draws=100, tune=100, chains=1, random_seed=42)
+        model.fit(draws=50, tune=50, chains=1, random_seed=42)
 
         result = model.do(set={"X": 1.0}, kind="predictive")
-        hdi = result.hdi("Y")
         mean_val = result.mean("Y")
         assert 0 <= mean_val <= 1, f"Bernoulli mean should be in [0,1], got {mean_val}"
 

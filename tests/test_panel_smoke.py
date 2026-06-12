@@ -20,7 +20,7 @@ import pytest
 import pathmc
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def full_panel_data():
     """Full panel pipeline data: 3 regions, 20 weeks, sales ~ lag(spend)."""
     rng = np.random.default_rng(42)
@@ -43,7 +43,7 @@ def full_panel_data():
     return pd.DataFrame(rows)
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def binary_panel_data():
     """Binary panel data for scan compiler validation tests."""
     rng = np.random.default_rng(42)
@@ -56,6 +56,18 @@ def binary_panel_data():
             y = 0.5 * m + rng.normal(scale=0.1)
             rows.append({"region": region, "week": week, "X": x, "M": m, "Y": y})
     return pd.DataFrame(rows)
+
+
+@pytest.fixture(scope="module")
+def fitted_full_panel(full_panel_data):
+    model = pathmc.model(
+        "sales ~ lag(spend)",
+        data=full_panel_data,
+        panel={"unit": "region", "time": "week"},
+        pooling="partial",
+    )
+    idata = model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    return model, idata
 
 
 class TestScanNonGaussianValidation:
@@ -100,29 +112,17 @@ class TestScanNonGaussianValidation:
 class TestFullPipeline:
     """End-to-end: fit with lag() -> sample -> summary -> do."""
 
-    def test_pipeline_completes(self, full_panel_data):
-        model = pathmc.model(
-            "sales ~ lag(spend)",
-            data=full_panel_data,
-            panel={"unit": "region", "time": "week"},
-            pooling="partial",
-        )
-        idata = model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    def test_pipeline_completes(self, fitted_full_panel):
+        model, idata = fitted_full_panel
         assert idata is not None
 
         summary = model.summary()
         assert len(summary) > 0
         assert any("alpha_sales" in str(idx) for idx in summary.index)
 
-    def test_do_time_forward_ate(self, full_panel_data):
+    def test_do_time_forward_ate(self, fitted_full_panel):
         """do(simulate_over='time') produces ATE with correct sign."""
-        model = pathmc.model(
-            "sales ~ lag(spend)",
-            data=full_panel_data,
-            panel={"unit": "region", "time": "week"},
-            pooling="partial",
-        )
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+        model, _ = fitted_full_panel
 
         r_low = model.do(set={"spend": 5.0}, simulate_over="time", kind="mean")
         r_high = model.do(set={"spend": 15.0}, simulate_over="time", kind="mean")
@@ -173,14 +173,8 @@ class TestPanelBernoulli:
 class TestRandomInterceptVariation:
     """Random intercepts produce per-unit variation."""
 
-    def test_different_units_different_intercepts(self, full_panel_data):
-        model = pathmc.model(
-            "sales ~ lag(spend)",
-            data=full_panel_data,
-            panel={"unit": "region", "time": "week"},
-            pooling="partial",
-        )
-        model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    def test_different_units_different_intercepts(self, fitted_full_panel):
+        model, _ = fitted_full_panel
         summary = model.summary()
 
         alpha_rows = [idx for idx in summary.index if "alpha_sales" in str(idx)]

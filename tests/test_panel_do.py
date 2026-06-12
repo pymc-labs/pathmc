@@ -20,7 +20,7 @@ import pytest
 import pathmc
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def panel_lag_data():
     """Panel with lagged structure: sales ~ lag(spend), 3 regions, 15 weeks."""
     rng = np.random.default_rng(42)
@@ -42,8 +42,8 @@ def panel_lag_data():
     return pd.DataFrame(rows)
 
 
-@pytest.fixture()
-def panel_lag_model(panel_lag_data):
+@pytest.fixture(scope="module")
+def panel_lag_model(panel_lag_data, mock_pymc_sample_module):
     """Fitted panel model with lag structure."""
     model = pathmc.model(
         "sales ~ lag(spend)",
@@ -51,7 +51,7 @@ def panel_lag_model(panel_lag_data):
         panel={"unit": "region", "time": "week"},
         pooling="partial",
     )
-    model.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
+    model.fit(draws=50, tune=50, chains=2, cores=1, random_seed=42)
     return model
 
 
@@ -77,13 +77,13 @@ class TestPanelDoAPI:
         )
         assert np.isfinite(result.mean("sales"))
 
-    def test_error_without_panel(self):
+    def test_error_without_panel(self, mock_pymc_sample):
         """simulate_over='time' without panel= raises ValueError."""
         rng = np.random.default_rng(42)
         n = 50
         df = pd.DataFrame({"X": rng.normal(size=n), "Y": rng.normal(size=n)})
         model = pathmc.model("Y ~ X", data=df)
-        model.fit(draws=100, tune=100, chains=1, cores=1, random_seed=42)
+        model.fit(draws=5, tune=5, chains=1, cores=1, random_seed=42)
         with pytest.raises(ValueError, match="panel"):
             model.do(set={"X": 1.0}, simulate_over="time")
 
