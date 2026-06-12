@@ -33,7 +33,7 @@ repos:
       - id: mypy
         args: [--ignore-missing-imports]
         files: ^pathmc/
-        additional_dependencies: [numpy>=1.20, pandas-stubs]
+        additional_dependencies: [numpy>=1.20, pandas-stubs, narwhals]
   - repo: https://github.com/lucianopaz/head_of_apache
     rev: "0.1.1"
     hooks:

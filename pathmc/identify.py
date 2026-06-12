@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations
 
+import narwhals.stable.v1 as nw
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -505,7 +506,7 @@ def implied_independences(
 
 def test_implications(
     independences: list[ConditionalIndependence],
-    data: pd.DataFrame,
+    data: nw.DataFrame,
     alpha: float = 0.05,
 ) -> ImplicationTestResult:
     """Test implied conditional independences against observed data.
@@ -523,7 +524,7 @@ def test_implications(
     ----------
     independences : list[ConditionalIndependence]
         Independence statements to test (from :func:`implied_independences`).
-    data : pd.DataFrame
+    data : nw.DataFrame
         Observed data. Must contain columns for all variables referenced
         in the independence statements.
     alpha : float
@@ -584,32 +585,36 @@ def test_implications(
 
 
 def _partial_correlation_test(
-    data: pd.DataFrame,
+    data: nw.DataFrame,
     x: str,
     y: str,
     z_vars: list[str],
 ) -> tuple[float, float, int]:
     """Test conditional independence via partial correlation.
 
-    Returns (partial_r, p_value, n_obs). If there are insufficient
-    observations for the test, returns (nan, nan, n_obs).
+    Rows with any missing value (null or float NaN) in the involved
+    columns are dropped. Returns (partial_r, p_value, n_obs). If there
+    are insufficient observations for the test, returns (nan, nan, n_obs).
     """
     cols = [x, y, *z_vars]
-    sub = data[cols].dropna()
-    n = len(sub)
+    # Filter in numpy space: nulls become NaN on conversion, so a single
+    # isnan mask handles both pandas NaN and polars null/NaN semantics.
+    arr = data.select(cols).to_numpy().astype(float)
+    arr = arr[~np.isnan(arr).any(axis=1)]
+    n = arr.shape[0]
     k = len(z_vars)
 
     if n < k + 3:
         return np.nan, np.nan, n
 
-    x_vals = sub[x].to_numpy(dtype=float)
-    y_vals = sub[y].to_numpy(dtype=float)
+    x_vals = arr[:, 0]
+    y_vals = arr[:, 1]
 
     if not z_vars:
         r, p = stats.pearsonr(x_vals, y_vals)
         return float(r), float(p), n
 
-    z_mat = sub[z_vars].to_numpy(dtype=float)
+    z_mat = arr[:, 2:]
     z_with_intercept = np.column_stack([np.ones(n), z_mat])
 
     beta_x, _, _, _ = np.linalg.lstsq(z_with_intercept, x_vals, rcond=None)
