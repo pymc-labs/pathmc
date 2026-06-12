@@ -12,7 +12,7 @@ The PR for this migration tracks progress against the phased plan below. Tick it
 - [x] **Phase 1** — non-destructive spike with `great-docs init/build/preview`
 - [x] **Phase 2** — content migration (`great-docs.yml`, per-page frontmatter); landed in same commits as Phase 1
 - [x] **Phase 3** — curated `skills/pathmc/SKILL.md`
-- [x] **Phase 4a** — CI build job (`Build Docs`) is enabled and renders the committed `_freeze/` cache without executing notebooks. `Publish Docs` and `Preview Docs` remain guarded until Phase 4b. See "How freeze works for pathmc" below.
+- [x] **Phase 4a** — CI build job (`Build Docs`) is enabled and renders the committed `_freeze/` cache without executing notebooks. `Publish Docs` remains guarded until Phase 4b. Per-PR preview deploy was removed (#226); reviewers use the `docs-html` artifact instead. See "How freeze works for pathmc" below.
 - [x] **Phase 5** — cleanup (`docs/_quarto.yml`, freeze cache, `AGENTS.md`)
 - [ ] **Phase 4b** — *deferred to launch day, not part of this PR.* Flip Settings → Pages → Source → GitHub Actions; add `Documentation` URL to `pyproject.toml`.
 
@@ -285,13 +285,11 @@ The repo is **private** and we are **not yet ready to make the documentation pub
 great-docs setup-github-pages --python-version 3.12 --main-branch main
 ```
 
-This generates `.github/workflows/docs.yml`. We modify it before committing so all three jobs are guarded by `if: false`:
+This generates `.github/workflows/docs.yml`. We modify it before committing:
 
-- **`build-docs`** — `if: false` with a TODO comment pointing at the freeze-cache section above. The job body is fully wired (install, register `pathmc` kernel, set up Quarto, `great-docs build`, upload artifact) so re-enabling on launch day is a single-line change once upstream lands a hook.
+- **`build-docs`** — enabled; renders from the committed `_freeze/` cache and uploads `docs-html` as a PR artifact.
 - **`publish-docs`** — `if: false && github.ref == 'refs/heads/main'`. Re-enable in Phase 4b along with `Settings → Pages → Source → GitHub Actions`.
-- **`preview-docs`** — `if: false && github.event_name == 'pull_request'`. great-docs 0.10.0 generates this job incomplete (it starts a `bobheadxi/deployments` deployment but never finishes it). Either complete it or delete it when re-enabling deploy.
-
-Acceptance for 4a (in this PR): workflow file present, all jobs disabled, no docs CI runs anywhere. Local renders are the source of truth.
+- **`preview-docs`** — removed (#226). great-docs 0.10.0 generated this job incomplete (it started a `bobheadxi/deployments` deployment but never uploaded or finished). PR reviewers download the `docs-html` artifact from the `Build Docs` job instead.
 
 ### Phase 4b — public deployment (deferred to launch day, **not part of this PR**)
 
@@ -335,7 +333,7 @@ Optional intermediate state for stakeholder review (Team plan supports private G
 | `examples/` notebooks have long execution times in CI         | `freeze: auto` is preserved; first CI build will be slow but subsequent builds reuse cache.      |
 | Numeric-prefix file rename breaks external links              | Add Quarto redirect rules or check no external sites link to `concepts/<name>.html` first.       |
 | Bibliography path                                             | Confirm Great Docs honours `bibliography:` in frontmatter or `great-docs.yml`; otherwise inline. |
-| GitHub Pages workflow conflicts with future PR-preview tooling | The generated workflow is a starting point; tweak post-merge if needed.                          |
+| Per-PR docs preview deploys                     | Removed the incomplete `preview-docs` job (#226); reviewers use the `docs-html` CI artifact.      |
 | Accidentally publishing the site before launch                | Phase 4a explicitly disables the deploy step and leaves `Settings → Pages` unconfigured. Phase 4b is the only path to a public URL and is intentionally a separate, manually-triggered change. |
 
 ## Acceptance criteria
