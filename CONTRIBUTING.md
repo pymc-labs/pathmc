@@ -9,14 +9,13 @@ The development environment is managed with [uv](https://docs.astral.sh/uv/), a 
 ```bash
 git clone git@github.com:<your-github-handle>/pathmc.git
 cd pathmc
-uv sync --all-extras
-uv run prek install -f
-uv run pytest -x -v -m "not slow"
+make setup
+make test-fast
 ```
 
-`uv sync --all-extras` reads `pyproject.toml` and `uv.lock`, then creates a project virtual environment at `.venv/` containing the correct Python (per `.python-version`), pathmc installed in editable mode, and every dependency from the `dev`, `docs`, and `samplers` extras. `uv run prek install -f` installs the pre-commit hooks. You do not need to `source .venv/bin/activate` or otherwise activate the environment by hand: prefix any command with `uv run` (for example `uv run pytest` or `uv run python -c "import pathmc"`) and uv runs it inside `.venv/`, syncing first if anything is stale.
+Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, and build targets. The targets are thin aliases over the underlying `uv` commands (for example `make setup` runs `uv sync --all-extras` plus the hook install, and `make test-fast` runs `uv run pytest -x -v -m "not slow"`), so you can read the `Makefile` to see the exact command behind each alias.
 
-The root `Makefile` bundles these same `uv` commands behind short aliases (`make setup` is just `uv sync --all-extras` plus the hook install; `make test-fast` is `uv run pytest -x -v -m "not slow"`). The aliases are a convenience, not a requirement; run `make help` to list them, and read the `Makefile` if you want to see the exact `uv` command each one runs.
+`make setup` runs `uv sync --all-extras`, which reads `pyproject.toml` and `uv.lock`, then creates a project virtual environment at `.venv/` containing the correct Python (per `.python-version`), pathmc installed in editable mode, and every dependency from the `dev`, `docs`, and `samplers` extras. It then installs the pre-commit hooks with `uv run prek install -f`. You do not need to `source .venv/bin/activate` or otherwise activate the environment by hand: the `Makefile` targets prefix commands with `uv run`, which runs them inside `.venv/` (syncing first if anything is stale). If you need a command without a target, prefix it with `uv run` yourself (for example `uv run pytest` or `uv run python -c "import pathmc"`).
 
 ## Opening issues
 
@@ -53,8 +52,7 @@ git checkout -b my-feature
 Create the development environment and install the pre-commit hooks:
 
 ```bash
-uv sync --all-extras
-uv run prek install -f
+make setup
 ```
 
 Update an existing environment after pulling changes that touch dependencies:
@@ -68,13 +66,13 @@ Dependencies and their version constraints are declared in `pyproject.toml` unde
 Run fast tests only, excluding slow MCMC sampling tests:
 
 ```bash
-uv run pytest -x -v -m "not slow"
+make test-fast
 ```
 
 Run the full test suite, including slow integration tests:
 
 ```bash
-uv run pytest -x -v
+make test
 ```
 
 Run a targeted milestone or module test while iterating:
@@ -83,18 +81,16 @@ Run a targeted milestone or module test while iterating:
 uv run pytest tests/test_parse.py -x -v
 ```
 
-Check formatting, linting, and types before opening a pull request (this is `make check_lint`):
+Check formatting, linting, and types before opening a pull request:
 
 ```bash
-uv run ruff check .
-uv run ruff format --diff --check .
-uv run mypy --ignore-missing-imports
+make check_lint
 ```
 
-To apply automatic lint and format fixes by running the pre-commit hooks (this is `make lint`):
+To apply automatic lint and format fixes by running the pre-commit hooks:
 
 ```bash
-uv run prek run --all-files
+make lint
 ```
 
 ## Pull request checklist
