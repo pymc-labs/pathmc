@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 0 # Full history for accurate page timestamps
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v8.2.0
 
       - name: Install package and dependencies
         # uv sync installs the locked dependency set from uv.lock (same as
