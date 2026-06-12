@@ -53,7 +53,7 @@ Issues = "https://github.com/pymc-labs/pathmc/issues"
 Contributing = "https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md"
 
 [project.optional-dependencies]
-dev = ["build", "ipykernel", "mypy", "polars", "prek", "pytest", "ruff"]
+dev = ["build", "ipykernel", "mypy", "polars", "prek", "pytest", "pytest-cov", "ruff"]
 docs = [
     # 0.11.0 is the first release with both `freeze` and the `skill` CLI
     # (posit-dev/great-docs#158 and #164).
@@ -67,7 +67,8 @@ include = ["pathmc*"]
 [tool.setuptools.package-data]
 # Curated agent skill, bundled so `great-docs skill install pathmc` works for
 # pip-installed users (resolver expects <package>/skills/<name>/SKILL.md).
-pathmc = ["skills/*/SKILL.md"]
+# py.typed marks the package as typed (PEP 561) for downstream type checkers.
+pathmc = ["skills/*/SKILL.md", "py.typed"]
 
 [tool.ruff]
 line-length = 88
@@ -86,9 +87,25 @@ markers = [
     "slow: marks tests that require MCMC sampling (deselect with '-m \"not slow\"')",
 ]
 
+[tool.coverage.run]
+source = ["pathmc"]
+omit = ["pathmc/skills/*"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+
 [tool.mypy]
 files = "pathmc/*.py"
 exclude = "build|dist|docs|tests"
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = [
