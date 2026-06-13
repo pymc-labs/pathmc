@@ -4,6 +4,7 @@ description: "Interventions tell us what happens on average when we force a chan
 tags: [Causal Inference, Counterfactuals, do-Operator]
 image: thumbnails/counterfactual.png
 jupyter: pathmc
+bibliography: ../../../docs/references.bib
 ---
 
 A student named Joe participates in an after-school remedial program. We observe his encouragement level ($X = 0.5$), his homework hours ($H = 1$), and his exam score ($Y = 1.5$ standard deviations above the mean). His teacher asks: **"What would Joe's score have been had he doubled his homework?"**

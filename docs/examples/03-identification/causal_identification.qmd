@@ -4,6 +4,7 @@ description: "Check adjustment sets, detect collider bias, and verify identifiab
 tags: [Causal Inference, Identification, Backdoor Criterion, Front-Door Criterion, Collider Bias]
 image: thumbnails/causal_identification.png
 jupyter: pathmc
+bibliography: ../../../docs/references.bib
 ---
 
 Not every regression coefficient is a causal effect.
