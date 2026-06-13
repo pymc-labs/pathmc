@@ -25,6 +25,11 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
+          # Keep downloaded wheels in the cache. The default `uv cache prune
+          # --ci` strips re-downloadable PyPI wheels, which for this
+          # wheel-heavy dependency set leaves a ~0.2 MB cache and no install
+          # speedup; retaining them is what makes warm installs fast.
+          prune-cache: false
 
       - name: Install package and dependencies
         # uv sync installs the locked dependency set from uv.lock (same as
