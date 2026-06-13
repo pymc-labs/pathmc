@@ -91,19 +91,6 @@ markers = [
     "slow: marks tests that require MCMC sampling (deselect with '-m \"not slow\"')",
 ]
 
-[tool.coverage.run]
-source = ["pathmc"]
-omit = ["pathmc/skills/*"]
-
-[tool.coverage.report]
-show_missing = true
-exclude_lines = [
-    "pragma: no cover",
-    "if TYPE_CHECKING:",
-    "raise NotImplementedError",
-    "\\.\\.\\.",
-]
-
 [tool.mypy]
 files = "pathmc/*.py"
 exclude = "build|dist|docs|tests"
