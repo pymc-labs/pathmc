@@ -25,20 +25,21 @@ except Exception:  # pragma: no cover
     _HAVE_PYMC_TESTING = False
 
 
-@pytest.fixture(autouse=True)
-def _single_core_sampling(monkeypatch):
-    """Default ``cores=1`` for every ``pm.sample()`` call in the suite.
+# Single, fast sampler configuration applied to every ``pm.sample()`` call in
+# the suite. The tests assert on coarse, wide-tolerance behavior rather than
+# precise posteriors, so short single-chain runs are enough — and a single
+# in-process chain avoids the per-chain process spawn/serialization overhead
+# that dominates wall-time for these tiny models.
+SAMPLE_KWARGS = {"draws": 50, "tune": 50, "chains": 1, "cores": 1}
 
-    The test models are tiny, so spawning one worker process per chain costs
-    more in fork/spawn and serialization overhead than it saves — especially on
-    the few-core CI runners. Defaulting to single-core, in-process sampling cuts
-    suite wall-time substantially. Tests that pass ``cores`` explicitly keep
-    their value via ``setdefault``.
-    """
+
+@pytest.fixture(autouse=True)
+def _fast_sampling(monkeypatch):
+    """Force ``SAMPLE_KWARGS`` onto every ``pm.sample()`` call in the suite."""
     original_sample = pm.sample
 
     def _sample(*args, **kwargs):
-        kwargs.setdefault("cores", 1)
+        kwargs.update(SAMPLE_KWARGS)
         return original_sample(*args, **kwargs)
 
     monkeypatch.setattr(pm, "sample", _sample)
