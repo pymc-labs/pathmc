@@ -2,6 +2,7 @@
 title: "Testing Your DAG Against Data"
 description: "Enumerate implied conditional independences and test whether your structural assumptions hold before fitting."
 tags: [Causal Inference]
+image: thumbnails/dag_testing.png
 jupyter: pathmc
 ---
 
