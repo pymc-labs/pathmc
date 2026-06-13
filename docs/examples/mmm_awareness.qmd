@@ -498,13 +498,14 @@ fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 pp_mu_sales = prior_pred.prior["mu_sales"].values.reshape(-1, n_weeks)
 ax = axes[0]
-az.plot_hdi(
+hdi_1 = az.hdi(pp_mu_sales, prob=0.94, axis=0)
+ax.fill_between(
     weeks,
-    pp_mu_sales,
-    ax=ax,
-    smooth=False,
+    hdi_1[:, 0],
+    hdi_1[:, 1],
+    alpha=0.2,
     color=COLOR_SALES,
-    fill_kwargs={"alpha": 0.2, "label": "94% prior predictive"},
+    label="94% prior predictive",
 )
 ax.scatter(weeks, df["sales"], color="black", s=12, zorder=3, label="Observed")
 ax.set_xlabel("Week")
@@ -514,13 +515,14 @@ ax.legend(fontsize=8)
 
 pp_awareness = prior_pred.prior["awareness"].values.reshape(-1, n_weeks)
 ax = axes[1]
-az.plot_hdi(
+hdi_2 = az.hdi(pp_awareness, prob=0.94, axis=0)
+ax.fill_between(
     weeks,
-    pp_awareness,
-    ax=ax,
-    smooth=False,
+    hdi_2[:, 0],
+    hdi_2[:, 1],
+    alpha=0.2,
     color=COLOR_AWARENESS,
-    fill_kwargs={"alpha": 0.2, "label": "94% prior predictive"},
+    label="94% prior predictive",
 )
 ax.plot(weeks, df["awareness_true"], color="black", ls="--", lw=1.5, label="True")
 ax.set_xlabel("Week")
@@ -585,13 +587,9 @@ awareness_flat = awareness_draws.reshape(-1, awareness_draws.shape[-2])
 weeks = df["week"].values
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_hdi(
-    weeks,
-    awareness_flat,
-    ax=ax,
-    smooth=False,
-    color=COLOR_AWARENESS,
-    fill_kwargs={"alpha": 0.25, "label": "94% HDI"},
+hdi_3 = az.hdi(awareness_flat, prob=0.94, axis=0)
+ax.fill_between(
+    weeks, hdi_3[:, 0], hdi_3[:, 1], alpha=0.25, color=COLOR_AWARENESS, label="94% HDI"
 )
 ax.plot(
     weeks,
@@ -637,13 +635,9 @@ mu_sales = idata.posterior["mu_sales"].values
 mu_sales_flat = mu_sales.reshape(-1, mu_sales.shape[-2])
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_hdi(
-    weeks,
-    mu_sales_flat,
-    ax=ax,
-    smooth=False,
-    color=COLOR_SALES,
-    fill_kwargs={"alpha": 0.25, "label": "94% HDI"},
+hdi_4 = az.hdi(mu_sales_flat, prob=0.94, axis=0)
+ax.fill_between(
+    weeks, hdi_4[:, 0], hdi_4[:, 1], alpha=0.25, color=COLOR_SALES, label="94% HDI"
 )
 ax.plot(
     weeks, mu_sales_flat.mean(axis=0), color=COLOR_SALES, lw=2, label="Posterior mean"
@@ -702,13 +696,9 @@ for draws, color, label, true_val in [
     (total_draws, COLOR_TOTAL, "Total long-run", true_total_uf),
 ]:
     valid = draws[np.isfinite(draws)]
-    az.plot_kde(
-        valid,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.25, "color": color},
-        label=label,
-    )
+    x_kde, y_kde, _ = az.kde(valid)
+    ax.plot(x_kde, y_kde, color=color, lw=2, label=label)
+    ax.fill_between(x_kde, y_kde, alpha=0.25, color=color)
     ax.axvline(true_val, color=color, ls="--", lw=1.5, alpha=0.7)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -759,13 +749,9 @@ for draws, color, label in [
     (do_longrun_draws, COLOR_UPPER, "Intervention (do)"),
 ]:
     valid = draws[np.isfinite(draws)]
-    az.plot_kde(
-        valid,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.25, "color": color},
-        label=label,
-    )
+    x_kde, y_kde, _ = az.kde(valid)
+    ax.plot(x_kde, y_kde, color=color, lw=2, label=label)
+    ax.fill_between(x_kde, y_kde, alpha=0.25, color=color)
 
 ax.axvline(true_total_uf, color="black", ls="--", lw=1.5, alpha=0.8, label="True total")
 ax.set_xlabel("Long-run sales effect per 1-unit upper-funnel spend")
@@ -832,14 +818,8 @@ ax.plot(
     lw=2,
     label="Upper-funnel contribution",
 )
-az.plot_hdi(
-    weeks_seq,
-    uf_by_time.T,
-    ax=ax,
-    smooth=False,
-    color=COLOR_UPPER,
-    fill_kwargs={"alpha": 0.15},
-)
+hdi_5 = az.hdi(uf_by_time.T, prob=0.94, axis=0)
+ax.fill_between(weeks_seq, hdi_5[:, 0], hdi_5[:, 1], alpha=0.15, color=COLOR_UPPER)
 ax.plot(
     weeks_seq,
     lf_by_time.mean(axis=1),
@@ -847,14 +827,8 @@ ax.plot(
     lw=2,
     label="Lower-funnel contribution",
 )
-az.plot_hdi(
-    weeks_seq,
-    lf_by_time.T,
-    ax=ax,
-    smooth=False,
-    color=COLOR_LOWER,
-    fill_kwargs={"alpha": 0.15},
-)
+hdi_6 = az.hdi(lf_by_time.T, prob=0.94, axis=0)
+ax.fill_between(weeks_seq, hdi_6[:, 0], hdi_6[:, 1], alpha=0.15, color=COLOR_LOWER)
 
 ax.set_xlabel("Week")
 ax.set_ylabel("Sales lift (mean spend vs. zero)")
@@ -899,13 +873,9 @@ ax.plot(
     lw=2,
     label="Posterior mean",
 )
-az.plot_hdi(
-    weeks_seq,
-    pulse_by_time.T,
-    ax=ax,
-    smooth=False,
-    color=COLOR_UPPER,
-    fill_kwargs={"alpha": 0.15, "label": "94% HDI"},
+hdi_7 = az.hdi(pulse_by_time.T, prob=0.94, axis=0)
+ax.fill_between(
+    weeks_seq, hdi_7[:, 0], hdi_7[:, 1], alpha=0.15, color=COLOR_UPPER, label="94% HDI"
 )
 ax.axvspan(11, 20, alpha=0.08, color="gray", label="Campaign window")
 ax.axhline(0, color="black", ls=":", alpha=0.4)

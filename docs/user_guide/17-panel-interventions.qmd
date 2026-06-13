@@ -315,14 +315,8 @@ weeks = np.arange(1, n_weeks + 1)
 sales_by_time = contrast.by_time("y")
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_hdi(
-    weeks,
-    sales_by_time.T,
-    ax=ax,
-    smooth=False,
-    color=COLOR_CORRECT,
-    fill_kwargs={"alpha": 0.15},
-)
+hdi_1 = az.hdi(sales_by_time.T, prob=0.94, axis=0)
+ax.fill_between(weeks, hdi_1[:, 0], hdi_1[:, 1], alpha=0.15, color=COLOR_CORRECT)
 ax.plot(
     weeks,
     sales_by_time.mean(axis=1),
