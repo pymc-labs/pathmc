@@ -32,8 +32,31 @@ sections:
   - title: Examples
     dir: docs/examples
     index: true
-    index_columns: 3
+    # index_columns is clamped to a max of 2 by great-docs; the grid is
+    # responsive (auto-fill) and shows more columns on wide screens anyway.
+    index_columns: 2
     navbar_after: User Guide
+
+# Page Tags ------------------------------------------------------------------
+# Activates clickable tag pills under each page title and an auto-generated
+# tag index page ("Tags" navbar link) that groups pages by tag. Per-page tags
+# live in each example's `tags:` frontmatter and are the single source of truth
+# for the example taxonomy. Note: tags drive navigation, not in-place filtering —
+# clicking a pill jumps to that tag's section on the index page.
+tags:
+  enabled: true
+  icons:
+    Causal Inference: git-fork
+    Fundamentals: rocket
+    Counterfactuals: split
+    Priors: sliders-horizontal
+    Transforms: waves
+    Extensibility: puzzle
+    Simulation: dices
+    Panel Data: table
+    Applications: briefcase
+    Mediation: route
+    Marketing: megaphone
 
 # API Reference --------------------------------------------------------------
 # Public surface only: model() / simulate() / add_lags() and the PathModel

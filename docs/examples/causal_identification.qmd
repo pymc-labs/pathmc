@@ -1,7 +1,8 @@
 ---
 title: "Causal Identification"
 description: "Check adjustment sets, detect collider bias, and verify identifiability from the DAG — including the birth-weight paradox and the front-door criterion for unmeasured confounding."
-categories: [Causal Inference]
+tags: [Causal Inference]
+image: thumbnails/causal_identification.png
 jupyter: pathmc
 ---
 

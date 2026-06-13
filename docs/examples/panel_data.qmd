@@ -1,7 +1,8 @@
 ---
 title: "Panel Data Models"
 description: "From cross-sectional snapshots to temporal dynamics — compare cross-sectional and panel DAGs, model AR(1) persistence with lag(Y), and run time-forward interventions with adstock transforms."
-categories: [Panel Data, Fundamentals]
+tags: [Panel Data, Fundamentals]
+image: thumbnails/panel_data.png
 jupyter: pathmc
 ---
 

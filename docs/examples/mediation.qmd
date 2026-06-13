@@ -1,7 +1,8 @@
 ---
 title: "Mediation Analysis"
 description: "Estimate direct and indirect effects through mediators — from a single pathway to correlated parallel mediators and latent variables with sparse measurements."
-categories: [Fundamentals, Mediation]
+tags: [Fundamentals, Mediation]
+image: thumbnails/mediation.png
 jupyter: pathmc
 ---
 

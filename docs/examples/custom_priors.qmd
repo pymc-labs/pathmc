@@ -1,7 +1,8 @@
 ---
 title: "Custom Priors"
 description: "Refine prior distributions using an iterative inspect-check-refine workflow with prior predictive checks."
-categories: [Fundamentals, Priors]
+tags: [Fundamentals, Priors]
+image: thumbnails/custom_priors.png
 jupyter: pathmc
 ---
 

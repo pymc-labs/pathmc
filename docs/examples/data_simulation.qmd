@@ -1,7 +1,8 @@
 ---
 title: "Model-Based Data Simulation"
 description: "Generate synthetic datasets from a pathmc model with known parameter values using pathmc.simulate()."
-categories: [Fundamentals, Simulation]
+tags: [Fundamentals, Simulation]
+image: thumbnails/data_simulation.png
 jupyter: pathmc
 ---
 

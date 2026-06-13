@@ -1,7 +1,8 @@
 ---
 title: "Sensitivity to Unmeasured Confounding"
 description: "How robust is your causal estimate? Quantify how strong an unmeasured confounder would need to be to overturn your conclusion."
-categories: [Causal Inference]
+tags: [Causal Inference]
+image: thumbnails/sensitivity.png
 jupyter: pathmc
 ---
 

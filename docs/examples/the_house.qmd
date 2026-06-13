@@ -1,7 +1,8 @@
 ---
 title: "The House: Which Nodes Must You Adjust For?"
 description: "A LinkedIn causal-inference puzzle worked end to end in pathmc — read the unique valid adjustment set straight off the DAG, then confirm that adjusting for a confounder helps while adjusting for sinks of the mediator or the outcome wrecks the estimate."
-categories: [Causal Inference]
+tags: [Causal Inference]
+image: thumbnails/the_house.png
 jupyter: pathmc
 ---
 

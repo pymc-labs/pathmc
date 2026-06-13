@@ -1,7 +1,8 @@
 ---
 title: "Counterfactuals: From Population to Individual"
 description: "Interventions tell us what happens on average when we force a change. Counterfactuals answer a different question: what would have happened to *this specific person* under different circumstances?"
-categories: [Causal Inference, Counterfactuals]
+tags: [Causal Inference, Counterfactuals]
+image: thumbnails/counterfactual.png
 jupyter: pathmc
 ---
 
