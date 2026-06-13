@@ -105,7 +105,8 @@ seo:
   canonical:
     base_url: https://pymc-labs.github.io/pathmc/
 
-# Bibliography lives in docs/ and is referenced from individual pages.
+# Citations use docs/references.bib via per-page frontmatter until Great Docs
+# forwards project-level bibliography (posit-dev/great-docs#214; migrate in #266).
 bibliography: docs/references.bib
 
 # Jupyter kernel for executable code cells. Register it from the uv-managed

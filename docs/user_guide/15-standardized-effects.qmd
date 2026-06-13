@@ -1,6 +1,7 @@
 ---
 title: "Standardized Effects"
 guide-section: "Concepts"
+bibliography: ../../docs/references.bib
 ---
 
 When a path model includes predictors on different scales — dollars, clicks, percentages — the raw (unstandardized) coefficients are not directly comparable.
