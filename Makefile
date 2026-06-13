@@ -25,11 +25,11 @@ check_lint: ## Check formatting, linting, and types without making changes
 	uv run ruff format --diff --check .
 	uv run mypy --ignore-missing-imports
 
-test-fast: ## Run fast tests, excluding slow MCMC tests
-	uv run pytest -x -v -m "not slow"
+test-fast: ## Run fast tests (excl. slow MCMC) with coverage report
+	uv run pytest -x -v -m "not slow" --cov=pathmc --cov-report=term-missing
 
-test: ## Run all tests, including slow integration tests
-	uv run pytest -x -v
+test: ## Run all tests, including slow integration tests, with coverage report
+	uv run pytest -x -v --cov=pathmc --cov-report=term-missing
 
 docs: ## Build the documentation site
 	uv run great-docs build
