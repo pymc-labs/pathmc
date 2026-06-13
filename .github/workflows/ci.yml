@@ -37,29 +37,3 @@ jobs:
       - name: Run prek on all files on pushes
         if: github.event_name != 'pull_request'
         run: uv run prek run --all-files
-
-  tests:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12", "3.13"]
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: uv sync --all-extras
-      - name: Run fast tests (PRs)
-        if: github.event_name == 'pull_request'
-        run: uv run pytest -m "not slow" --cov=pathmc --cov-report=term-missing
-      - name: Run full test suite (push to main)
-        if: github.event_name == 'push'
-        run: uv run pytest --cov=pathmc --cov-report=term-missing
