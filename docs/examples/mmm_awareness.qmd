@@ -2,6 +2,8 @@
 title: "MMM with Latent Brand Awareness"
 description: "Model brand awareness as a latent AR(1) mediator — first deterministic, then constrained by sparse brand-tracking surveys."
 categories: [Marketing, Panel Data]
+tags: [Marketing, Panel Data]
+image: thumbnails/mmm_awareness.png
 jupyter: pathmc
 ---
 

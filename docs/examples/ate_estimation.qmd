@@ -2,6 +2,8 @@
 title: "Treatment Effects with Non-Linear Models"
 description: "Why coefficients ≠ ATE in logistic models, AME vs MEM, g-computation for binary outcomes, and mixed-family models."
 categories: [Causal Inference]
+tags: [Causal Inference]
+image: thumbnails/ate_estimation.png
 jupyter: pathmc
 ---
 

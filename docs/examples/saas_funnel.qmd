@@ -2,6 +2,8 @@
 title: "SaaS Conversion Funnel"
 description: "Model a multi-stage conversion funnel as a causal chain to find which stage has the highest leverage on paid conversion."
 categories: [Applications, Mediation]
+tags: [Applications, Mediation]
+image: thumbnails/saas_funnel.png
 jupyter: pathmc
 ---
 
