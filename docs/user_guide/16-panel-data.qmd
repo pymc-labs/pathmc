@@ -129,4 +129,4 @@ time_labels = contrast.time_index  # the time column values
 Not always! If your panel model has only random intercepts, random slopes, or trend terms — but no adstock transforms or lagged variables — a regular `do()` call works fine. See [Time-Forward Panel Simulation](panel-interventions.qmd) for the full explanation.
 :::
 
-See the [Panel Data Models](../examples/04-panel-time/panel_data.qmd), [Difference-in-Differences](../examples/04-panel-time/did.qmd), and [Media Mix Models](../examples/05-applied-models/mmm.qmd) examples for panel mode in action.
+See the [Panel Data Models](/examples/04-panel-time/panel_data.qmd), [Difference-in-Differences](/examples/04-panel-time/did.qmd), and [Media Mix Models](/examples/05-applied-models/mmm.qmd) examples for panel mode in action.
