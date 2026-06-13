@@ -1,0 +1,752 @@
+---
+title: "Causal Identification"
+description: "Check adjustment sets, detect collider bias, and verify identifiability from the DAG — including the birth-weight paradox and the front-door criterion for unmeasured confounding."
+tags: [Causal Inference, Identification, Backdoor Criterion, Front-Door Criterion, Collider Bias]
+image: thumbnails/causal_identification.png
+jupyter: pathmc
+bibliography: ../../../docs/references.bib
+---
+
+Not every regression coefficient is a causal effect.
+To get from association to causation, you need to identify the right **adjustment set** — the variables to include in your model so that the coefficient on the treatment reflects only the causal path.
+
+pathmc provides tools to check this directly from the DAG, before you look at any data.
+This notebook walks through the fundamental DAG structures — fork, chain, collider — and shows how pathmc's identification helpers guide adjustment decisions. It then applies these ideas to two extended examples: the **birth-weight paradox** (where conditioning on a collider reverses a harmful effect) and the **front-door criterion** (which identifies causal effects despite unmeasured confounding).
+
+## Setup
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import pathmc
+
+rng = np.random.default_rng(42)
+n = 500
+
+FIG_WIDTH = 7
+FIG_HEIGHT = 4
+```
+
+## Structure 1: The fork (confounding)
+
+When a common cause `Z` affects both treatment `X` and outcome `Y`, the association between `X` and `Y` is a mix of the causal effect and confounding.
+Adjusting for `Z` blocks the backdoor path and isolates the causal effect.
+
+```{dot}
+//| label: fig-fork-dag
+//| fig-cap: "Fork DAG: Z is a common cause of X and Y. Adjusting for Z is required."
+//| fig-width: 3
+digraph {
+  rankdir=LR
+  Z -> X
+  Z -> Y
+  X -> Y
+}
+```
+
+```{python}
+Z = rng.normal(size=n)
+X = 0.5 * Z + rng.normal(scale=0.5, size=n)
+Y = 0.4 * X + 0.8 * Z + rng.normal(scale=0.5, size=n)
+
+df_fork = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
+
+fork_model = pathmc.model("X ~ Z\nY ~ X + Z", data=df_fork)
+fork_model.equations()
+```
+
+### Identification check
+
+```{python}
+print(f"Identifiable?    {fork_model.is_identifiable('X', 'Y')}")
+print(f"Adjustment sets: {fork_model.adjustment_sets('X', 'Y')}")
+```
+
+The model must condition on `Z` to identify the causal effect of `X` on `Y`.
+The empty set is *not* valid because `Z` confounds the treatment-outcome relationship.
+
+```{python}
+fork_model.fit(draws=500, tune=500, chains=2, random_seed=42)
+
+ate = fork_model.ate("Y", "X")
+print(f"ATE of X on Y:  {ate.mean('Y'):.3f}  (true = 0.4)")
+print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
+```
+
+## Structure 2: The chain (mediation)
+
+When `X` affects `Y` only through a mediator `M`, the total causal effect is identified *without* adjusting for `M`.
+In fact, conditioning on `M` would block the causal path and bias the total effect estimate.
+
+```{dot}
+//| label: fig-chain-dag
+//| fig-cap: "Chain DAG: X affects Y only through M. Do not adjust for M when estimating the total effect."
+//| fig-width: 3
+digraph {
+  rankdir=LR
+  X -> M
+  M -> Y
+}
+```
+
+```{python}
+X = rng.normal(size=n)
+M = 0.6 * X + rng.normal(scale=0.5, size=n)
+Y = 0.5 * M + rng.normal(scale=0.5, size=n)
+
+df_chain = pd.DataFrame({"X": X, "M": M, "Y": Y})
+
+chain_model = pathmc.model("M ~ X\nY ~ M", data=df_chain)
+chain_model.equations()
+```
+
+```{python}
+print(f"Identifiable?    {chain_model.is_identifiable('X', 'Y')}")
+print(f"Adjustment sets: {chain_model.adjustment_sets('X', 'Y')}")
+```
+
+The empty set is valid — no adjustment needed.
+Notice that `M` does not appear in any adjustment set: it is a descendant of `X` and therefore excluded from backdoor adjustment.
+
+```{python}
+chain_model.fit(draws=500, tune=500, chains=2, random_seed=42)
+
+ate = chain_model.ate("Y", "X")
+print(f"ATE of X on Y:  {ate.mean('Y'):.3f}  (true = 0.6 × 0.5 = 0.3)")
+print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
+```
+
+## Structure 3: The collider
+
+This is the structure that trips people up.
+When `X` and `Y` both cause `C`, there is **no confounding** — the association between `X` and `Y` is already causal (or zero, if there is no direct path).
+But if you condition on `C`, you *create* a spurious association between `X` and `Y`.
+
+```{dot}
+//| label: fig-collider-dag-basic
+//| fig-cap: "Collider DAG: X and Y both cause C. Do NOT adjust for C."
+//| fig-width: 3
+digraph {
+  rankdir=LR
+  X -> C
+  Y -> C
+}
+```
+
+```{python}
+X = rng.normal(size=n)
+Y = rng.normal(size=n)
+C = 0.6 * X + 0.4 * Y + rng.normal(scale=0.5, size=n)
+
+df_collider = pd.DataFrame({"X": X, "Y": Y, "C": C})
+
+collider_model = pathmc.model("C ~ X + Y", data=df_collider)
+collider_model.equations()
+```
+
+### Identification check
+
+With no direct edge from `X` to `Y`, the empty set correctly identifies the (zero) causal effect:
+
+```{python}
+print(f"Identifiable?    {collider_model.is_identifiable('X', 'Y')}")
+print(f"Adjustment sets: {collider_model.adjustment_sets('X', 'Y')}")
+```
+
+### Collider warning
+
+What if an analyst mistakenly included `C` in the adjustment set?
+pathmc warns about this:
+
+```{python}
+warnings = collider_model.collider_warnings({"C"}, "X", "Y")
+for w in warnings:
+    print(w)
+```
+
+::: {.callout-warning}
+## Why "control for everything" is dangerous
+
+Conditioning on a collider opens a spurious path between its parents. In this example, adjusting for `C` would make `X` and `Y` appear associated even though they are causally independent.
+
+The reflex to "throw everything into the regression" can *create* bias rather than remove it. Let the DAG — not data availability — guide your adjustment decisions.
+:::
+
+## A realistic example: confounding plus a collider
+
+In practice, DAGs contain multiple structures simultaneously.
+Consider a model where `Z` confounds `X` and `Y`, and `C` is a collider caused by both `X` and `Y`.
+
+```{dot}
+//| label: fig-mixed-dag
+//| fig-cap: "Mixed DAG: Z is a confounder (adjust for it), C is a collider (do not adjust for it)."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  Z -> X
+  Z -> Y
+  X -> Y
+  X -> C
+  Y -> C
+}
+```
+
+```{python}
+Z = rng.normal(size=n)
+X = 0.5 * Z + rng.normal(scale=0.5, size=n)
+Y = 0.4 * X + 0.6 * Z + rng.normal(scale=0.5, size=n)
+C = 0.3 * X + 0.5 * Y + rng.normal(scale=0.5, size=n)
+
+df_mixed = pd.DataFrame({"X": X, "Y": Y, "Z": Z, "C": C})
+
+mixed_model = pathmc.model("X ~ Z\nY ~ X + Z\nC ~ X + Y", data=df_mixed)
+mixed_model.equations()
+```
+
+```{python}
+print(f"Identifiable?    {mixed_model.is_identifiable('X', 'Y')}")
+print(f"Adjustment sets: {mixed_model.adjustment_sets('X', 'Y')}")
+```
+
+pathmc correctly identifies `{Z}` as the required adjustment set.
+`C` is excluded because it is a descendant of `X`.
+
+```{python}
+warnings = mixed_model.collider_warnings({"Z", "C"}, "X", "Y")
+for w in warnings:
+    print(w)
+```
+
+```{python}
+mixed_model.fit(draws=500, tune=500, chains=2, random_seed=42)
+
+ate = mixed_model.ate("Y", "X")
+print(f"ATE of X on Y:  {ate.mean('Y'):.3f}  (true = 0.4)")
+print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
+```
+
+So far, collider bias has been a theoretical danger — we showed that conditioning on `C` *would* create bias, but we didn't measure its consequences. The birth-weight paradox shows collider bias at work in a classic epidemiological setting, where the bias is dramatic enough to reverse the sign of a harmful effect.
+
+## Collider bias in practice: the birth-weight paradox {#sec-birth-weight}
+
+Among low-birth-weight babies, maternal smoking appears to *reduce* infant mortality. Taken at face value, this would suggest smoking is protective — an absurd conclusion. The explanation is **collider bias**: conditioning on birth weight, which is caused by *both* smoking and birth defects, opens a spurious path that reverses the true harmful effect of smoking.
+
+This is the **birth-weight paradox** [@pearl2016primer, §2.3; @pearl2018why, Ch. 6; @hernandez2006birth], one of the most counterintuitive results in causal inference.
+
+### The causal structure
+
+Four causal relationships define the problem:
+
+1. Smoking lowers birth weight
+2. Birth defects lower birth weight
+3. Smoking increases mortality
+4. Birth defects increase mortality
+
+Birth weight is a **collider** — it has two incoming arrows (from smoking and birth defects) but no direct effect on mortality. Conditioning on it creates a spurious negative association between its causes, making smoking look protective.
+
+```{dot}
+//| label: fig-collider-dag
+//| fig-cap: "Birth-weight paradox: birth_weight is a collider with two incoming arrows. Conditioning on it induces a spurious association between smoking and birth_defect, biasing the smoking → mortality estimate."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  smoking -> birth_weight
+  birth_defect -> birth_weight
+  smoking -> mortality
+  birth_defect -> mortality
+}
+```
+
+The key insight: among low-birth-weight babies, knowing that a baby does *not* have birth defects makes it more likely the mother smoked (the low weight has to come from somewhere). This "explaining away" effect induces a negative association between smoking and birth defects within the low-birth-weight stratum. Since birth defects strongly increase mortality, non-smoking low-birth-weight babies have *higher* mortality — not because smoking is protective, but because they are more likely to have birth defects.
+
+### Simulate data
+
+We generate binary mortality from a logistic DGP where smoking truly *increases* the probability of death. Birth weight has no direct effect on mortality — it serves purely as a collider.
+
+```{python}
+n_bw = 2000
+
+smoking = rng.choice([0.0, 1.0], size=n_bw, p=[0.7, 0.3])
+birth_defect = rng.choice([0.0, 1.0], size=n_bw, p=[0.90, 0.10])
+
+birth_weight = (
+    3.5 - 0.5 * smoking - 1.5 * birth_defect + rng.normal(scale=0.4, size=n_bw)
+)
+
+TRUE_SMOKING_EFFECT = 0.5
+logit_mortality = -3.0 + TRUE_SMOKING_EFFECT * smoking + 4.0 * birth_defect
+p_mortality = 1 / (1 + np.exp(-logit_mortality))
+mortality = rng.binomial(1, p_mortality).astype(float)
+
+df_bw = pd.DataFrame({
+    "smoking": smoking,
+    "birth_defect": birth_defect,
+    "birth_weight": birth_weight,
+    "mortality": mortality,
+})
+print(f"Mortality rate: {mortality.mean():.2%}")
+print(f"Mortality | smoking:     {df_bw.query('smoking == 1')['mortality'].mean():.2%}")
+print(f"Mortality | no smoking:  {df_bw.query('smoking == 0')['mortality'].mean():.2%}")
+```
+
+### The collider trap, visualized
+
+Before fitting models, we can see collider bias operating in the raw data. @fig-collider-scatter splits the sample at the median birth weight. In the full population, smoking raises mortality (as expected). But among low-birth-weight babies, the pattern reverses — smoking appears *protective*.
+
+```{python}
+# | label: fig-collider-scatter
+# | fig-cap: "Mortality rates by smoking status, stratified by birth weight. In the full population (left), smoking raises mortality. Among low-birth-weight babies (right), the relationship reverses — conditioning on the collider creates a spurious protective signal."
+# | code-fold: true
+
+COLOR_FULL = "#4575b4"
+COLOR_LOW_BW = "#d73027"
+
+bw_median = df_bw["birth_weight"].median()
+low_bw = df_bw[df_bw["birth_weight"] < bw_median]
+
+fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT * 0.85), sharey=True)
+
+for ax, subset, title, color in [
+    (axes[0], df_bw, "Full population", COLOR_FULL),
+    (axes[1], low_bw, "Low birth weight only", COLOR_LOW_BW),
+]:
+    rates = subset.groupby("smoking")["mortality"].mean()
+    bars = ax.bar(
+        [0, 1],
+        [rates.get(0, 0), rates.get(1, 0)],
+        color=color,
+        alpha=0.7,
+        width=0.5,
+        edgecolor=color,
+    )
+    for bar, val in zip(bars, [rates.get(0, 0), rates.get(1, 0)]):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.005,
+            f"{val:.1%}",
+            ha="center",
+            fontsize=10,
+            fontweight="bold",
+        )
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(["No smoking", "Smoking"])
+    ax.set_title(title)
+
+ymax = (
+    max(
+        df_bw.groupby("smoking")["mortality"].mean().max(),
+        low_bw.groupby("smoking")["mortality"].mean().max(),
+    )
+    * 1.3
+)
+axes[0].set_ylim(0, ymax)
+axes[0].set_ylabel("Mortality rate")
+plt.tight_layout()
+plt.show()
+```
+
+### The correct model
+
+The full structural model includes the causal arrows in @fig-collider-dag. We do *not* condition on birth weight when estimating the total effect of smoking on mortality — pathmc's structural specification keeps all paths active.
+
+```{python}
+spec_bw = """
+birth_weight ~ smoking + birth_defect
+mortality ~ b_smoking*smoking + birth_defect
+"""
+
+model_bw = pathmc.model(spec_bw, data=df_bw, families={"mortality": "bernoulli"})
+model_bw.equations()
+```
+
+#### Collider warnings and identification
+
+```{python}
+warnings = model_bw.collider_warnings({"birth_weight"}, "smoking", "mortality")
+for w in warnings:
+    print(w)
+```
+
+```{python}
+print(f"Identifiable?    {model_bw.is_identifiable('smoking', 'mortality')}")
+print(f"Adjustment sets: {model_bw.adjustment_sets('smoking', 'mortality')}")
+```
+
+```{python}
+model_bw.fit(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+```{python}
+r0 = model_bw.do(set={"smoking": 0.0}, kind="mean")
+r1 = model_bw.do(set={"smoking": 1.0}, kind="mean")
+
+ate_bw = r1 - r0
+print(f"P(mortality | do(smoking=0)): {r0.mean('mortality'):.3f}")
+print(f"P(mortality | do(smoking=1)): {r1.mean('mortality'):.3f}")
+print(f"ATE (risk difference):       {ate_bw.mean('mortality'):.3f}")
+print(f"94% HDI:                     {ate_bw.hdi('mortality', prob=0.94)}")
+```
+
+The ATE is positive — smoking increases mortality, as expected.
+
+### The biased analysis
+
+To demonstrate collider bias computationally, we fit a model that uses birth weight and smoking to predict mortality, without accounting for birth defects. By conditioning on birth weight (the collider), this model opens the spurious path `smoking - - birth_weight - - birth_defect → mortality`.
+
+```{python}
+biased_model = pathmc.model(
+    "mortality ~ b_smoking_biased*smoking + birth_weight",
+    data=df_bw,
+    families={"mortality": "bernoulli"},
+)
+biased_model.fit(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+```{python}
+biased_ate = biased_model.ate("mortality", "smoking", values=(0.0, 1.0))
+print(f"Biased ATE: {biased_ate.mean('mortality'):.3f}")
+print(f"94% HDI:    {biased_ate.hdi('mortality', prob=0.94)}")
+```
+
+### Comparing estimates
+
+@fig-collider-comparison shows the core result: the correct model recovers the true harmful effect of smoking, while the biased model (conditioning on the collider) attenuates it toward zero or reverses its sign.
+
+```{python}
+# | label: fig-collider-comparison
+# | fig-cap: "Correct vs biased ATE estimates. The correct model (including birth defects, not conditioning on the collider) recovers the true harmful effect. The biased model (conditioning on birth weight without birth defects) attenuates the effect toward zero."
+# | code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
+
+correct_val = ate_bw.mean("mortality")
+correct_hdi = ate_bw.hdi("mortality", prob=0.94)
+biased_val = biased_ate.mean("mortality")
+biased_hdi = biased_ate.hdi("mortality", prob=0.94)
+
+ax.errorbar(
+    biased_val,
+    1,
+    xerr=[[biased_val - biased_hdi[0]], [biased_hdi[1] - biased_val]],
+    fmt="o",
+    color="C3",
+    capsize=5,
+    label="Biased (conditions on collider)",
+)
+ax.errorbar(
+    correct_val,
+    0,
+    xerr=[[correct_val - correct_hdi[0]], [correct_hdi[1] - correct_val]],
+    fmt="o",
+    color="C0",
+    capsize=5,
+    label="Correct (full DAG)",
+)
+ax.axvline(0, color="gray", linestyle=":", alpha=0.5)
+ax.set_yticks([0, 1])
+ax.set_yticklabels(["Correct model", "Biased model"])
+ax.set_xlabel("ATE of smoking on mortality (risk difference)")
+ax.legend(loc="best", fontsize=9)
+plt.tight_layout()
+plt.show()
+```
+
+::: {.callout-warning}
+## Collider bias in action
+
+The biased model — which conditions on birth weight without accounting for birth defects — attenuates or reverses the harmful effect of smoking. This is exactly the birth-weight paradox: among babies of similar birth weight, smokers' babies appear healthier because the non-smoking low-weight babies are more likely to have birth defects.
+
+pathmc's `collider_warnings()` catches this before it leads to wrong conclusions.
+:::
+
+Every example above had a crucial advantage: the confounders were observed. But what if the confounder *cannot be measured*?
+
+## When backdoor fails: the front-door criterion {#sec-front-door}
+
+A company wants to know whether its advertising causes sales, but an unmeasured confounder — say, seasonal demand — drives both ad spending and sales. With no way to measure the confounder, the backdoor criterion fails. Is identification hopeless?
+
+Not necessarily. If advertising affects sales *through a measurable mediator* (say, website visits), and that mediator is not directly confounded with sales, Pearl's **front-door criterion** [@pearl2016primer, §3.4] provides an alternative path to identification.
+
+```{dot}
+//| label: fig-front-door-example
+//| fig-cap: "The advertising scenario as a front-door structure. Seasonal demand (unobserved) confounds ad spend and sales, but website visits mediate the full causal effect of advertising, enabling identification."
+//| fig-width: 5
+//| code-fold: true
+digraph {
+  rankdir=LR
+  node [shape=box, style="rounded,filled", fillcolor="lightyellow", fontname="Helvetica"]
+  seasonal_demand [label="Seasonal\ndemand", style="dashed,rounded", fillcolor="white"]
+  ad_spend [label="Ad spend"]
+  website_visits [label="Website\nvisits"]
+  sales [label="Sales"]
+
+  seasonal_demand -> ad_spend
+  seasonal_demand -> sales
+  ad_spend -> website_visits
+  website_visits -> sales
+}
+```
+
+### The causal structure
+
+The front-door structure has four key features: an unobserved confounder `U` that blocks backdoor identification, and a mediator `M` that carries the entire causal effect from `X` to `Y`.
+
+```{dot}
+//| label: fig-front-door-dag
+//| fig-cap: "Front-door structure: the unobserved confounder U (dashed) blocks backdoor identification of X → Y. But the mediator M satisfies the front-door criterion, enabling identification through the X → M → Y path."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  U [style=dashed]
+  U -> X
+  U -> Y
+  X -> M
+  M -> Y
+}
+```
+
+Three conditions make the front-door criterion work [@pearl2009causality]:
+
+1. `X → M` is unconfounded (no backdoor path from `X` to `M`)
+2. `M → Y` is confounded by `U`, but `X` blocks all backdoor paths from `M` to `Y`
+3. `M` fully mediates the effect of `X` on `Y` (no direct `X → Y` arrow)
+
+### Simulate data
+
+We generate data with a known confounding structure. The true causal effect of `X` on `Y` (through `M`) is `a × b = 0.6 × 0.5 = 0.3`. The confounder `U` inflates the naive `X → Y` association.
+
+```{python}
+n_fd = 1000
+
+U = rng.normal(size=n_fd)
+X_fd = 0.7 * U + rng.normal(scale=0.5, size=n_fd)
+M_fd = 0.6 * X_fd + rng.normal(scale=0.5, size=n_fd)
+Y_fd = 0.5 * M_fd + 0.8 * U + rng.normal(scale=0.5, size=n_fd)
+
+TRUE_INDIRECT = 0.6 * 0.5
+
+df_fd = pd.DataFrame({"X": X_fd, "M": M_fd, "Y": Y_fd})
+```
+
+Notice that `U` is **not** in the DataFrame — it is unobserved.
+
+### The confounding problem, visualized
+
+@fig-front-door-scatter shows why a naive analysis fails. The scatter of `X` vs `Y` has a steep slope because the confounder `U` pushes both variables in the same direction. The true causal effect (0.3) is much weaker than the observed association.
+
+```{python}
+# | label: fig-front-door-scatter
+# | fig-cap: "X vs Y colored by the unobserved confounder U. The raw regression slope (gray dashed) is steeper than the true causal effect (black dashed) because U inflates both X and Y."
+# | code-fold: true
+
+from numpy.polynomial.polynomial import polyfit
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+scatter = ax.scatter(X_fd, Y_fd, c=U, cmap="viridis", alpha=0.4, s=15, rasterized=True)
+cbar = plt.colorbar(scatter, ax=ax, label="Confounder U (unobserved)")
+
+raw_coeffs = polyfit(X_fd, Y_fd, 1)
+x_range = np.linspace(X_fd.min(), X_fd.max(), 100)
+ax.plot(
+    x_range,
+    raw_coeffs[0] + raw_coeffs[1] * x_range,
+    "--",
+    color="gray",
+    linewidth=2,
+    label=f"Raw slope = {raw_coeffs[1]:.2f} (confounded)",
+)
+ax.plot(
+    x_range,
+    np.mean(Y_fd) + TRUE_INDIRECT * (x_range - np.mean(X_fd)),
+    "--",
+    color="black",
+    linewidth=2,
+    label=f"True causal slope = {TRUE_INDIRECT} (front-door)",
+)
+
+ax.set_xlabel("X")
+ax.set_ylabel("Y")
+ax.legend(loc="upper left", fontsize=9)
+plt.tight_layout()
+plt.show()
+```
+
+### The naive approach fails
+
+A naive regression of `Y` on `X` (ignoring both the mediator and the confounder) gives a biased estimate because the backdoor path `X ← U → Y` is open.
+
+```{python}
+naive = pathmc.model("Y ~ b_naive*X", data=df_fd)
+naive.fit(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+```{python}
+naive_ate = naive.ate("Y", "X", values=(0.0, 1.0))
+print(f"Naive ATE:  {naive_ate.mean('Y'):.3f}  (true = {TRUE_INDIRECT:.1f})")
+print(f"94% HDI:    {naive_ate.hdi('Y', prob=0.94)}")
+```
+
+### The front-door solution: mediation
+
+The key insight: even though `U` confounds `X → Y`, the two sub-paths are separately identifiable.
+
+- **`X → M`**: `X` is the only cause of `M` in the DAG, so the `X → M` coefficient is unconfounded.
+- **`M → Y`**: `U` confounds this path, but conditioning on `X` blocks the backdoor `M ← X ← U → Y`. Since `X` is observed, the `M → Y` coefficient *conditional on X* is identified.
+
+The total causal effect is the product of these two identified coefficients: `a × b`.
+
+```{python}
+spec_fd = """
+M ~ a*X
+Y ~ b*M + X
+indirect := a*b
+"""
+
+model_fd = pathmc.model(spec_fd, data=df_fd)
+model_fd.graph()
+```
+
+```{python}
+model_fd.equations()
+```
+
+::: {.callout-important}
+## Why include X in the Y equation?
+
+The regression `Y ~ M + X` is not about the direct effect of `X` on `Y` (there is none in the true DAG). Including `X` as a covariate in the `Y` equation **blocks the backdoor path** from `M` to `Y` through `U` (the path `M ← X ← U → Y`). Without `X` in this equation, the `b` coefficient would absorb confounding from `U`.
+:::
+
+### Identification check
+
+The backdoor criterion cannot find an adjustment set for `X → Y` (there is none — the confounder is unobserved):
+
+```{python}
+print(f"Backdoor identifiable? {model_fd.is_identifiable('X', 'Y')}")
+print(f"Adjustment sets:       {model_fd.adjustment_sets('X', 'Y')}")
+```
+
+But the front-door criterion *can* identify the effect through `M`. Because the estimation spec adds `X` to the `Y` equation (an adjustment edge absent from the true causal DAG), we check against the causal structure directly:
+
+```{python}
+from pathmc.graph import build_graph
+from pathmc.identify import frontdoor_identifiable
+from pathmc.parse import parse_spec
+
+causal_graph = build_graph(parse_spec("M ~ X\nY ~ M"))
+identifiable, message = frontdoor_identifiable(causal_graph, "X", "M", "Y")
+print(f"Front-door identifiable? {identifiable}")
+print(f"Message: {message}")
+```
+
+### Fit the model
+
+```{python}
+model_fd.fit(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+```{python}
+model_fd.effects_summary()
+```
+
+The `indirect` parameter (`a × b`) recovers the true causal effect without observing `U`.
+
+```{python}
+effects = model_fd.effects_summary()
+fd_mean = effects.loc["indirect", "mean"]
+fd_hdi_low = effects.loc["indirect", "hdi_3%"]
+fd_hdi_high = effects.loc["indirect", "hdi_97%"]
+print(f"Front-door indirect (a×b): {fd_mean:.3f}  (true = {TRUE_INDIRECT:.1f})")
+print(f"94% HDI:                   [{fd_hdi_low:.3f}, {fd_hdi_high:.3f}]")
+```
+
+::: {.callout-warning}
+## Why not use `model.ate("Y", "X")` here?
+
+The `do(X)` operator performs graph surgery on the structural equations *as written*. Because the spec includes `X` in the `Y` equation (`Y ~ b*M + X`), `do(X)` propagates the intervention through *both* the mediated path (`X → M → Y`) and the `X` coefficient in the `Y` equation. But that `X` coefficient is not a causal effect — it is a confounding proxy for `U`, included only to block the backdoor path from `M` to `Y`. The `do()` operator cannot distinguish adjustment variables from causal arrows.
+
+For the front-door criterion, the correct estimate is the **defined parameter** `indirect := a*b`, which computes the product of the two identified path coefficients.
+:::
+
+### Comparing approaches
+
+@fig-front-door-comparison summarizes the core result: the naive regression overshoots because of confounding, while the front-door indirect effect `a × b` recovers the true causal effect.
+
+```{python}
+# | label: fig-front-door-comparison
+# | fig-cap: "Naive regression vs front-door indirect effect. The naive estimate (confounded by U) overestimates the causal effect. The front-door mediation model recovers the true effect of 0.3 via the indirect path a × b. Black dashed line marks the true DGP value."
+# | code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
+
+naive_val = naive_ate.mean("Y")
+naive_hdi = naive_ate.hdi("Y", prob=0.94)
+
+ax.errorbar(
+    naive_val,
+    1,
+    xerr=[[naive_val - naive_hdi[0]], [naive_hdi[1] - naive_val]],
+    fmt="o",
+    color="C3",
+    capsize=5,
+    label="Naive (confounded)",
+)
+ax.errorbar(
+    fd_mean,
+    0,
+    xerr=[[fd_mean - fd_hdi_low], [fd_hdi_high - fd_mean]],
+    fmt="o",
+    color="C0",
+    capsize=5,
+    label="Front-door (indirect a×b)",
+)
+ax.axvline(
+    TRUE_INDIRECT,
+    color="black",
+    linestyle="--",
+    label=f"True causal effect ({TRUE_INDIRECT})",
+)
+ax.set_yticks([0, 1])
+ax.set_yticklabels(["Front-door", "Naive"])
+ax.set_xlabel("ATE of X on Y")
+ax.legend(loc="best", fontsize=9)
+plt.tight_layout()
+plt.show()
+```
+
+### When does the front-door criterion apply?
+
+The front-door criterion requires a specific DAG structure [@pearl2016primer, §3.4]:
+
+1. **Complete mediation**: `X` affects `Y` *only* through `M` (no direct `X → Y` edge).
+2. **No `X → M` confounding**: there is no unobserved common cause of `X` and `M`.
+3. **`M → Y` confounding is blocked by `X`**: conditioning on `X` closes all backdoor paths from `M` to `Y`.
+
+These conditions are strong and may not hold in many applied settings. But when they do hold, the front-door criterion identifies the causal effect even with unmeasured confounding of `X` and `Y`.
+
+::: {.callout-tip}
+## From front-door to mediation
+
+In pathmc, the front-door criterion is implemented naturally as mediation analysis: label the path coefficients, define the indirect effect with `:=`, and let the structural model handle identification. This means you don't need a separate "front-door estimator" — the same tools used for mediation analysis apply here.
+:::
+
+## Summary
+
+- **Confounders** (common causes) must be adjusted for. `.adjustment_sets()` identifies them.
+- **Mediators** are descendants of treatment — they are automatically excluded from backdoor sets. Conditioning on them when estimating the total effect blocks the causal path and introduces bias.
+- **Colliders** must *not* be adjusted for. `.collider_warnings()` flags them.
+- **`.is_identifiable()`** tells you whether any valid backdoor adjustment set exists before you run a single MCMC sample.
+- **Collider bias** is *created* by analysis choices, not present in the raw data. The **birth-weight paradox** (@sec-birth-weight) demonstrates how conditioning on a collider can reverse a harmful effect, making smoking appear protective among low-birth-weight babies.
+- **Unmeasured confounding** blocks the backdoor criterion, but the **front-door criterion** (@sec-front-door) can still identify the effect when all causal paths flow through a measured mediator. `.frontdoor_identifiable()` checks the three required conditions.
+- **The DAG encodes your assumptions.** pathmc's identification helpers check the logical consequences of those assumptions, but the DAG itself must come from domain knowledge.
+
+::: {.callout-note}
+## Reflection
+
+Which variables in your analysis might be colliders — or unmeasured confounders?
+
+- **Collider trap**: "customer satisfaction" is caused by both product quality and marketing — conditioning on it when estimating the effect of marketing on retention could introduce collider bias.
+- **Front-door opportunity**: if a confounder is unmeasured but the treatment affects the outcome entirely through a measurable mediator (e.g. ad spend → clicks → purchases, with seasonal demand confounding ad spend and purchases), the front-door criterion may rescue identification.
+- **Hiring**: "Top university" and "strong portfolio" both cause "getting hired." Among hired employees, university prestige and portfolio quality will appear negatively correlated — conditioning on the collider.
+:::

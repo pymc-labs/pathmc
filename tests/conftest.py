@@ -13,6 +13,7 @@
 #   limitations under the License.
 import numpy as np
 import pandas as pd
+import pymc as pm
 import pytest
 
 try:  # pragma: no cover - depends on the installed PyMC test helpers
@@ -22,6 +23,26 @@ try:  # pragma: no cover - depends on the installed PyMC test helpers
 except Exception:  # pragma: no cover
     mock_sample_setup_and_teardown = None
     _HAVE_PYMC_TESTING = False
+
+
+# Single, fast sampler configuration applied to every ``pm.sample()`` call in
+# the suite. The tests assert on coarse, wide-tolerance behavior rather than
+# precise posteriors, so short single-chain runs are enough — and a single
+# in-process chain avoids the per-chain process spawn/serialization overhead
+# that dominates wall-time for these tiny models.
+SAMPLE_KWARGS = {"draws": 50, "tune": 50, "chains": 1, "cores": 1}
+
+
+@pytest.fixture(autouse=True)
+def _fast_sampling(monkeypatch):
+    """Force ``SAMPLE_KWARGS`` onto every ``pm.sample()`` call in the suite."""
+    original_sample = pm.sample
+
+    def _sample(*args, **kwargs):
+        kwargs.update(SAMPLE_KWARGS)
+        return original_sample(*args, **kwargs)
+
+    monkeypatch.setattr(pm, "sample", _sample)
 
 
 if _HAVE_PYMC_TESTING:

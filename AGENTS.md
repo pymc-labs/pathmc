@@ -69,7 +69,9 @@ uv run great-docs build --no-refresh   # faster rebuild — skips API rediscover
 uv run great-docs preview              # local server on http://localhost:3000
 ```
 
-The `great-docs/` directory is **ephemeral**: it is wiped at the start of every build and listed in `.gitignore`. Never edit files under `great-docs/` directly — change source files (`docs/user_guide/*.qmd`, `docs/examples/*.qmd`, `great-docs.yml`, `pathmc/skills/pathmc/SKILL.md`) instead.
+The `great-docs/` directory is **ephemeral**: it is wiped at the start of every build and listed in `.gitignore`. Never edit files under `great-docs/` directly — change source files (`docs/user_guide/*.qmd`, `docs/examples/**/*.qmd`, `great-docs.yml`, `pathmc/skills/pathmc/SKILL.md`) instead.
+
+**Examples layout.** Source notebooks live under `docs/examples/` (grouped into `01-foundations/`, `03-identification/`, etc.). A repo-root symlink `examples -> docs/examples` exists because Great Docs Page Tags only scans `great-docs/examples/` at build time (`sections.dir` must be `examples`, not `docs/examples`). Do not delete the symlink.
 
 #### Notebooks are frozen — refresh after edits
 
@@ -78,7 +80,7 @@ The `great-docs/` directory is **ephemeral**: it is wiped at the start of every 
 After editing an executable page, or after a pathmc API change that affects rendered output:
 
 ```bash
-uv run great-docs freeze docs/examples/my_page.qmd     # or multiple paths
+uv run great-docs freeze docs/examples/01-foundations/my_page.qmd   # or multiple paths
 git add _freeze/
 git commit -m "Refresh freeze cache for my_page"
 ```

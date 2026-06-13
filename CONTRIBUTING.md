@@ -71,11 +71,13 @@ Run fast tests only, excluding slow MCMC sampling tests:
 make test-fast
 ```
 
-Run the full test suite, including slow integration tests:
+Run the full test suite, including slow integration tests, and report coverage:
 
 ```bash
 make test
 ```
+
+`make test` measures line and branch coverage of `pathmc` and fails if total coverage drops below the `fail_under` threshold in `pyproject.toml` (`[tool.coverage.report]`). The same command and gate run in CI on every pull request. Coverage is intentionally not collected by `make test-fast` or by single-file gate runs, so those stay fast and never trip the threshold on a partial run.
 
 Run a targeted milestone or module test while iterating:
 
@@ -100,7 +102,7 @@ make lint
 - Link the issue being addressed, preferably with `Closes #<issue-number>` in the pull request description.
 - Add or update tests for user-facing behavior changes.
 - Update documentation, examples, or README content when behavior or setup instructions change.
-- Run the relevant targeted tests, `make test-fast`, and `make check_lint` before requesting review.
+- Run the relevant targeted tests, `make test-fast` or `make test`, and `make check_lint` before requesting review. Pull requests also run `make test` in GitHub Actions (the full suite, including slow MCMC tests).
 - Label the pull request before merge so GitHub's generated release notes place it in the correct category; use labels such as `bug`, `documentation`, or `enhancement` when they apply.
 - Mark work-in-progress pull requests as drafts until the implementation and test plan are ready for review.
 

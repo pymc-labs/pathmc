@@ -1,0 +1,245 @@
+---
+title: "Custom Priors"
+description: "Refine prior distributions using an iterative inspect-check-refine workflow with prior predictive checks."
+tags: [Priors]
+image: thumbnails/custom_priors.png
+jupyter: pathmc
+---
+
+Every Bayesian model encodes assumptions about plausible parameter values *before* seeing data.
+pathmc ships with weakly informative defaults that work out of the box, but domain knowledge almost always lets you do better.
+Tighter, more realistic priors improve sampling efficiency, reduce the influence of prior-data conflict, and --- critically for causal inference --- produce more credible interventional predictions from `do()`.
+
+This example walks through the iterative prior workflow: inspect the defaults, run a prior predictive check, refine, and verify.
+
+## Simulate data with known structure
+
+We generate data from a simple causal chain where a treatment `X` affects an outcome `Y` through a mediator `M`, with known coefficients.
+
+```{dot}
+//| label: fig-dag
+//| fig-cap: "Causal DAG: X affects Y directly (c = 0.3) and indirectly through M (a = 0.5, b = 0.8)."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  X -> M [label="a = 0.5"]
+  M -> Y [label="b = 0.8"]
+  X -> Y [label="c = 0.3"]
+}
+```
+
+```{python}
+import numpy as np
+import pandas as pd
+import pathmc
+from pathmc import Prior
+
+rng = np.random.default_rng(42)
+n = 500
+
+X = rng.normal(size=n)
+M = 0.5 * X + rng.normal(scale=0.3, size=n)
+Y = 0.8 * M + 0.3 * X + rng.normal(scale=0.3, size=n)
+
+df = pd.DataFrame({"X": X, "M": M, "Y": Y})
+```
+
+True values: $a = 0.5$, $b = 0.8$, $c = 0.3$, $\sigma_M = 0.3$, $\sigma_Y = 0.3$.
+
+## Inspect the default priors
+
+When you call `pathmc.model()` without specifying priors, sensible defaults are used.
+The `.equations()` method shows the structural equations alongside the priors.
+
+```{python}
+spec = """
+M ~ a*X
+Y ~ b*M + c*X
+"""
+
+model = pathmc.model(spec, data=df)
+model.equations()
+```
+
+The defaults are deliberately vague: `Normal(mu=0, sigma=10)` for regression coefficients and `HalfNormal(sigma=1)` for residual standard deviations. These are reasonable starting points when you know nothing about the scale of your data, but they may be wider than necessary.
+
+## Prior predictive check: are defaults plausible?
+
+A **prior predictive check** asks: "If we sampled parameters from our priors and generated fake data, would it look remotely like real-world data?" If the prior implies outcomes spanning thousands of units when the real data lives in $[-3, 3]$, the priors are too vague.
+
+```{python}
+# | code-fold: true
+import matplotlib.pyplot as plt
+import arviz as az
+
+FIG_WIDTH = 7
+FIG_HEIGHT = 3.5
+
+COLOR_DEFAULT = "#1b9e77"
+COLOR_CUSTOM = "#d95f02"
+COLOR_TRUE = "black"
+```
+
+```{python}
+ppc_default = model.sample_prior_predictive(draws=500, random_seed=42)
+```
+
+```{python}
+# | label: fig-ppc-default
+# | fig-cap: "Prior predictive distribution of Y under default priors. The wide tails (spanning well beyond ±10) indicate the model considers extreme outcomes plausible before seeing data."
+# | code-fold: true
+
+y_prior = ppc_default.prior["Y"].values.flatten()
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+x_kde, y_kde, _ = az.kde(y_prior)
+ax.plot(x_kde, y_kde, color=COLOR_DEFAULT, lw=2, label="Prior predictive (default)")
+ax.fill_between(x_kde, y_kde, alpha=0.6, color=COLOR_DEFAULT)
+ax.axvline(
+    df["Y"].mean(),
+    color=COLOR_TRUE,
+    linestyle="--",
+    linewidth=1.5,
+    label=f"Observed mean = {df['Y'].mean():.2f}",
+)
+ax.set_xlabel("Y")
+ax.set_ylabel("Density")
+ax.legend()
+ax.set_title("Prior predictive: default priors")
+plt.tight_layout()
+plt.show()
+```
+
+The default priors generate Y values spanning a huge range. For this dataset, where Y lives roughly in $[-2, 2]$, coefficients of $\pm 10$ are implausible. We can do better.
+
+## Refine priors with `set_priors()`
+
+The `set_priors()` method lets you override specific priors without re-specifying the model. It merges your changes with the current configuration and recompiles.
+
+Since we know the predictors and outcomes are roughly standard-normal, regression coefficients above $\pm 3$ in magnitude are implausible. We also know the residual noise should be moderate --- not zero, but not 10 either.
+
+```{python}
+model.set_priors({
+    "beta_M": Prior("Normal", mu=0, sigma=2),
+    "beta_Y": Prior("Normal", mu=0, sigma=2),
+    "sigma_M": Prior("HalfNormal", sigma=0.5),
+    "sigma_Y": Prior("HalfNormal", sigma=0.5),
+})
+
+model.equations()
+```
+
+```{python}
+ppc_custom = model.sample_prior_predictive(draws=500, random_seed=42)
+```
+
+```{python}
+# | label: fig-ppc-comparison
+# | fig-cap: "Prior predictive distributions of Y under default (green) and refined (orange) priors. The custom priors concentrate mass in the plausible range without excluding any realistic values."
+# | code-fold: true
+
+y_default = ppc_default.prior["Y"].values.flatten()
+y_custom = ppc_custom.prior["Y"].values.flatten()
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+
+x_kde, y_kde, _ = az.kde(y_default)
+ax.plot(x_kde, y_kde, color=COLOR_DEFAULT, lw=2, label="Default priors")
+ax.fill_between(x_kde, y_kde, alpha=0.45, color=COLOR_DEFAULT)
+x_kde, y_kde, _ = az.kde(y_custom)
+ax.plot(x_kde, y_kde, color=COLOR_CUSTOM, lw=2, label="Custom priors")
+ax.fill_between(x_kde, y_kde, alpha=0.55, color=COLOR_CUSTOM)
+ax.axvline(
+    df["Y"].mean(),
+    color=COLOR_TRUE,
+    linestyle="--",
+    linewidth=1.5,
+    label=f"Observed mean = {df['Y'].mean():.2f}",
+)
+ax.set_xlabel("Y")
+ax.set_ylabel("Density")
+ax.legend()
+ax.set_title("Prior predictive comparison")
+plt.tight_layout()
+plt.show()
+```
+
+The custom priors concentrate probability mass in the plausible range. The model still allows coefficients up to $\pm 4$--$6$ (the $2\sigma$ range of `Normal(0, 2)`), which is generous, but it no longer considers coefficients of 10 or 20 as likely.
+
+## Sample and verify
+
+With priors that encode our domain knowledge, we can proceed to posterior inference.
+
+```{python}
+model.fit(draws=500, tune=500, chains=4, random_seed=42)
+```
+
+```{python}
+model.effects_summary()
+```
+
+The posterior means should be close to the true values ($a = 0.5$, $b = 0.8$, $c = 0.3$).
+
+## Specifying priors up front
+
+If you already know your priors before fitting, you can pass them directly to `model()` instead of using the two-step inspect-then-refine approach.
+
+```{python}
+model_upfront = pathmc.model(
+    spec,
+    data=df,
+    priors={
+        "beta_M": Prior("Normal", mu=0, sigma=2),
+        "beta_Y": Prior("Normal", mu=0, sigma=2),
+        "sigma_M": Prior("HalfNormal", sigma=0.5),
+        "sigma_Y": Prior("HalfNormal", sigma=0.5),
+    },
+)
+
+model_upfront.equations()
+```
+
+Both approaches produce the same compiled model.
+
+## Using different distribution families
+
+The `Prior` class supports any PyMC distribution. When domain knowledge suggests a specific shape --- for example, that a coefficient should be positive, or bounded --- you can express that directly.
+
+```{python}
+model_informative = pathmc.model(
+    spec,
+    data=df,
+    priors={
+        "sigma_M": Prior("Exponential", lam=3),
+        "sigma_Y": Prior("Exponential", lam=3),
+    },
+)
+
+model_informative.equations()
+```
+
+::: {.callout-tip}
+## Discovering valid prior keys
+
+Call `.equations()` on any model to see both the structural equations and the full list of prior parameter names you can customize. Use `.equations(show="priors")` to see only the priors. The keys depend on your model specification --- a model with random slopes will have `mu_slope_*` and `sigma_slope_*` keys, while a model with transforms will include the transform parameter names.
+:::
+
+## Summary
+
+- **Default priors** (`Normal(0, 10)` for coefficients, `HalfNormal(1)` for scales) work out of the box and require zero configuration.
+- **`.equations()`** shows the structural equations and the current prior specification for every model parameter. Use `show="priors"` to see only the priors.
+- **`.sample_prior_predictive()`** generates data from the prior to verify that your assumptions produce plausible outcomes.
+- **`.set_priors()`** merges overrides into the current prior configuration and recompiles the model. Only the specified parameters change; everything else keeps its current value.
+- **`model(priors=...)`** accepts priors at creation time for a one-step workflow.
+- **Any PyMC distribution** can serve as a prior via `Prior("DistName", ...)` from `pymc_extras`.
+- The **iterative workflow** --- inspect, check, refine, re-check, sample --- is the principled approach to prior specification in Bayesian modeling. See [Bayesian Workflow](../../../user-guide/bayesian-workflow.qmd) for the full end-to-end cycle from model specification through causal queries.
+
+::: {.callout-note}
+## Adapt this to your domain
+
+Consider the quantities in your own causal model. What range of coefficient values would be scientifically absurd? If a 1-unit change in an input could never plausibly produce a 50-unit change in the outcome, a `Normal(0, 10)` prior is too generous.
+
+- **Clinical trials**: effect sizes above 1--2 standard deviations are rare; a `Normal(0, 1)` or `Normal(0, 2)` on standardized coefficients is often appropriate.
+- **Marketing**: elasticities (percent change in sales per percent change in spend) are typically in $[0, 0.5]$; a `HalfNormal(sigma=0.3)` keeps the prior realistic.
+- **Economics**: use prior studies or meta-analyses to set informative priors on known structural parameters.
+:::

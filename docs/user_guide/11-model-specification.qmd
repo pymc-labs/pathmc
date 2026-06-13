@@ -135,7 +135,7 @@ spec = "Y ~ c*X:Z"
 - **Transforms inside interactions** (e.g., `adstock(X):Z`) are not supported. Apply transforms to the constituent variables before fitting, or use separate transformed columns.
 :::
 
-For a full worked example of moderation analysis with interaction terms, see [Moderation (Effect Modification)](../docs/examples/moderation.qmd).
+For a full worked example of moderation analysis with interaction terms, see [Moderation (Effect Modification)](../examples/02-effect-estimation/moderation.qmd).
 
 ### Defined parameters
 
