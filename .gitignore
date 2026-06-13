@@ -6,6 +6,10 @@ build/
 dist/
 .build-check/
 .pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 .github/pr-summaries/
 
 # Great Docs build directory at repo root (regenerated on every `great-docs build`).
