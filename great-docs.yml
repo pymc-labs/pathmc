@@ -30,7 +30,10 @@ user_guide: docs/user_guide
 # Custom Sections ------------------------------------------------------------
 sections:
   - title: Examples
-    dir: docs/examples
+    # Symlink at repo root: examples -> docs/examples. Great Docs copies
+    # sections to great-docs/examples/, which must match the title slug
+    # ("examples") for Page Tags scanning. Source content stays under docs/.
+    dir: examples
     index: true
     # index_columns is clamped to a max of 2 by great-docs; the grid is
     # responsive (auto-fill) and shows more columns on wide screens anyway.
@@ -47,16 +50,25 @@ tags:
   enabled: true
   icons:
     Causal Inference: git-fork
-    Fundamentals: rocket
+    do-Operator: zap
+    Identification: search
+    Backdoor Criterion: shield
+    Front-Door Criterion: door-open
+    Collider Bias: alert-triangle
+    G-Computation: calculator
+    Treatment Effects: target
     Counterfactuals: split
+    Mediation: route
+    Moderation: sliders-horizontal
+    Sensitivity Analysis: activity
+    Panel Data: table
+    Difference-in-Differences: git-compare
+    Simulation: dices
     Priors: sliders-horizontal
     Transforms: waves
-    Extensibility: puzzle
-    Simulation: dices
-    Panel Data: table
-    Applications: briefcase
-    Mediation: route
-    Marketing: megaphone
+    Latent Variables: eye-off
+    Media Mix Modeling: megaphone
+    Hierarchical Effects: layers
 
 # API Reference --------------------------------------------------------------
 # Public surface only: model() / simulate() / add_lags() and the PathModel
