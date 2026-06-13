@@ -1,7 +1,6 @@
 ---
 title: "Dynamic Pricing Across Regions"
 description: "Estimate true price elasticity from observational data, accounting for confounding and regional heterogeneity."
-categories: [Applications, Panel Data]
 tags: [Applications, Panel Data]
 image: thumbnails/dynamic_pricing.png
 jupyter: pathmc

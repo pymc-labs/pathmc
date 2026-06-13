@@ -1,7 +1,6 @@
 ---
 title: "Moderation (Effect Modification)"
 description: "Model treatment effect heterogeneity using interaction terms — the effect of X on Y depends on context Z."
-categories: [Causal Inference]
 tags: [Causal Inference]
 image: thumbnails/moderation.png
 jupyter: pathmc

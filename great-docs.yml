@@ -40,8 +40,8 @@ sections:
 # Page Tags ------------------------------------------------------------------
 # Activates clickable tag pills under each page title and an auto-generated
 # tag index page ("Tags" navbar link) that groups pages by tag. Per-page tags
-# live in each example's `tags:` frontmatter (mirrors the curated `categories:`
-# taxonomy). Note: tags drive navigation, not in-place faceted filtering —
+# live in each example's `tags:` frontmatter and are the single source of truth
+# for the example taxonomy. Note: tags drive navigation, not in-place filtering —
 # clicking a pill jumps to that tag's section on the index page.
 tags:
   enabled: true

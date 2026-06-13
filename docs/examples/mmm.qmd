@@ -1,7 +1,6 @@
 ---
 title: "Media Mix Models"
 description: "Build MMMs of increasing complexity: adstock and saturation transforms, marketing funnel mediation, and hierarchical geo-varying effects."
-categories: [Marketing, Panel Data, Mediation]
 tags: [Marketing, Panel Data, Mediation]
 image: thumbnails/mmm.png
 jupyter: pathmc

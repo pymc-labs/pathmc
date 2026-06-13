@@ -1,7 +1,6 @@
 ---
 title: "The do() Operator"
 description: "Contrast conditioning P(Y|X=x) with intervening P(Y|do(X=x)), then master the full do() API — ATE, CATE, ATT/ATU, contrast arithmetic, and predictive propagation."
-categories: [Fundamentals, Causal Inference]
 tags: [Fundamentals, Causal Inference]
 image: thumbnails/causal_do_operator.png
 jupyter: pathmc

@@ -1,7 +1,6 @@
 ---
 title: "Custom Transforms"
 description: "Define domain-specific nonlinearities with estimable parameters and use them in the pathmc DSL."
-categories: [Transforms, Extensibility]
 tags: [Transforms, Extensibility]
 image: thumbnails/custom_transforms.png
 jupyter: pathmc
