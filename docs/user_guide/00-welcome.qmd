@@ -4,7 +4,7 @@ guide-section: "Getting Started"
 jupyter: pathmc
 ---
 
-![](../assets/logo.png){width=75% fig-align="center"}
+![](logo.png){width=75% fig-align="center"}
 
 **Structural causal models, made simple.**
 
