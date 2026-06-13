@@ -123,13 +123,9 @@ COLOR_CUSTOM = "#d95f02"
 y_prior = ppc_default.prior["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_kde(
-    y_prior,
-    ax=ax,
-    plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
-    fill_kwargs={"alpha": 0.6, "color": COLOR_DEFAULT},
-    label="Prior predictive (defaults)",
-)
+x_kde, y_kde, _ = az.kde(y_prior)
+ax.plot(x_kde, y_kde, color=COLOR_DEFAULT, lw=2, label="Prior predictive (defaults)")
+ax.fill_between(x_kde, y_kde, alpha=0.6, color=COLOR_DEFAULT)
 ax.axvline(
     df["Y"].mean(),
     color="black",
@@ -177,20 +173,12 @@ y_default = ppc_default.prior["Y"].values.flatten()
 y_custom = ppc_custom.prior["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_kde(
-    y_default,
-    ax=ax,
-    plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
-    fill_kwargs={"alpha": 0.45, "color": COLOR_DEFAULT},
-    label="Default priors",
-)
-az.plot_kde(
-    y_custom,
-    ax=ax,
-    plot_kwargs={"color": COLOR_CUSTOM, "lw": 2},
-    fill_kwargs={"alpha": 0.55, "color": COLOR_CUSTOM},
-    label="Refined priors",
-)
+x_kde, y_kde, _ = az.kde(y_default)
+ax.plot(x_kde, y_kde, color=COLOR_DEFAULT, lw=2, label="Default priors")
+ax.fill_between(x_kde, y_kde, alpha=0.45, color=COLOR_DEFAULT)
+x_kde, y_kde, _ = az.kde(y_custom)
+ax.plot(x_kde, y_kde, color=COLOR_CUSTOM, lw=2, label="Refined priors")
+ax.fill_between(x_kde, y_kde, alpha=0.55, color=COLOR_CUSTOM)
 ax.axvline(
     df["Y"].mean(),
     color="black",
@@ -254,20 +242,12 @@ pp = model.predict()
 y_pred = pp.posterior_predictive["Y"].values.flatten()
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-az.plot_kde(
-    df["Y"].values,
-    ax=ax,
-    plot_kwargs={"color": COLOR_DEFAULT, "lw": 2},
-    fill_kwargs={"alpha": 0.5, "color": COLOR_DEFAULT},
-    label="Observed Y",
-)
-az.plot_kde(
-    y_pred,
-    ax=ax,
-    plot_kwargs={"color": COLOR_CUSTOM, "lw": 2},
-    fill_kwargs={"alpha": 0.5, "color": COLOR_CUSTOM},
-    label="Posterior predictive Y",
-)
+x_kde, y_kde, _ = az.kde(df["Y"].values)
+ax.plot(x_kde, y_kde, color=COLOR_DEFAULT, lw=2, label="Observed Y")
+ax.fill_between(x_kde, y_kde, alpha=0.5, color=COLOR_DEFAULT)
+x_kde, y_kde, _ = az.kde(y_pred)
+ax.plot(x_kde, y_kde, color=COLOR_CUSTOM, lw=2, label="Posterior predictive Y")
+ax.fill_between(x_kde, y_kde, alpha=0.5, color=COLOR_CUSTOM)
 ax.set_xlabel("Y")
 ax.set_ylabel("Density")
 ax.legend()

@@ -179,14 +179,8 @@ true_cate = TRUE_MAIN_X + TRUE_INTER * z_grid
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-az.plot_hdi(
-    z_grid,
-    cate_draws_2d,
-    ax=ax,
-    smooth=False,
-    color=COLOR_X,
-    fill_kwargs={"alpha": 0.25},
-)
+hdi_1 = az.hdi(cate_draws_2d, prob=0.94, axis=0)
+ax.fill_between(z_grid, hdi_1[:, 0], hdi_1[:, 1], alpha=0.25, color=COLOR_X)
 ax.plot(z_grid, cate_draws_2d.mean(axis=0), color=COLOR_X, lw=2, label="Estimated CATE")
 ax.plot(z_grid, true_cate, "--", color=COLOR_TRUE, lw=2, label="True CATE")
 ax.axhline(0, color="gray", lw=0.8, ls=":")
@@ -205,7 +199,7 @@ The estimated CATE tracks the true function closely, with posterior uncertainty 
 Because the model is linear, the CATE is a simple function of the posterior draws for `a` and `c`. We can verify that the `cate()`-based computation matches the algebraic formula:
 
 ```{python}
-posterior = idata.posterior.stack(sample=("chain", "draw"))
+posterior = idata.posterior.to_dataset().stack(sample=("chain", "draw"))
 a_draws = posterior["beta_Y"].sel(Y_predictors="X").values
 c_draws = posterior["beta_Y"].sel(Y_predictors="X:Z").values
 

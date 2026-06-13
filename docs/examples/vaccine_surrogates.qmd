@@ -138,13 +138,9 @@ for vax_val, color, label in [
     (1, COLOR_VACCINE, "Vaccinated"),
 ]:
     vals = antibody[vaccine == vax_val]
-    az.plot_kde(
-        vals,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.3, "color": color},
-        label=label,
-    )
+    x_kde, y_kde, _ = az.kde(vals)
+    ax.plot(x_kde, y_kde, color=color, lw=2, label=label)
+    ax.fill_between(x_kde, y_kde, alpha=0.3, color=color)
 ax.set_xlabel("Antibody level")
 ax.set_ylabel("Density")
 ax.legend()
@@ -366,13 +362,9 @@ for draws, color, label in [
     (indirect_draws, COLOR_ANTIBODY, "Indirect (via antibodies)"),
     (controlled_direct.draws("hospitalized"), COLOR_DIRECT, "Direct (non-antibody)"),
 ]:
-    az.plot_kde(
-        draws,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.25, "color": color},
-        label=label,
-    )
+    x_kde, y_kde, _ = az.kde(draws)
+    ax.plot(x_kde, y_kde, color=color, lw=2, label=label)
+    ax.fill_between(x_kde, y_kde, alpha=0.25, color=color)
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -469,14 +461,8 @@ cate_draws_2d = np.column_stack(cate_draws_list)
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 ax.plot(ages, cate_draws_2d.mean(axis=0), "o-", color=COLOR_VACCINE, lw=2, ms=6)
-az.plot_hdi(
-    ages,
-    cate_draws_2d,
-    ax=ax,
-    smooth=False,
-    color=COLOR_VACCINE,
-    fill_kwargs={"alpha": 0.2},
-)
+hdi_1 = az.hdi(cate_draws_2d, prob=0.94, axis=0)
+ax.fill_between(ages, hdi_1[:, 0], hdi_1[:, 1], alpha=0.2, color=COLOR_VACCINE)
 ax.axhline(0, color="black", ls=":", alpha=0.3)
 ax.set_xlabel("Age (standardized)")
 ax.set_ylabel("ΔP(hospitalized) from vaccination")

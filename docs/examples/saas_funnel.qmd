@@ -355,12 +355,9 @@ fig, axes = plt.subplots(1, 3, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 for ax, var, label, color in zip(axes, stages, stage_labels, colors):
     draws = contrast.draws(var)
-    az.plot_kde(
-        draws,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.3, "color": color},
-    )
+    x_kde, y_kde, _ = az.kde(draws)
+    ax.plot(x_kde, y_kde, color=color, lw=2)
+    ax.fill_between(x_kde, y_kde, alpha=0.3, color=color)
     ax.axvline(draws.mean(), color=color, ls="--", lw=1.5, alpha=0.7)
     ax.axvline(0, color="black", ls=":", alpha=0.3)
     ax.set_xlabel(label)
@@ -412,13 +409,9 @@ for lift_obj, color, label in [
     (lift_onboarding, COLOR_ONBOARDING, "+2 onboarding score"),
 ]:
     draws = lift_obj.draws("converted")
-    az.plot_kde(
-        draws,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.25, "color": color},
-        label=label,
-    )
+    x_kde, y_kde, _ = az.kde(draws)
+    ax.plot(x_kde, y_kde, color=color, lw=2, label=label)
+    ax.fill_between(x_kde, y_kde, alpha=0.25, color=color)
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -448,12 +441,9 @@ c_act_draws = (
 )
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.8))
-az.plot_kde(
-    c_act_draws,
-    ax=ax,
-    plot_kwargs={"color": COLOR_ACTIVATION, "lw": 2},
-    fill_kwargs={"alpha": 0.3, "color": COLOR_ACTIVATION},
-)
+x_kde, y_kde, _ = az.kde(c_act_draws)
+ax.plot(x_kde, y_kde, color=COLOR_ACTIVATION, lw=2)
+ax.fill_between(x_kde, y_kde, alpha=0.3, color=COLOR_ACTIVATION)
 ax.axvline(c_act_draws.mean(), color=COLOR_ACTIVATION, ls="--", lw=1.5, alpha=0.7)
 ax.axvline(
     true_conv_activated,

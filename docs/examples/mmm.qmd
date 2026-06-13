@@ -362,13 +362,9 @@ for draws, color, label in [
     (r_baseline.draws("sales"), COLOR_BASELINE, "TV = 30 (baseline)"),
     (r_double_tv.draws("sales"), COLOR_TV, "TV = 60 (doubled)"),
 ]:
-    az.plot_kde(
-        draws,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.3, "color": color},
-        label=label,
-    )
+    x_kde, y_kde, _ = az.kde(draws)
+    ax.plot(x_kde, y_kde, color=color, lw=2, label=label)
+    ax.fill_between(x_kde, y_kde, alpha=0.3, color=color)
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 ax.set_xlabel("Mean sales")
 ax.set_ylabel("Density")
@@ -377,12 +373,9 @@ ax.set_title("Scenario comparison")
 
 ax = axes[1]
 incr = contrast.draws("sales")
-az.plot_kde(
-    incr,
-    ax=ax,
-    plot_kwargs={"color": COLOR_TV, "lw": 2},
-    fill_kwargs={"alpha": 0.3, "color": COLOR_TV},
-)
+x_kde, y_kde, _ = az.kde(incr)
+ax.plot(x_kde, y_kde, color=COLOR_TV, lw=2)
+ax.fill_between(x_kde, y_kde, alpha=0.3, color=COLOR_TV)
 hdi = contrast.hdi("sales", prob=0.94)
 ax.axvspan(hdi[0], hdi[1], alpha=0.15, color=COLOR_TV, label="94% HDI")
 ax.axvline(incr.mean(), color=COLOR_TV, ls="--", lw=1.5)
@@ -429,13 +422,9 @@ for draws_obj, color, label in [
     (dig_lift, COLOR_DIGITAL, "Digital (spend = 30)"),
 ]:
     draws = draws_obj.draws("sales")
-    az.plot_kde(
-        draws,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.25, "color": color},
-        label=label,
-    )
+    x_kde, y_kde, _ = az.kde(draws)
+    ax.plot(x_kde, y_kde, color=color, lw=2, label=label)
+    ax.fill_between(x_kde, y_kde, alpha=0.25, color=color)
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(0, color="black", ls=":", alpha=0.4)
@@ -480,14 +469,8 @@ fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 ax.plot(
     spend_levels, tv_draws_2d.mean(axis=0), "o-", color=COLOR_TV, label="TV", lw=2, ms=5
 )
-az.plot_hdi(
-    spend_levels,
-    tv_draws_2d,
-    ax=ax,
-    smooth=False,
-    color=COLOR_TV,
-    fill_kwargs={"alpha": 0.15},
-)
+hdi_1 = az.hdi(tv_draws_2d, prob=0.94, axis=0)
+ax.fill_between(spend_levels, hdi_1[:, 0], hdi_1[:, 1], alpha=0.15, color=COLOR_TV)
 ax.plot(
     spend_levels,
     dig_draws_2d.mean(axis=0),
@@ -497,14 +480,8 @@ ax.plot(
     lw=2,
     ms=5,
 )
-az.plot_hdi(
-    spend_levels,
-    dig_draws_2d,
-    ax=ax,
-    smooth=False,
-    color=COLOR_DIGITAL,
-    fill_kwargs={"alpha": 0.15},
-)
+hdi_2 = az.hdi(dig_draws_2d, prob=0.94, axis=0)
+ax.fill_between(spend_levels, hdi_2[:, 0], hdi_2[:, 1], alpha=0.15, color=COLOR_DIGITAL)
 ax.set_xlabel("Channel spend (units)")
 ax.set_ylabel("Incremental sales lift vs no spend")
 ax.legend()
@@ -747,13 +724,9 @@ for draws, color, label, true_val in [
     (indirect_draws, COLOR_INDIRECT, "Indirect (a × b)", true_indirect),
     (total_draws, COLOR_SEARCH, "Total (c + a × b)", true_total_brand),
 ]:
-    az.plot_kde(
-        draws,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.25, "color": color},
-        label=label,
-    )
+    x_kde, y_kde, _ = az.kde(draws)
+    ax.plot(x_kde, y_kde, color=color, lw=2, label=label)
+    ax.fill_between(x_kde, y_kde, alpha=0.25, color=color)
     ax.axvline(true_val, color=color, ls="--", lw=1.5, alpha=0.7)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -841,13 +814,9 @@ for lift_obj, color, label in [
     (perf_lift, COLOR_PERF, "Performance (direct only)"),
 ]:
     draws = lift_obj.draws("sales")
-    az.plot_kde(
-        draws,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.25, "color": color},
-        label=label,
-    )
+    x_kde, y_kde, _ = az.kde(draws)
+    ax.plot(x_kde, y_kde, color=color, lw=2, label=label)
+    ax.fill_between(x_kde, y_kde, alpha=0.25, color=color)
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -908,14 +877,8 @@ ax.plot(
     lw=2,
     ms=5,
 )
-az.plot_hdi(
-    spend_levels,
-    brand_draws_2d,
-    ax=ax,
-    smooth=False,
-    color=COLOR_BRAND,
-    fill_kwargs={"alpha": 0.15},
-)
+hdi_3 = az.hdi(brand_draws_2d, prob=0.94, axis=0)
+ax.fill_between(spend_levels, hdi_3[:, 0], hdi_3[:, 1], alpha=0.15, color=COLOR_BRAND)
 ax.plot(
     spend_levels,
     perf_draws_2d.mean(axis=0),
@@ -925,14 +888,8 @@ ax.plot(
     lw=2,
     ms=5,
 )
-az.plot_hdi(
-    spend_levels,
-    perf_draws_2d,
-    ax=ax,
-    smooth=False,
-    color=COLOR_PERF,
-    fill_kwargs={"alpha": 0.15},
-)
+hdi_4 = az.hdi(perf_draws_2d, prob=0.94, axis=0)
+ax.fill_between(spend_levels, hdi_4[:, 0], hdi_4[:, 1], alpha=0.15, color=COLOR_PERF)
 
 ax.plot(
     spend_levels,

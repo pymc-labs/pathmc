@@ -376,12 +376,9 @@ for ax, draws, true_val, color, title, xlabel in [
         "ATE (risk difference)",
     ),
 ]:
-    az.plot_kde(
-        draws,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.3, "color": color},
-    )
+    x_kde, y_kde, _ = az.kde(draws)
+    ax.plot(x_kde, y_kde, color=color, lw=2)
+    ax.fill_between(x_kde, y_kde, alpha=0.3, color=color)
     ax.axvline(
         true_val, color=COLOR_TRUE, ls="--", lw=1.5, label=f"True = {true_val:.3f}"
     )

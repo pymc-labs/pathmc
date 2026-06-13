@@ -331,13 +331,9 @@ print(
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 
-az.plot_kde(
-    beta_price,
-    ax=ax,
-    plot_kwargs={"color": COLOR_PRICE, "lw": 2},
-    fill_kwargs={"alpha": 0.3, "color": COLOR_PRICE},
-    label="Posterior (path model)",
-)
+x_kde, y_kde, _ = az.kde(beta_price)
+ax.plot(x_kde, y_kde, color=COLOR_PRICE, lw=2, label="Posterior (path model)")
+ax.fill_between(x_kde, y_kde, alpha=0.3, color=COLOR_PRICE)
 ax.axvline(
     true_mu_price, color="black", ls="--", lw=1.5, label=f"True ({true_mu_price})"
 )
@@ -384,13 +380,9 @@ for draws, color, label in [
     (beta_lag, COLOR_BASELINE, "Lagged (next week)"),
     (cumulative, COLOR_DEMAND, "Cumulative (long-run)"),
 ]:
-    az.plot_kde(
-        draws,
-        ax=ax,
-        plot_kwargs={"color": color, "lw": 2},
-        fill_kwargs={"alpha": 0.2, "color": color},
-        label=label,
-    )
+    x_kde, y_kde, _ = az.kde(draws)
+    ax.plot(x_kde, y_kde, color=color, lw=2, label=label)
+    ax.fill_between(x_kde, y_kde, alpha=0.2, color=color)
     ax.axvline(draws.mean(), color=color, ls="--", alpha=0.7, lw=1)
 
 ax.axvline(0, color="black", ls=":", alpha=0.3)
@@ -561,27 +553,15 @@ fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
 
 ax = axes[0]
 ax.plot(price_levels, demand_means, "o-", color=COLOR_DEMAND, lw=2, ms=5)
-az.plot_hdi(
-    price_levels,
-    demand_draws_2d,
-    ax=ax,
-    smooth=False,
-    color=COLOR_DEMAND,
-    fill_kwargs={"alpha": 0.15},
-)
+hdi_1 = az.hdi(demand_draws_2d, prob=0.94, axis=0)
+ax.fill_between(price_levels, hdi_1[:, 0], hdi_1[:, 1], alpha=0.15, color=COLOR_DEMAND)
 ax.set_xlabel("Price ($)")
 ax.set_ylabel("Expected demand (units)")
 
 ax = axes[1]
 ax.plot(price_levels, revenue_means, "s-", color=COLOR_PRICE, lw=2, ms=5)
-az.plot_hdi(
-    price_levels,
-    revenue_draws_2d,
-    ax=ax,
-    smooth=False,
-    color=COLOR_PRICE,
-    fill_kwargs={"alpha": 0.15},
-)
+hdi_2 = az.hdi(revenue_draws_2d, prob=0.94, axis=0)
+ax.fill_between(price_levels, hdi_2[:, 0], hdi_2[:, 1], alpha=0.15, color=COLOR_PRICE)
 ax.set_xlabel("Price ($)")
 ax.set_ylabel("Expected revenue ($)")
 
