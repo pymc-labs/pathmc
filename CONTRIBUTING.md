@@ -71,11 +71,13 @@ Run fast tests only, excluding slow MCMC sampling tests:
 make test-fast
 ```
 
-Run the full test suite, including slow integration tests:
+Run the full test suite, including slow integration tests, and report coverage:
 
 ```bash
 make test
 ```
+
+`make test` measures line and branch coverage of `pathmc` and fails if total coverage drops below the `fail_under` threshold in `pyproject.toml` (`[tool.coverage.report]`). The same command and gate run in CI on every pull request. Coverage is intentionally not collected by `make test-fast` or by single-file gate runs, so those stay fast and never trip the threshold on a partial run.
 
 Run a targeted milestone or module test while iterating:
 

@@ -86,6 +86,21 @@ markers = [
     "slow: marks tests that require MCMC sampling (deselect with '-m \"not slow\"')",
 ]
 
+[tool.coverage.run]
+source = ["pathmc"]
+branch = true
+omit = ["*/conftest.py", "*/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]
+
 [tool.mypy]
 files = "pathmc/*.py"
 exclude = "build|dist|docs|tests"

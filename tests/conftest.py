@@ -13,6 +13,7 @@
 #   limitations under the License.
 import numpy as np
 import pandas as pd
+import pymc as pm
 import pytest
 
 try:  # pragma: no cover - depends on the installed PyMC test helpers
@@ -22,6 +23,25 @@ try:  # pragma: no cover - depends on the installed PyMC test helpers
 except Exception:  # pragma: no cover
     mock_sample_setup_and_teardown = None
     _HAVE_PYMC_TESTING = False
+
+
+@pytest.fixture(autouse=True)
+def _single_core_sampling(monkeypatch):
+    """Default ``cores=1`` for every ``pm.sample()`` call in the suite.
+
+    The test models are tiny, so spawning one worker process per chain costs
+    more in fork/spawn and serialization overhead than it saves — especially on
+    the few-core CI runners. Defaulting to single-core, in-process sampling cuts
+    suite wall-time substantially. Tests that pass ``cores`` explicitly keep
+    their value via ``setdefault``.
+    """
+    original_sample = pm.sample
+
+    def _sample(*args, **kwargs):
+        kwargs.setdefault("cores", 1)
+        return original_sample(*args, **kwargs)
+
+    monkeypatch.setattr(pm, "sample", _sample)
 
 
 if _HAVE_PYMC_TESTING:
