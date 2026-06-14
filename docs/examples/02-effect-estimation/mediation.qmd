@@ -480,7 +480,7 @@ In this example, assessments for 30% of employees eliminate divergences entirely
 :::
 
 To separately identify `b` and `c`, the latent state needs **independent variation** beyond what $X$ provides — either process noise (stochastic latent, `families={"M": "latent_normal"}`) or temporal dynamics (panel data with AR structure).
-The [brand awareness example](../05-applied-models/mmm_awareness.qmd) demonstrates fully identified models using stochastic latent states and survey-augmented measurement equations.
+The [brand awareness example](/examples/05-applied-models/mmm_awareness.qmd) demonstrates fully identified models using stochastic latent states and survey-augmented measurement equations.
 
 ### Total causal effect via do()
 

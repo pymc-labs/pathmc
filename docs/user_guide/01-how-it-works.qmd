@@ -124,7 +124,7 @@ For the mediation model above, `model.graph()` shows three nodes (`X → M → Y
 | What are the structural equations and priors? | `model.equations()` | LaTeX-rendered equations + prior specifications |
 
 For causal reasoning, work with the causal DAG. For debugging estimation or understanding priors, inspect the PyMC graph.
-See the [mediation example](../examples/02-effect-estimation/mediation.qmd) for both graphs side by side.
+See the [mediation example](/examples/02-effect-estimation/mediation.qmd) for both graphs side by side.
 :::
 
 
