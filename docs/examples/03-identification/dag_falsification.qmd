@@ -1,21 +1,22 @@
 ---
 title: "Falsifying a Whole DAG"
 author:
-  - name: "Ben Vincent"
+  - name: "Carlos Trujillo"
 description: "Grade an entire DAG against a permuted-baseline test: does it break its conditional-independence promises, and is it even informative enough to be falsified?"
 tags: [Causal Inference, Identification]
 image: thumbnails/dag_falsification.png
+bibliography: ../../../docs/references.bib
 jupyter: pathmc
 ---
 
-[Testing your DAG against data](dag_testing.qmd) checks implied conditional independences one missing edge at a time. `falsify()` asks a bigger question about the graph as a whole: *is this causal story compatible with the data at all, and is it even specific enough to be tested?*
+This page assumes you have read [Testing your DAG against data](dag_testing.qmd) ("Testing Your DAG Against Data"), which teaches the **conditional independences** a DAG implies and how `test_implications()` checks them one missing edge at a time. That is the prerequisite for everything below: `falsify()` reuses the same conditional-independence machinery but asks a bigger question about the graph as a whole — *is this causal story compatible with the data at all, and is it even specific enough to be tested?*
 
-It ports dowhy's `gcm.falsify_graph` (Eulig et al., 2023) and answers two distinct questions:
+It ports dowhy's `gcm.falsify_graph` [@eulig2023falsifying] and answers two distinct questions:
 
-1. **Does the graph break its promises?** Count how many of the DAG's implied *Local Markov Conditions* (LMC) the data actually violate.
-2. **Is the graph informative at all?** Permute (rewire) the node labels to build random competitor DAGs and check whether the proposed DAG fits the data meaningfully better than the random pile. If the data cannot distinguish your arrow directions from a shuffle, the test cannot falsify your DAG no matter how good it is.
+1. **Does the graph break its promises?** The *Local Markov Condition* (LMC) is the requirement that every variable be independent of its non-descendants given its parents. This step counts how many of the DAG's implied LMC independences the data actually violate.
+2. **Is the graph informative at all?** Permute (rewire) the node labels to build random competitor DAGs and check whether the proposed DAG fits the data meaningfully better than the random pile. This node-permutation comparison is the *test of permutation adjacency* (tPA): if the data cannot distinguish your arrow directions from a shuffle, the test cannot falsify your DAG no matter how good it is.
 
-A DAG is **not rejected** only if it both (a) survives the LMC violation check relative to the permuted baseline and (b) is informative — few permutations share its Markov equivalence class.
+An informative DAG that beats the LMC baseline is the positive case — **not contradicted *and* testable**. The verdict has two distinct failure modes, so read it carefully: a DAG can be *not rejected* either because it genuinely passes (informative and beats the baseline) or because it is **not falsifiable** in the first place (too few permutations distinguish it — `falsifiable == False`). The second case is *not* evidence for the graph; the conclusion is simply vacuous.
 
 ## Setup
 
@@ -62,7 +63,15 @@ df = pd.DataFrame({"A": A, "B": B, "C": C, "D": D, "E": E})
 When the proposed DAG matches the data-generating process, it violates none of its implied conditional independences and clearly beats the permuted baseline.
 
 ```{python}
-true_model = pathmc.model("B ~ A\nC ~ A\nD ~ B + C\nE ~ D", data=df)
+true_model = pathmc.model(
+    """
+    B ~ A
+    C ~ A
+    D ~ B + C
+    E ~ D
+    """,
+    data=df,
+)
 result = true_model.falsify(n_permutations=200, random_seed=1)
 result
 ```
@@ -99,7 +108,15 @@ digraph {
 ```
 
 ```{python}
-wrong_model = pathmc.model("B ~ A\nC ~ A + E\nD ~ B\nE ~ D", data=df)
+wrong_model = pathmc.model(
+    """
+    B ~ A
+    C ~ A + E
+    D ~ B
+    E ~ D
+    """,
+    data=df,
+)
 wrong_result = wrong_model.falsify(n_permutations=200, random_seed=1)
 wrong_result
 ```
@@ -131,7 +148,10 @@ Two situations make a DAG impossible to reject — and `falsify()` reports both 
 
 ```{python}
 saturated = pathmc.model(
-    "M ~ X\nY ~ M + X",
+    """
+    M ~ X
+    Y ~ M + X
+    """,
     data=df.rename(columns={"A": "X", "B": "M", "C": "Y"})[["X", "M", "Y"]],
 )
 saturated.falsify(random_seed=0)
@@ -141,7 +161,13 @@ saturated.falsify(random_seed=0)
 
 ```{python}
 chain_df = df.rename(columns={"A": "X", "B": "M", "C": "Y"})[["X", "M", "Y"]]
-chain = pathmc.model("M ~ X\nY ~ M", data=chain_df)
+chain = pathmc.model(
+    """
+    M ~ X
+    Y ~ M
+    """,
+    data=chain_df,
+)
 chain.falsify(random_seed=0).falsifiable
 ```
 
@@ -149,12 +175,13 @@ This is a feature, not a limitation: it tells you the conclusion "not rejected" 
 
 ## How the verdict is computed
 
-The decision rule follows Eulig et al. (2023) exactly, using two permutation p-values:
+The decision rule follows @eulig2023falsifying exactly, using two permutation p-values:
 
 - `p_value_tpa` — the fraction of permutations lying in the DAG's Markov equivalence class. The DAG is **falsifiable** (informative) when `p_value_tpa ≤ significance_level`.
-- `p_value_lmc` — the fraction of permutations whose LMC-violation rate is no worse than the given DAG's. The DAG is **falsified** (rejected) only when it is strictly informative (`p_value_tpa < significance_level`) *and* `p_value_lmc > significance_level` (it fails to beat the baseline). The strict `<` matches Eulig et al. (2023): a DAG sitting exactly at the informativeness boundary is given the benefit of the doubt.
+- `p_value_lmc` — the fraction of permutations whose LMC-violation rate is no worse than the given DAG's. The DAG is **falsified** (rejected) only when it is strictly informative (`p_value_tpa < significance_level`) *and* `p_value_lmc > significance_level` (it fails to beat the baseline). The strict `<` matches @eulig2023falsifying: a DAG sitting exactly at the informativeness boundary is given the benefit of the doubt.
 
 ```{python}
+# | echo: false
 print(f"p_value_tpa (informativeness): {result.p_value_tpa:.3f}")
 print(f"p_value_lmc (beats baseline):  {result.p_value_lmc:.3f}")
 print(f"falsifiable: {result.falsifiable}, falsified: {result.falsified}")

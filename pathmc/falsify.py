@@ -30,9 +30,11 @@ Two questions are answered:
    whether its arrow directions are even distinguishable from the pile of
    permutations (those lying in the same Markov equivalence class).
 
-A DAG is *not rejected* only if it is both informative (few permutations
-share its Markov equivalence class) and beats the permuted baseline on
-LMC violations.
+An informative DAG that beats the permuted baseline on LMC violations is
+the positive case: *not contradicted and testable*. A non-informative
+DAG (many permutations share its Markov equivalence class) is also *not
+rejected*, but that verdict is vacuous — interpret it as *not
+falsifiable* rather than as evidence for the graph.
 
 Reference
 ---------
@@ -573,8 +575,11 @@ def falsify_graph(
     DAG's count of Local Markov Condition (LMC) violations is compared to
     a baseline of randomly relabeled competitor graphs. The DAG is
     *informative* when few permutations share its Markov equivalence
-    class, and *not rejected* when it is informative and violates fewer
-    LMCs than the permuted baseline.
+    class. An informative DAG that violates fewer LMCs than the permuted
+    baseline is the positive case: *not contradicted and testable*. A
+    non-informative DAG is also *not rejected*, but that verdict is
+    vacuous — interpret it as *not falsifiable* rather than as evidence
+    for the graph.
 
     Conditional independence is tested with partial correlation, the same
     linear-Gaussian methodology used by
