@@ -13,16 +13,22 @@
 #   limitations under the License.
 """Tests for whole-graph DAG falsification (pathmc.falsify)."""
 
+import itertools
 import math
 
+import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
 import pytest
 
 import pathmc
 from pathmc.falsify import (
+    _MAX_EXACT_NODES,
     FalsificationResult,
     _parental_triples,
+    _PartialCorrelationTester,
+    _permuted_dags,
+    _validate_lmc,
     _validate_tpa,
     falsify_graph,
 )
@@ -32,6 +38,23 @@ from pathmc.parse import parse_spec
 
 def _graph(spec_str):
     return build_graph(parse_spec(spec_str))
+
+
+def _to_nw(df):
+    return nw.from_native(df, eager_only=True)
+
+
+def _dowhy_verdict(p_lmc, p_tpa, alpha):
+    """Reference transcription of dowhy's EvaluationResult.__post_init__.
+
+    Returns ``(falsifiable, falsified)``. pathmc must match this exactly
+    whenever the result can be evaluated.
+    """
+    if p_lmc > alpha > p_tpa:
+        return True, True
+    if alpha < p_tpa:
+        return False, False
+    return True, False
 
 
 @pytest.fixture
@@ -45,6 +68,39 @@ def five_node_data():
     D = 0.6 * B + 0.5 * C + rng.normal(scale=0.5, size=n)
     E = 0.9 * D + rng.normal(scale=0.5, size=n)
     return pd.DataFrame({"A": A, "B": B, "C": C, "D": D, "E": E})
+
+
+@pytest.fixture
+def chain_data():
+    """Data faithful to the chain X -> M -> Y (no direct X -> Y)."""
+    n = 1200
+    rng = np.random.default_rng(11)
+    X = rng.normal(size=n)
+    M = 0.8 * X + rng.normal(scale=0.5, size=n)
+    Y = 0.7 * M + rng.normal(scale=0.5, size=n)
+    return pd.DataFrame({"X": X, "M": M, "Y": Y})
+
+
+@pytest.fixture
+def missing_edge_data():
+    """Chain data where X *also* directly affects Y (X -> Y omitted)."""
+    n = 1200
+    rng = np.random.default_rng(13)
+    X = rng.normal(size=n)
+    M = 0.8 * X + rng.normal(scale=0.5, size=n)
+    Y = 0.7 * M + 0.6 * X + rng.normal(scale=0.5, size=n)
+    return pd.DataFrame({"X": X, "M": M, "Y": Y})
+
+
+@pytest.fixture
+def collider_data():
+    """X and Y independent; both cause C (collider)."""
+    n = 1200
+    rng = np.random.default_rng(17)
+    X = rng.normal(size=n)
+    Y = rng.normal(size=n)
+    C = 0.7 * X + 0.7 * Y + rng.normal(scale=0.5, size=n)
+    return pd.DataFrame({"X": X, "Y": Y, "C": C})
 
 
 TRUE_SPEC = "B ~ A\nC ~ A\nD ~ B + C\nE ~ D"
@@ -368,7 +424,494 @@ class TestLatentSkipped:
         assert not involves_m.any()
 
 
-def _to_nw(df):
-    import narwhals.stable.v1 as nw
+class TestPartialCorrelationTester:
+    """Unit tests for the memoized partial-correlation CI engine."""
 
-    return nw.from_native(df, eager_only=True)
+    def _tester(self, df, variables=None):
+        if variables is None:
+            variables = list(df.columns)
+        return _PartialCorrelationTester(_to_nw(df), variables)
+
+    def test_marginal_independence_high_p(self):
+        rng = np.random.default_rng(0)
+        df = pd.DataFrame({
+            "X": rng.normal(size=500),
+            "Y": rng.normal(size=500),
+        })
+        p = self._tester(df).p_value("X", "Y", ())
+        assert p is not None
+        assert p > 0.05
+
+    def test_marginal_dependence_low_p(self):
+        rng = np.random.default_rng(0)
+        x = rng.normal(size=500)
+        df = pd.DataFrame({"X": x, "Y": 0.9 * x + rng.normal(scale=0.3, size=500)})
+        p = self._tester(df).p_value("X", "Y", ())
+        assert p is not None
+        assert p < 1e-6
+
+    def test_conditional_independence_recovered(self):
+        # Chain X -> Z -> Y: X and Y are dependent marginally but
+        # independent given Z.
+        rng = np.random.default_rng(1)
+        x = rng.normal(size=800)
+        z = 0.9 * x + rng.normal(scale=0.3, size=800)
+        y = 0.9 * z + rng.normal(scale=0.3, size=800)
+        df = pd.DataFrame({"X": x, "Y": y, "Z": z})
+        tester = self._tester(df)
+        assert tester.p_value("X", "Y", ()) < 1e-3
+        assert tester.p_value("X", "Y", ("Z",)) > 0.05
+
+    def test_missing_column_returns_none(self):
+        df = pd.DataFrame({"X": [1.0, 2.0, 3.0, 4.0], "Y": [1.0, 0.0, 1.0, 0.0]})
+        tester = self._tester(df, variables=["X", "Y"])
+        assert tester.p_value("X", "MISSING", ()) is None
+        assert tester.p_value("X", "Y", ("MISSING",)) is None
+
+    def test_too_few_rows_returns_none(self):
+        df = pd.DataFrame({"X": [1.0, 2.0], "Y": [2.0, 1.0]})
+        assert self._tester(df).p_value("X", "Y", ()) is None
+
+    def test_constant_column_returns_none(self):
+        df = pd.DataFrame({
+            "X": np.random.default_rng(0).normal(size=50),
+            "Y": np.ones(50),
+        })
+        assert self._tester(df).p_value("X", "Y", ()) is None
+
+    def test_constant_conditioning_then_marginal(self):
+        # A constant conditioning variable is absorbed into the intercept;
+        # the result equals the marginal test (still computable).
+        rng = np.random.default_rng(2)
+        x = rng.normal(size=200)
+        df = pd.DataFrame({
+            "X": x,
+            "Y": 0.8 * x + rng.normal(scale=0.3, size=200),
+            "Z": np.ones(200),
+        })
+        tester = self._tester(df)
+        p = tester.p_value("X", "Y", ("Z",))
+        assert p is not None
+        assert p < 1e-3
+
+    def test_perfect_collinearity_returns_zero(self):
+        rng = np.random.default_rng(3)
+        x = rng.normal(size=100)
+        df = pd.DataFrame({"X": x, "Y": x.copy()})
+        assert self._tester(df).p_value("X", "Y", ()) == 0.0
+
+    def test_nan_rows_dropped(self):
+        rng = np.random.default_rng(4)
+        x = rng.normal(size=200)
+        y = 0.8 * x + rng.normal(scale=0.3, size=200)
+        x[:5] = np.nan
+        df = pd.DataFrame({"X": x, "Y": y})
+        p = self._tester(df).p_value("X", "Y", ())
+        assert p is not None
+        assert p < 1e-3
+
+    def test_symmetry_and_cache(self):
+        rng = np.random.default_rng(5)
+        x = rng.normal(size=300)
+        df = pd.DataFrame({"X": x, "Y": 0.5 * x + rng.normal(scale=0.5, size=300)})
+        tester = self._tester(df)
+        p_xy = tester.p_value("X", "Y", ())
+        p_yx = tester.p_value("Y", "X", ())
+        assert p_xy == p_yx
+        # Second call hits the cache and returns the identical object.
+        assert tester.p_value("X", "Y", ()) == p_xy
+
+
+class TestParentalTriplesDetailed:
+    def test_collider_unconditional_triple(self):
+        # X -> C <- Y implies X ⊥ Y (unconditional).
+        dag = _graph("C ~ X + Y").contemporaneous_dag
+        triples = _parental_triples(dag, include_unconditional=True)
+        pairs = {(x, y) for x, y, _ in triples}
+        assert ("X", "Y") in pairs or ("Y", "X") in pairs
+        # The conditioning set for that triple is empty.
+        for x, y, parents in triples:
+            if {x, y} == {"X", "Y"}:
+                assert parents == ()
+
+    def test_collider_no_triples_without_unconditional(self):
+        dag = _graph("C ~ X + Y").contemporaneous_dag
+        triples = _parental_triples(dag, include_unconditional=False)
+        assert triples == []
+
+    def test_diamond_conditioning_sets(self):
+        # A->B, A->C, B->D, C->D. B ⊥ C | A is the implication.
+        dag = _graph("B ~ A\nC ~ A\nD ~ B + C").contemporaneous_dag
+        triples = _parental_triples(dag, include_unconditional=True)
+        bc = [t for t in triples if {t[0], t[1]} == {"B", "C"}]
+        assert bc
+        for _, _, parents in bc:
+            assert parents == ("A",)
+
+    def test_parents_excluded_from_non_descendants(self):
+        dag = _graph("B ~ A\nC ~ A + B").contemporaneous_dag
+        triples = _parental_triples(dag, include_unconditional=True)
+        for node, non_desc, parents in triples:
+            assert non_desc not in parents
+            assert non_desc != node
+
+
+class TestValidateLmc:
+    def test_chain_no_violation(self, chain_data):
+        dag = _graph("M ~ X\nY ~ M").contemporaneous_dag
+        tester = _PartialCorrelationTester(_to_nw(chain_data), list(chain_data.columns))
+        n_tests, n_viol, local = _validate_lmc(dag, tester, 0.05, True)
+        assert n_tests == 1
+        assert n_viol == 0
+        assert len(local) == 1
+
+    def test_missing_edge_violation(self, missing_edge_data):
+        dag = _graph("M ~ X\nY ~ M").contemporaneous_dag
+        tester = _PartialCorrelationTester(
+            _to_nw(missing_edge_data), list(missing_edge_data.columns)
+        )
+        n_tests, n_viol, _ = _validate_lmc(dag, tester, 0.05, True)
+        assert n_tests == 1
+        assert n_viol == 1
+
+    def test_skipped_tests_not_counted(self, chain_data):
+        # Y has no data column -> every triple needing Y is skipped.
+        df = chain_data.drop(columns=["Y"])
+        dag = _graph("M ~ X\nY ~ M").contemporaneous_dag
+        tester = _PartialCorrelationTester(_to_nw(df), list(dag.nodes))
+        n_tests, n_viol, local = _validate_lmc(dag, tester, 0.05, True)
+        assert n_tests == 0
+        assert n_viol == 0
+        assert local == []
+
+
+class TestValidateTpaDetailed:
+    def test_non_equivalent_graph_has_violations(self):
+        # A chain and a collider over the same skeleton are NOT Markov
+        # equivalent, so d-separations disagree.
+        chain = _graph("M ~ X\nY ~ M").contemporaneous_dag
+        collider = _graph("M ~ X + Y").contemporaneous_dag
+        _, n_viol = _validate_tpa(collider, chain, include_unconditional=True)
+        assert n_viol > 0
+
+    def test_self_reference_zero(self, five_node_data):
+        dag = _graph(TRUE_SPEC).contemporaneous_dag
+        n_tests, n_viol = _validate_tpa(dag, dag, include_unconditional=True)
+        assert n_tests > 0
+        assert n_viol == 0
+
+
+class TestPermutedDags:
+    def test_preserves_structure(self):
+        dag = _graph("B ~ A\nC ~ A\nD ~ B + C").contemporaneous_dag
+        rng = np.random.default_rng(0)
+        for g in _permuted_dags(dag, 10, rng):
+            assert g.number_of_nodes() == dag.number_of_nodes()
+            assert g.number_of_edges() == dag.number_of_edges()
+            assert nx_is_dag(g)
+
+    def test_identity_included_in_enumeration(self):
+        dag = _graph("B ~ A\nC ~ B").contemporaneous_dag
+        rng = np.random.default_rng(0)
+        graphs = list(_permuted_dags(dag, 10_000, rng))
+        assert any(set(g.edges) == set(dag.edges) for g in graphs)
+
+    def test_single_node_graph(self):
+        # A one-node DAG cannot be built from a spec (specs need an edge),
+        # so construct the networkx graph directly.
+        import networkx as nx
+
+        g = nx.DiGraph()
+        g.add_node("A")
+        rng = np.random.default_rng(0)
+        graphs = list(_permuted_dags(g, 5, rng))
+        assert len(graphs) == math.factorial(1)
+
+    def test_sampling_path_deterministic_with_seed(self):
+        dag = _graph(
+            "\n".join(f"N{i} ~ N{i - 1}" for i in range(1, 9))
+        ).contemporaneous_dag
+        g1 = [
+            tuple(sorted(g.edges))
+            for g in _permuted_dags(dag, 6, np.random.default_rng(3))
+        ]
+        g2 = [
+            tuple(sorted(g.edges))
+            for g in _permuted_dags(dag, 6, np.random.default_rng(3))
+        ]
+        assert g1 == g2
+
+    def test_exact_node_boundary(self):
+        # n == _MAX_EXACT_NODES enumerates; n == _MAX_EXACT_NODES + 1 samples.
+        exact = _graph(
+            "\n".join(f"N{i} ~ N{i - 1}" for i in range(1, _MAX_EXACT_NODES))
+        ).contemporaneous_dag
+        assert exact.number_of_nodes() == _MAX_EXACT_NODES
+        rng = np.random.default_rng(0)
+        assert len(list(_permuted_dags(exact, 10**9, rng))) == math.factorial(
+            _MAX_EXACT_NODES
+        )
+        too_big = _graph(
+            "\n".join(f"N{i} ~ N{i - 1}" for i in range(1, _MAX_EXACT_NODES + 1))
+        ).contemporaneous_dag
+        assert too_big.number_of_nodes() == _MAX_EXACT_NODES + 1
+        assert len(list(_permuted_dags(too_big, 7, np.random.default_rng(0)))) == 7
+
+
+class TestResultProperties:
+    def test_pvalues_in_unit_interval(self, five_node_data):
+        m = pathmc.model(WRONG_SPEC, data=five_node_data)
+        r = m.falsify(n_permutations=100, random_seed=1)
+        assert 0.0 <= r.p_value_lmc <= 1.0
+        assert 0.0 <= r.p_value_tpa <= 1.0
+
+    def test_n_in_mec_matches_p_tpa(self, five_node_data):
+        m = pathmc.model(TRUE_SPEC, data=five_node_data)
+        r = m.falsify(n_permutations=100, random_seed=1)
+        assert r.p_value_tpa == pytest.approx(r.n_in_mec / r.n_permutations)
+
+    def test_perm_array_lengths(self, five_node_data):
+        m = pathmc.model(TRUE_SPEC, data=five_node_data)
+        r = m.falsify(n_permutations=64, random_seed=1)
+        assert len(r.perm_lmc_violation_fractions) == r.n_permutations
+        assert len(r.perm_tpa_violation_fractions) == r.n_permutations
+
+    def test_violation_fraction_consistent(self, missing_edge_data):
+        m = pathmc.model("M ~ X\nY ~ M", data=missing_edge_data)
+        r = m.falsify(random_seed=0)
+        if r.can_evaluate and r.n_lmc_tests:
+            assert r.given_lmc_violation_fraction == pytest.approx(
+                r.given_lmc_violations / r.n_lmc_tests
+            )
+
+    def test_local_violations_schema(self, five_node_data):
+        m = pathmc.model(WRONG_SPEC, data=five_node_data)
+        r = m.falsify(n_permutations=50, random_seed=1)
+        for col in [
+            "node",
+            "non_descendant",
+            "conditioning_set",
+            "p_value",
+            "violation",
+        ]:
+            assert col in r.local_violations.columns
+        assert r.local_violations["violation"].dtype == bool
+
+
+class TestResultDisplay:
+    def _make(self, p_lmc, p_tpa, n_in_mec, alpha=0.05):
+        return FalsificationResult(
+            given_lmc_violations=2,
+            n_lmc_tests=6,
+            given_lmc_violation_fraction=2 / 6,
+            perm_lmc_violation_fractions=np.linspace(0, 1, 20),
+            perm_tpa_violation_fractions=np.linspace(0, 1, 20),
+            p_value_lmc=p_lmc,
+            p_value_tpa=p_tpa,
+            n_permutations=20,
+            n_in_mec=n_in_mec,
+            significance_level=alpha,
+            significance_ci=0.05,
+            local_violations=pd.DataFrame({
+                "node": ["C"],
+                "non_descendant": ["B"],
+                "conditioning_set": ["A"],
+                "p_value": [0.001],
+                "violation": [True],
+            }),
+        )
+
+    def test_repr_rejected(self):
+        r = self._make(p_lmc=0.5, p_tpa=0.0, n_in_mec=0)
+        text = repr(r)
+        assert "reject" in text.lower()
+        assert "we do not reject" not in text.lower()
+
+    def test_repr_not_rejected(self):
+        r = self._make(p_lmc=0.0, p_tpa=0.0, n_in_mec=0)
+        assert "we do not reject" in repr(r).lower()
+
+    def test_html_states(self):
+        rejected = self._make(p_lmc=0.5, p_tpa=0.0, n_in_mec=0)
+        assert "Rejected" in rejected._repr_html_()
+        not_informative = self._make(p_lmc=0.0, p_tpa=0.5, n_in_mec=10)
+        assert "Not informative" in not_informative._repr_html_()
+        not_rejected = self._make(p_lmc=0.0, p_tpa=0.0, n_in_mec=0)
+        assert "Not rejected" in not_rejected._repr_html_()
+
+    def test_plot_returns_figure(self):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        r = self._make(p_lmc=0.5, p_tpa=0.0, n_in_mec=0)
+        fig = r.plot()
+        assert fig is not None
+        assert len(fig.axes) >= 1
+
+    def test_plot_on_supplied_axis(self):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        r = self._make(p_lmc=0.5, p_tpa=0.0, n_in_mec=0)
+        fig, ax = plt.subplots()
+        out = r.plot(ax=ax, bins=5)
+        assert out is fig
+
+    def test_violations_only_true_rows(self):
+        r = self._make(p_lmc=0.5, p_tpa=0.0, n_in_mec=0)
+        assert (r.violations["violation"]).all()
+
+
+class TestDecisionRuleGrid:
+    """Exhaustively match dowhy's verdict across the p-value grid."""
+
+    GRID = [0.0, 0.01, 0.025, 0.05, 0.075, 0.1, 0.5, 1.0]
+
+    @pytest.mark.parametrize("alpha", [0.01, 0.05, 0.1])
+    @pytest.mark.parametrize("p_tpa", GRID)
+    @pytest.mark.parametrize("p_lmc", GRID)
+    def test_matches_reference(self, p_lmc, p_tpa, alpha):
+        r = FalsificationResult(
+            given_lmc_violations=0,
+            n_lmc_tests=6,
+            given_lmc_violation_fraction=0.0,
+            perm_lmc_violation_fractions=np.zeros(20),
+            perm_tpa_violation_fractions=np.zeros(20),
+            p_value_lmc=p_lmc,
+            p_value_tpa=p_tpa,
+            n_permutations=20,
+            n_in_mec=0,
+            significance_level=alpha,
+            significance_ci=0.05,
+            local_violations=pd.DataFrame(),
+        )
+        exp_falsifiable, exp_falsified = _dowhy_verdict(p_lmc, p_tpa, alpha)
+        assert r.falsifiable is exp_falsifiable
+        assert r.falsified is exp_falsified
+
+    def test_falsified_implies_falsifiable(self):
+        for p_lmc, p_tpa, alpha in itertools.product(self.GRID, self.GRID, [0.05]):
+            fbl, fsd = _dowhy_verdict(p_lmc, p_tpa, alpha)
+            if fsd:
+                assert fbl
+
+
+class TestStatisticalBehavior:
+    def test_correct_chain_not_rejected(self, five_node_data):
+        m = pathmc.model(TRUE_SPEC, data=five_node_data)
+        r = m.falsify(n_permutations=100, random_seed=2)
+        assert r.given_lmc_violations == 0
+        assert r.falsified is False
+
+    def test_missing_edge_flagged_locally(self, missing_edge_data):
+        # Funnel where the proposed chain omits a real edge; on a 4-node
+        # graph the test is informative and should reject.
+        n = 1500
+        rng = np.random.default_rng(21)
+        budget = rng.normal(loc=10, scale=2, size=n)
+        ads = 0.8 * budget + rng.normal(scale=0.5, size=n)
+        clicks = 0.6 * ads + rng.normal(scale=0.5, size=n)
+        sales = 0.5 * clicks + 0.5 * budget + rng.normal(scale=0.5, size=n)
+        df = pd.DataFrame({
+            "Budget": budget,
+            "Ads": ads,
+            "Clicks": clicks,
+            "Sales": sales,
+        })
+        m = pathmc.model("Ads ~ Budget\nClicks ~ Ads\nSales ~ Clicks", data=df)
+        r = m.falsify(n_permutations=200, random_seed=1)
+        assert r.given_lmc_violations >= 1
+
+    def test_collider_consistent(self, collider_data):
+        # X ⊥ Y unconditionally holds for a collider; the DAG should not be
+        # falsified for that reason.
+        m = pathmc.model("C ~ X + Y", data=collider_data)
+        r = m.falsify(random_seed=0)
+        # The only implication is X ⊥ Y (unconditional), which holds.
+        assert r.given_lmc_violations == 0
+
+
+class TestIncludeUnconditional:
+    def test_changes_test_count(self, collider_data):
+        m = pathmc.model("C ~ X + Y", data=collider_data)
+        with_uncond = m.falsify(include_unconditional=True, random_seed=0)
+        without_uncond = m.falsify(include_unconditional=False, random_seed=0)
+        assert with_uncond.n_lmc_tests > without_uncond.n_lmc_tests
+        # Without unconditional tests, the collider DAG has no implications.
+        assert without_uncond.can_evaluate is False
+
+
+class TestApiForwarding:
+    def test_method_forwards_significance_level(self, five_node_data):
+        m = pathmc.model(WRONG_SPEC, data=five_node_data)
+        r = m.falsify(n_permutations=80, significance_level=0.2, random_seed=1)
+        assert r.significance_level == 0.2
+
+    def test_works_before_and_after_fit(self, chain_data):
+        m = pathmc.model("M ~ X\nY ~ M", data=chain_data)
+        before = m.falsify(random_seed=0)
+        m.fit(draws=50, tune=50, chains=1, random_seed=0)
+        after = m.falsify(random_seed=0)
+        assert before.given_lmc_violations == after.given_lmc_violations
+
+
+class TestBackends:
+    def test_polars_backend(self, chain_data):
+        pl = pytest.importorskip("polars")
+        df = pl.from_pandas(chain_data)
+        m = pathmc.model("M ~ X\nY ~ M", data=df)
+        r = m.falsify(random_seed=0)
+        assert r.given_lmc_violations == 0
+
+
+class TestEdgeCaseData:
+    def test_nan_rows_tolerated(self, five_node_data):
+        # Call falsify_graph directly so the model compiler's NaN-imputation
+        # path is not exercised; falsify drops incomplete rows per CI test.
+        df = five_node_data.copy()
+        df.loc[:20, "C"] = np.nan
+        r = falsify_graph(
+            build_graph(parse_spec(TRUE_SPEC)),
+            _to_nw(df),
+            n_permutations=50,
+            random_seed=1,
+        )
+        assert r.can_evaluate is True
+        assert r.given_lmc_violations == 0
+
+    def test_disconnected_components(self):
+        # Two independent chains: A->B and C->D, plus E->F. No cross edges.
+        n = 800
+        rng = np.random.default_rng(7)
+        A = rng.normal(size=n)
+        B = 0.8 * A + rng.normal(scale=0.5, size=n)
+        C = rng.normal(size=n)
+        D = 0.8 * C + rng.normal(scale=0.5, size=n)
+        E = rng.normal(size=n)
+        F = 0.8 * E + rng.normal(scale=0.5, size=n)
+        df = pd.DataFrame({"A": A, "B": B, "C": C, "D": D, "E": E, "F": F})
+        m = pathmc.model("B ~ A\nD ~ C\nF ~ E", data=df)
+        r = m.falsify(n_permutations=100, random_seed=1)
+        assert r.can_evaluate is True
+        assert r.given_lmc_violations == 0
+
+    def test_n_permutations_one(self, five_node_data):
+        m = pathmc.model(TRUE_SPEC, data=five_node_data)
+        r = m.falsify(n_permutations=1, random_seed=1)
+        assert r.n_permutations == 1
+        assert r.p_value_lmc in (0.0, 1.0)
+
+    def test_significance_level_half(self, five_node_data):
+        m = pathmc.model(TRUE_SPEC, data=five_node_data)
+        r = m.falsify(significance_level=0.5, random_seed=1)
+        # default n_permutations = round(1/0.5) = 2
+        assert r.n_permutations <= 2
+        assert r.significance_level == 0.5
+
+
+def nx_is_dag(g):
+    import networkx as nx
+
+    return nx.is_directed_acyclic_graph(g)
