@@ -15,7 +15,7 @@
 
 pathmc is a Python package for **Bayesian path analysis and structural causal modeling**. You write your causal assumptions as a small set of structural equations in a [lavaan](https://lavaan.ugent.be/)-inspired formula language, and pathmc compiles them into a generative [PyMC](https://www.pymc.io/) model in which every variable is wired through its structural parents in the DAG.
 
-The result is a single model object that keeps the **directed acyclic graph (DAG) at the center of the workflow**. From that one object you can estimate effects with full posterior uncertainty, inspect the implied graph, check whether a causal effect is identifiable from your assumptions, falsify the graph against the data, run `do()`-operator interventions, and stress-test conclusions for unmeasured confounding — without rewriting the model for each task.
+The result is a single model object that keeps the **directed acyclic graph (DAG) at the center of the workflow**. From that one object you can estimate effects with full posterior uncertainty, inspect the implied graph, check whether a causal effect is identifiable from your assumptions, falsify the graph against the data, run `do()`-operator interventions, and stress-test conclusions for unmeasured confounding, all without rewriting the model for each task.
 
 pathmc is a good fit when you want the interpretability of path / structural equation modeling, the rigor of explicit causal identification, and the uncertainty quantification of full Bayesian inference, all in one place.
 
@@ -80,7 +80,7 @@ The DSL mirrors lavaan: `~` defines a regression of an outcome on its parents, `
 - Quantify how robust a causal conclusion is to unmeasured confounding (`sensitivity`).
 
 **Transforms & response curves**
-- Built-in nonlinear transforms including geometric **adstock** and **logistic saturation**, plus a registry for custom transforms — useful for marketing mix and other media-response models.
+- Built-in nonlinear transforms including geometric **adstock** and **logistic saturation**, plus a registry for custom transforms, useful for marketing mix and other media-response models.
 
 **Panel / longitudinal data**
 - Build lagged predictors for time-series and panel structures (`add_lags`) and run interventions on longitudinal models.
