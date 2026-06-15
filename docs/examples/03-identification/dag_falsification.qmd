@@ -1,0 +1,177 @@
+---
+title: "Falsifying a Whole DAG"
+description: "Grade an entire DAG against a permuted-baseline test: does it break its conditional-independence promises, and is it even informative enough to be falsified?"
+tags: [Causal Inference, Identification]
+image: thumbnails/dag_falsification.png
+jupyter: pathmc
+---
+
+[Testing your DAG against data](dag_testing.qmd) checks implied conditional independences one missing edge at a time. `falsify()` asks a bigger question about the graph as a whole: *is this causal story compatible with the data at all, and is it even specific enough to be tested?*
+
+It ports dowhy's `gcm.falsify_graph` (Eulig et al., 2023) and answers two distinct questions:
+
+1. **Does the graph break its promises?** Count how many of the DAG's implied *Local Markov Conditions* (LMC) the data actually violate.
+2. **Is the graph informative at all?** Permute (rewire) the node labels to build random competitor DAGs and check whether the proposed DAG fits the data meaningfully better than the random pile. If the data cannot distinguish your arrow directions from a shuffle, the test cannot falsify your DAG no matter how good it is.
+
+A DAG is **not rejected** only if it both (a) survives the LMC violation check relative to the permuted baseline and (b) is informative — few permutations share its Markov equivalence class.
+
+## Setup
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import pathmc
+
+rng = np.random.default_rng(sum(map(ord, "dag falsification")))
+n = 1500
+```
+
+## A data-generating process to test against
+
+We simulate a five-variable system so the permutation test has enough structure to be informative. The true DAG is a diamond feeding a chain: `A → B`, `A → C`, `B → D`, `C → D`, `D → E`.
+
+```{dot}
+//| label: fig-true-dag
+//| fig-cap: "True data-generating DAG. A is a common cause of B and C; both feed D; D drives E."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  A -> B
+  A -> C
+  B -> D
+  C -> D
+  D -> E
+}
+```
+
+```{python}
+A = rng.normal(size=n)
+B = 0.8 * A + rng.normal(scale=0.5, size=n)
+C = 0.7 * A + rng.normal(scale=0.5, size=n)
+D = 0.6 * B + 0.5 * C + rng.normal(scale=0.5, size=n)
+E = 0.9 * D + rng.normal(scale=0.5, size=n)
+
+df = pd.DataFrame({"A": A, "B": B, "C": C, "D": D, "E": E})
+```
+
+## The true DAG is not rejected
+
+When the proposed DAG matches the data-generating process, it violates none of its implied conditional independences and clearly beats the permuted baseline.
+
+```{python}
+true_model = pathmc.model("B ~ A\nC ~ A\nD ~ B + C\nE ~ D", data=df)
+result = true_model.falsify(n_permutations=200, random_seed=1)
+result
+```
+
+Because this graph has only five nodes (≤ 7), requesting `n_permutations=200` enumerates *all* `5! = 120` distinct relabelings exactly rather than sampling — so the baseline is deterministic and `random_seed` has no effect here. `result.n_permutations` reports the actual count (120).
+
+The verdict has two parts. **Informative** means few of those 120 relabelings share the DAG's Markov equivalence class — so the arrow directions are characteristic enough to be testable. **Beats the baseline** means the DAG violates fewer Local Markov Conditions than almost all of the competitors. Both hold, so the DAG is *not rejected*.
+
+The histogram makes the comparison visual: the dashed line (the given DAG) sits at the far left of the permuted baseline (it violates far fewer conditions than a random rewiring).
+
+```{python}
+# | label: fig-true-hist
+# | fig-cap: "Permuted-baseline histogram for the true DAG. The given DAG (dashed) violates fewer LMCs than the permutations."
+result.plot()
+plt.show()
+```
+
+## A wrong DAG is rejected
+
+Now suppose an analyst removes a true edge (`C → D`) and adds a wrong one (`E → C`). The graph is still informative, but it now violates conditional independences the data refuse to honor.
+
+```{dot}
+//| label: fig-wrong-dag
+//| fig-cap: "A misspecified DAG: the true C → D edge is dropped and a spurious E → C edge is added."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  A -> B
+  A -> C
+  B -> D
+  D -> E
+  E -> C [color=red, style=dashed]
+}
+```
+
+```{python}
+wrong_model = pathmc.model("B ~ A\nC ~ A + E\nD ~ B\nE ~ D", data=df)
+wrong_result = wrong_model.falsify(n_permutations=200, random_seed=1)
+wrong_result
+```
+
+The DAG is still informative, but its LMC violations no longer beat the permuted baseline, so it is **rejected**. The local violations pinpoint *where* the story breaks:
+
+```{python}
+wrong_result.violations
+```
+
+Each row is an implied independence `node ⊥ non_descendant | conditioning_set` that the data reject. These are the edges to revisit.
+
+## Falsification vs. edge-by-edge testing
+
+`falsify()` and [`test_implications()`](dag_testing.qmd) are complementary:
+
+| Question | Method |
+| --- | --- |
+| Which *specific* missing edge is contradicted? | `test_implications()` — one partial-correlation test per missing edge |
+| Is the DAG *as a whole* better than random, and falsifiable at all? | `falsify()` — permutation baseline over the entire graph |
+
+`test_implications()` is sharper for locating a single missing edge; `falsify()` adds the crucial "is this even a testable, informative DAG?" check and grades the whole graph on a curve. Use `test_implications()` to debug a flagged edge after `falsify()` rejects a DAG.
+
+## When a DAG cannot be falsified
+
+Two situations make a DAG impossible to reject — and `falsify()` reports both honestly rather than giving false confidence.
+
+**Fully connected graphs make no predictions.** A DAG with no missing edges implies no conditional independences, so there is nothing to test.
+
+```{python}
+saturated = pathmc.model(
+    "M ~ X\nY ~ M + X",
+    data=df.rename(columns={"A": "X", "B": "M", "C": "Y"})[["X", "M", "Y"]],
+)
+saturated.falsify(random_seed=0)
+```
+
+**Small graphs are often not informative.** A three-node chain `X → M → Y` is Markov-equivalent to its reverse `Y → M → X`: both predict `X ⊥ Y | M`. A large fraction of permutations therefore share its Markov equivalence class, so the test reports the DAG as *not informative* — the data simply cannot distinguish these arrow directions.
+
+```{python}
+chain_df = df.rename(columns={"A": "X", "B": "M", "C": "Y"})[["X", "M", "Y"]]
+chain = pathmc.model("M ~ X\nY ~ M", data=chain_df)
+chain.falsify(random_seed=0).falsifiable
+```
+
+This is a feature, not a limitation: it tells you the conclusion "not rejected" would have been vacuous, so you should rely on domain knowledge (or a larger graph) instead.
+
+## How the verdict is computed
+
+The decision rule follows Eulig et al. (2023) exactly, using two permutation p-values:
+
+- `p_value_tpa` — the fraction of permutations lying in the DAG's Markov equivalence class. The DAG is **falsifiable** (informative) when `p_value_tpa ≤ significance_level`.
+- `p_value_lmc` — the fraction of permutations whose LMC-violation rate is no worse than the given DAG's. The DAG is **falsified** (rejected) only when it is strictly informative (`p_value_tpa < significance_level`) *and* `p_value_lmc > significance_level` (it fails to beat the baseline). The strict `<` matches Eulig et al. (2023): a DAG sitting exactly at the informativeness boundary is given the benefit of the doubt.
+
+```{python}
+print(f"p_value_tpa (informativeness): {result.p_value_tpa:.3f}")
+print(f"p_value_lmc (beats baseline):  {result.p_value_lmc:.3f}")
+print(f"falsifiable: {result.falsifiable}, falsified: {result.falsified}")
+```
+
+::: {.callout-warning}
+## What this test can and cannot do
+
+**Conditional independence is tested with partial correlation** — the same linear-Gaussian test as `test_implications()`. Purely nonlinear dependencies are not detected, so a "not rejected" verdict is only as strong as the linear-Gaussian assumption.
+
+**The permutation baseline needs structure.** Tiny or sparsely connected graphs are frequently *not informative*; the test will say so rather than pretend to validate them.
+
+**Consistency is necessary, not sufficient.** "Not rejected" means the data do not contradict the DAG, not that the DAG is true. Markov-equivalent DAGs are indistinguishable by any observational test.
+:::
+
+## Summary
+
+- **`falsify()` grades the whole DAG** against a baseline of randomly rewired competitor graphs, rather than checking one edge at a time.
+- It answers two questions: **is the DAG informative** (few permutations in its Markov equivalence class) and **does it beat the baseline** on Local Markov Condition violations.
+- A DAG is **rejected** only when it is informative *and* fails to beat the baseline; the `.violations` table shows which implications break.
+- **Not all DAGs are falsifiable** — fully connected or small graphs make too few (or non-characteristic) predictions, and `falsify()` reports this rather than giving false confidence.
+- Pair it with [`test_implications()`](dag_testing.qmd) to drill into individual contradicted edges.

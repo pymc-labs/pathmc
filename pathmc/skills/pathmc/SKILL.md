@@ -92,6 +92,7 @@ The DSL is lavaan-inspired:
 | Warn about colliders in an adjustment set         | `m.collider_warnings(adjust, treatment, outcome)`      |
 | Enumerate implied conditional independences       | `m.implied_independences()`                            |
 | Test DAG implications against data                | `m.test_implications()`                                |
+| Falsify the whole DAG (permutation test)          | `m.falsify()`                                          |
 | Sensitivity analysis (unmeasured confounding)     | `m.sensitivity(outcome, treatment)`                    |
 | Add lag columns to a panel DataFrame              | `pathmc.add_lags(df, columns, by, time)`               |
 | Simulate from a fully-specified model             | `pathmc.simulate(spec, data, params=...)`              |
@@ -126,8 +127,8 @@ The DSL is lavaan-inspired:
    `adjustment_sets()`, `is_identifiable()`, `collider_warnings()`,
    `implied_independences()` all work. `fit()`, `do()`, `ate()`,
    `cate()`, `design()`, `sample_prior_predictive()`,
-   `test_implications()`, `sensitivity()` raise `RuntimeError` until
-   the model is rebuilt with data.
+   `test_implications()`, `falsify()`, `sensitivity()` raise
+   `RuntimeError` until the model is rebuilt with data.
 7. **`PathModel` is not in `pathmc.__all__`** — it's the class returned
    by `model()`. You don't import it directly; you receive it. Type
    annotations can use `pathmc.PathModel` (it is reachable as an
@@ -148,6 +149,9 @@ The DSL is lavaan-inspired:
   `frontdoor_identifiable`, `collider_warnings`).
 - Test the DAG's conditional-independence implications against data
   (`test_implications`).
+- Falsify the whole DAG with a permutation-based test (`falsify`),
+  which grades the graph against randomly-rewired competitors (a port of
+  dowhy's `gcm.falsify_graph`).
 - Build hierarchical panel models with random intercepts/slopes and
   use `lag()` terms.
 - Run sensitivity analysis to quantify robustness to unmeasured
