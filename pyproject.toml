@@ -67,7 +67,8 @@ include = ["pathmc*"]
 [tool.setuptools.package-data]
 # Curated agent skill, bundled so `great-docs skill install pathmc` works for
 # pip-installed users (resolver expects <package>/skills/<name>/SKILL.md).
-pathmc = ["skills/*/SKILL.md"]
+# py.typed marks the package as typed (PEP 561) for downstream type checkers.
+pathmc = ["skills/*/SKILL.md", "py.typed"]
 
 [tool.ruff]
 line-length = 88
@@ -82,6 +83,10 @@ docstring-code-format = true
 "tests/**" = ["F841"]
 
 [tool.pytest.ini_options]
+addopts = [
+    "-v",
+    "--color=yes",
+]
 markers = [
     "slow: marks tests that require MCMC sampling (deselect with '-m \"not slow\"')",
 ]
@@ -104,6 +109,9 @@ exclude_lines = [
 [tool.mypy]
 files = "pathmc/*.py"
 exclude = "build|dist|docs|tests"
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = [

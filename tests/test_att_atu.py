@@ -120,13 +120,17 @@ class TestAttAtuAPI:
     def test_att_no_matching_rows_raises(self, binary_data):
         model = pathmc.model(CONFOUNDED_SPEC, data=binary_data)
         model._idata = True  # bypass sampling check
-        with pytest.raises(ValueError, match="No observations"):
+        with pytest.raises(
+            ValueError, match="No observations.*Check the treated_value parameter"
+        ):
             model.att("Y", "T", treated_value=999.0)
 
     def test_atu_no_matching_rows_raises(self, binary_data):
         model = pathmc.model(CONFOUNDED_SPEC, data=binary_data)
         model._idata = True  # bypass sampling check
-        with pytest.raises(ValueError, match="No observations"):
+        with pytest.raises(
+            ValueError, match="No observations.*Check the untreated_value parameter"
+        ):
             model.atu("Y", "T", untreated_value=999.0)
 
 
