@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from itertools import combinations, permutations
+from itertools import permutations
 from typing import TYPE_CHECKING
 
 import narwhals.stable.v1 as nw
@@ -448,26 +448,9 @@ class _PartialCorrelationTester:
         return float(2.0 * stats.t.sf(np.abs(t_stat), df))
 
 
-def _residual_adjacent_pairs(
-    graph_info: GraphInfo,
-) -> frozenset[frozenset[str]]:
-    """Unordered variable pairs joined by a residual covariance (``~~``).
-
-    A residual covariance encodes an unobserved common cause, so the pair
-    is not an implied independence and must be excluded from the LMC and
-    d-separation tests.
-    """
-    pairs: set[frozenset[str]] = set()
-    for block in graph_info.residual_blocks:
-        for a, b in combinations(sorted(block), 2):
-            pairs.add(frozenset((a, b)))
-    return frozenset(pairs)
-
-
 def _parental_triples(
     dag: nx.DiGraph,
     include_unconditional: bool,
-    adjacent_pairs: frozenset[frozenset[str]] = frozenset(),
 ) -> list[tuple[str, str, tuple[str, ...]]]:
     """Enumerate ``(node, non_descendant, parents)`` triples for LMC tests.
 
@@ -475,11 +458,6 @@ def _parental_triples(
     ``Y`` (excluding ``X`` itself and its parents) yields the testable
     implication ``X ⊥⊥ Y | Z``. Root nodes (no parents) are included only
     when ``include_unconditional`` is ``True``.
-
-    Pairs connected by a residual covariance (``~~``) edge — passed via
-    *adjacent_pairs* as frozensets ``{X, Y}`` — are excluded: a declared
-    residual covariance means the variables are *not* implied independent,
-    so testing them would mis-flag the user's stated confounding.
     """
     triples: list[tuple[str, str, tuple[str, ...]]] = []
     all_nodes = set(dag.nodes)
@@ -489,8 +467,6 @@ def _parental_triples(
         non_descendants = sorted(all_nodes - excluded)
         if (parents or include_unconditional) and non_descendants:
             for non_desc in non_descendants:
-                if frozenset((node, non_desc)) in adjacent_pairs:
-                    continue
                 triples.append((node, non_desc, parents))
     return triples
 
@@ -500,7 +476,6 @@ def _validate_lmc(
     tester: _PartialCorrelationTester,
     significance_ci: float,
     include_unconditional: bool,
-    adjacent_pairs: frozenset[frozenset[str]] = frozenset(),
 ) -> tuple[int, int, list[dict]]:
     """Count Local Markov Condition violations of *dag* against the data.
 
@@ -511,9 +486,7 @@ def _validate_lmc(
     n_tests = 0
     n_violations = 0
     local: list[dict] = []
-    for node, non_desc, parents in _parental_triples(
-        dag, include_unconditional, adjacent_pairs
-    ):
+    for node, non_desc, parents in _parental_triples(dag, include_unconditional):
         p_value = tester.p_value(node, non_desc, parents)
         if p_value is None:
             continue
@@ -535,8 +508,6 @@ def _validate_tpa(
     permuted_dag: nx.DiGraph,
     reference_dag: nx.DiGraph,
     include_unconditional: bool,
-    permuted_adjacent: frozenset[frozenset[str]] = frozenset(),
-    reference_adjacent: frozenset[frozenset[str]] = frozenset(),
 ) -> tuple[int, int]:
     """Count parental d-separations of *permuted_dag* violated in the reference.
 
@@ -544,54 +515,30 @@ def _validate_tpa(
     checks whether ``X ⊥⊥ Y | Z`` holds (d-separation) in *reference_dag*.
     Zero violations means the two graphs share a Markov equivalence class.
     Returns ``(n_tests, n_violations)``.
-
-    Residual covariance (``~~``) pairs are bidirected confounding: such a
-    pair is never d-separated in the graph that declares it. They are
-    excluded from the permuted graph's implied independences and treated as
-    dependent (a violation) when present in the reference.
     """
     n_tests = 0
     n_violations = 0
     for node, non_desc, parents in _parental_triples(
-        permuted_dag, include_unconditional, permuted_adjacent
+        permuted_dag, include_unconditional
     ):
         n_tests += 1
-        if frozenset((node, non_desc)) in reference_adjacent:
-            n_violations += 1
-        elif not nx.is_d_separator(reference_dag, {node}, {non_desc}, set(parents)):
+        if not nx.is_d_separator(reference_dag, {node}, {non_desc}, set(parents)):
             n_violations += 1
     return n_tests, n_violations
-
-
-def _relabel_pairs(
-    adjacent_pairs: frozenset[frozenset[str]],
-    mapping: dict[str, str],
-) -> frozenset[frozenset[str]]:
-    """Apply a node relabeling to a set of unordered ``~~`` pairs."""
-    if not adjacent_pairs:
-        return frozenset()
-    relabeled: set[frozenset[str]] = set()
-    for pair in adjacent_pairs:
-        a, b = tuple(pair)
-        relabeled.add(frozenset((mapping[a], mapping[b])))
-    return frozenset(relabeled)
 
 
 def _permuted_dags(
     dag: nx.DiGraph,
     n_permutations: int,
     rng: np.random.Generator,
-    adjacent_pairs: frozenset[frozenset[str]] = frozenset(),
 ):
-    """Yield ``(relabeled_dag, relabeled_adjacent_pairs)`` competitor graphs.
+    """Yield node-relabeled copies of *dag* preserving its structure.
 
     For small graphs (at most :data:`_MAX_EXACT_NODES` nodes), when
     *n_permutations* covers every distinct relabeling, all of them are
     enumerated exactly and deterministically. Otherwise *n_permutations*
     random relabelings are drawn (sampling with replacement). The identity
-    relabeling is allowed, matching dowhy's baseline. Any residual
-    covariance (``~~``) pairs are relabeled alongside the directed edges so
-    each competitor is a faithful relabeling of the whole model.
+    relabeling is allowed, matching dowhy's baseline.
     """
     nodes = list(dag.nodes)
     n = len(nodes)
@@ -600,20 +547,14 @@ def _permuted_dags(
     if max_perms is not None and n_permutations >= max_perms:
         for exact_ordering in permutations(nodes):
             mapping = {nodes[i]: exact_ordering[i] for i in range(n)}
-            yield (
-                nx.relabel_nodes(dag, mapping, copy=True),
-                _relabel_pairs(adjacent_pairs, mapping),
-            )
+            yield nx.relabel_nodes(dag, mapping, copy=True)
         return
 
     node_array = np.asarray(nodes, dtype=object)
     for _ in range(n_permutations):
         random_ordering = list(rng.permutation(node_array))
         mapping = {nodes[i]: random_ordering[i] for i in range(n)}
-        yield (
-            nx.relabel_nodes(dag, mapping, copy=True),
-            _relabel_pairs(adjacent_pairs, mapping),
-        )
+        yield nx.relabel_nodes(dag, mapping, copy=True)
 
 
 def falsify_graph(
@@ -646,11 +587,10 @@ def falsify_graph(
     ----------
     graph_info : GraphInfo
         DAG from the structural model. Only contemporaneous (non-temporal)
-        edges are used; residual covariances (``~~``) mark the connected
-        pairs as confounded so they are not tested as implied
-        independences. Temporal ``lag(...)`` terms appear as ordinary
-        contemporaneous nodes, so falsification targets cross-sectional
-        (observed-variable) structure.
+        directed edges are used; temporal ``lag(...)`` terms appear as
+        ordinary contemporaneous nodes, so falsification targets
+        cross-sectional (observed-variable) structure. Residual
+        covariances (``~~``) are not supported and raise ``ValueError``.
     data : nw.DataFrame
         Observed data. Variables without a usable numeric column (latent
         nodes, or non-numeric columns) are skipped in CI tests but still
@@ -682,8 +622,10 @@ def falsify_graph(
     Raises
     ------
     ValueError
-        If *significance_level* or *significance_ci* is not in ``(0, 1)``,
-        or if *n_permutations* is not positive.
+        If *significance_level* or *significance_ci* is not in ``(0, 1)``;
+        if *n_permutations* is not a positive integer (or, for a large
+        graph, exceeds the sampling cap); or if the model declares a
+        residual covariance (``~~``), which is unsupported.
     """
     if not 0.0 < significance_level < 1.0:
         raise ValueError(
@@ -715,6 +657,16 @@ def falsify_graph(
             f"n_permutations must be a positive integer, got {n_permutations}."
         )
 
+    if graph_info.residual_blocks:
+        raise ValueError(
+            "falsify_graph does not support residual covariances (~~). "
+            "These encode unobserved confounding (a bidirected/ADMG edge), "
+            "which the permutation test — like dowhy's gcm.falsify_graph — "
+            "does not model. Falsify the directed structure by building a "
+            "model without the ~~ terms, or use test_implications() / "
+            "sensitivity() to reason about the confounded pairs."
+        )
+
     dag = graph_info.contemporaneous_dag
 
     if (
@@ -730,13 +682,12 @@ def falsify_graph(
             f"thousand permutations is typically plenty."
         )
 
-    adjacent_pairs = _residual_adjacent_pairs(graph_info)
     nodes = sorted(dag.nodes)
     rng = np.random.default_rng(random_seed)
     tester = _PartialCorrelationTester(data, nodes)
 
     given_n_tests, given_violations, local = _validate_lmc(
-        dag, tester, significance_ci, include_unconditional, adjacent_pairs
+        dag, tester, significance_ci, include_unconditional
     )
     given_fraction = given_violations / given_n_tests if given_n_tests else 0.0
 
@@ -744,19 +695,11 @@ def falsify_graph(
     perm_tpa_fractions: list[float] = []
     n_in_mec = 0
 
-    for permuted, perm_adjacent in _permuted_dags(
-        dag, n_permutations, rng, adjacent_pairs
-    ):
+    for permuted in _permuted_dags(dag, n_permutations, rng):
         lmc_tests, lmc_viol, _ = _validate_lmc(
-            permuted, tester, significance_ci, include_unconditional, perm_adjacent
+            permuted, tester, significance_ci, include_unconditional
         )
-        tpa_tests, tpa_viol = _validate_tpa(
-            permuted,
-            dag,
-            include_unconditional,
-            permuted_adjacent=perm_adjacent,
-            reference_adjacent=adjacent_pairs,
-        )
+        tpa_tests, tpa_viol = _validate_tpa(permuted, dag, include_unconditional)
         perm_lmc_fractions.append(lmc_viol / lmc_tests if lmc_tests else 0.0)
         perm_tpa_fractions.append(tpa_viol / tpa_tests if tpa_tests else 0.0)
         if tpa_viol == 0:

@@ -823,7 +823,9 @@ class PathModel:
         verdict is only as strong as the linear-Gaussian assumption.
 
         Uses the observed data, not the posterior, and works before
-        sampling.
+        sampling. Models with residual covariances (``~~``) are not
+        supported and raise ``ValueError`` — falsify the directed
+        structure without the ``~~`` terms instead.
 
         Parameters
         ----------

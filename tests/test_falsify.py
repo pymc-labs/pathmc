@@ -291,7 +291,7 @@ class TestLargeGraphNoExplosion:
         rng = np.random.default_rng(0)
         graphs = list(_permuted_dags(dag, 5, rng))
         assert len(graphs) == 5
-        for g, _adj in graphs:
+        for g in graphs:
             assert g.number_of_nodes() == dag.number_of_nodes()
             assert g.number_of_edges() == dag.number_of_edges()
 
@@ -631,7 +631,7 @@ class TestPermutedDags:
     def test_preserves_structure(self):
         dag = _graph("B ~ A\nC ~ A\nD ~ B + C").contemporaneous_dag
         rng = np.random.default_rng(0)
-        for g, _adj in _permuted_dags(dag, 10, rng):
+        for g in _permuted_dags(dag, 10, rng):
             assert g.number_of_nodes() == dag.number_of_nodes()
             assert g.number_of_edges() == dag.number_of_edges()
             assert nx_is_dag(g)
@@ -640,7 +640,7 @@ class TestPermutedDags:
         dag = _graph("B ~ A\nC ~ B").contemporaneous_dag
         rng = np.random.default_rng(0)
         graphs = list(_permuted_dags(dag, 10_000, rng))
-        assert any(set(g.edges) == set(dag.edges) for g, _adj in graphs)
+        assert any(set(g.edges) == set(dag.edges) for g in graphs)
 
     def test_single_node_graph(self):
         # A one-node DAG cannot be built from a spec (specs need an edge),
@@ -659,11 +659,11 @@ class TestPermutedDags:
         ).contemporaneous_dag
         g1 = [
             tuple(sorted(g.edges))
-            for g, _adj in _permuted_dags(dag, 6, np.random.default_rng(3))
+            for g in _permuted_dags(dag, 6, np.random.default_rng(3))
         ]
         g2 = [
             tuple(sorted(g.edges))
-            for g, _adj in _permuted_dags(dag, 6, np.random.default_rng(3))
+            for g in _permuted_dags(dag, 6, np.random.default_rng(3))
         ]
         assert g1 == g2
 
@@ -961,7 +961,13 @@ class TestEdgeCaseData:
 
 
 class TestResidualCovariance:
-    """`~~` pairs are confounded, not implied-independent."""
+    """`~~` (residual covariance / confounding) is unsupported and rejected.
+
+    Falsification, like dowhy's gcm.falsify_graph, models directed DAGs
+    only. Residual covariances encode bidirected (ADMG) confounding whose
+    testable implications require m-separation; rather than return wrong
+    results, falsify rejects such models with a clear error.
+    """
 
     @pytest.fixture
     def confounded_data(self):
@@ -973,34 +979,44 @@ class TestResidualCovariance:
         W = 0.5 * X + 0.5 * Y + rng.normal(scale=0.5, size=n)
         return pd.DataFrame({"X": X, "Y": Y, "W": W})
 
-    def test_residual_pair_not_tested(self, confounded_data):
-        # With X ~~ Y declared, X ⊥ Y must NOT appear as an implied
-        # independence, so it cannot be a violation.
-        with_cov = falsify_graph(
-            build_graph(parse_spec("W ~ X + Y\nX ~~ Y")),
-            _to_nw(confounded_data),
-            random_seed=0,
-        )
-        pairs = {
-            frozenset((row["node"], row["non_descendant"]))
-            for _, row in with_cov.local_violations.iterrows()
-        }
-        assert frozenset(("X", "Y")) not in pairs
+    def test_residual_covariance_rejected(self, confounded_data):
+        with pytest.raises(ValueError, match="residual covariance"):
+            falsify_graph(
+                build_graph(parse_spec("W ~ X + Y\nX ~~ Y")),
+                _to_nw(confounded_data),
+                random_seed=0,
+            )
 
-    def test_declaring_cov_changes_result(self, confounded_data):
-        # Declaring the confounding should reduce flagged violations vs.
-        # the directed-only graph that wrongly implies X ⊥ Y.
-        with_cov = falsify_graph(
-            build_graph(parse_spec("W ~ X + Y\nX ~~ Y")),
-            _to_nw(confounded_data),
-            random_seed=0,
-        )
-        without_cov = falsify_graph(
+    def test_residual_covariance_rejected_via_method(self, confounded_data):
+        m = pathmc.model("W ~ X + Y\nX ~~ Y", data=confounded_data)
+        with pytest.raises(ValueError, match="residual covariance"):
+            m.falsify(random_seed=0)
+
+    def test_dangling_residual_endpoint_rejected(self):
+        # Y appears only in a ~~ term (not a DAG node): must raise cleanly,
+        # not KeyError.
+        n = 200
+        rng = np.random.default_rng(0)
+        df = pd.DataFrame({
+            "X": rng.normal(size=n),
+            "Y": rng.normal(size=n),
+            "Z": rng.normal(size=n),
+        })
+        with pytest.raises(ValueError, match="residual covariance"):
+            falsify_graph(
+                build_graph(parse_spec("Z ~ X\nX ~~ Y")),
+                _to_nw(df),
+                random_seed=0,
+            )
+
+    def test_directed_only_still_works(self, confounded_data):
+        # Removing ~~ lets falsification proceed on the directed structure.
+        r = falsify_graph(
             build_graph(parse_spec("W ~ X + Y")),
             _to_nw(confounded_data),
             random_seed=0,
         )
-        assert with_cov.given_lmc_violations < without_cov.given_lmc_violations
+        assert r.n_lmc_tests >= 0
 
 
 class TestStringColumns:
