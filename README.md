@@ -58,6 +58,8 @@ The DSL mirrors lavaan: `~` defines a regression of an outcome on its parents, `
 
 ## Capabilities
 
+*For concepts, tutorials, and the full API reference, see the documentation at [pymc-labs.github.io/pathmc](https://pymc-labs.github.io/pathmc/).*
+
 **Model specification**
 - A compact, lavaan-style formula DSL that compiles directly to a generative PyMC model.
 - Labeled coefficients (`a*X`) and defined parameters (`indirect := a*b`) for mediation, total, and custom derived effects.
