@@ -1,5 +1,7 @@
 ---
 title: "Moderation (Effect Modification)"
+author:
+  - name: "Ben Vincent"
 description: "Model treatment effect heterogeneity using interaction terms — the effect of X on Y depends on context Z."
 tags: [Causal Inference, Moderation, Treatment Effects]
 image: thumbnails/moderation.png
