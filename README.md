@@ -1,7 +1,10 @@
 # pathmc
 
 <p align="center">
-  <img src="docs/assets/logo.png" alt="pathmc logo" width="75%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo_dark.png">
+    <img src="docs/assets/logo_light.png" alt="pathmc logo" width="75%">
+  </picture>
 </p>
 
 [![Status: beta](https://img.shields.io/badge/status-beta-orange)](https://pypi.org/project/pathmc/)
