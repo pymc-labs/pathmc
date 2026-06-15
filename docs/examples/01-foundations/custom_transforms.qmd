@@ -1,5 +1,7 @@
 ---
 title: "Custom Transforms"
+author:
+  - name: "Ben Vincent"
 description: "Define domain-specific nonlinearities with estimable parameters and use them in the pathmc DSL."
 tags: [Transforms]
 image: thumbnails/custom_transforms.png

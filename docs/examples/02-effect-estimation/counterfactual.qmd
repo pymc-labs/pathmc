@@ -1,5 +1,7 @@
 ---
 title: "Counterfactuals: From Population to Individual"
+author:
+  - name: "Ben Vincent"
 description: "Interventions tell us what happens on average when we force a change. Counterfactuals answer a different question: what would have happened to *this specific person* under different circumstances?"
 tags: [Causal Inference, Counterfactuals, do-Operator]
 image: thumbnails/counterfactual.png

@@ -1,5 +1,7 @@
 ---
 title: "Testing Your DAG Against Data"
+author:
+  - name: "Ben Vincent"
 description: "Enumerate implied conditional independences and test whether your structural assumptions hold before fitting."
 tags: [Causal Inference, Identification]
 image: thumbnails/dag_testing.png

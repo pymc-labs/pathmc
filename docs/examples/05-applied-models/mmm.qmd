@@ -1,5 +1,7 @@
 ---
 title: "Media Mix Models"
+author:
+  - name: "Ben Vincent"
 description: "Build MMMs of increasing complexity: adstock and saturation transforms, marketing funnel mediation, and hierarchical geo-varying effects."
 tags: [Media Mix Modeling, Panel Data, Transforms, Mediation, Hierarchical Effects]
 image: thumbnails/mmm.png
