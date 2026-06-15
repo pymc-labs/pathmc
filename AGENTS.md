@@ -21,6 +21,10 @@ All v1 milestones (M1–M31) are complete. See `docs/dev/roadmap_post_v1.md` for
 5. Run `make lint` before considering a milestone done or creating a commit. This runs `prek run --all-files`, including the configured `ruff`, `ruff-format`, `mypy`, YAML/TOML, and license checks.
 6. Move to the next milestone.
 
+## Agent scratch space
+
+Ephemeral agent outputs (draft PR summaries, issue scaffolds, exploration notes) belong in `.scratch/` at the repo root. That directory is gitignored — nothing in it is committed. Do not place scratch files under `.github/`, `docs/dev/`, or anywhere else in the tracked tree.
+
 ## Required Module Structure
 
 The test files import from specific modules. These paths are **fixed**:
@@ -131,5 +135,5 @@ uv run pytest tests/test_compile.py::TestDesignMatrix -x -v
 - Use global state or module-level mutable variables.
 - Suppress warnings without documenting the reason.
 - Write "clever" code — prefer clear, boring implementations.
-- Commit temporary/scratch files (e.g., draft issue text, PR summary scaffolds). Files intended to be persistent parts of the repo (docs, config, source) are fine to commit.
+- Commit temporary/scratch files. Use `.scratch/` for draft issue text, PR summary scaffolds, and other throwaway agent output. Files intended to be persistent parts of the repo (docs, config, source) are fine to commit.
 - Hard-wrap paragraphs in markdown or Quarto files (see Style Guide). Keep each paragraph and list item on a single line.
