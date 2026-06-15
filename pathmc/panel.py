@@ -125,23 +125,19 @@ def _validate_panel_args(
     unit_col = panel["unit"]
     time_col = panel["time"]
 
-    if unit_col not in df.columns:
-        raise KeyError(
-            f"Unit column '{unit_col}' not found in data. "
-            f"Available columns: {', '.join(df.columns)}"
-        )
-    if time_col not in df.columns:
-        raise KeyError(
-            f"Time column '{time_col}' not found in data. "
-            f"Available columns: {', '.join(df.columns)}"
-        )
-
+    _require_column(df, unit_col, "Unit column")
+    _require_column(df, time_col, "Time column")
     for var in variables:
-        if var not in df.columns:
-            raise KeyError(
-                f"Variable '{var}' not found in data. "
-                f"Available columns: {', '.join(df.columns)}"
-            )
+        _require_column(df, var, "Variable")
+
+
+def _require_column(df: nw.DataFrame, col: str, label: str) -> None:
+    """Raise ``KeyError`` if *col* is absent from *df*."""
+    if col not in df.columns:
+        raise KeyError(
+            f"{label} '{col}' not found in data. "
+            f"Available columns: {', '.join(df.columns)}"
+        )
 
 
 def build_panel_info(df: nw.DataFrame, panel: dict[str, str]) -> PanelInfo:

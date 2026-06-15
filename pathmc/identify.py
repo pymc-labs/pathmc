@@ -32,6 +32,21 @@ from scipy import stats
 from pathmc.graph import GraphInfo
 
 
+def _require_nodes(dag: nx.DiGraph, **named: str) -> None:
+    """Raise ``ValueError`` if any named node is absent from *dag*.
+
+    Keyword keys are human-readable roles (e.g. ``treatment="X"``); the
+    role is capitalized in the error message, which lists the available
+    nodes.
+    """
+    for role, name in named.items():
+        if name not in dag.nodes:
+            raise ValueError(
+                f"{role.capitalize()} '{name}' not in DAG. "
+                f"Available nodes: {sorted(dag.nodes)}"
+            )
+
+
 def adjustment_sets(
     graph_info: GraphInfo,
     treatment: str,
@@ -72,14 +87,7 @@ def adjustment_sets(
     dag = graph_info.contemporaneous_dag
     latent = graph_info.latent
 
-    if treatment not in dag.nodes:
-        raise ValueError(
-            f"Treatment '{treatment}' not in DAG. Available nodes: {sorted(dag.nodes)}"
-        )
-    if outcome not in dag.nodes:
-        raise ValueError(
-            f"Outcome '{outcome}' not in DAG. Available nodes: {sorted(dag.nodes)}"
-        )
+    _require_nodes(dag, treatment=treatment, outcome=outcome)
 
     descendants = nx.descendants(dag, treatment)
     candidates = set(dag.nodes) - {treatment, outcome} - descendants - latent
@@ -183,15 +191,7 @@ def frontdoor_identifiable(
     """
     dag = graph_info.contemporaneous_dag
 
-    for name, role in [
-        (treatment, "Treatment"),
-        (mediator, "Mediator"),
-        (outcome, "Outcome"),
-    ]:
-        if name not in dag.nodes:
-            raise ValueError(
-                f"{role} '{name}' not in DAG. Available nodes: {sorted(dag.nodes)}"
-            )
+    _require_nodes(dag, treatment=treatment, mediator=mediator, outcome=outcome)
 
     if treatment == mediator or mediator == outcome or treatment == outcome:
         raise ValueError(

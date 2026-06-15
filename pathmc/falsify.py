@@ -340,7 +340,7 @@ class FalsificationResult:
             color="tab:orange",
             label="tPA violations (given DAG)",
         )
-        ax.set_ylim([0, ylim])
+        ax.set_ylim((0, ylim))
         ax.set_xlabel("Fraction of violations")
         ax.set_ylabel("# permuted DAGs")
         ax.set_title(

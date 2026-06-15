@@ -46,7 +46,7 @@ import pymc as pm
 
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
-from pathmc.parse import Regression, Spec, TransformCall
+from pathmc.parse import Regression, Spec, Term, TransformCall
 from pathmc.transforms import get_transform
 
 
@@ -137,13 +137,13 @@ def get_fixed_coefficients(reg: Regression) -> dict[str, float]:
     return {t.variable: t.fixed_value for t in reg.terms if t.fixed_value is not None}
 
 
-def _term_base_vars(term: Any) -> list[str]:
+def _term_base_vars(term: Term) -> list[str]:
     """Return the base variable names a term depends on.
 
     For interaction terms, returns the constituent variables.
     For plain terms, returns a single-element list.
     """
-    if getattr(term, "interaction_of", None) is not None:
+    if term.interaction_of is not None:
         return list(term.interaction_of)
     return [term.variable]
 
@@ -1066,7 +1066,7 @@ def _transform_base_vars(tc: TransformCall) -> list[str]:
     return [tc.input_expr]
 
 
-def _scan_term_base_vars(term: Any) -> list[str]:
+def _scan_term_base_vars(term: Term) -> list[str]:
     """Return base variables a scan predictor term reads from."""
     if term.lag_of is not None:
         return [term.lag_of]
