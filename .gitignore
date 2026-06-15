@@ -30,3 +30,7 @@ docs/**/*_files/
 # Single-page `great-docs freeze` bundles HTML support libs into the freeze
 # cache; the full build does not. Keep only execute-results/ and figure-html/.
 _freeze/**/libs/
+
+# Local Cursor agent tooling (subagents, skills, commands). Developer-local;
+# not part of the package.
+.cursor/

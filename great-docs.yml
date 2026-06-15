@@ -89,6 +89,11 @@ reference:
     desc: Helpers for panel / longitudinal data.
     contents:
       - panel.add_lags
+  - title: DAG falsification
+    desc: Whole-graph validation via a permutation-based test.
+    contents:
+      - falsify.falsify_graph
+      - falsify.FalsificationResult
 
 # Site appearance ------------------------------------------------------------
 logo: docs/assets/logo.png
@@ -112,6 +117,9 @@ bibliography: docs/references.bib
 # Jupyter kernel for executable code cells. Register it from the uv-managed
 # venv with: uv run python -m ipykernel install --user --name pathmc
 jupyter: pathmc
+
+# Render code-cell figures as 2x PNGs and display them at their logical size.
+fig-format: retina
 
 # Freeze cache --------------------------------------------------------------
 # Local builds execute and cache; remote builds only render from the committed

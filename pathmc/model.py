@@ -35,6 +35,7 @@ from pathmc.effects import (
     build_standardized_effects,
     compute_path_effect,
 )
+from pathmc.falsify import FalsificationResult, falsify_graph as _falsify_graph
 from pathmc.graph import GraphInfo, build_graph
 from pathmc.identify import (
     ConditionalIndependence,
@@ -854,6 +855,75 @@ class PathModel:
         r_lo = self._run_do({treatment: lo}, kind, subgroup_indices=subgroup_idx)
         r_hi = self._run_do({treatment: hi}, kind, subgroup_indices=subgroup_idx)
         return r_hi - r_lo
+
+    def falsify(
+        self,
+        n_permutations: int | None = None,
+        significance_level: float = 0.05,
+        significance_ci: float = 0.05,
+        include_unconditional: bool = True,
+        random_seed: int | None = None,
+    ) -> FalsificationResult:
+        """Falsify the whole DAG against the data via a permutation test.
+
+        Grades the entire DAG at once, rather than one missing edge at a
+        time as :meth:`test_implications` does. It counts how many
+        Local Markov Conditions (implied parental conditional
+        independences) the data violate, then compares that count to a
+        baseline of randomly relabeled competitor graphs.
+
+        The DAG is reported as *informative* (falsifiable) when few node
+        permutations share its Markov equivalence class, and *not
+        rejected* when it is informative and violates fewer conditions
+        than the permuted baseline. This ports dowhy's
+        ``gcm.falsify_graph`` (Eulig et al., 2023) using the same
+        partial-correlation conditional independence methodology as
+        :meth:`test_implications`. Because that test is linear, purely
+        nonlinear dependencies are not detected, so a "not rejected"
+        verdict is only as strong as the linear-Gaussian assumption.
+
+        Uses the observed data, not the posterior, and works before
+        sampling. Models with residual covariances (``~~``) are not
+        supported and raise ``ValueError`` — falsify the directed
+        structure without the ``~~`` terms instead.
+
+        Parameters
+        ----------
+        n_permutations : int | None
+            Number of permuted DAGs in the baseline. Defaults to
+            ``round(1 / significance_level)``. For small graphs (at most
+            7 nodes), if it meets or exceeds the number of distinct node
+            relabelings (``n!``), all are enumerated exactly; otherwise
+            random relabelings are sampled.
+        significance_level : float
+            Significance level for the permutation-based verdict
+            (default 0.05).
+        significance_ci : float
+            Significance level for each conditional independence test
+            (default 0.05).
+        include_unconditional : bool
+            Whether to also test unconditional independences implied by
+            root nodes (default ``True``).
+        random_seed : int | None
+            Seed for the permutation sampler, for reproducible results.
+
+        Returns
+        -------
+        FalsificationResult
+            Verdict (``.falsified``, ``.falsifiable``), permutation
+            p-values, per-test local violations, and a ``.plot()`` helper.
+        """
+        self._require_data("falsify")
+        assert self._data is not None
+        return _falsify_graph(
+            self._graph_info,
+            self._data,
+            n_permutations=n_permutations,
+            significance_level=significance_level,
+            significance_ci=significance_ci,
+            include_unconditional=include_unconditional,
+            random_seed=random_seed,
+        )
 
     def do(
         self,
