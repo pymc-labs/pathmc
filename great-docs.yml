@@ -113,6 +113,9 @@ bibliography: docs/references.bib
 # venv with: uv run python -m ipykernel install --user --name pathmc
 jupyter: pathmc
 
+# Render code-cell figures as 2x PNGs and display them at their logical size.
+fig-format: retina
+
 # Freeze cache --------------------------------------------------------------
 # Local builds execute and cache; remote builds only render from the committed
 # `_freeze/` cache. Refresh after editing a page with `great-docs freeze <page>`.
