@@ -1,5 +1,7 @@
 ---
 title: "Sensitivity to Unmeasured Confounding"
+author:
+  - name: "Ben Vincent"
 description: "How robust is your causal estimate? Quantify how strong an unmeasured confounder would need to be to overturn your conclusion."
 tags: [Causal Inference, Sensitivity Analysis]
 image: thumbnails/sensitivity.png

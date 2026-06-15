@@ -1,5 +1,7 @@
 ---
 title: "Difference-in-Differences"
+author:
+  - name: "Ben Vincent"
 description: "Estimate treatment effects by comparing changes over time between treated and control groups using panel mode."
 tags: [Panel Data, Difference-in-Differences, Causal Inference]
 image: thumbnails/did.png

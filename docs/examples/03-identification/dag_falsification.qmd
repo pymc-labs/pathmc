@@ -1,5 +1,7 @@
 ---
 title: "Falsifying a Whole DAG"
+author:
+  - name: "Ben Vincent"
 description: "Grade an entire DAG against a permuted-baseline test: does it break its conditional-independence promises, and is it even informative enough to be falsified?"
 tags: [Causal Inference, Identification]
 image: thumbnails/dag_falsification.png
