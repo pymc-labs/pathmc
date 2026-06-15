@@ -285,21 +285,17 @@ class TestLargeGraphNoExplosion:
         return build_graph(parse_spec(spec)).contemporaneous_dag
 
     def test_large_graph_samples_requested_count(self):
-        from pathmc.falsify import _permuted_dags
-
         # 8-node chain (8! = 40320). Requesting a huge count must NOT
         # enumerate 8!; it yields exactly the requested random sample.
         dag = self._chain_dag(8)
         rng = np.random.default_rng(0)
         graphs = list(_permuted_dags(dag, 5, rng))
         assert len(graphs) == 5
-        for g in graphs:
+        for g, _adj in graphs:
             assert g.number_of_nodes() == dag.number_of_nodes()
             assert g.number_of_edges() == dag.number_of_edges()
 
     def test_small_graph_enumerates_exactly(self):
-        from pathmc.falsify import _permuted_dags
-
         # 3-node chain (3! = 6). A large request enumerates exactly 6.
         dag = self._chain_dag(3)
         rng = np.random.default_rng(0)
@@ -479,9 +475,10 @@ class TestPartialCorrelationTester:
         })
         assert self._tester(df).p_value("X", "Y", ()) is None
 
-    def test_constant_conditioning_then_marginal(self):
-        # A constant conditioning variable is absorbed into the intercept;
-        # the result equals the marginal test (still computable).
+    def test_constant_conditioning_equals_marginal(self):
+        # A constant conditioning variable is absorbed into the intercept,
+        # so the conditional test must exactly equal the marginal one
+        # (effective rank handles the degrees of freedom).
         rng = np.random.default_rng(2)
         x = rng.normal(size=200)
         df = pd.DataFrame({
@@ -490,9 +487,38 @@ class TestPartialCorrelationTester:
             "Z": np.ones(200),
         })
         tester = self._tester(df)
-        p = tester.p_value("X", "Y", ("Z",))
-        assert p is not None
-        assert p < 1e-3
+        p_marginal = tester.p_value("X", "Y", ())
+        p_conditional = tester.p_value("X", "Y", ("Z",))
+        assert p_conditional is not None
+        assert p_conditional == pytest.approx(p_marginal)
+
+    def test_collinear_conditioner_equals_single(self):
+        # A duplicated conditioning column must not change the result vs.
+        # conditioning on one copy (rank-based degrees of freedom).
+        rng = np.random.default_rng(6)
+        z = rng.normal(size=300)
+        x = 0.5 * z + rng.normal(scale=0.5, size=300)
+        y = 0.5 * z + rng.normal(scale=0.5, size=300)
+        df = pd.DataFrame({"X": x, "Y": y, "Z": z, "Zdup": z.copy()})
+        tester = self._tester(df)
+        p_one = tester.p_value("X", "Y", ("Z",))
+        p_dup = tester.p_value("X", "Y", ("Z", "Zdup"))
+        assert p_dup is not None
+        assert p_dup == pytest.approx(p_one)
+
+    def test_non_numeric_column_skipped(self):
+        rng = np.random.default_rng(7)
+        x = rng.normal(size=40)
+        df = pd.DataFrame({
+            "X": x,
+            "Y": 0.5 * x + rng.normal(scale=0.5, size=40),
+            "G": ["a", "b"] * 20,
+        })
+        tester = self._tester(df, variables=["X", "Y", "G"])
+        # Numeric pair still works; any test needing the string column skips.
+        assert tester.p_value("X", "Y", ()) is not None
+        assert tester.p_value("X", "G", ()) is None
+        assert tester.p_value("X", "Y", ("G",)) is None
 
     def test_perfect_collinearity_returns_zero(self):
         rng = np.random.default_rng(3)
@@ -605,7 +631,7 @@ class TestPermutedDags:
     def test_preserves_structure(self):
         dag = _graph("B ~ A\nC ~ A\nD ~ B + C").contemporaneous_dag
         rng = np.random.default_rng(0)
-        for g in _permuted_dags(dag, 10, rng):
+        for g, _adj in _permuted_dags(dag, 10, rng):
             assert g.number_of_nodes() == dag.number_of_nodes()
             assert g.number_of_edges() == dag.number_of_edges()
             assert nx_is_dag(g)
@@ -614,7 +640,7 @@ class TestPermutedDags:
         dag = _graph("B ~ A\nC ~ B").contemporaneous_dag
         rng = np.random.default_rng(0)
         graphs = list(_permuted_dags(dag, 10_000, rng))
-        assert any(set(g.edges) == set(dag.edges) for g in graphs)
+        assert any(set(g.edges) == set(dag.edges) for g, _adj in graphs)
 
     def test_single_node_graph(self):
         # A one-node DAG cannot be built from a spec (specs need an edge),
@@ -633,11 +659,11 @@ class TestPermutedDags:
         ).contemporaneous_dag
         g1 = [
             tuple(sorted(g.edges))
-            for g in _permuted_dags(dag, 6, np.random.default_rng(3))
+            for g, _adj in _permuted_dags(dag, 6, np.random.default_rng(3))
         ]
         g2 = [
             tuple(sorted(g.edges))
-            for g in _permuted_dags(dag, 6, np.random.default_rng(3))
+            for g, _adj in _permuted_dags(dag, 6, np.random.default_rng(3))
         ]
         assert g1 == g2
 
@@ -792,10 +818,25 @@ class TestDecisionRuleGrid:
         assert r.falsified is exp_falsified
 
     def test_falsified_implies_falsifiable(self):
-        for p_lmc, p_tpa, alpha in itertools.product(self.GRID, self.GRID, [0.05]):
-            fbl, fsd = _dowhy_verdict(p_lmc, p_tpa, alpha)
-            if fsd:
-                assert fbl
+        # Assert the invariant on the actual FalsificationResult object,
+        # not just the reference helper.
+        for p_lmc, p_tpa in itertools.product(self.GRID, self.GRID):
+            r = FalsificationResult(
+                given_lmc_violations=0,
+                n_lmc_tests=6,
+                given_lmc_violation_fraction=0.0,
+                perm_lmc_violation_fractions=np.zeros(20),
+                perm_tpa_violation_fractions=np.zeros(20),
+                p_value_lmc=p_lmc,
+                p_value_tpa=p_tpa,
+                n_permutations=20,
+                n_in_mec=0,
+                significance_level=0.05,
+                significance_ci=0.05,
+                local_violations=pd.DataFrame(),
+            )
+            if r.falsified:
+                assert r.falsifiable
 
 
 class TestStatisticalBehavior:
@@ -805,9 +846,12 @@ class TestStatisticalBehavior:
         assert r.given_lmc_violations == 0
         assert r.falsified is False
 
-    def test_missing_edge_flagged_locally(self, missing_edge_data):
-        # Funnel where the proposed chain omits a real edge; on a 4-node
-        # graph the test is informative and should reject.
+    def test_missing_edge_flagged_locally(self):
+        # Funnel where the proposed chain omits the real Budget -> Sales
+        # edge. This is a *local* violation check: the implied independence
+        # Budget ⊥ Sales | Clicks is contradicted by the data. (Whether the
+        # whole-graph verdict rejects depends on the permutation baseline,
+        # tested separately.)
         n = 1500
         rng = np.random.default_rng(21)
         budget = rng.normal(loc=10, scale=2, size=n)
@@ -823,6 +867,11 @@ class TestStatisticalBehavior:
         m = pathmc.model("Ads ~ Budget\nClicks ~ Ads\nSales ~ Clicks", data=df)
         r = m.falsify(n_permutations=200, random_seed=1)
         assert r.given_lmc_violations >= 1
+        violated_pairs = {
+            frozenset((row["node"], row["non_descendant"]))
+            for _, row in r.violations.iterrows()
+        }
+        assert frozenset(("Budget", "Sales")) in violated_pairs
 
     def test_collider_consistent(self, collider_data):
         # X ⊥ Y unconditionally holds for a collider; the DAG should not be
@@ -909,6 +958,156 @@ class TestEdgeCaseData:
         # default n_permutations = round(1/0.5) = 2
         assert r.n_permutations <= 2
         assert r.significance_level == 0.5
+
+
+class TestResidualCovariance:
+    """`~~` pairs are confounded, not implied-independent."""
+
+    @pytest.fixture
+    def confounded_data(self):
+        n = 1000
+        rng = np.random.default_rng(31)
+        U = rng.normal(size=n)
+        X = 0.9 * U + rng.normal(scale=0.4, size=n)
+        Y = 0.9 * U + rng.normal(scale=0.4, size=n)
+        W = 0.5 * X + 0.5 * Y + rng.normal(scale=0.5, size=n)
+        return pd.DataFrame({"X": X, "Y": Y, "W": W})
+
+    def test_residual_pair_not_tested(self, confounded_data):
+        # With X ~~ Y declared, X ⊥ Y must NOT appear as an implied
+        # independence, so it cannot be a violation.
+        with_cov = falsify_graph(
+            build_graph(parse_spec("W ~ X + Y\nX ~~ Y")),
+            _to_nw(confounded_data),
+            random_seed=0,
+        )
+        pairs = {
+            frozenset((row["node"], row["non_descendant"]))
+            for _, row in with_cov.local_violations.iterrows()
+        }
+        assert frozenset(("X", "Y")) not in pairs
+
+    def test_declaring_cov_changes_result(self, confounded_data):
+        # Declaring the confounding should reduce flagged violations vs.
+        # the directed-only graph that wrongly implies X ⊥ Y.
+        with_cov = falsify_graph(
+            build_graph(parse_spec("W ~ X + Y\nX ~~ Y")),
+            _to_nw(confounded_data),
+            random_seed=0,
+        )
+        without_cov = falsify_graph(
+            build_graph(parse_spec("W ~ X + Y")),
+            _to_nw(confounded_data),
+            random_seed=0,
+        )
+        assert with_cov.given_lmc_violations < without_cov.given_lmc_violations
+
+
+class TestStringColumns:
+    def test_string_column_does_not_crash(self, chain_data):
+        df = chain_data.copy()
+        df["G"] = ["a", "b", "c"] * (len(df) // 3) + ["a"] * (len(df) % 3)
+        r = falsify_graph(
+            build_graph(parse_spec("M ~ X + G\nY ~ M")),
+            _to_nw(df),
+            random_seed=0,
+        )
+        # The numeric implications still run; nothing crashes.
+        assert r.given_lmc_violations == 0
+
+
+class TestDocExamplePaths:
+    """Lock in the exact behavior shown in the documentation example."""
+
+    def test_five_node_enumerates_120(self, five_node_data):
+        # The example calls falsify(n_permutations=200) on a 5-node DAG;
+        # since 200 >= 5! = 120, all 120 relabelings are enumerated.
+        m = pathmc.model(TRUE_SPEC, data=five_node_data)
+        r = m.falsify(n_permutations=200, random_seed=1)
+        assert r.n_permutations == math.factorial(5)
+        assert r.falsifiable is True
+        assert r.falsified is False
+
+    def test_five_node_wrong_dag_rejected(self, five_node_data):
+        m = pathmc.model(WRONG_SPEC, data=five_node_data)
+        r = m.falsify(n_permutations=200, random_seed=1)
+        assert r.n_permutations == math.factorial(5)
+        assert r.falsified is True
+
+
+class TestSignificanceLevelCapping:
+    def test_tiny_significance_default_perms_capped(self):
+        # On a >7-node graph, a tiny significance_level implies a huge
+        # default n_permutations; it must be capped, not error out.
+        from pathmc.falsify import _DEFAULT_PERMUTATION_CAP
+
+        n = 60
+        rng = np.random.default_rng(0)
+        cols = {f"N{i}": rng.normal(size=n) for i in range(9)}
+        df = pd.DataFrame(cols)
+        spec = "\n".join(f"N{i} ~ N{i - 1}" for i in range(1, 9))
+        r = falsify_graph(
+            build_graph(parse_spec(spec)),
+            _to_nw(df),
+            significance_level=1e-9,
+            random_seed=0,
+        )
+        assert r.n_permutations == _DEFAULT_PERMUTATION_CAP
+
+    def test_explicit_huge_still_rejected(self):
+        n = 60
+        rng = np.random.default_rng(0)
+        cols = {f"N{i}": rng.normal(size=n) for i in range(9)}
+        df = pd.DataFrame(cols)
+        spec = "\n".join(f"N{i} ~ N{i - 1}" for i in range(1, 9))
+        with pytest.raises(ValueError, match="too large"):
+            falsify_graph(
+                build_graph(parse_spec(spec)),
+                _to_nw(df),
+                n_permutations=10_000_000,
+            )
+
+
+class TestPlotValidation:
+    def test_negative_bins_rejected(self):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        r = TestResultDisplay()._make(p_lmc=0.5, p_tpa=0.0, n_in_mec=0)
+        with pytest.raises(ValueError, match="bins"):
+            r.plot(bins=0)
+
+
+class TestMiscEdgeCases:
+    def test_integer_columns(self, five_node_data):
+        int_df = (five_node_data * 10).round().astype(int)
+        m = pathmc.model(TRUE_SPEC, data=int_df)
+        r = m.falsify(n_permutations=50, random_seed=1)
+        assert r.can_evaluate is True
+
+    def test_isolated_two_node_graph(self):
+        # Two unconnected nodes imply a single unconditional independence
+        # X ⊥ Y; with no edges the graph is uninformative (every relabeling
+        # shares its Markov equivalence class).
+        import networkx as nx
+
+        rng = np.random.default_rng(0)
+        df = pd.DataFrame({"X": rng.normal(size=200), "Y": rng.normal(size=200)})
+        g = nx.DiGraph()
+        g.add_nodes_from(["X", "Y"])
+        triples = _parental_triples(g, include_unconditional=True)
+        assert len(triples) >= 1
+
+    def test_random_seed_none_runs(self, five_node_data):
+        m = pathmc.model(TRUE_SPEC, data=five_node_data)
+        r = m.falsify(n_permutations=30, random_seed=None)
+        assert 0.0 <= r.p_value_tpa <= 1.0
+
+    def test_significance_level_near_one(self, five_node_data):
+        m = pathmc.model(TRUE_SPEC, data=five_node_data)
+        r = m.falsify(significance_level=0.999, random_seed=1)
+        # default n_permutations = round(1/0.999) = 1
+        assert r.n_permutations == 1
 
 
 def nx_is_dag(g):

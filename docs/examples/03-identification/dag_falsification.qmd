@@ -65,7 +65,9 @@ result = true_model.falsify(n_permutations=200, random_seed=1)
 result
 ```
 
-The verdict has two parts. **Informative** means few of the 200 random relabelings share the DAG's Markov equivalence class — so the arrow directions are characteristic enough to be testable. **Beats the baseline** means the DAG violates fewer Local Markov Conditions than almost all of the shuffled competitors. Both hold, so the DAG is *not rejected*.
+Because this graph has only five nodes (≤ 7), requesting `n_permutations=200` enumerates *all* `5! = 120` distinct relabelings exactly rather than sampling — so the baseline is deterministic and `random_seed` has no effect here. `result.n_permutations` reports the actual count (120).
+
+The verdict has two parts. **Informative** means few of those 120 relabelings share the DAG's Markov equivalence class — so the arrow directions are characteristic enough to be testable. **Beats the baseline** means the DAG violates fewer Local Markov Conditions than almost all of the competitors. Both hold, so the DAG is *not rejected*.
 
 The histogram makes the comparison visual: the dashed line (the given DAG) sits at the far left of the permuted baseline (it violates far fewer conditions than a random rewiring).
 
@@ -148,7 +150,7 @@ This is a feature, not a limitation: it tells you the conclusion "not rejected" 
 The decision rule follows Eulig et al. (2023) exactly, using two permutation p-values:
 
 - `p_value_tpa` — the fraction of permutations lying in the DAG's Markov equivalence class. The DAG is **falsifiable** (informative) when `p_value_tpa ≤ significance_level`.
-- `p_value_lmc` — the fraction of permutations whose LMC-violation rate is no worse than the given DAG's. The DAG is **falsified** (rejected) only when it is informative *and* `p_value_lmc > significance_level` (it fails to beat the baseline).
+- `p_value_lmc` — the fraction of permutations whose LMC-violation rate is no worse than the given DAG's. The DAG is **falsified** (rejected) only when it is strictly informative (`p_value_tpa < significance_level`) *and* `p_value_lmc > significance_level` (it fails to beat the baseline). The strict `<` matches Eulig et al. (2023): a DAG sitting exactly at the informativeness boundary is given the benefit of the doubt.
 
 ```{python}
 print(f"p_value_tpa (informativeness): {result.p_value_tpa:.3f}")
