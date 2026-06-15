@@ -953,5 +953,5 @@ Brand awareness is the most common example, but similar dynamics arise in:
 
 If you have sparse measurements of any of these states (quarterly surveys, periodic brand trackers), the measurement equation approach from Part 2 can substantially tighten your estimates of the channels that build them.
 
-See the [Panel Data Models](../04-panel-time/panel_data.qmd) example for a simpler introduction to `lag()` dynamics, or the [Media Mix Models](mmm.qmd) notebook for transforms, mediation, and hierarchical structures.
+See the [Panel Data Models](/examples/04-panel-time/panel_data.qmd) example for a simpler introduction to `lag()` dynamics, or the [Media Mix Models](mmm.qmd) notebook for transforms, mediation, and hierarchical structures.
 :::

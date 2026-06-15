@@ -457,7 +457,7 @@ In a linear model without interactions, all three are equal. They diverge when t
 
 `do()` assumes the DAG is correctly specified and all confounders are measured. If there is an unobserved common cause of `X` and `Y` that is not in the model, the `do()` result will still be biased — the method computes the *mechanical consequence* of the intervention under the given model, not ground truth.
 
-Always pair `do()` with careful thinking about your causal assumptions. See [Causal Identification](../03-identification/causal_identification.qmd) for how to verify that your model identifies the effect you want, including what to do when confounders are unobserved.
+Always pair `do()` with careful thinking about your causal assumptions. See [Causal Identification](/examples/03-identification/causal_identification.qmd) for how to verify that your model identifies the effect you want, including what to do when confounders are unobserved.
 
 ## Summary
 
