@@ -96,7 +96,10 @@ reference:
       - falsify.FalsificationResult
 
 # Site appearance ------------------------------------------------------------
-logo: docs/assets/logo.png
+logo:
+  light: docs/assets/logo_light.png
+  dark: docs/assets/logo_dark.png
+favicon: docs/assets/favicon.png
 navbar_style: mint
 dark_mode_toggle: true
 # We use docs/user_guide/00-welcome.qmd as the homepage. It already has its
