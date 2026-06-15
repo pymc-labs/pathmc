@@ -60,44 +60,18 @@ The DSL mirrors lavaan: `~` defines a regression of an outcome on its parents, `
 
 *For concepts, tutorials, and the full API reference, see the documentation at [pymc-labs.github.io/pathmc](https://pymc-labs.github.io/pathmc/).*
 
-**Model specification**
-- A compact, lavaan-style formula DSL that compiles directly to a generative PyMC model.
-- Labeled coefficients (`a*X`) and defined parameters (`indirect := a*b`) for mediation, total, and custom derived effects.
-- Configurable priors (`set_priors`, `pymc_extras.Prior`), prior predictive checks, and a tabular view of every prior in the model.
-- Residual covariance structures for correlated errors.
-
-**Bayesian estimation**
-- Full posterior inference via PyMC's MCMC samplers (`fit`), returning an ArviZ `InferenceData`.
-- Posterior and posterior-predictive summaries, with standardized-effect reporting (`standardized`, `effects_summary`).
-- `predict` for posterior-predictive draws on new or counterfactual data.
-
-**Causal identification**
-- Derive valid back-door adjustment sets (`adjustment_sets`) and test whether an effect is identifiable from the DAG (`is_identifiable`, `frontdoor_identifiable`).
-- Surface collider-bias risks (`collider_warnings`) before you condition on the wrong variable.
-
-**Graph falsification**
-- Enumerate the conditional independences implied by your DAG (`implied_independences`) and test them against the data (`test_implications`).
-- Run a whole-graph, permutation-based falsification test (`falsify`) adapted from Eulig et al. (2023) / DoWhy's `gcm.falsify_graph`.
-
-**Interventional queries (do-calculus)**
-- Simulate interventions by propagating `do()` through the posterior.
-- Estimate average and conditional treatment effects: `ate`, `cate`, `att`, `atu`, plus arbitrary intervention probabilities via `prob`.
-- Query individual path effects with `effect`.
-
-**Sensitivity analysis**
-- Quantify how robust a causal conclusion is to unmeasured confounding (`sensitivity`).
-
-**Transforms & response curves**
-- Built-in nonlinear transforms including geometric **adstock** and **logistic saturation**, plus a registry for custom transforms, useful for marketing mix and other media-response models.
-
-**Panel / longitudinal data**
-- Build lagged predictors for time-series and panel structures (`add_lags`) and run interventions on longitudinal models.
-
-**Inspection & visualization**
-- Render the implied DAG (`graph`, `to_graphviz`), view the symbolic model equations (`equations`, `model_equations`), and inspect the design matrix for any variable (`design`).
-
-**Simulation**
-- Generate synthetic data from a specification with `pathmc.simulate` for testing, teaching, and method validation.
+| Capability | What it lets you do |
+| --- | --- |
+| Model specification | Write structural equations in a compact lavaan-style formula language, with labeled coefficients and derived quantities such as mediated effects. |
+| Bayesian estimation | Fit with full-posterior MCMC and get coefficient and effect summaries, including standardized effects, all with quantified uncertainty. |
+| Causal identification | Check whether an effect is identifiable from your DAG, find valid adjustment sets, and get warned about collider bias. |
+| Graph falsification | Test the conditional independences your DAG implies against the data, including a whole-graph falsification test. |
+| Interventional queries | Ask "what if?" with the `do`-operator: average and conditional treatment effects and intervention probabilities. |
+| Sensitivity analysis | Stress-test causal conclusions against unmeasured confounding. |
+| Transforms & response curves | Apply nonlinear transforms such as adstock and saturation for marketing-mix and other media-response models. |
+| Panel & longitudinal data | Build lagged predictors and run interventions on time-series and panel structures. |
+| Inspection & visualization | Render the implied DAG, view the model equations, and inspect design matrices. |
+| Simulation | Generate synthetic data from a specification for testing, teaching, and method validation. |
 
 ## Documentation
 
