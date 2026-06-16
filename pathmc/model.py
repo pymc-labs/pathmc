@@ -873,9 +873,12 @@ class PathModel:
         baseline of randomly relabeled competitor graphs.
 
         The DAG is reported as *informative* (falsifiable) when few node
-        permutations share its Markov equivalence class, and *not
-        rejected* when it is informative and violates fewer conditions
-        than the permuted baseline. This ports dowhy's
+        permutations share its Markov equivalence class. An informative
+        DAG that violates fewer conditions than the permuted baseline is
+        the positive case: *not contradicted and testable*. A
+        non-informative DAG is also *not rejected*, but that verdict is
+        vacuous — interpret it as *not falsifiable* rather than as
+        evidence for the graph. This ports dowhy's
         ``gcm.falsify_graph`` (Eulig et al., 2023) using the same
         partial-correlation conditional independence methodology as
         :meth:`test_implications`. Because that test is linear, purely
