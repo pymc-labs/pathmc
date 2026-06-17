@@ -11,12 +11,18 @@
 #   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
-"""Internal accessors for ArviZ ``InferenceData``.
+"""Internal accessors for an ArviZ posterior ``DataTree``.
 
-ArviZ exposes inference groups (``posterior``, ...) as dynamically-added
-attributes that static type checkers cannot see, and ``az.hdi`` is called with
-the same default credible mass throughout the package. Centralizing both here
-keeps these fragile, dynamically-typed access points in one tested place.
+ArviZ 1.0 replaced the ``InferenceData`` class with :class:`xarray.DataTree`,
+where inference groups are child nodes. Accessing a group as a node attribute
+(``idata.posterior``) is dynamically typed and yields a ``DataTree`` rather than
+a ``Dataset``; this module routes group access through ``idata["posterior"].dataset``
+so callers get a statically typed :class:`xarray.Dataset`.
+
+It also pins the package-wide credible mass for ``az.hdi``. ArviZ 1.0 changed
+its global defaults (``ci_prob`` 0.94 -> 0.89, ``ci_kind`` "hdi" -> "eti"), so
+calling ``az.hdi`` with an explicit ``prob`` keeps pathmc on a stable 0.94 HDI
+regardless of the installed ArviZ's ``rcParams``.
 """
 
 from __future__ import annotations
@@ -25,19 +31,20 @@ from typing import Any
 
 import arviz as az
 import numpy as np
+import xarray as xr
 
 DEFAULT_HDI_PROB = 0.94
 
 __all__: list[str] = []
 
 
-def posterior(idata: az.InferenceData) -> Any:
-    """Return the ``posterior`` group of *idata*."""
-    return idata.posterior
+def posterior(idata: xr.DataTree) -> xr.Dataset:
+    """Return the ``posterior`` group of *idata* as a :class:`xarray.Dataset`."""
+    return idata["posterior"].dataset
 
 
 def beta_draws(
-    idata: az.InferenceData,
+    idata: xr.DataTree,
     beta_name: str,
     coord_name: str,
     predictor: str,

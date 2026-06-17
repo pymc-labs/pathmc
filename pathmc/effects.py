@@ -21,10 +21,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import arviz as az
 import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
+import xarray as xr
 
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi
 from pathmc.parse import Spec
@@ -69,7 +69,7 @@ class EffectResult:
 
 def extract_labeled_draws(
     spec: Spec,
-    idata: az.InferenceData,
+    idata: xr.DataTree,
 ) -> dict[str, np.ndarray]:
     """Extract posterior draws for all labeled coefficients.
 
@@ -77,7 +77,7 @@ def extract_labeled_draws(
     ----------
     spec : Spec
         Parsed model specification with labeled terms.
-    idata : az.InferenceData
+    idata : xarray.DataTree
         Posterior samples from MCMC.
 
     Returns
@@ -132,7 +132,7 @@ def evaluate_defined_params(
 
 def build_effects_summary(
     spec: Spec,
-    idata: az.InferenceData,
+    idata: xr.DataTree,
 ) -> pd.DataFrame:
     """Build a summary DataFrame of labeled coefficients and defined parameters.
 
@@ -140,7 +140,7 @@ def build_effects_summary(
     ----------
     spec : Spec
         Parsed model specification.
-    idata : az.InferenceData
+    idata : xarray.DataTree
         Posterior samples.
 
     Returns
@@ -173,7 +173,7 @@ def build_effects_summary(
 
 def build_standardized_effects(
     spec: Spec,
-    idata: az.InferenceData,
+    idata: xr.DataTree,
     data: nw.DataFrame,
     latent: set[str] | None = None,
 ) -> pd.DataFrame:
@@ -190,7 +190,7 @@ def build_standardized_effects(
     ----------
     spec : Spec
         Parsed model specification with labeled terms.
-    idata : az.InferenceData
+    idata : xarray.DataTree
         Posterior samples from MCMC.
     data : nw.DataFrame
         Observed data used to compute variable standard deviations.
@@ -258,7 +258,7 @@ def build_standardized_effects(
 def compute_path_effect(
     path: str,
     spec: Spec,
-    idata: az.InferenceData,
+    idata: xr.DataTree,
 ) -> EffectResult:
     """Compute the effect along a specified causal path.
 
@@ -268,7 +268,7 @@ def compute_path_effect(
         Path string like ``"X -> M -> Y"`` specifying the causal pathway.
     spec : Spec
         Parsed model specification.
-    idata : az.InferenceData
+    idata : xarray.DataTree
         Posterior samples.
 
     Returns
