@@ -26,6 +26,8 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 import pymc as pm
 
+__all__: list[str] = []
+
 
 @runtime_checkable
 class ResidualStructure(Protocol):

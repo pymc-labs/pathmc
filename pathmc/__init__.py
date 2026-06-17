@@ -31,11 +31,42 @@ if not (_Version("6.0") <= _pymc_ver < _Version("7")):
         f"pip install 'pymc>=6.0,<7'"
     )
 
-from pathmc.model import model, simulate  # noqa: E402
+from pathmc.effects import EffectResult  # noqa: E402
+from pathmc.exceptions import CycleError, DuplicateEquationError, ParseError  # noqa: E402
+from pathmc.falsify import FalsificationResult  # noqa: E402
+from pathmc.identify import ConditionalIndependence, ImplicationTestResult  # noqa: E402
+from pathmc.introspect import EquationList, ModelEquations, PriorTable  # noqa: E402
+from pathmc.model import PathModel, model, simulate  # noqa: E402
 from pathmc.panel import add_lags  # noqa: E402
+from pathmc.sensitivity import SensitivityResult  # noqa: E402
+from pathmc.simulate import DoResult  # noqa: E402
+from pathmc.transforms import ParamSpec, Transform, get_transform, register_transform  # noqa: E402
 
 # Deliberate re-export so users can build custom priors without a separate
 # pymc_extras import (see the `priors=` argument to model()).
 from pymc_extras.prior import Prior  # noqa: E402
 
-__all__ = ["Prior", "__version__", "add_lags", "model", "simulate"]
+__all__ = [
+    "ConditionalIndependence",
+    "CycleError",
+    "DoResult",
+    "DuplicateEquationError",
+    "EffectResult",
+    "EquationList",
+    "FalsificationResult",
+    "ImplicationTestResult",
+    "ModelEquations",
+    "ParamSpec",
+    "ParseError",
+    "PathModel",
+    "Prior",
+    "PriorTable",
+    "SensitivityResult",
+    "Transform",
+    "__version__",
+    "add_lags",
+    "get_transform",
+    "model",
+    "register_transform",
+    "simulate",
+]

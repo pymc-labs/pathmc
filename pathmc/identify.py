@@ -31,6 +31,8 @@ from scipy import stats
 
 from pathmc.graph import GraphInfo
 
+__all__ = ["ConditionalIndependence", "ImplicationTestResult"]
+
 
 def _require_nodes(dag: nx.DiGraph, **named: str) -> None:
     """Raise ``ValueError`` if any named node is absent from *dag*.

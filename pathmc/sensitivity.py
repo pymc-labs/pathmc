@@ -37,6 +37,8 @@ if TYPE_CHECKING:
     import matplotlib.axes
     import matplotlib.figure
 
+__all__ = ["SensitivityResult"]
+
 
 @dataclass
 class SensitivityResult:

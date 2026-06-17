@@ -28,6 +28,8 @@ import numpy as np
 
 DEFAULT_HDI_PROB = 0.94
 
+__all__: list[str] = []
+
 
 def posterior(idata: az.InferenceData) -> Any:
     """Return the ``posterior`` group of *idata*."""

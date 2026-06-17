@@ -25,6 +25,8 @@ from dataclasses import dataclass
 import narwhals.stable.v1 as nw
 from narwhals.stable.v1.typing import IntoFrameT
 
+__all__ = ["PanelInfo", "add_lags"]
+
 
 @dataclass
 class PanelInfo:

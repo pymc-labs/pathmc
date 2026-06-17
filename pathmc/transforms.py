@@ -33,6 +33,8 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 
+__all__ = ["ParamSpec", "Transform", "get_transform", "register_transform"]
+
 
 def _geometric_adstock(x: Any, *, alpha: Any, l_max: int) -> Any:
     """Geometric adstock along the leading (time) axis.
@@ -258,7 +260,23 @@ REGISTRY: dict[str, Transform] = {
 
 
 def get_transform(name: str) -> Transform:
-    """Look up a transform by name. Raises ValueError if not found."""
+    """Look up a registered transform by DSL name.
+
+    Parameters
+    ----------
+    name : str
+        Transform name used in the model DSL, such as ``"adstock"``.
+
+    Returns
+    -------
+    Transform
+        Registered transform instance.
+
+    Raises
+    ------
+    ValueError
+        If no transform is registered under *name*.
+    """
     if name not in REGISTRY:
         raise ValueError(
             f"Unknown transform '{name}'. "
@@ -269,5 +287,23 @@ def get_transform(name: str) -> Transform:
 
 
 def register_transform(transform: Transform) -> None:
-    """Register a custom transform for use in the DSL."""
+    """Register a custom transform for use in the pathmc DSL.
+
+    Parameters
+    ----------
+    transform : Transform
+        Transform instance with a unique ``name`` and ``param_specs``.
+
+    Examples
+    --------
+    Register a custom transform before building a model:
+
+    >>> class Square(Transform):
+    ...     name = "square"
+    ...     param_specs = {}
+    ...
+    ...     def apply_pymc(self, x, params, *, panel_info=None, data=None):
+    ...         return x**2
+    >>> register_transform(Square())
+    """
     REGISTRY[transform.name] = transform

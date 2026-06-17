@@ -49,6 +49,8 @@ from pathmc.panel import PanelInfo
 from pathmc.parse import Regression, Spec, Term, TransformCall
 from pathmc.transforms import get_transform
 
+__all__: list[str] = []
+
 
 @dataclass
 class PanelScanInfo:

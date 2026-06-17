@@ -29,6 +29,8 @@ import pandas as pd
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi
 from pathmc.parse import Spec
 
+__all__ = ["EffectResult"]
+
 
 def _has_labeled_terms(spec: Spec) -> bool:
     """Check whether any regression term has a user-supplied label."""

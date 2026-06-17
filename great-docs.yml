@@ -71,9 +71,9 @@ tags:
     Hierarchical Effects: layers
 
 # API Reference --------------------------------------------------------------
-# Public surface only: model() / simulate() / add_lags() and the PathModel
-# class with its methods. Internal helpers (build_*, compute_*, etc.) are
-# implementation details and excluded.
+# Public surface only: top-level constructors, PathModel methods, result/display
+# classes returned by those methods, documented extension points, and exceptions.
+# Internal helpers (parse/build/compile/compute functions) are excluded.
 reference:
   - title: Modeling
     desc: Build, fit, and query Bayesian path models.
@@ -84,7 +84,17 @@ reference:
     desc: Time-forward and counterfactual simulation helpers.
     contents:
       - model.simulate
-      - model.DoResult
+      - simulate.DoResult
+  - title: Results and display
+    desc: Result containers and rich display objects returned by PathModel methods.
+    contents:
+      - effects.EffectResult
+      - introspect.EquationList
+      - introspect.ModelEquations
+      - introspect.PriorTable
+      - identify.ConditionalIndependence
+      - identify.ImplicationTestResult
+      - sensitivity.SensitivityResult
   - title: Panel data
     desc: Helpers for panel / longitudinal data.
     contents:
@@ -94,6 +104,19 @@ reference:
     contents:
       - falsify.falsify_graph
       - falsify.FalsificationResult
+  - title: Extensions
+    desc: Stable hooks for custom DSL transforms.
+    contents:
+      - transforms.Transform
+      - transforms.ParamSpec
+      - transforms.register_transform
+      - transforms.get_transform
+  - title: Exceptions
+    desc: Exceptions raised for invalid model specifications.
+    contents:
+      - exceptions.ParseError
+      - exceptions.DuplicateEquationError
+      - exceptions.CycleError
 
 # Site appearance ------------------------------------------------------------
 logo:
