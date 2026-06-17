@@ -138,7 +138,10 @@ print(f"True total effect:          {true_total:.2f}")
 exog_med = pd.DataFrame({"X": rng.normal(size=500)})
 
 df_med = pathmc.simulate(
-    "M ~ X\nY ~ M + X",
+    """
+    M ~ X
+    Y ~ M + X
+    """,
     data=exog_med,
     params=truth_med,
     random_seed=rng,
@@ -317,7 +320,10 @@ The `beta_Y` coefficients should recover the true logit-scale values: intercept 
 The parameter names passed to `simulate()` must match the PyMC variable names in the compiled model. To discover them for a new spec, build a temporary model with placeholder data and inspect its structure:
 
 ```{python}
-spec = "M ~ X\nY ~ M + X"
+spec = """
+M ~ X
+Y ~ M + X
+"""
 placeholder = pd.DataFrame({"X": [0.0], "M": [0.0], "Y": [0.0]})
 tmp = pathmc.model(spec, data=placeholder)
 tmp.equations()

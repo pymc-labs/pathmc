@@ -54,7 +54,13 @@ Y = 0.4 * X + 0.8 * Z + rng.normal(scale=0.5, size=n)
 
 df_fork = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
 
-fork_model = pathmc.model("X ~ Z\nY ~ X + Z", data=df_fork)
+fork_model = pathmc.model(
+    """
+    X ~ Z
+    Y ~ X + Z
+    """,
+    data=df_fork,
+)
 fork_model.equations()
 ```
 
@@ -99,7 +105,13 @@ Y = 0.5 * M + rng.normal(scale=0.5, size=n)
 
 df_chain = pd.DataFrame({"X": X, "M": M, "Y": Y})
 
-chain_model = pathmc.model("M ~ X\nY ~ M", data=df_chain)
+chain_model = pathmc.model(
+    """
+    M ~ X
+    Y ~ M
+    """,
+    data=df_chain,
+)
 chain_model.equations()
 ```
 
@@ -202,7 +214,14 @@ C = 0.3 * X + 0.5 * Y + rng.normal(scale=0.5, size=n)
 
 df_mixed = pd.DataFrame({"X": X, "Y": Y, "Z": Z, "C": C})
 
-mixed_model = pathmc.model("X ~ Z\nY ~ X + Z\nC ~ X + Y", data=df_mixed)
+mixed_model = pathmc.model(
+    """
+    X ~ Z
+    Y ~ X + Z
+    C ~ X + Y
+    """,
+    data=df_mixed,
+)
 mixed_model.equations()
 ```
 
@@ -636,7 +655,14 @@ from pathmc.graph import build_graph
 from pathmc.identify import frontdoor_identifiable
 from pathmc.parse import parse_spec
 
-causal_graph = build_graph(parse_spec("M ~ X\nY ~ M"))
+causal_graph = build_graph(
+    parse_spec(
+        """
+        M ~ X
+        Y ~ M
+        """
+    )
+)
 identifiable, message = frontdoor_identifiable(causal_graph, "X", "M", "Y")
 print(f"Front-door identifiable? {identifiable}")
 print(f"Message: {message}")
