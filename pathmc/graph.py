@@ -26,6 +26,8 @@ import networkx as nx
 from pathmc.exceptions import CycleError
 from pathmc.parse import Spec
 
+__all__: list[str] = []
+
 
 @dataclass
 class GraphInfo:

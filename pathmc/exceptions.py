@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+__all__ = ["CycleError", "DuplicateEquationError", "ParseError"]
+
 
 class ParseError(ValueError):
     """Raised when the DSL spec string cannot be parsed."""

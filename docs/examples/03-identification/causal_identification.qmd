@@ -629,15 +629,11 @@ print(f"Backdoor identifiable? {model_fd.is_identifiable('X', 'Y')}")
 print(f"Adjustment sets:       {model_fd.adjustment_sets('X', 'Y')}")
 ```
 
-But the front-door criterion *can* identify the effect through `M`. Because the estimation spec adds `X` to the `Y` equation (an adjustment edge absent from the true causal DAG), we check against the causal structure directly:
+But the front-door criterion *can* identify the effect through `M`. Because the estimation spec adds `X` to the `Y` equation (an adjustment edge absent from the true causal DAG), we check against a data-free model of the causal structure directly:
 
 ```{python}
-from pathmc.graph import build_graph
-from pathmc.identify import frontdoor_identifiable
-from pathmc.parse import parse_spec
-
-causal_graph = build_graph(parse_spec("M ~ X\nY ~ M"))
-identifiable, message = frontdoor_identifiable(causal_graph, "X", "M", "Y")
+causal_model = pathmc.model("M ~ X\nY ~ M")
+identifiable, message = causal_model.frontdoor_identifiable("X", "M", "Y")
 print(f"Front-door identifiable? {identifiable}")
 print(f"Message: {message}")
 ```

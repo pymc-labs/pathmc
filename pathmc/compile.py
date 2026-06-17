@@ -34,7 +34,6 @@ panel interventions natively — no separate simulation engine needed.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
@@ -48,6 +47,8 @@ from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
 from pathmc.parse import Regression, Spec, Term, TransformCall
 from pathmc.transforms import get_transform
+
+__all__: list[str] = []
 
 
 @dataclass
@@ -149,21 +150,6 @@ def _term_base_vars(term: Term) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Lag detection (needed early for build_mu_specs)
-# ---------------------------------------------------------------------------
-
-_LAG_RE = re.compile(r"^(.+)_lag(\d+)$")
-
-
-def _parse_lag(col: str) -> tuple[str, int] | None:
-    """Parse ``"var_lag1"`` → ``("var", 1)``, or ``None``."""
-    m = _LAG_RE.match(col)
-    if m:
-        return m.group(1), int(m.group(2))
-    return None
-
-
-# ---------------------------------------------------------------------------
 # MuSpec construction
 # ---------------------------------------------------------------------------
 
@@ -205,19 +191,13 @@ def build_mu_specs(spec: Spec) -> dict[str, MuSpec]:
                 "fixed" if term.fixed_value is not None else "free"
             )
 
-            lag_of = term.lag_of
-            if lag_of is None:
-                parsed = _parse_lag(term.variable)
-                if parsed is not None:
-                    lag_of = parsed[0]
-
             if term.transform is not None:
                 kind: Literal[
                     "intercept", "plain", "interaction", "transform", "lag"
                 ] = "transform"
             elif term.interaction_of is not None:
                 kind = "interaction"
-            elif lag_of is not None:
+            elif term.lag_of is not None:
                 kind = "lag"
             else:
                 kind = "plain"
@@ -228,7 +208,7 @@ def build_mu_specs(spec: Spec) -> dict[str, MuSpec]:
                     coeff_type=coeff_type,
                     coeff_value=term.fixed_value,
                     kind=kind,
-                    lag_of=lag_of,
+                    lag_of=term.lag_of,
                     interaction_parts=term.interaction_of,
                     transform=term.transform,
                 )
@@ -1037,7 +1017,6 @@ def _has_temporal_deps(spec: Spec, graph_info: GraphInfo) -> bool:
 
     Detects temporal dependencies from:
     - ``lag()`` DSL syntax (``Term.lag_of``)
-    - Legacy ``_lag\\d+$`` column names (backward compat)
     - ``adstock()`` transforms
     """
     for reg in spec.regressions:
@@ -1054,8 +1033,6 @@ def _has_temporal_deps(spec: Spec, graph_info: GraphInfo) -> bool:
                         if isinstance(tc.input_expr, TransformCall)
                         else None
                     )
-            if _parse_lag(term.variable) is not None:
-                return True
     return False
 
 
@@ -1074,12 +1051,7 @@ def _scan_term_base_vars(term: Term) -> list[str]:
     if term.transform is not None:
         return _transform_base_vars(term.transform)
 
-    base_vars = _term_base_vars(term)
-    parsed_vars: list[str] = []
-    for var in base_vars:
-        parsed = _parse_lag(var)
-        parsed_vars.append(parsed[0] if parsed is not None else var)
-    return parsed_vars
+    return _term_base_vars(term)
 
 
 def _validate_scan_non_gaussian_intermediaries(
@@ -1242,32 +1214,11 @@ def _compile_scan_panel(
     pure_exog = [
         v
         for v in graph_info.topological_order
-        if v in graph_info.exogenous
-        and _parse_lag(v) is None
-        and v not in lag_map
-        and v in data_sorted.columns
+        if v in graph_info.exogenous and v not in lag_map and v in data_sorted.columns
     ]
-    lag_cols: dict[str, tuple[str, int]] = {}
-    # Regex-based lag detection (backward compat with _lag\d+$ columns)
-    for v in graph_info.topological_order:
-        if v in graph_info.exogenous:
-            parsed = _parse_lag(v)
-            if parsed is not None:
-                lag_cols[v] = parsed
-    # AST-driven lag detection (from lag() DSL syntax)
-    for col_name, base_var in lag_map.items():
-        if col_name not in lag_cols:
-            lag_cols[col_name] = (base_var, 1)
-
-    for reg in spec.regressions:
-        for term in reg.terms:
-            lag = _parse_lag(term.variable)
-            if lag is not None and lag[1] > 1:
-                raise NotImplementedError(
-                    f"Scan-compiled panel models only support lag order 1, "
-                    f"but '{term.variable}' has lag order {lag[1]}. "
-                    f"Use lag1 terms or file a feature request for higher-order lags."
-                )
+    lag_cols: dict[str, tuple[str, int]] = {
+        col_name: (base_var, 1) for col_name, base_var in lag_map.items()
+    }
 
     adstock_cols = [col for col, tc in transform_map.items() if _has_adstock(tc)]
 

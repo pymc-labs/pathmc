@@ -42,6 +42,8 @@ from pathmc.idata import hdi as compute_hdi
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
 
+__all__ = ["DoResult"]
+
 
 class DoResult:
     """Container for propagated posterior draws under an intervention.
