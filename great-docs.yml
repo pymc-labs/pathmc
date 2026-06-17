@@ -22,6 +22,11 @@ exclude:
 # the user_guide directory below) instead of generating one from README.md.
 homepage: user_guide
 
+# Disable generated Markdown page downloads. The copy-page widget eagerly
+# fetches the `.md` companion page on load, which makes navigation noticeably
+# slower on long executable examples.
+markdown_pages: false
+
 # User Guide -----------------------------------------------------------------
 # Source directory for the user guide. Files are auto-discovered and ordered
 # by filename, so numeric prefixes determine the sidebar order.
