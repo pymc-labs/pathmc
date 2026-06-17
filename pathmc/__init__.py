@@ -36,7 +36,6 @@ from pathmc.falsify import FalsificationResult  # noqa: E402
 from pathmc.identify import ConditionalIndependence, ImplicationTestResult  # noqa: E402
 from pathmc.introspect import EquationList, ModelEquations, PriorTable  # noqa: E402
 from pathmc.model import PathModel, model, simulate  # noqa: E402
-from pathmc.panel import add_lags as add_lags  # noqa: E402
 from pathmc.sensitivity import SensitivityResult  # noqa: E402
 from pathmc.simulate import DoResult  # noqa: E402
 from pathmc.transforms import ParamSpec, Transform, register_transform  # noqa: E402

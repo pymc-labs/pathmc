@@ -14,7 +14,7 @@ htmlcov/
 # Agent/developer scratch space — never commit contents.
 .scratch/
 
-# Deprecated location for agent PR-summary drafts (use .scratch/ instead).
+# Ignore accidental agent PR-summary drafts.
 .github/pr-summaries/
 
 # Great Docs build directory at repo root (regenerated on every `great-docs build`).
