@@ -16,18 +16,23 @@ Test files import from these fixed paths; internal helpers can be organized free
 
 ```
 pathmc/
-  __init__.py    # Public API: model(), fit() (deprecated alias), add_lags() (deprecated)
-  parse.py       # parse_spec(spec_string) -> Spec
-  graph.py       # build_graph(spec) -> GraphInfo
-  compile.py     # Compiler -> pm.Model (Gaussian, Bernoulli, Poisson, etc.)
-  simulate.py    # do() operator (cross-sectional + panel)
-  effects.py     # Labeled coefficients, defined params, stdyx standardized
-  introspect.py  # graph(), equations(), design(), priors()
-  transforms.py  # Transform registry (adstock, logistic_saturation)
-  identify.py    # Backdoor criterion, adjustment sets, collider warnings
-  panel.py       # PanelInfo, add_lags(), panel validation
-  exceptions.py  # CycleError, DuplicateEquationError, etc.
-  model.py       # PathModel class; model() and fit() entry points
+  __init__.py     # Public API: model(), simulate(), add_lags() (deprecated), Prior (re-export)
+  parse.py        # parse_spec(spec_string) -> Spec
+  graph.py        # build_graph(spec) -> GraphInfo
+  compile.py      # Compiler -> pm.Model (Gaussian, Bernoulli, Poisson, etc.)
+  simulate.py     # do() operator (cross-sectional + panel)
+  effects.py      # Labeled coefficients, defined params, stdyx standardized
+  introspect.py   # graph(), equations(), design(), priors()
+  transforms.py   # Transform registry (adstock, logistic_saturation)
+  identify.py     # Backdoor criterion, adjustment sets, collider warnings
+  falsify.py      # Whole-DAG falsification (permutation test)
+  sensitivity.py  # Unmeasured-confounding sensitivity analysis
+  panel.py        # PanelInfo, add_lags(), panel validation
+  priors.py       # default_priors(), merge_priors(); Prior-based config
+  residuals.py    # Residual covariance structures (LKJ Cholesky, pluggable)
+  idata.py        # Internal ArviZ InferenceData accessors
+  exceptions.py   # CycleError, DuplicateEquationError, etc.
+  model.py        # PathModel class; model() and simulate() entry points
 ```
 
 ## Environment

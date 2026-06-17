@@ -17,19 +17,25 @@ from __future__ import annotations
 
 from importlib.metadata import version as _pkg_version
 
+from packaging.version import Version as _Version
+
 __version__ = _pkg_version("pathmc")
 
 _pymc_ver_str = _pkg_version("pymc")
-_pymc_ver_tuple = tuple(int(x) for x in _pymc_ver_str.split(".")[:3])
-if _pymc_ver_tuple < (5, 22, 0):
+_pymc_ver = _Version(_pymc_ver_str)
+if not (_Version("6.0") <= _pymc_ver < _Version("7")):
     raise ImportError(
-        f"pathmc requires PyMC >= 5.22.0 (found {_pymc_ver_str}). "
-        f"The generative model architecture depends on pm.do() fixes "
-        f"from PyMC 5.22. Please upgrade: pip install 'pymc>=5.22.0'"
+        f"pathmc requires PyMC >= 6.0, < 7 (found {_pymc_ver_str}). "
+        f"The generative model architecture depends on the PyMC 6 "
+        f"do-operator API. Please install a compatible version: "
+        f"pip install 'pymc>=6.0,<7'"
     )
 
 from pathmc.model import model, simulate  # noqa: E402
 from pathmc.panel import add_lags  # noqa: E402
+
+# Deliberate re-export so users can build custom priors without a separate
+# pymc_extras import (see the `priors=` argument to model()).
 from pymc_extras.prior import Prior  # noqa: E402
 
 __all__ = ["Prior", "__version__", "add_lags", "model", "simulate"]
