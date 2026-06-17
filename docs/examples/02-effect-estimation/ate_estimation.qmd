@@ -1,7 +1,7 @@
 ---
 title: "Treatment Effects with Non-Linear Models"
 author:
-  - name: "Ben Vincent"
+  - name: "Benjamin Vincent"
 description: "Why coefficients ≠ ATE in logistic models, AME vs MEM, g-computation for binary outcomes, and mixed-family models."
 tags: [Causal Inference, G-Computation, Treatment Effects]
 image: thumbnails/ate_estimation.png
@@ -440,7 +440,10 @@ The naive comparison is biased upward because high-`Z` individuals are both more
 
 ```{python}
 model_conf = pathmc.model(
-    "T ~ Z\nY ~ bT*T + bZ*Z",
+    """
+    T ~ Z
+    Y ~ bT*T + bZ*Z
+    """,
     data=df_conf,
     families={"T": "bernoulli", "Y": "bernoulli"},
 )
@@ -519,7 +522,10 @@ print(f"P(Y=1) in data: {Y_mix.mean():.2f}")
 
 ```{python}
 model_mix = pathmc.model(
-    "M ~ a*X\nY ~ b*M + c*X",
+    """
+    M ~ a*X
+    Y ~ b*M + c*X
+    """,
     data=df_mix,
     families={"Y": "bernoulli"},
 )

@@ -1,7 +1,7 @@
 ---
 title: "MMM with Latent Brand Awareness"
 author:
-  - name: "Ben Vincent"
+  - name: "Benjamin Vincent"
 description: "Model brand awareness as a latent AR(1) mediator — first deterministic, then constrained by sparse brand-tracking surveys."
 tags: [Media Mix Modeling, Panel Data, Latent Variables]
 image: thumbnails/mmm_awareness.png

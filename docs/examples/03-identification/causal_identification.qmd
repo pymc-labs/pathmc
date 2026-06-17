@@ -1,7 +1,7 @@
 ---
 title: "Causal Identification"
 author:
-  - name: "Ben Vincent"
+  - name: "Benjamin Vincent"
 description: "Check adjustment sets, detect collider bias, and verify identifiability from the DAG — including the birth-weight paradox and the front-door criterion for unmeasured confounding."
 tags: [Causal Inference, Identification, Backdoor Criterion, Front-Door Criterion, Collider Bias]
 image: thumbnails/causal_identification.png
@@ -54,7 +54,13 @@ Y = 0.4 * X + 0.8 * Z + rng.normal(scale=0.5, size=n)
 
 df_fork = pd.DataFrame({"X": X, "Y": Y, "Z": Z})
 
-fork_model = pathmc.model("X ~ Z\nY ~ X + Z", data=df_fork)
+fork_model = pathmc.model(
+    """
+    X ~ Z
+    Y ~ X + Z
+    """,
+    data=df_fork,
+)
 fork_model.equations()
 ```
 
@@ -99,7 +105,13 @@ Y = 0.5 * M + rng.normal(scale=0.5, size=n)
 
 df_chain = pd.DataFrame({"X": X, "M": M, "Y": Y})
 
-chain_model = pathmc.model("M ~ X\nY ~ M", data=df_chain)
+chain_model = pathmc.model(
+    """
+    M ~ X
+    Y ~ M
+    """,
+    data=df_chain,
+)
 chain_model.equations()
 ```
 
@@ -202,7 +214,14 @@ C = 0.3 * X + 0.5 * Y + rng.normal(scale=0.5, size=n)
 
 df_mixed = pd.DataFrame({"X": X, "Y": Y, "Z": Z, "C": C})
 
-mixed_model = pathmc.model("X ~ Z\nY ~ X + Z\nC ~ X + Y", data=df_mixed)
+mixed_model = pathmc.model(
+    """
+    X ~ Z
+    Y ~ X + Z
+    C ~ X + Y
+    """,
+    data=df_mixed,
+)
 mixed_model.equations()
 ```
 
@@ -632,7 +651,12 @@ print(f"Adjustment sets:       {model_fd.adjustment_sets('X', 'Y')}")
 But the front-door criterion *can* identify the effect through `M`. Because the estimation spec adds `X` to the `Y` equation (an adjustment edge absent from the true causal DAG), we check against a data-free model of the causal structure directly:
 
 ```{python}
-causal_model = pathmc.model("M ~ X\nY ~ M")
+causal_model = pathmc.model(
+    """
+    M ~ X
+    Y ~ M
+    """
+)
 identifiable, message = causal_model.frontdoor_identifiable("X", "M", "Y")
 print(f"Front-door identifiable? {identifiable}")
 print(f"Message: {message}")

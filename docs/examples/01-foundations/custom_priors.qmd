@@ -1,7 +1,7 @@
 ---
 title: "Custom Priors"
 author:
-  - name: "Ben Vincent"
+  - name: "Benjamin Vincent"
 description: "Refine prior distributions using an iterative inspect-check-refine workflow with prior predictive checks."
 tags: [Priors]
 image: thumbnails/custom_priors.png

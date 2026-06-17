@@ -1,7 +1,7 @@
 ---
 title: "SaaS Conversion Funnel"
 author:
-  - name: "Ben Vincent"
+  - name: "Benjamin Vincent"
 description: "Model a multi-stage conversion funnel as a causal chain to find which stage has the highest leverage on paid conversion."
 tags: [Causal Inference, Mediation]
 image: thumbnails/saas_funnel.png

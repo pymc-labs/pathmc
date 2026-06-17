@@ -1,7 +1,7 @@
 ---
 title: "Testing Your DAG Against Data"
 author:
-  - name: "Ben Vincent"
+  - name: "Benjamin Vincent"
 description: "Enumerate implied conditional independences and test whether your structural assumptions hold before fitting."
 tags: [Causal Inference, Identification]
 image: thumbnails/dag_testing.png
@@ -50,7 +50,12 @@ In probability notation, X ⊥⊥ Y | M — X and Y are **conditionally independ
 `.implied_independences()` extracts every such prediction from the DAG:
 
 ```{python}
-chain_dag = pathmc.model("M ~ X\nY ~ M")
+chain_dag = pathmc.model(
+    """
+    M ~ X
+    Y ~ M
+    """
+)
 
 for ci in chain_dag.implied_independences():
     print(ci)
@@ -83,7 +88,13 @@ df_chain = pd.DataFrame({"X": X, "M": M, "Y": Y})
 Fit the model and test the DAG's prediction:
 
 ```{python}
-chain_model = pathmc.model("M ~ X\nY ~ M", data=df_chain)
+chain_model = pathmc.model(
+    """
+    M ~ X
+    Y ~ M
+    """,
+    data=df_chain,
+)
 chain_model.equations()
 ```
 
@@ -146,7 +157,13 @@ df_omitted = pd.DataFrame({"T": T, "M": M3, "Y": Y3})
 The declared DAG has no backdoor path from T to Y, so `is_identifiable()` reports `True`:
 
 ```{python}
-omitted_model = pathmc.model("M ~ T\nY ~ M", data=df_omitted)
+omitted_model = pathmc.model(
+    """
+    M ~ T
+    Y ~ M
+    """,
+    data=df_omitted,
+)
 omitted_model.is_identifiable("T", "Y")
 ```
 
@@ -205,7 +222,13 @@ The proposed chain DAG predicts X ⊥⊥ Y | M.
 The data disagrees:
 
 ```{python}
-wrong_model = pathmc.model("M ~ X\nY ~ M", data=df_direct)
+wrong_model = pathmc.model(
+    """
+    M ~ X
+    Y ~ M
+    """,
+    data=df_direct,
+)
 wrong_model.equations()
 ```
 
@@ -223,7 +246,13 @@ The DAG is missing the direct X → Y edge.
 Adding the direct edge removes the violated prediction and brings the DAG in line with the data:
 
 ```{python}
-fixed_model = pathmc.model("M ~ X\nY ~ M + X", data=df_direct)
+fixed_model = pathmc.model(
+    """
+    M ~ X
+    Y ~ M + X
+    """,
+    data=df_direct,
+)
 fixed_model.equations()
 ```
 
@@ -301,7 +330,11 @@ The DAG has three missing edges, each producing a testable prediction:
 
 ```{python}
 funnel_model = pathmc.model(
-    "Ads ~ Budget\nClicks ~ Ads\nSales ~ Clicks",
+    """
+    Ads ~ Budget
+    Clicks ~ Ads
+    Sales ~ Clicks
+    """,
     data=df_funnel,
 )
 funnel_model.equations()
@@ -342,7 +375,11 @@ digraph {
 
 ```{python}
 fixed_funnel = pathmc.model(
-    "Ads ~ Budget\nClicks ~ Ads\nSales ~ Clicks + Budget",
+    """
+    Ads ~ Budget
+    Clicks ~ Ads
+    Sales ~ Clicks + Budget
+    """,
     data=df_funnel,
 )
 fixed_funnel.equations()
