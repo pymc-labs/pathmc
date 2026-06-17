@@ -35,6 +35,8 @@ import xarray as xr
 
 DEFAULT_HDI_PROB = 0.94
 
+__all__: list[str] = []
+
 
 def posterior(idata: xr.DataTree) -> xr.Dataset:
     """Return the ``posterior`` group of *idata* as a :class:`xarray.Dataset`."""

@@ -22,6 +22,11 @@ exclude:
 # the user_guide directory below) instead of generating one from README.md.
 homepage: user_guide
 
+# Disable generated Markdown page downloads. The copy-page widget eagerly
+# fetches the `.md` companion page on load, which makes navigation noticeably
+# slower on long executable examples.
+markdown_pages: false
+
 # User Guide -----------------------------------------------------------------
 # Source directory for the user guide. Files are auto-discovered and ordered
 # by filename, so numeric prefixes determine the sidebar order.
@@ -71,9 +76,9 @@ tags:
     Hierarchical Effects: layers
 
 # API Reference --------------------------------------------------------------
-# Public surface only: model() / simulate() / add_lags() and the PathModel
-# class with its methods. Internal helpers (build_*, compute_*, etc.) are
-# implementation details and excluded.
+# Public surface only: top-level constructors, PathModel methods, result/display
+# classes returned by those methods, and documented extension points.
+# Internal helpers (parse/build/compile/compute functions) are excluded.
 reference:
   - title: Modeling
     desc: Build, fit, and query Bayesian path models.
@@ -84,16 +89,24 @@ reference:
     desc: Time-forward and counterfactual simulation helpers.
     contents:
       - model.simulate
-      - model.DoResult
-  - title: Panel data
-    desc: Helpers for panel / longitudinal data.
+      - simulate.DoResult
+  - title: Result objects
+    desc: Result containers returned by PathModel methods for programmatic inspection.
     contents:
-      - panel.add_lags
+      - effects.EffectResult
+      - identify.ImplicationTestResult
+      - sensitivity.SensitivityResult
   - title: DAG falsification
     desc: Whole-graph validation via a permutation-based test.
     contents:
       - falsify.falsify_graph
       - falsify.FalsificationResult
+  - title: Custom transforms
+    desc: Extend the model DSL with domain-specific transformations.
+    contents:
+      - transforms.Transform
+      - transforms.ParamSpec
+      - transforms.register_transform
 
 # Site appearance ------------------------------------------------------------
 logo:

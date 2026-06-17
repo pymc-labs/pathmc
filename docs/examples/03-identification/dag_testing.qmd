@@ -23,9 +23,6 @@ pathmc can enumerate all these predictions and test them automatically — befor
 import numpy as np
 import pandas as pd
 import pathmc
-from pathmc.graph import build_graph
-from pathmc.identify import implied_independences
-from pathmc.parse import parse_spec
 
 n = 500
 ```
@@ -50,12 +47,12 @@ digraph {
 This missing edge makes a concrete prediction: once you know M, learning X tells you nothing new about Y.
 In probability notation, X ⊥⊥ Y | M — X and Y are **conditionally independent** given M.
 
-`implied_independences()` extracts every such prediction from the DAG:
+`.implied_independences()` extracts every such prediction from the DAG:
 
 ```{python}
-graph = build_graph(parse_spec("M ~ X\nY ~ M"))
+chain_dag = pathmc.model("M ~ X\nY ~ M")
 
-for ci in implied_independences(graph):
+for ci in chain_dag.implied_independences():
     print(ci)
 ```
 
