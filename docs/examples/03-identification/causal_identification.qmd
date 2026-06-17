@@ -1,7 +1,7 @@
 ---
 title: "Causal Identification"
 author:
-  - name: "Ben Vincent"
+  - name: "Benjamin Vincent"
 description: "Check adjustment sets, detect collider bias, and verify identifiability from the DAG — including the birth-weight paradox and the front-door criterion for unmeasured confounding."
 tags: [Causal Inference, Identification, Backdoor Criterion, Front-Door Criterion, Collider Bias]
 image: thumbnails/causal_identification.png

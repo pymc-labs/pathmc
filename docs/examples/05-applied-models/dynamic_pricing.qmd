@@ -1,7 +1,7 @@
 ---
 title: "Dynamic Pricing Across Regions"
 author:
-  - name: "Ben Vincent"
+  - name: "Benjamin Vincent"
 description: "Estimate true price elasticity from observational data, accounting for confounding and regional heterogeneity."
 tags: [Causal Inference, Panel Data, Treatment Effects, Hierarchical Effects]
 image: thumbnails/dynamic_pricing.png

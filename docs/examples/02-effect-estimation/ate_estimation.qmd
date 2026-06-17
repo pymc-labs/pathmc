@@ -1,7 +1,7 @@
 ---
 title: "Treatment Effects with Non-Linear Models"
 author:
-  - name: "Ben Vincent"
+  - name: "Benjamin Vincent"
 description: "Why coefficients ≠ ATE in logistic models, AME vs MEM, g-computation for binary outcomes, and mixed-family models."
 tags: [Causal Inference, G-Computation, Treatment Effects]
 image: thumbnails/ate_estimation.png

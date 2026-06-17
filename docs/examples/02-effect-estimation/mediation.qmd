@@ -1,7 +1,7 @@
 ---
 title: "Mediation Analysis"
 author:
-  - name: "Ben Vincent"
+  - name: "Benjamin Vincent"
 description: "Estimate direct and indirect effects through mediators — from a single pathway to correlated parallel mediators and latent variables with sparse measurements."
 tags: [Causal Inference, Mediation]
 image: thumbnails/mediation.png

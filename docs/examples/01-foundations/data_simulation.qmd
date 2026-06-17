@@ -1,7 +1,7 @@
 ---
 title: "Model-Based Data Simulation"
 author:
-  - name: "Ben Vincent"
+  - name: "Benjamin Vincent"
 description: "Generate synthetic datasets from a pathmc model with known parameter values using pathmc.simulate()."
 tags: [Simulation]
 image: thumbnails/data_simulation.png
