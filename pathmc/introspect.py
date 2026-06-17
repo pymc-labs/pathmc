@@ -26,7 +26,7 @@ import graphviz
 from pathmc.graph import GraphInfo
 from pathmc.parse import Spec, Term, TransformCall
 
-__all__ = ["EquationList", "ModelEquations", "PriorTable"]
+__all__: list[str] = []
 
 _GREEK = {
     "alpha": r"\alpha",

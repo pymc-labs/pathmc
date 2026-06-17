@@ -31,7 +31,7 @@ from scipy import stats
 
 from pathmc.graph import GraphInfo
 
-__all__ = ["ConditionalIndependence", "ImplicationTestResult"]
+__all__ = ["ImplicationTestResult"]
 
 
 def _require_nodes(dag: nx.DiGraph, **named: str) -> None:

@@ -85,14 +85,10 @@ reference:
     contents:
       - model.simulate
       - simulate.DoResult
-  - title: Results and display
-    desc: Result containers and rich display objects returned by PathModel methods.
+  - title: Result objects
+    desc: Result containers returned by PathModel methods for programmatic inspection.
     contents:
       - effects.EffectResult
-      - introspect.EquationList
-      - introspect.ModelEquations
-      - introspect.PriorTable
-      - identify.ConditionalIndependence
       - identify.ImplicationTestResult
       - sensitivity.SensitivityResult
   - title: DAG falsification

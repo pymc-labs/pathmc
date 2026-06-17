@@ -33,8 +33,7 @@ if not (_Version("6.0") <= _pymc_ver < _Version("7")):
 
 from pathmc.effects import EffectResult  # noqa: E402
 from pathmc.falsify import FalsificationResult  # noqa: E402
-from pathmc.identify import ConditionalIndependence, ImplicationTestResult  # noqa: E402
-from pathmc.introspect import EquationList, ModelEquations, PriorTable  # noqa: E402
+from pathmc.identify import ImplicationTestResult  # noqa: E402
 from pathmc.model import PathModel, model, simulate  # noqa: E402
 from pathmc.sensitivity import SensitivityResult  # noqa: E402
 from pathmc.simulate import DoResult  # noqa: E402
@@ -45,17 +44,13 @@ from pathmc.transforms import ParamSpec, Transform, register_transform  # noqa: 
 from pymc_extras.prior import Prior  # noqa: E402
 
 __all__ = [
-    "ConditionalIndependence",
     "DoResult",
     "EffectResult",
-    "EquationList",
     "FalsificationResult",
     "ImplicationTestResult",
-    "ModelEquations",
     "ParamSpec",
     "PathModel",
     "Prior",
-    "PriorTable",
     "SensitivityResult",
     "Transform",
     "__version__",
