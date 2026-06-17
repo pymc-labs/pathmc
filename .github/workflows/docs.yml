@@ -66,9 +66,7 @@ jobs:
     name: "Publish Docs"
     runs-on: ubuntu-latest
     needs: "build-docs"
-    # TODO: re-enable on launch.
-    # On launch day: remove this guard, then configure Settings → Pages → GitHub Actions.
-    if: false && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     permissions:
       pages: write
       id-token: write
