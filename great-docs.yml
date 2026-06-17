@@ -119,6 +119,36 @@ dark_mode_toggle: true
 # own logo/tagline/showcase, so suppress the auto-generated hero block.
 hero: false
 
+# Graphviz figure sizing -----------------------------------------------------
+# Quarto's {dot} engine defaults the SVG height to equal its width (a square)
+# when only fig-width is set, letterboxing wide rankdir=LR DAGs with large
+# vertical whitespace. The emitted SVG carries the true aspect ratio in its
+# viewbox but also a fixed height attribute that CSS height:auto can't reliably
+# override. This script reads the viewbox, drops the fixed height, and sets
+# aspect-ratio so every DAG (current and future) sizes to its content. Scoped
+# to graphviz via the <g class="graph"> marker so Mermaid/matplotlib SVGs are
+# untouched.
+include_in_header:
+  - text: |
+      <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        document.querySelectorAll("svg").forEach((svg) => {
+          // Graphviz/{dot} SVGs carry a <g class="graph"> marker; this leaves
+          // Mermaid and matplotlib SVGs untouched.
+          if (!svg.querySelector("g.graph")) return;
+          // Read the geometry via the SVGRect, not getAttribute("viewbox"):
+          // the HTML parser renames the source "viewbox" to "viewBox", so a
+          // lowercase getAttribute returns null.
+          const vb = svg.viewBox && svg.viewBox.baseVal;
+          if (!vb || !vb.width || !vb.height) return;
+          svg.removeAttribute("height");
+          svg.style.height = "auto";
+          svg.style.maxHeight = "none";
+          svg.style.aspectRatio = `${vb.width} / ${vb.height}`;
+        });
+      });
+      </script>
+
 # SEO ------------------------------------------------------------------------
 # Public GitHub Pages URL (matches pyproject.toml [project.urls] Documentation).
 # Required for sitemap.xml, canonical links, and social-card absolute URLs.
