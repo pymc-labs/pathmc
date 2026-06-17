@@ -72,7 +72,7 @@ tags:
 
 # API Reference --------------------------------------------------------------
 # Public surface only: top-level constructors, PathModel methods, result/display
-# classes returned by those methods, documented extension points, and exceptions.
+# classes returned by those methods, and documented extension points.
 # Internal helpers (parse/build/compile/compute functions) are excluded.
 reference:
   - title: Modeling
@@ -95,28 +95,17 @@ reference:
       - identify.ConditionalIndependence
       - identify.ImplicationTestResult
       - sensitivity.SensitivityResult
-  - title: Panel data
-    desc: Helpers for panel / longitudinal data.
-    contents:
-      - panel.add_lags
   - title: DAG falsification
     desc: Whole-graph validation via a permutation-based test.
     contents:
       - falsify.falsify_graph
       - falsify.FalsificationResult
-  - title: Extensions
-    desc: Stable hooks for custom DSL transforms.
+  - title: Custom transforms
+    desc: Extend the model DSL with domain-specific transformations.
     contents:
       - transforms.Transform
       - transforms.ParamSpec
       - transforms.register_transform
-      - transforms.get_transform
-  - title: Exceptions
-    desc: Exceptions raised for invalid model specifications.
-    contents:
-      - exceptions.ParseError
-      - exceptions.DuplicateEquationError
-      - exceptions.CycleError
 
 # Site appearance ------------------------------------------------------------
 logo:

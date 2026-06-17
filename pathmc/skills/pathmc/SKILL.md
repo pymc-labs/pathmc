@@ -71,7 +71,7 @@ The DSL is lavaan-inspired:
 | Build a model from a spec + data                  | `m = pathmc.model(spec, data=df)`                      |
 | Explore the DAG without data                      | `m = pathmc.model(spec)` (data-free mode)              |
 | Inspect causal DAG                                | `m.graph()`                                            |
-| Inspect structural equations + priors             | `m.equations()` or `m.model_equations()`               |
+| Inspect structural equations + priors             | `m.equations()`                                        |
 | Inspect priors only                               | `m.priors()`                                           |
 | Refine priors                                     | `m.set_priors({"beta_Y": Prior(...)})`                 |
 | Prior predictive check                            | `m.sample_prior_predictive()`                          |
@@ -94,7 +94,6 @@ The DSL is lavaan-inspired:
 | Test DAG implications against data                | `m.test_implications()`                                |
 | Falsify the whole DAG (permutation test)          | `m.falsify()`                                          |
 | Sensitivity analysis (unmeasured confounding)     | `m.sensitivity(outcome, treatment)`                    |
-| Add lag columns to a panel DataFrame              | `pathmc.add_lags(df, columns, by, time)`               |
 | Simulate from a fully-specified model             | `pathmc.simulate(spec, data, params=...)`              |
 
 ## Gotchas
@@ -117,11 +116,10 @@ The DSL is lavaan-inspired:
    `from pathmc import Prior` is a shortcut for
    `from pymc_extras.prior import Prior`. The canonical reference and
    list of supported distributions live in `pymc_extras`.
-5. **Panel mode requires `add_lags()` *before* `model()`.**
-   `pathmc.add_lags(df, columns=["sales"], by="region", time="week")`
-   creates the lagged columns in the DataFrame; the `lag(...)` term in
-   a spec then references those columns. Forgetting `add_lags()` raises
-   a missing-column error from the compiler.
+5. **Panel lag terms are declared in the model spec.**
+   Use `lag(sales)` directly in the DSL and pass
+   `panel={"unit": "region", "time": "week"}` to `pathmc.model(...)`.
+   pathmc builds the lagged design internally.
 6. **Data-free models have a partial method surface.**
    When `data=None`, `graph()`, `equations()`, `priors()`,
    `adjustment_sets()`, `is_identifiable()`, `collider_warnings()`,
@@ -200,7 +198,6 @@ m.test_implications()                        # DAG vs data check
 
 ```python
 import pathmc
-df = pathmc.add_lags(df, columns=["sales"], by="region", time="week")
 m = pathmc.model(
     "sales ~ b*price + a*lag(sales) + trend",
     data=df,

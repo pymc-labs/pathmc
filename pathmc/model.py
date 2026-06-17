@@ -418,21 +418,6 @@ class PathModel:
         with self._gen_model:
             return pm.sample_prior_predictive(**kwargs)
 
-    def model_equations(self) -> ModelEquations:
-        """Return structural equations and priors as a single display object.
-
-        .. deprecated::
-            Use :meth:`equations` instead, which now shows both structural
-            equations and priors by default.
-        """
-        warnings.warn(
-            "model_equations() is deprecated. Use equations() instead, "
-            "which now shows both structural equations and priors by default.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return ModelEquations(self._build_equations(), self._build_priors())
-
     def summary(self) -> pd.DataFrame:
         """Return a posterior summary table.
 

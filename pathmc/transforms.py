@@ -33,7 +33,7 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 
-__all__ = ["ParamSpec", "Transform", "get_transform", "register_transform"]
+__all__ = ["ParamSpec", "Transform", "register_transform"]
 
 
 def _geometric_adstock(x: Any, *, alpha: Any, l_max: int) -> Any:
