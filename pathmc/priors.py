@@ -26,6 +26,8 @@ from pathmc.parse import Spec, TransformCall
 PriorConfig = dict[str, Prior]
 """Mapping from parameter name to ``Prior`` specification."""
 
+__all__: list[str] = []
+
 
 def default_priors(
     spec: Spec,

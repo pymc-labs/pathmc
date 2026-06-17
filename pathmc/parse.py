@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 
 from pathmc.exceptions import DuplicateEquationError, ParseError
 
+__all__: list[str] = []
+
 
 @dataclass
 class TransformCall:

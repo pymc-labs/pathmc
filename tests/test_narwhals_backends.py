@@ -15,7 +15,7 @@
 
 narwhals lets pathmc accept any supported DataFrame at the input boundary
 and return the *same* backend for data-returning functions
-(``simulate``, ``add_lags``, ``PathModel.design``). Posterior-summary
+(``simulate``, ``PathModel.design``). Posterior-summary
 tables (``summary``/``standardized``) come from arviz and are always
 pandas regardless of input backend.
 """
@@ -135,23 +135,6 @@ class TestSimulatePreservesBackend:
         out1 = pathmc.simulate("Y ~ X", data=df, params=params, random_seed=7)
         out2 = pathmc.simulate("Y ~ X", data=df, params=params, random_seed=7)
         np.testing.assert_allclose(np.asarray(out1["Y"]), np.asarray(out2["Y"]))
-
-
-class TestAddLagsPreservesBackend:
-    def test_add_lags_returns_same_backend(self, backend):
-        data = {
-            "region": ["A", "A", "A", "B", "B", "B"],
-            "week": [1, 2, 3, 1, 2, 3],
-            "X": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-        }
-        df = _frame(backend, data)
-        with pytest.warns(DeprecationWarning):
-            out = pathmc.add_lags(df, ["X"], 1, {"unit": "region", "time": "week"})
-        assert isinstance(out, _native_type(backend))
-        assert "X_lag1" in out.columns
-        # First row of each unit has a null lag; lag equals previous week's X.
-        x_lag1 = np.asarray(out["X_lag1"], dtype=float)
-        np.testing.assert_array_equal(x_lag1[[1, 2, 4, 5]], [1.0, 2.0, 4.0, 5.0])
 
 
 @pytest.mark.slow

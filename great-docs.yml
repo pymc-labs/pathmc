@@ -22,6 +22,11 @@ exclude:
 # the user_guide directory below) instead of generating one from README.md.
 homepage: user_guide
 
+# Disable generated Markdown page downloads. The copy-page widget eagerly
+# fetches the `.md` companion page on load, which makes navigation noticeably
+# slower on long executable examples.
+markdown_pages: false
+
 # User Guide -----------------------------------------------------------------
 # Source directory for the user guide. Files are auto-discovered and ordered
 # by filename, so numeric prefixes determine the sidebar order.
@@ -71,9 +76,9 @@ tags:
     Hierarchical Effects: layers
 
 # API Reference --------------------------------------------------------------
-# Public surface only: model() / simulate() / add_lags() and the PathModel
-# class with its methods. Internal helpers (build_*, compute_*, etc.) are
-# implementation details and excluded.
+# Public surface only: top-level constructors, PathModel methods, result/display
+# classes returned by those methods, and documented extension points.
+# Internal helpers (parse/build/compile/compute functions) are excluded.
 reference:
   - title: Modeling
     desc: Build, fit, and query Bayesian path models.
@@ -84,16 +89,24 @@ reference:
     desc: Time-forward and counterfactual simulation helpers.
     contents:
       - model.simulate
-      - model.DoResult
-  - title: Panel data
-    desc: Helpers for panel / longitudinal data.
+      - simulate.DoResult
+  - title: Result objects
+    desc: Result containers returned by PathModel methods for programmatic inspection.
     contents:
-      - panel.add_lags
+      - effects.EffectResult
+      - identify.ImplicationTestResult
+      - sensitivity.SensitivityResult
   - title: DAG falsification
     desc: Whole-graph validation via a permutation-based test.
     contents:
       - falsify.falsify_graph
       - falsify.FalsificationResult
+  - title: Custom transforms
+    desc: Extend the model DSL with domain-specific transformations.
+    contents:
+      - transforms.Transform
+      - transforms.ParamSpec
+      - transforms.register_transform
 
 # Site appearance ------------------------------------------------------------
 logo:
@@ -105,6 +118,36 @@ dark_mode_toggle: true
 # We use docs/user_guide/00-welcome.qmd as the homepage. It already has its
 # own logo/tagline/showcase, so suppress the auto-generated hero block.
 hero: false
+
+# Graphviz figure sizing -----------------------------------------------------
+# Quarto's {dot} engine defaults the SVG height to equal its width (a square)
+# when only fig-width is set, letterboxing wide rankdir=LR DAGs with large
+# vertical whitespace. The emitted SVG carries the true aspect ratio in its
+# viewbox but also a fixed height attribute that CSS height:auto can't reliably
+# override. This script reads the viewbox, drops the fixed height, and sets
+# aspect-ratio so every DAG (current and future) sizes to its content. Scoped
+# to graphviz via the <g class="graph"> marker so Mermaid/matplotlib SVGs are
+# untouched.
+include_in_header:
+  - text: |
+      <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        document.querySelectorAll("svg").forEach((svg) => {
+          // Graphviz/{dot} SVGs carry a <g class="graph"> marker; this leaves
+          // Mermaid and matplotlib SVGs untouched.
+          if (!svg.querySelector("g.graph")) return;
+          // Read the geometry via the SVGRect, not getAttribute("viewbox"):
+          // the HTML parser renames the source "viewbox" to "viewBox", so a
+          // lowercase getAttribute returns null.
+          const vb = svg.viewBox && svg.viewBox.baseVal;
+          if (!vb || !vb.width || !vb.height) return;
+          svg.removeAttribute("height");
+          svg.style.height = "auto";
+          svg.style.maxHeight = "none";
+          svg.style.aspectRatio = `${vb.width} / ${vb.height}`;
+        });
+      });
+      </script>
 
 # SEO ------------------------------------------------------------------------
 # Public GitHub Pages URL (matches pyproject.toml [project.urls] Documentation).
