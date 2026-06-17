@@ -28,15 +28,16 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
-import arviz as az
 import narwhals.stable.v1 as nw
 import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
+import xarray as xr
 from pytensor.graph.replace import graph_replace
 from pytensor.graph.traversal import ancestors
 
 from pathmc.graph import GraphInfo
+from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.idata import hdi as compute_hdi
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
@@ -91,7 +92,7 @@ class DoResult:
         """Return the posterior mean of *var* under this intervention."""
         return float(np.mean(self._values[var]))
 
-    def hdi(self, var: str, prob: float = 0.94) -> np.ndarray:
+    def hdi(self, var: str, prob: float = DEFAULT_HDI_PROB) -> np.ndarray:
         """Return the highest-density interval for *var*.
 
         Parameters
@@ -226,7 +227,7 @@ def _exogenous_fill(values: np.ndarray) -> float:
 def run_do_pymc(
     gen_model: pm.Model,
     graph_info: GraphInfo,
-    idata: az.InferenceData,
+    idata: xr.DataTree,
     data: nw.DataFrame,
     set: dict[str, float | np.ndarray] | None = None,
     kind: str = "mean",
@@ -249,7 +250,7 @@ def run_do_pymc(
         The generative PyMC model (endogenous vars are free RVs).
     graph_info : GraphInfo
         DAG with topological order and node classification.
-    idata : az.InferenceData
+    idata : xarray.DataTree
         Posterior samples from ``pm.sample()``.
     data : nw.DataFrame
         Observed data (used for sizing intervention arrays).
@@ -339,8 +340,6 @@ def run_do_pymc(
             rv.name for rv in do_model.free_RVs if rv.name not in posterior_ds
         ]
         if missing_rv_names:
-            import xarray as xr
-
             n_chains = posterior_ds.sizes["chain"]
             n_draws = posterior_ds.sizes["draw"]
             dummy_vars: dict[str, xr.DataArray] = {}
@@ -403,8 +402,6 @@ def run_do_pymc(
             rv.name for rv in do_model.free_RVs if rv.name not in posterior_ds
         ]
         if missing_rv_names:
-            import xarray as xr
-
             n_chains = posterior_ds.sizes["chain"]
             n_draws = posterior_ds.sizes["draw"]
             fill_vars: dict[str, xr.DataArray] = {}
@@ -463,7 +460,7 @@ def run_do_pymc(
 def run_do_panel_unified(
     gen_model: pm.Model,
     graph_info: GraphInfo,
-    idata: az.InferenceData,
+    idata: xr.DataTree,
     panel_info: PanelInfo,
     scan_info: Any,
     set: dict[str, float | np.ndarray] | None = None,
@@ -482,7 +479,7 @@ def run_do_panel_unified(
         The scan-compiled generative model.
     graph_info : GraphInfo
         DAG with topological order and node classification.
-    idata : az.InferenceData
+    idata : xarray.DataTree
         Posterior samples.
     panel_info : PanelInfo
         Panel metadata.

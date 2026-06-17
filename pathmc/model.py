@@ -25,6 +25,7 @@ import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
 import pymc as pm
+import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
 from pathmc.compile import build_design_matrix, compile_to_pymc, get_predictor_columns
@@ -131,7 +132,7 @@ class PathModel:
             self._design_matrices: dict[str, nw.DataFrame] = {}
             self._gen_model: pm.Model | None = None
             self._pymc_model: pm.Model | None = None
-            self._idata: az.InferenceData | None = None
+            self._idata: xr.DataTree | None = None
             return
 
         self._design_matrices = {}
@@ -163,8 +164,8 @@ class PathModel:
                 f"m = pathmc.model(spec, data=df)"
             )
 
-    def _require_fitted(self, method_name: str) -> az.InferenceData:
-        """Return the posterior InferenceData, or raise if not fitted.
+    def _require_fitted(self, method_name: str) -> xr.DataTree:
+        """Return the posterior DataTree, or raise if not fitted.
 
         Also verifies the model is data-bound (a fitted model always has
         data), so callers can drop the separate ``_require_data`` check.
@@ -395,7 +396,7 @@ class PathModel:
                 stacklevel=2,
             )
 
-    def sample_prior_predictive(self, **kwargs: Any) -> az.InferenceData:
+    def sample_prior_predictive(self, **kwargs: Any) -> xr.DataTree:
         """Draw samples from the prior predictive distribution.
 
         Useful for checking whether default or custom priors generate
@@ -408,7 +409,7 @@ class PathModel:
 
         Returns
         -------
-        az.InferenceData
+        xarray.DataTree
             Prior predictive samples.
         """
         self._require_data("sample_prior_predictive")
@@ -534,8 +535,8 @@ class PathModel:
         idata = self._require_fitted("effect")
         return compute_path_effect(path, self._spec, idata)
 
-    def fit(self, **kwargs: Any) -> az.InferenceData:
-        """Run MCMC sampling and store the resulting InferenceData.
+    def fit(self, **kwargs: Any) -> xr.DataTree:
+        """Run MCMC sampling and store the resulting posterior DataTree.
 
         All keyword arguments are forwarded to ``pm.sample()``.
 
@@ -562,7 +563,7 @@ class PathModel:
 
         Returns
         -------
-        az.InferenceData
+        xarray.DataTree
             Posterior samples.
         """
         self._require_data("fit")
@@ -579,24 +580,24 @@ class PathModel:
             )
         return self._idata
 
-    def predict(self, **kwargs: Any) -> az.InferenceData:
+    def predict(self, **kwargs: Any) -> xr.DataTree:
         """Run posterior predictive sampling.
 
         Wraps ``pm.sample_posterior_predictive()`` and extends the
-        stored InferenceData with a ``posterior_predictive`` group.
+        stored DataTree with a ``posterior_predictive`` group.
 
         Parameters
         ----------
         **kwargs
             Passed directly to ``pm.sample_posterior_predictive()``.
             Pass ``extend_inferencedata=False`` to leave the stored
-            InferenceData untouched and get the standalone posterior
+            DataTree untouched and get the standalone posterior
             predictive samples back instead.
 
         Returns
         -------
-        az.InferenceData
-            The stored InferenceData with a ``posterior_predictive``
+        xarray.DataTree
+            The stored DataTree with a ``posterior_predictive``
             group added, or the standalone posterior predictive samples
             when ``extend_inferencedata=False`` is passed.
 
