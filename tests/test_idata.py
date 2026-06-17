@@ -15,12 +15,13 @@
 
 import arviz as az
 import numpy as np
+import xarray as xr
 
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi, posterior
 
 
-def _idata_with_beta(beta: np.ndarray) -> az.InferenceData:
-    """Build an InferenceData with a single ``beta_Y`` coefficient variable."""
+def _idata_with_beta(beta: np.ndarray) -> xr.DataTree:
+    """Build a posterior ``DataTree`` with a single ``beta_Y`` coefficient variable."""
     return az.from_dict(
         {"posterior": {"beta_Y": beta}},
         coords={"Y_predictors": ["Intercept", "X"]},
