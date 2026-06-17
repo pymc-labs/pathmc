@@ -13,8 +13,8 @@ jobs:
     # Notebooks are NOT executed in CI. Project-level `freeze: true` in
     # great-docs.yml plus the committed `_freeze/` cache means Quarto restores
     # cached outputs and renders HTML only — no kernel ever spawns here.
-    # Authors refresh the cache locally via `great-docs freeze <page>` (see
-    # docs/dev/great_docs_migration.md, "How freeze works for pathmc").
+    # Authors refresh the cache locally via `great-docs freeze <page>` (see the
+    # "Building the docs" section of AGENTS.md, "Notebooks are frozen").
     steps:
       - uses: actions/checkout@v6
         with:
@@ -45,8 +45,8 @@ jobs:
         # but llms-full.txt is written only if `import pathmc` succeeds at build
         # time, and that import failure is swallowed (the step still reports
         # success). Assert the files landed in _site so a silent skip fails CI
-        # instead of shipping an incomplete site. These are required outputs per
-        # docs/dev/great_docs_migration.md acceptance criteria.
+        # instead of shipping an incomplete site. These are required outputs of
+        # the docs build.
         run: |
           for f in llms.txt llms-full.txt skill.md; do
             if [[ ! -s "great-docs/_site/$f" ]]; then
@@ -66,7 +66,7 @@ jobs:
     name: "Publish Docs"
     runs-on: ubuntu-latest
     needs: "build-docs"
-    # TODO: re-enable on launch — see Phase 4b in docs/dev/great_docs_migration.md.
+    # TODO: re-enable on launch.
     # On launch day: remove this guard, then configure Settings → Pages → GitHub Actions.
     if: false && github.ref == 'refs/heads/main'
     permissions:
