@@ -227,7 +227,7 @@ m.sample_prior_predictive() # check the priors imply plausible data
 
 ## Resources
 
-- Docs site: <https://pymc-labs.github.io/pathmc/> *(once Phase 4b lands)*
+- Docs site: <https://pathmc.pymc-labs.com/>
 - `llms.txt` — indexed API reference for LLMs
 - `llms-full.txt` — comprehensive API documentation for LLMs
 - GitHub: <https://github.com/pymc-labs/pathmc>

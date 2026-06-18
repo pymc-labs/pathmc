@@ -150,11 +150,11 @@ include_in_header:
       </script>
 
 # SEO ------------------------------------------------------------------------
-# Public GitHub Pages URL (matches pyproject.toml [project.urls] Documentation).
+# Public docs URL at pathmc.pymc-labs.com (matches pyproject.toml [project.urls] Documentation).
 # Required for sitemap.xml, canonical links, and social-card absolute URLs.
 seo:
   canonical:
-    base_url: https://pymc-labs.github.io/pathmc/
+    base_url: https://pathmc.pymc-labs.com/
 
 # Citations use docs/references.bib via per-page frontmatter until Great Docs
 # forwards project-level bibliography (posit-dev/great-docs#214; migrate in #266).
