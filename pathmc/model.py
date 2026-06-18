@@ -58,6 +58,7 @@ from pathmc.introspect import (
 )
 from pathmc.panel import PanelInfo, build_panel_info
 from pathmc.parse import Spec, parse_spec
+from pathmc.refute import PlaceboRefutationResult, refute_placebo as _refute_placebo
 from pathmc.sensitivity import SensitivityResult, compute_sensitivity
 from pathmc.simulate import (
     DoResult,
@@ -121,6 +122,10 @@ class PathModel:
         self._pooling = pooling
         self._latent: set[str] = latent if latent is not None else set()
         self._families: dict[str, str] = families if families is not None else {}
+        # Original model() arguments, recorded so refutation can faithfully
+        # re-fit on perturbed data. Set by model(); None for direct
+        # construction (in which case refute_placebo raises).
+        self._construction: dict[str, Any] | None = None
 
         defaults = default_priors(
             spec,
@@ -522,13 +527,22 @@ class PathModel:
         idata = self._require_fitted("effect")
         return compute_path_effect(path, self._spec, idata)
 
-    def fit(self, **kwargs: Any) -> xr.DataTree:
+    def fit(
+        self,
+        compute_log_likelihood: bool = True,
+        **kwargs: Any,
+    ) -> xr.DataTree:
         """Run MCMC sampling and store the resulting posterior DataTree.
 
         All keyword arguments are forwarded to ``pm.sample()``.
 
         Parameters
         ----------
+        compute_log_likelihood : bool
+            Whether to compute the pointwise log-likelihood after sampling
+            (default ``True``). Set ``False`` to skip the extra pass when
+            you do not need ``az.loo``/``az.waic`` — e.g. internal re-fits
+            during refutation.
         **kwargs
             Keyword arguments forwarded to ``pm.sample()``. Common
             options include ``draws``, ``tune``, ``chains``,
@@ -545,12 +559,13 @@ class PathModel:
             kwargs.setdefault("mp_ctx", "forkserver")
         with self._pymc_model:
             self._idata = pm.sample(**kwargs)
-            # Silent unless the caller explicitly asked for progress bars;
-            # matches the pre-PyMC 6 behavior where the log-likelihood was
-            # computed inside pm.sample() without its own bar.
-            pm.compute_log_likelihood(
-                self._idata, progressbar=kwargs.get("progressbar", False)
-            )
+            if compute_log_likelihood:
+                # Silent unless the caller explicitly asked for progress bars;
+                # matches the pre-PyMC 6 behavior where the log-likelihood was
+                # computed inside pm.sample() without its own bar.
+                pm.compute_log_likelihood(
+                    self._idata, progressbar=kwargs.get("progressbar", False)
+                )
         return self._idata
 
     def predict(self, **kwargs: Any) -> xr.DataTree:
@@ -899,6 +914,130 @@ class PathModel:
             significance_level=significance_level,
             significance_ci=significance_ci,
             include_unconditional=include_unconditional,
+            random_seed=random_seed,
+        )
+
+    def _refit_permuted(
+        self,
+        treatment: str,
+        seed: int,
+        sample_kwargs: dict[str, Any],
+    ) -> PathModel:
+        """Rebuild and fit a copy of this model with *treatment* permuted.
+
+        Row-shuffles the treatment column (severing its link to the
+        outcome) and re-runs the full :func:`model` pipeline on the
+        perturbed data, then fits. Used by :meth:`refute_placebo`. Requires
+        a model created via :func:`model` (so ``_construction`` is set).
+        """
+        assert self._data is not None
+        assert self._construction is not None
+
+        rng = np.random.default_rng(seed)
+        treat_vals = np.asarray(self._data[treatment].to_numpy(), dtype=float)
+        permuted = rng.permutation(treat_vals)
+        permuted_data = self._data.with_columns(
+            nw.new_series(treatment, permuted, backend=self._data.implementation)
+        ).to_native()
+
+        c = self._construction
+        clone = model(
+            c["spec_string"],
+            data=permuted_data,
+            families=c["families"],
+            panel=c["panel"],
+            pooling=c["pooling"],
+            latent=c["latent"],
+            # Use the current merged priors (not the original model() argument)
+            # so priors changed via set_priors() are honored on refit.
+            priors=self._priors,
+        )
+        # The per-fold seed is owned here so every fold is independent and the
+        # whole refutation is reproducible; a random_seed in sample_kwargs would
+        # otherwise couple all folds to one sampler seed, so it is dropped.
+        fit_kwargs = {
+            k: v
+            for k, v in sample_kwargs.items()
+            if k not in ("random_seed", "compute_log_likelihood")
+        }
+        fit_kwargs["random_seed"] = seed
+        fit_kwargs.setdefault("progressbar", False)
+        # Placebo refits only need the ATE posterior, never LOO/WAIC, so skip
+        # the per-fold log-likelihood pass (J-times wasted work otherwise).
+        clone.fit(compute_log_likelihood=False, **fit_kwargs)
+        return clone
+
+    def refute_placebo(
+        self,
+        outcome: str,
+        treatment: str,
+        *,
+        values: tuple[float, float] = (0.0, 1.0),
+        n_permutations: int = 4,
+        significance_level: float = 0.05,
+        sample_kwargs: dict[str, Any] | None = None,
+        random_seed: int | None = None,
+    ) -> PlaceboRefutationResult:
+        """Refute the estimated effect with a Bayesian placebo treatment.
+
+        Permutes the *treatment* column ``n_permutations`` times, re-fitting
+        and re-estimating the ATE each time. A sound pipeline reports no
+        effect for a permuted treatment. The per-permutation posterior
+        summaries are pooled through a hierarchical normal-normal
+        random-effects model that separates the systematic placebo bias
+        ``mu_null`` (which should straddle zero) from the structural
+        volatility ``tau_het``; the real effect is then calibrated against
+        the resulting null predictive distribution.
+
+        Each permutation triggers a full MCMC re-fit, so cost scales
+        linearly with *n_permutations*.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name.
+        treatment : str
+            Treatment variable to replace with a placebo. Must be an
+            observed (non-latent) data column.
+        values : tuple[float, float]
+            ``(lo, hi)`` intervention values for the ATE contrast
+            (default ``(0.0, 1.0)``), matching :meth:`ate`.
+        n_permutations : int
+            Number of placebo permutations / folds (default 4).
+        significance_level : float
+            Threshold for the ``effect_survives`` verdict (default 0.05).
+        sample_kwargs : dict | None
+            Keyword arguments forwarded to ``.fit()`` for each placebo
+            re-fit and to the hierarchical null model's sampler.
+        random_seed : int | None
+            Seed for reproducible permutations and hierarchical fit.
+
+        Returns
+        -------
+        PlaceboRefutationResult
+            Placebo null summary, verdicts (``.passes_placebo``,
+            ``.effect_survives``), calibration (``.z_cal``, ``.p_tail``),
+            and a ``.plot()`` helper.
+
+        Raises
+        ------
+        RuntimeError
+            If the model was created without data, called before
+            ``.fit()``, or not created via :func:`pathmc.model`.
+        ValueError
+            If *treatment*/*outcome* are invalid or *n_permutations* < 2.
+        NotImplementedError
+            If the model is a panel model (not yet supported).
+        """
+        self._require_fitted("refute_placebo")
+        return _refute_placebo(
+            self,
+            outcome,
+            treatment,
+            values=values,
+            n_permutations=n_permutations,
+            significance_level=significance_level,
+            sample_kwargs=sample_kwargs,
             random_seed=random_seed,
         )
 
@@ -1455,7 +1594,7 @@ def model(
             )
         panel_info = build_panel_info(nw_data, panel)
 
-    return PathModel(
+    path_model = PathModel(
         spec=spec,
         graph_info=graph_info,
         data=nw_data,
@@ -1465,6 +1604,15 @@ def model(
         latent=latent_set,
         priors=priors,
     )
+    path_model._construction = {
+        "spec_string": spec_string,
+        "families": families,
+        "panel": panel,
+        "pooling": pooling,
+        "latent": latent,
+        "priors": priors,
+    }
+    return path_model
 
 
 def simulate(

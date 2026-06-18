@@ -250,6 +250,28 @@ model.collider_warnings({"C"}, "X", "Y")
 # ["'C' is a collider between 'X' and 'Y'. Conditioning on it may open a spurious path..."]
 ```
 
+## Robustness checks
+
+An estimate is only as trustworthy as the assumptions behind it. pathmc ports DoWhy's *refute* step to a Bayesian setting with three complementary checks:
+
+- `m.falsify()` grades the whole DAG against randomly-rewired competitors (a permutation test).
+- `m.sensitivity(outcome, treatment)` quantifies how strong an unmeasured confounder would have to be to overturn the conclusion.
+- `m.refute_placebo(outcome, treatment)` replaces the treatment with permuted ("placebo") copies, re-fits, and checks that the effect collapses to zero.
+
+The placebo refuter is the Bayesian upgrade of DoWhy's `placebo_treatment_refuter`. Each permutation severs the treatment-outcome link, so a sound pipeline should report no effect. Because every re-fit yields a full posterior (not a point estimate), the per-permutation summaries are pooled through a hierarchical normal-normal random-effects model that separates a systematic placebo bias `mu_null` (which should straddle zero) from the structural volatility `tau_het`. The real effect is then calibrated against the resulting null predictive distribution.
+
+```python
+model.fit(draws=1000, chains=2)
+
+result = model.refute_placebo("Y", "X", n_permutations=4)
+result.passes_placebo  # True if the placebo null straddles zero
+result.effect_survives  # True if the real effect is too extreme for placebo noise
+result.z_cal, result.p_tail  # calibration of the real effect against the null
+result.plot()  # null predictive vs. observed effect
+```
+
+Each permutation triggers a full MCMC re-fit, so the cost scales with `n_permutations` (4 is the practical minimum for identifying `tau_het`). Pass `sample_kwargs={...}` to control the sampler and `random_seed=` for reproducibility. Panel models are not yet supported.
+
 ## Causal assumptions and limitations
 
 pathmc makes causal reasoning *possible* but not *automatic*.
