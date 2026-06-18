@@ -157,6 +157,27 @@ class PlaceboRefutationResult:
         return hdi(self.observed_ate_draws)
 
     @property
+    def estimated_effect(self) -> float:
+        """The originally estimated ATE (dowhy's "estimated effect").
+
+        Alias of :attr:`observed_ate`, named to mirror dowhy's
+        ``CausalRefutation.estimated_effect``.
+        """
+        return self.observed_ate
+
+    @property
+    def new_effect(self) -> float:
+        """The pooled placebo effect (dowhy's "new effect").
+
+        The systematic placebo bias ``mu_null`` pooled across permutations
+        — the effect the pipeline still reports once the treatment-outcome
+        link is severed. A sound pipeline keeps this near zero. This is the
+        Bayesian analogue of dowhy's ``new_effect = mean(placebo estimates)``,
+        but pooled hierarchically and equipped with :attr:`mu_null_hdi`.
+        """
+        return self.mu_null
+
+    @property
     def mu_null(self) -> float:
         """Posterior mean of the systematic placebo bias ``mu_null``."""
         return float(np.mean(self.mu_null_draws))
@@ -246,6 +267,30 @@ class PlaceboRefutationResult:
             f"  Based on {self.n_permutations} placebo permutations",
         ]
 
+    def summary(self) -> str:
+        """Return a dowhy-style textual summary of the refutation.
+
+        Mirrors dowhy's ``CausalRefutation`` output
+        (``Estimated effect`` / ``New effect`` / ``p value``), with the
+        Bayesian additions of a credible interval on the placebo effect and
+        a pass/fail placebo verdict.
+
+        Returns
+        -------
+        str
+            A multi-line summary string.
+        """
+        mu_lo, mu_hi = self.mu_null_hdi
+        placebo = "PASS" if self.passes_placebo else "FAIL"
+        return (
+            f"Refute: Use a Placebo Treatment "
+            f"({self.treatment} -> {self.outcome})\n"
+            f"Estimated effect: {self.estimated_effect:.4f}\n"
+            f"New effect: {self.new_effect:.4f} [{mu_lo:.4f}, {mu_hi:.4f}] "
+            f"(pooled placebo effect; ~0 if sound) [{placebo}]\n"
+            f"p value: {self.p_tail:.4f}"
+        )
+
     def __repr__(self) -> str:
         return "\n".join(self._summary_lines())
 
@@ -302,31 +347,48 @@ class PlaceboRefutationResult:
     def plot(
         self,
         ax: matplotlib.axes.Axes | None = None,
+        kind: str = "comparison",
         bins: int = 50,
     ) -> matplotlib.figure.Figure:
-        """Plot the placebo null predictive against the observed effect.
-
-        Shows the null predictive distribution (the placebo effect under
-        the hierarchical model, which should straddle zero) with the
-        observed ATE marked. A real effect far in the tail of the null is
-        the positive case.
+        """Plot the refutation result.
 
         Parameters
         ----------
         ax : matplotlib.axes.Axes | None
             Axes to plot on. Creates a new figure if ``None``.
+        kind : {"comparison", "null"}
+            Which view to draw (default ``"comparison"``):
+
+            - ``"comparison"`` — the real (observed) effect and the pooled
+              placebo effect side by side, each as a point with its 94% HDI,
+              against a zero reference. This is the visual analogue of
+              dowhy's "Estimated effect vs New effect": a sound pipeline
+              shows the placebo row sitting on zero and the observed row away
+              from it.
+            - ``"null"`` — the placebo null-predictive distribution
+              (histogram) with the observed ATE marked.
         bins : int
-            Number of histogram bins for the null predictive (default 50).
+            Number of histogram bins, used only when ``kind="null"``
+            (default 50).
 
         Returns
         -------
         matplotlib.figure.Figure
             The figure containing the plot.
+
+        Raises
+        ------
+        ValueError
+            If *kind* is unknown or *bins* is not positive.
         """
         import matplotlib.pyplot as plt
 
         if bins < 1:
             raise ValueError(f"bins must be a positive integer, got {bins}.")
+        if kind not in ("comparison", "null"):
+            raise ValueError(
+                f"Unknown kind={kind!r}. Choose from 'comparison' or 'null'."
+            )
 
         if ax is None:
             fig, ax = plt.subplots(figsize=(8, 4))
@@ -335,6 +397,49 @@ class PlaceboRefutationResult:
 
             fig = cast("matplotlib.figure.Figure", ax.get_figure())
 
+        if kind == "comparison":
+            self._plot_comparison(ax)
+        else:
+            self._plot_null(ax, bins)
+        return fig
+
+    def _plot_comparison(self, ax: matplotlib.axes.Axes) -> None:
+        """Draw observed vs pooled-placebo effect with HDIs (dowhy-style)."""
+        ate_lo, ate_hi = self.observed_ate_hdi
+        mu_lo, mu_hi = self.mu_null_hdi
+        points = [self.observed_ate, self.new_effect]
+        lowers = [self.observed_ate - ate_lo, self.new_effect - mu_lo]
+        uppers = [ate_hi - self.observed_ate, mu_hi - self.new_effect]
+        y = [1, 0]
+        colors = ["tab:red", "tab:gray"]
+        for yi, pt, lo, hi, c in zip(y, points, lowers, uppers, colors):
+            ax.errorbar(
+                pt,
+                yi,
+                xerr=[[lo], [hi]],
+                fmt="o",
+                color=c,
+                capsize=5,
+                markersize=8,
+                linewidth=2,
+            )
+        ax.axvline(0.0, color="k", linestyle=":", linewidth=1.5, label="zero")
+        ax.set_yticks(y)
+        ax.set_yticklabels([
+            "Estimated effect\n(observed)",
+            "New effect\n(placebo)",
+        ])
+        ax.set_ylim(-0.5, 1.5)
+        ax.set_xlabel("Effect (94% HDI)")
+        survives = "survives" if self.effect_survives else "does not survive"
+        ax.set_title(
+            f"Placebo refutation: {self.treatment} → {self.outcome}\n"
+            f"p value = {self.p_tail:.4f} → effect {survives} the placebo null"
+        )
+        ax.legend(loc="best", fontsize="small")
+
+    def _plot_null(self, ax: matplotlib.axes.Axes, bins: int) -> None:
+        """Draw the placebo null-predictive distribution vs the observed ATE."""
         ax.hist(
             self.theta_new_draws,
             bins=bins,
@@ -359,7 +464,6 @@ class PlaceboRefutationResult:
             f"p_tail = {self.p_tail:.4f}, z_cal = {self.z_cal:.3f}"
         )
         ax.legend(loc="best", fontsize="small")
-        return fig
 
 
 def _permute_and_refit(

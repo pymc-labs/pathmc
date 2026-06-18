@@ -139,6 +139,20 @@ class TestPlaceboRefutationResult:
         html_fail = _make_result(mu_null_draws=mu_fail)._repr_html_()
         assert "Fail" in html_fail
 
+    def test_estimated_and_new_effect(self):
+        mu = np.random.default_rng(20).normal(loc=0.0, scale=1.0, size=2000)
+        result = _make_result(mu_null_draws=mu, observed_loc=0.8)
+        assert result.estimated_effect == result.observed_ate
+        assert result.new_effect == result.mu_null
+
+    def test_summary_is_dowhy_style(self):
+        mu = np.random.default_rng(21).normal(loc=0.0, scale=1.0, size=2000)
+        result = _make_result(mu_null_draws=mu)
+        s = result.summary()
+        assert "Estimated effect:" in s
+        assert "New effect:" in s
+        assert "p value:" in s
+
     def test_plot_returns_figure(self):
         import matplotlib.figure
 
@@ -146,6 +160,20 @@ class TestPlaceboRefutationResult:
         result = _make_result(mu_null_draws=mu)
         fig = result.plot()
         assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_plot_null_kind_returns_figure(self):
+        import matplotlib.figure
+
+        mu = np.random.default_rng(16).normal(loc=0.0, scale=1.0, size=2000)
+        result = _make_result(mu_null_draws=mu)
+        fig = result.plot(kind="null")
+        assert isinstance(fig, matplotlib.figure.Figure)
+
+    def test_plot_unknown_kind_raises(self):
+        mu = np.random.default_rng(17).normal(loc=0.0, scale=1.0, size=2000)
+        result = _make_result(mu_null_draws=mu)
+        with pytest.raises(ValueError, match="Unknown kind"):
+            result.plot(kind="bogus")
 
     def test_plot_with_existing_axes(self):
         import matplotlib.pyplot as plt

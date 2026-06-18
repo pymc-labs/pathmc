@@ -267,8 +267,12 @@ result = model.refute_placebo("Y", "X", n_permutations=4)
 result.passes_placebo  # True if the placebo null straddles zero
 result.effect_survives  # True if the real effect is too extreme for placebo noise
 result.z_cal, result.p_tail  # calibration of the real effect against the null
-result.plot()  # null predictive vs. observed effect
+print(result.summary())  # dowhy-style: Estimated effect / New effect / p value
+result.plot()  # observed vs. placebo effect (kind="comparison")
+result.plot(kind="null")  # placebo null predictive vs. observed effect
 ```
+
+Like dowhy's refuters, `result.summary()` reports the originally `estimated_effect`, the `new_effect` under placebo (the pooled placebo bias, which should be near zero), and a `p value`. The default `plot()` shows those two effects side by side with their credible intervals against a zero reference; `plot(kind="null")` shows the full placebo null-predictive distribution.
 
 Each permutation triggers a full MCMC re-fit, so the cost scales with `n_permutations` (4 is the practical minimum for identifying `tau_het`). Pass `sample_kwargs={...}` to control the sampler and `random_seed=` for reproducibility. Panel models are not yet supported.
 
