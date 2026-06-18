@@ -8,7 +8,7 @@
 </p>
 
 [![CI](https://github.com/pymc-labs/pathmc/actions/workflows/ci.yml/badge.svg)](https://github.com/pymc-labs/pathmc/actions/workflows/ci.yml)
-[![Docs](https://github.com/pymc-labs/pathmc/actions/workflows/docs.yml/badge.svg)](https://pymc-labs.github.io/pathmc/)
+[![Docs](https://github.com/pymc-labs/pathmc/actions/workflows/docs.yml/badge.svg)](https://pathmc.pymc-labs.com/)
 [![Status: beta](https://img.shields.io/badge/status-beta-orange)](https://github.com/pymc-labs/pathmc)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](https://github.com/pymc-labs/pathmc/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](https://www.python.org)
@@ -58,7 +58,7 @@ The DSL mirrors lavaan: `~` defines a regression of an outcome on its parents, `
 
 ## Capabilities
 
-*For concepts, tutorials, and the full API reference, see the documentation at [pymc-labs.github.io/pathmc](https://pymc-labs.github.io/pathmc/).*
+*For concepts, tutorials, and the full API reference, see the documentation at [pathmc.pymc-labs.com](https://pathmc.pymc-labs.com/).*
 
 | Capability | What it lets you do |
 | --- | --- |
@@ -75,7 +75,7 @@ The DSL mirrors lavaan: `~` defines a regression of an outcome on its parents, `
 
 ## Documentation
 
-Documentation, concepts, and worked examples are available at [pymc-labs.github.io/pathmc](https://pymc-labs.github.io/pathmc/). The user guide covers the Bayesian workflow, model specification, transforms, identification and estimation approaches, standardized effects, and panel data, alongside runnable examples from foundations through applied models.
+Documentation, concepts, and worked examples are available at [pathmc.pymc-labs.com](https://pathmc.pymc-labs.com/). The user guide covers the Bayesian workflow, model specification, transforms, identification and estimation approaches, standardized effects, and panel data, alongside runnable examples from foundations through applied models.
 
 ## Contributing
 

@@ -49,7 +49,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/pymc-labs/pathmc"
 Repository = "https://github.com/pymc-labs/pathmc"
-Documentation = "https://pymc-labs.github.io/pathmc/"
+Documentation = "https://pathmc.pymc-labs.com/"
 Issues = "https://github.com/pymc-labs/pathmc/issues"
 Contributing = "https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md"
 
