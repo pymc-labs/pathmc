@@ -93,6 +93,7 @@ reference:
   - title: Result objects
     desc: Result containers returned by PathModel methods for programmatic inspection.
     contents:
+      - simulate.EstimandResult
       - effects.EffectResult
       - identify.ImplicationTestResult
       - sensitivity.SensitivityResult

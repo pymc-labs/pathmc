@@ -30,6 +30,7 @@ from typing import Any
 
 import narwhals.stable.v1 as nw
 import numpy as np
+import pandas as pd
 import pymc as pm
 import pytensor.tensor as pt
 import xarray as xr
@@ -42,7 +43,7 @@ from pathmc.idata import hdi as compute_hdi
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
 
-__all__ = ["DoResult"]
+__all__ = ["DoResult", "EstimandResult"]
 
 
 class DoResult:
@@ -164,6 +165,259 @@ class DoResult:
             values=new_values,
             values_by_time=new_by_time,
             time_index=self._time_index,
+        )
+
+    def __repr__(self) -> str:
+        """Tabular summary of the propagated draws for every variable."""
+        if not self._values:
+            return "DoResult (empty)"
+        n_samples = len(next(iter(self._values.values())))
+        n_vars = len(self._values)
+        name_w = max((len(v) for v in self._values), default=8)
+        name_w = max(name_w, 8)
+        header = f"DoResult ({n_samples} draws, {n_vars} variables)"
+        col_head = f"  {'':<{name_w}}  {'mean':>8}   94% HDI"
+        lines = [header, col_head]
+        for var, draws in self._values.items():
+            mean = float(np.mean(draws))
+            lo, hi = compute_hdi(draws)
+            lines.append(f"  {var:<{name_w}}  {mean:>8.2f}   [{lo:.2f}, {hi:.2f}]")
+        return "\n".join(lines)
+
+
+class EstimandResult:
+    """Posterior draws for a causal estimand (ATE, CATE, ATT, ATU).
+
+    Unlike :class:`DoResult`, which describes the whole system under an
+    intervention, an :class:`EstimandResult` knows which outcome was asked
+    about, so its accessors default to that variable and no longer require
+    the outcome to be re-specified.
+
+    The same per-variable draws are retained, so ``mean(other_var)`` still
+    works for any variable in the contrast.
+
+    Parameters
+    ----------
+    values : dict[str, np.ndarray]
+        Contrast draws for each variable, shape ``(n_samples,)``.
+    outcome : str
+        The outcome variable; the default target of all accessors.
+    treatment : str
+        The treatment variable that was intervened on.
+    estimand : str
+        Estimand label, e.g. ``"ATE"``, ``"CATE"``, ``"ATT"``, ``"ATU"``.
+    values_by_time : dict[str, np.ndarray] | None
+        Per-time-step contrast draws, shape ``(n_times, n_samples)``.
+    time_index : array-like | None
+        Time labels for the first axis of *values_by_time*.
+    """
+
+    def __init__(
+        self,
+        values: dict[str, np.ndarray],
+        outcome: str,
+        treatment: str,
+        estimand: str,
+        values_by_time: dict[str, np.ndarray] | None = None,
+        time_index: np.ndarray | None = None,
+    ) -> None:
+        self._values = values
+        self._default_var = outcome
+        self._treatment = treatment
+        self._estimand = estimand
+        self._values_by_time = values_by_time
+        self._time_index = time_index
+
+    @classmethod
+    def from_contrast(
+        cls,
+        contrast: DoResult,
+        outcome: str,
+        treatment: str,
+        estimand: str,
+    ) -> EstimandResult:
+        """Wrap a :class:`DoResult` contrast as a focused estimand result."""
+        return cls(
+            values=contrast._values,
+            outcome=outcome,
+            treatment=treatment,
+            estimand=estimand,
+            values_by_time=contrast._values_by_time,
+            time_index=contrast._time_index,
+        )
+
+    @property
+    def outcome(self) -> str:
+        """The outcome variable this estimand targets."""
+        return self._default_var
+
+    @property
+    def treatment(self) -> str:
+        """The treatment variable that was intervened on."""
+        return self._treatment
+
+    def _resolve(self, var: str | None) -> str:
+        return self._default_var if var is None else var
+
+    def draws(self, var: str | None = None) -> np.ndarray:
+        """Return raw contrast draws, defaulting to the outcome variable.
+
+        Parameters
+        ----------
+        var : str | None
+            Variable name. Defaults to the outcome.
+
+        Returns
+        -------
+        np.ndarray
+            1-D array of posterior draws, shape ``(n_samples,)``.
+        """
+        return self._values[self._resolve(var)]
+
+    def mean(self, var: str | None = None) -> float:
+        """Return the posterior mean, defaulting to the outcome variable."""
+        return float(np.mean(self._values[self._resolve(var)]))
+
+    def hdi(self, var: str | None = None, prob: float = DEFAULT_HDI_PROB) -> np.ndarray:
+        """Return the highest-density interval, defaulting to the outcome.
+
+        Parameters
+        ----------
+        var : str | None
+            Variable name. Defaults to the outcome.
+        prob : float
+            Probability mass of the interval (default 0.94).
+
+        Returns
+        -------
+        np.ndarray
+            Array of ``[lower, upper]``.
+        """
+        return compute_hdi(self._values[self._resolve(var)], prob=prob)
+
+    def prob(self, expr: str, var: str | None = None) -> float:
+        """Return the posterior probability that the estimand satisfies *expr*.
+
+        *expr* is a comparison applied to the (outcome) estimand draws, e.g.
+        ``"> 0"`` returns ``P(estimand > 0)``.
+
+        Parameters
+        ----------
+        expr : str
+            A comparison such as ``"> 0"``, ``">= 1"``, or ``"< -0.5"``.
+        var : str | None
+            Variable name. Defaults to the outcome.
+
+        Returns
+        -------
+        float
+            Fraction of draws satisfying *expr*.
+        """
+        draws = self._values[self._resolve(var)]
+        namespace: dict[str, Any] = {"x": draws, "np": np, "__builtins__": {}}
+        try:
+            mask = eval(f"x {expr}", namespace)  # noqa: S307
+        except SyntaxError as err:
+            raise ValueError(
+                f"Could not parse prob() expression '{expr}'. "
+                f"Pass a comparison applied to the estimand, e.g. '> 0'."
+            ) from err
+        return float(np.mean(mask))
+
+    def summary(self, prob: float = DEFAULT_HDI_PROB) -> pd.DataFrame:
+        """Return a one-row tidy summary of the estimand.
+
+        Columns: ``outcome``, ``treatment``, ``mean``, ``sd``, ``hdi_3%``,
+        ``hdi_97%``, ``p(>0)``. The index holds the estimand label.
+
+        Parameters
+        ----------
+        prob : float
+            Probability mass of the reported HDI (default 0.94).
+
+        Returns
+        -------
+        pd.DataFrame
+            Single-row summary indexed by the estimand label.
+        """
+        draws = self._values[self._default_var]
+        lo, hi = compute_hdi(draws, prob=prob)
+        lower_pct = (1.0 - prob) / 2.0 * 100.0
+        upper_pct = (1.0 + prob) / 2.0 * 100.0
+        row = {
+            "outcome": self._default_var,
+            "treatment": self._treatment,
+            "mean": float(np.mean(draws)),
+            "sd": float(np.std(draws)),
+            f"hdi_{lower_pct:.0f}%": float(lo),
+            f"hdi_{upper_pct:.0f}%": float(hi),
+            "p(>0)": float(np.mean(draws > 0)),
+        }
+        return pd.DataFrame([row], index=pd.Index([self._estimand], name="estimand"))
+
+    def by_time(self, var: str | None = None) -> np.ndarray:
+        """Return per-time-step contrast draws, shape ``(n_times, n_samples)``.
+
+        Only available for panel ``simulate_over="time"`` estimands.
+
+        Parameters
+        ----------
+        var : str | None
+            Variable name. Defaults to the outcome.
+
+        Returns
+        -------
+        np.ndarray
+            Shape ``(n_times, n_samples)``.
+
+        Raises
+        ------
+        ValueError
+            If per-time data is not available (cross-sectional estimand).
+        """
+        if self._values_by_time is None:
+            raise ValueError(
+                "Per-time data not available. "
+                "Use simulate_over='time' to get per-time results."
+            )
+        return self._values_by_time[self._resolve(var)]
+
+    @property
+    def time_index(self) -> np.ndarray | None:
+        """Time labels for the first axis of :meth:`by_time` results."""
+        return self._time_index
+
+    def __float__(self) -> float:
+        """Posterior mean of the estimand (outcome variable)."""
+        return self.mean()
+
+    def __sub__(self, other: EstimandResult) -> EstimandResult:
+        """Element-wise contrast between two estimands, preserving the outcome."""
+        new_values: dict[str, np.ndarray] = {
+            var: self._values[var] - other._values[var]
+            for var in self._values
+            if var in other._values
+        }
+        return EstimandResult(
+            values=new_values,
+            outcome=self._default_var,
+            treatment=self._treatment,
+            estimand=self._estimand,
+        )
+
+    def __repr__(self) -> str:
+        """Notebook-friendly summary focused on the estimand."""
+        draws = self._values[self._default_var]
+        mean = float(np.mean(draws))
+        lo, hi = compute_hdi(draws)
+        p_gt_0 = float(np.mean(draws > 0))
+        n_samples = len(draws)
+        return (
+            f"{self._estimand} of {self._treatment} on {self._default_var}\n"
+            f"  Mean:    {mean:.2f}\n"
+            f"  94% HDI: [{lo:.2f}, {hi:.2f}]\n"
+            f"  P(> 0):  {p_gt_0:.2f}\n"
+            f"  Draws:   {n_samples}"
         )
 
 
