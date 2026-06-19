@@ -74,8 +74,8 @@ model.fit(draws=500, tune=500, chains=2, random_seed=42)
 
 ```{python}
 ate = model.ate("Y", "X")
-print(f"Estimated ATE:  {ate.mean('Y'):.3f}")
-print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
+print(f"Estimated ATE:  {ate.mean():.3f}")
+print(f"94% HDI:        {ate.hdi(prob=0.94)}")
 print(f"True effect:    {true_effect}")
 ```
 
@@ -191,8 +191,8 @@ model2.equations()
 model2.fit(draws=500, tune=500, chains=2, random_seed=42)
 
 ate2 = model2.ate("Y", "X")
-print(f"Estimated ATE:  {ate2.mean('Y'):.3f}")
-print(f"94% HDI:        {ate2.hdi('Y', prob=0.94)}")
+print(f"Estimated ATE:  {ate2.mean():.3f}")
+print(f"94% HDI:        {ate2.hdi(prob=0.94)}")
 print(f"True effect:    {true_effect_weak}")
 ```
 

@@ -123,8 +123,8 @@ We can verify this with `do()`:
 
 ```{python}
 ate = model.ate("Y", "X", values=(0.0, 1.0))
-print(f"ATE on Y: {ate.mean('Y'):.3f}  (true: 0.700)")
-print(f"94% HDI:  {ate.hdi('Y', prob=0.94)}")
+print(f"ATE on Y: {ate.mean():.3f}  (true: 0.700)")
+print(f"94% HDI:  {ate.hdi(prob=0.94)}")
 ```
 
 Fixing the mediator blocks the indirect path, isolating the direct effect:
@@ -490,8 +490,8 @@ Despite the partial non-identifiability of individual paths, the `do()` operator
 
 ```{python}
 ate3 = model3.ate("Y", "X")
-print(f"ATE: {ate3.mean('Y'):.3f}  (true: 0.620)")
-print(f"HDI: [{ate3.hdi('Y')[0]:.3f}, {ate3.hdi('Y')[1]:.3f}]")
+print(f"ATE: {ate3.mean():.3f}  (true: 0.620)")
+print(f"HDI: [{ate3.hdi()[0]:.3f}, {ate3.hdi()[1]:.3f}]")
 ```
 
 ## Summary

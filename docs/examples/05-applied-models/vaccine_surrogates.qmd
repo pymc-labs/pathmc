@@ -276,8 +276,8 @@ To get the quantities that matter for clinical decision-making, we use `do()` to
 ate_vaccine = model.ate("hospitalized", "vaccine", values=(0.0, 1.0))
 
 print("Total causal effect of vaccination on hospitalization:")
-print(f"  ΔP(hospitalized): {ate_vaccine.mean('hospitalized'):.4f}")
-print(f"  94% HDI:           {ate_vaccine.hdi('hospitalized', prob=0.94)}")
+print(f"  ΔP(hospitalized): {ate_vaccine.mean():.4f}")
+print(f"  94% HDI:           {ate_vaccine.hdi(prob=0.94)}")
 ```
 
 The negative value means vaccination *reduces* hospitalization probability — exactly what we'd hope.
@@ -426,12 +426,12 @@ cate_old = model.cate(
 
 print("Vaccine effect by age group:")
 print(
-    f"  Young (age = -1 SD): ΔP(hosp) = {cate_young.mean('hospitalized'):.4f}"
-    f"  HDI: {cate_young.hdi('hospitalized', prob=0.94)}"
+    f"  Young (age = -1 SD): ΔP(hosp) = {cate_young.mean():.4f}"
+    f"  HDI: {cate_young.hdi(prob=0.94)}"
 )
 print(
-    f"  Old (age = +1 SD):   ΔP(hosp) = {cate_old.mean('hospitalized'):.4f}"
-    f"  HDI: {cate_old.hdi('hospitalized', prob=0.94)}"
+    f"  Old (age = +1 SD):   ΔP(hosp) = {cate_old.mean():.4f}"
+    f"  HDI: {cate_old.hdi(prob=0.94)}"
 )
 ```
 
@@ -457,7 +457,7 @@ for a in ages:
     cate = model.cate(
         "hospitalized", "vaccine", values=(0.0, 1.0), condition={"age": float(a)}
     )
-    cate_draws_list.append(cate.draws("hospitalized"))
+    cate_draws_list.append(cate.draws())
 
 cate_draws_2d = np.column_stack(cate_draws_list)
 
