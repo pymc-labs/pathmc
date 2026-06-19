@@ -634,8 +634,16 @@ def run_do_pymc(
                 mu_raw = det[mean_det_names[var]].to_numpy()
                 if subgroup_indices is not None and mu_raw.ndim >= 3:
                     mu_raw = mu_raw[:, :, subgroup_indices]
-                mu_vals = mu_raw.flatten()
-                values[var] = _apply_inverse_link(mu_vals, families.get(var, ""))
+                # Map to the response scale per unit, then average over units
+                # within each posterior draw (g-computation standardization).
+                # The inverse link must be applied before averaging because
+                # E[g^{-1}(mu)] != g^{-1}(E[mu]) for non-identity links. This
+                # yields one value per draw (n_samples,), not per draw-unit pair.
+                resp = _apply_inverse_link(mu_raw, families.get(var, ""))
+                if resp.ndim >= 3:
+                    values[var] = resp.reshape(n_samples, -1).mean(axis=1)
+                else:
+                    values[var] = resp.reshape(n_samples)
 
         return DoResult(values=values)
 
