@@ -28,94 +28,72 @@
 <path fill="none" stroke="black" d="M443,-413.91C443,-413.91 569,-413.91 569,-413.91 575,-413.91 581,-419.91 581,-425.91 581,-425.91 581,-515.86 581,-515.86 581,-521.86 575,-527.86 569,-527.86 569,-527.86 443,-527.86 443,-527.86 437,-527.86 431,-521.86 431,-515.86 431,-515.86 431,-425.91 431,-425.91 431,-419.91 437,-413.91 443,-413.91"/>
 <text text-anchor="middle" x="508" y="-421.71" font-family="Times,serif" font-size="14.00">activated_predictors (3)</text>
 </g>
-<!-- activated -->
-<g id="node1" class="node">
-<title>activated</title>
-<ellipse fill="lightgrey" stroke="black" cx="356" cy="-279.43" rx="48.17" ry="37.45"/>
-<text text-anchor="middle" x="356" y="-290.73" font-family="Times,serif" font-size="14.00">activated</text>
-<text text-anchor="middle" x="356" y="-275.73" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="356" y="-260.73" font-family="Times,serif" font-size="14.00">Bernoulli</text>
-</g>
-<!-- mu_converted -->
-<g id="node7" class="node">
-<title>mu_converted</title>
-<polygon fill="none" stroke="black" points="336.5,-202.95 241.5,-202.95 241.5,-149.95 336.5,-149.95 336.5,-202.95"/>
-<text text-anchor="middle" x="289" y="-187.75" font-family="Times,serif" font-size="14.00">mu_converted</text>
-<text text-anchor="middle" x="289" y="-172.75" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="289" y="-157.75" font-family="Times,serif" font-size="14.00">Deterministic</text>
-</g>
-<!-- activated&#45;&gt;mu_converted -->
-<g id="edge4" class="edge">
-<title>activated&#45;&gt;mu_converted</title>
-<path fill="none" stroke="black" d="M334.25,-245.65C327.28,-235.15 319.55,-223.49 312.47,-212.82"/>
-<polygon fill="black" stroke="black" points="315.47,-211.02 307.03,-204.63 309.64,-214.89 315.47,-211.02"/>
-</g>
-<!-- mu_engagement -->
-<g id="node2" class="node">
-<title>mu_engagement</title>
-<polygon fill="none" stroke="black" points="410.5,-619.84 303.5,-619.84 303.5,-566.84 410.5,-566.84 410.5,-619.84"/>
-<text text-anchor="middle" x="357" y="-604.64" font-family="Times,serif" font-size="14.00">mu_engagement</text>
-<text text-anchor="middle" x="357" y="-589.64" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="357" y="-574.64" font-family="Times,serif" font-size="14.00">Deterministic</text>
-</g>
 <!-- engagement -->
-<g id="node8" class="node">
+<g id="node1" class="node">
 <title>engagement</title>
 <ellipse fill="lightgrey" stroke="black" cx="356" cy="-482.38" rx="58.88" ry="37.45"/>
 <text text-anchor="middle" x="356" y="-493.68" font-family="Times,serif" font-size="14.00">engagement</text>
 <text text-anchor="middle" x="356" y="-478.68" font-family="Times,serif" font-size="14.00">~</text>
 <text text-anchor="middle" x="356" y="-463.68" font-family="Times,serif" font-size="14.00">Normal</text>
 </g>
-<!-- mu_engagement&#45;&gt;engagement -->
-<g id="edge2" class="edge">
-<title>mu_engagement&#45;&gt;engagement</title>
-<path fill="none" stroke="black" d="M356.76,-566.52C356.67,-556.02 356.55,-543.55 356.44,-531.5"/>
-<polygon fill="black" stroke="black" points="359.94,-531.63 356.35,-521.66 352.94,-531.7 359.94,-531.63"/>
+<!-- mu_converted -->
+<g id="node2" class="node">
+<title>mu_converted</title>
+<polygon fill="none" stroke="black" points="336.5,-202.95 241.5,-202.95 241.5,-149.95 336.5,-149.95 336.5,-202.95"/>
+<text text-anchor="middle" x="289" y="-187.75" font-family="Times,serif" font-size="14.00">mu_converted</text>
+<text text-anchor="middle" x="289" y="-172.75" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="289" y="-157.75" font-family="Times,serif" font-size="14.00">Deterministic</text>
 </g>
-<!-- channel_quality -->
-<g id="node3" class="node">
-<title>channel_quality</title>
-<path fill="lightgrey" stroke="black" d="M271.5,-733.79C271.5,-733.79 192.5,-733.79 192.5,-733.79 186.5,-733.79 180.5,-727.79 180.5,-721.79 180.5,-721.79 180.5,-692.79 180.5,-692.79 180.5,-686.79 186.5,-680.79 192.5,-680.79 192.5,-680.79 271.5,-680.79 271.5,-680.79 277.5,-680.79 283.5,-686.79 283.5,-692.79 283.5,-692.79 283.5,-721.79 283.5,-721.79 283.5,-727.79 277.5,-733.79 271.5,-733.79"/>
-<text text-anchor="middle" x="232" y="-718.59" font-family="Times,serif" font-size="14.00">channel_quality</text>
-<text text-anchor="middle" x="232" y="-703.59" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="232" y="-688.59" font-family="Times,serif" font-size="14.00">Data</text>
-</g>
-<!-- channel_quality&#45;&gt;mu_engagement -->
-<g id="edge12" class="edge">
-<title>channel_quality&#45;&gt;mu_engagement</title>
-<path fill="none" stroke="black" d="M253.03,-680.32C264.24,-667.2 278.65,-651.44 293,-638.81 297.57,-634.79 302.51,-630.81 307.55,-626.98"/>
-<polygon fill="black" stroke="black" points="309.48,-629.91 315.46,-621.16 305.33,-624.27 309.48,-629.91"/>
+<!-- engagement&#45;&gt;mu_converted -->
+<g id="edge4" class="edge">
+<title>engagement&#45;&gt;mu_converted</title>
+<path fill="none" stroke="black" d="M364.96,-445.06C376.39,-390.08 389.83,-284.37 346,-210.95 345.55,-210.2 345.07,-209.45 344.57,-208.73"/>
+<polygon fill="black" stroke="black" points="347.21,-206.43 337.98,-201.24 341.96,-211.05 347.21,-206.43"/>
 </g>
 <!-- mu_activated -->
-<g id="node5" class="node">
+<g id="node8" class="node">
 <title>mu_activated</title>
-<polygon fill="none" stroke="black" points="401.5,-405.91 310.5,-405.91 310.5,-352.91 401.5,-352.91 401.5,-405.91"/>
-<text text-anchor="middle" x="356" y="-390.71" font-family="Times,serif" font-size="14.00">mu_activated</text>
-<text text-anchor="middle" x="356" y="-375.71" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="356" y="-360.71" font-family="Times,serif" font-size="14.00">Deterministic</text>
+<polygon fill="none" stroke="black" points="335.5,-405.91 244.5,-405.91 244.5,-352.91 335.5,-352.91 335.5,-405.91"/>
+<text text-anchor="middle" x="290" y="-390.71" font-family="Times,serif" font-size="14.00">mu_activated</text>
+<text text-anchor="middle" x="290" y="-375.71" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="290" y="-360.71" font-family="Times,serif" font-size="14.00">Deterministic</text>
 </g>
-<!-- channel_quality&#45;&gt;mu_activated -->
-<g id="edge8" class="edge">
-<title>channel_quality&#45;&gt;mu_activated</title>
-<path fill="none" stroke="black" d="M229.77,-680.6C226.4,-625.69 225.98,-495.3 288,-413.91 291.5,-409.31 295.8,-405.31 300.52,-401.83"/>
-<polygon fill="black" stroke="black" points="302.19,-404.91 308.74,-396.58 298.42,-399.01 302.19,-404.91"/>
+<!-- engagement&#45;&gt;mu_activated -->
+<g id="edge7" class="edge">
+<title>engagement&#45;&gt;mu_activated</title>
+<path fill="none" stroke="black" d="M333.84,-447.48C327.2,-437.32 319.9,-426.15 313.19,-415.89"/>
+<polygon fill="black" stroke="black" points="316.22,-414.12 307.82,-407.66 310.36,-417.95 316.22,-414.12"/>
 </g>
 <!-- converted -->
-<g id="node4" class="node">
+<g id="node6" class="node">
 <title>converted</title>
 <ellipse fill="lightgrey" stroke="black" cx="289" cy="-76.48" rx="49.49" ry="37.45"/>
 <text text-anchor="middle" x="289" y="-87.78" font-family="Times,serif" font-size="14.00">converted</text>
 <text text-anchor="middle" x="289" y="-72.78" font-family="Times,serif" font-size="14.00">~</text>
 <text text-anchor="middle" x="289" y="-57.78" font-family="Times,serif" font-size="14.00">Bernoulli</text>
 </g>
-<!-- mu_activated&#45;&gt;activated -->
-<g id="edge3" class="edge">
-<title>mu_activated&#45;&gt;activated</title>
-<path fill="none" stroke="black" d="M356,-352.41C356,-345.09 356,-336.88 356,-328.7"/>
-<polygon fill="black" stroke="black" points="359.5,-328.76 356,-318.76 352.5,-328.76 359.5,-328.76"/>
+<!-- mu_converted&#45;&gt;converted -->
+<g id="edge13" class="edge">
+<title>mu_converted&#45;&gt;converted</title>
+<path fill="none" stroke="black" d="M289,-149.45C289,-142.13 289,-133.93 289,-125.75"/>
+<polygon fill="black" stroke="black" points="292.5,-125.81 289,-115.81 285.5,-125.81 292.5,-125.81"/>
+</g>
+<!-- mu_engagement -->
+<g id="node3" class="node">
+<title>mu_engagement</title>
+<polygon fill="none" stroke="black" points="410.5,-619.84 303.5,-619.84 303.5,-566.84 410.5,-566.84 410.5,-619.84"/>
+<text text-anchor="middle" x="357" y="-604.64" font-family="Times,serif" font-size="14.00">mu_engagement</text>
+<text text-anchor="middle" x="357" y="-589.64" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="357" y="-574.64" font-family="Times,serif" font-size="14.00">Deterministic</text>
+</g>
+<!-- mu_engagement&#45;&gt;engagement -->
+<g id="edge1" class="edge">
+<title>mu_engagement&#45;&gt;engagement</title>
+<path fill="none" stroke="black" d="M356.76,-566.52C356.67,-556.02 356.55,-543.55 356.44,-531.5"/>
+<polygon fill="black" stroke="black" points="359.94,-531.63 356.35,-521.66 352.94,-531.7 359.94,-531.63"/>
 </g>
 <!-- onboarding_score -->
-<g id="node6" class="node">
+<g id="node4" class="node">
 <title>onboarding_score</title>
 <path fill="lightgrey" stroke="black" d="M402.5,-733.79C402.5,-733.79 313.5,-733.79 313.5,-733.79 307.5,-733.79 301.5,-727.79 301.5,-721.79 301.5,-721.79 301.5,-692.79 301.5,-692.79 301.5,-686.79 307.5,-680.79 313.5,-680.79 313.5,-680.79 402.5,-680.79 402.5,-680.79 408.5,-680.79 414.5,-686.79 414.5,-692.79 414.5,-692.79 414.5,-721.79 414.5,-721.79 414.5,-727.79 408.5,-733.79 402.5,-733.79"/>
 <text text-anchor="middle" x="358" y="-718.59" font-family="Times,serif" font-size="14.00">onboarding_score</text>
@@ -128,23 +106,45 @@
 <path fill="none" stroke="black" d="M357.77,-680.32C357.64,-665.77 357.47,-647.37 357.33,-631.33"/>
 <polygon fill="black" stroke="black" points="360.83,-631.64 357.24,-621.68 353.83,-631.71 360.83,-631.64"/>
 </g>
-<!-- mu_converted&#45;&gt;converted -->
-<g id="edge13" class="edge">
-<title>mu_converted&#45;&gt;converted</title>
-<path fill="none" stroke="black" d="M289,-149.45C289,-142.13 289,-133.93 289,-125.75"/>
-<polygon fill="black" stroke="black" points="292.5,-125.81 289,-115.81 285.5,-125.81 292.5,-125.81"/>
+<!-- channel_quality -->
+<g id="node5" class="node">
+<title>channel_quality</title>
+<path fill="lightgrey" stroke="black" d="M271.5,-733.79C271.5,-733.79 192.5,-733.79 192.5,-733.79 186.5,-733.79 180.5,-727.79 180.5,-721.79 180.5,-721.79 180.5,-692.79 180.5,-692.79 180.5,-686.79 186.5,-680.79 192.5,-680.79 192.5,-680.79 271.5,-680.79 271.5,-680.79 277.5,-680.79 283.5,-686.79 283.5,-692.79 283.5,-692.79 283.5,-721.79 283.5,-721.79 283.5,-727.79 277.5,-733.79 271.5,-733.79"/>
+<text text-anchor="middle" x="232" y="-718.59" font-family="Times,serif" font-size="14.00">channel_quality</text>
+<text text-anchor="middle" x="232" y="-703.59" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="232" y="-688.59" font-family="Times,serif" font-size="14.00">Data</text>
 </g>
-<!-- engagement&#45;&gt;mu_activated -->
+<!-- channel_quality&#45;&gt;mu_engagement -->
+<g id="edge12" class="edge">
+<title>channel_quality&#45;&gt;mu_engagement</title>
+<path fill="none" stroke="black" d="M253.03,-680.32C264.24,-667.2 278.65,-651.44 293,-638.81 297.57,-634.79 302.51,-630.81 307.55,-626.98"/>
+<polygon fill="black" stroke="black" points="309.48,-629.91 315.46,-621.16 305.33,-624.27 309.48,-629.91"/>
+</g>
+<!-- channel_quality&#45;&gt;mu_activated -->
 <g id="edge9" class="edge">
-<title>engagement&#45;&gt;mu_activated</title>
-<path fill="none" stroke="black" d="M356,-444.64C356,-435.78 356,-426.31 356,-417.43"/>
-<polygon fill="black" stroke="black" points="359.5,-417.73 356,-407.73 352.5,-417.73 359.5,-417.73"/>
+<title>channel_quality&#45;&gt;mu_activated</title>
+<path fill="none" stroke="black" d="M236.6,-680.45C246.84,-622.93 271.53,-484.18 283.41,-417.46"/>
+<polygon fill="black" stroke="black" points="286.83,-418.2 285.13,-407.74 279.94,-416.98 286.83,-418.2"/>
 </g>
-<!-- engagement&#45;&gt;mu_converted -->
+<!-- activated -->
+<g id="node7" class="node">
+<title>activated</title>
+<ellipse fill="lightgrey" stroke="black" cx="289" cy="-279.43" rx="48.17" ry="37.45"/>
+<text text-anchor="middle" x="289" y="-290.73" font-family="Times,serif" font-size="14.00">activated</text>
+<text text-anchor="middle" x="289" y="-275.73" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="289" y="-260.73" font-family="Times,serif" font-size="14.00">Bernoulli</text>
+</g>
+<!-- activated&#45;&gt;mu_converted -->
 <g id="edge6" class="edge">
-<title>engagement&#45;&gt;mu_converted</title>
-<path fill="none" stroke="black" d="M327.1,-449.5C317.34,-436.83 307.52,-421.56 302,-405.91 279.34,-341.63 281.21,-260.9 284.91,-214.64"/>
-<polygon fill="black" stroke="black" points="288.38,-215.15 285.77,-204.88 281.41,-214.54 288.38,-215.15"/>
+<title>activated&#45;&gt;mu_converted</title>
+<path fill="none" stroke="black" d="M289,-241.69C289,-232.83 289,-223.36 289,-214.48"/>
+<polygon fill="black" stroke="black" points="292.5,-214.78 289,-204.78 285.5,-214.78 292.5,-214.78"/>
+</g>
+<!-- mu_activated&#45;&gt;activated -->
+<g id="edge3" class="edge">
+<title>mu_activated&#45;&gt;activated</title>
+<path fill="none" stroke="black" d="M289.73,-352.41C289.66,-345.09 289.58,-336.88 289.49,-328.7"/>
+<polygon fill="black" stroke="black" points="292.99,-328.72 289.39,-318.76 285.99,-328.8 292.99,-328.72"/>
 </g>
 <!-- sigma_engagement -->
 <g id="node9" class="node">
@@ -155,7 +155,7 @@
 <text text-anchor="middle" x="517" y="-574.64" font-family="Times,serif" font-size="14.00">Halfnormal</text>
 </g>
 <!-- sigma_engagement&#45;&gt;engagement -->
-<g id="edge1" class="edge">
+<g id="edge2" class="edge">
 <title>sigma_engagement&#45;&gt;engagement</title>
 <path fill="none" stroke="black" d="M471.29,-561.41C450.66,-547.44 426.24,-530.92 405.2,-516.68"/>
 <polygon fill="black" stroke="black" points="407.29,-513.87 397.05,-511.16 403.37,-519.67 407.29,-513.87"/>
@@ -197,10 +197,10 @@
 <text text-anchor="middle" x="506" y="-463.68" font-family="Times,serif" font-size="14.00">Normal</text>
 </g>
 <!-- beta_activated&#45;&gt;mu_activated -->
-<g id="edge7" class="edge">
+<g id="edge8" class="edge">
 <title>beta_activated&#45;&gt;mu_activated</title>
-<path fill="none" stroke="black" d="M472.57,-449.38C459.05,-437.39 442.91,-424.19 427,-413.91 422.19,-410.8 417.04,-407.8 411.8,-404.97"/>
-<polygon fill="black" stroke="black" points="413.5,-401.91 403.01,-400.44 410.29,-408.13 413.5,-401.91"/>
+<path fill="none" stroke="black" d="M475.08,-449.05C461.42,-436.43 444.5,-422.87 427,-413.91 402.23,-401.22 372.44,-393.19 346.98,-388.19"/>
+<polygon fill="black" stroke="black" points="347.95,-384.81 337.48,-386.44 346.68,-391.69 347.95,-384.81"/>
 </g>
 </g>
 </svg>
