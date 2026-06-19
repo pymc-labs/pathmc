@@ -1003,7 +1003,10 @@ class PathModel:
             ``(lo, hi)`` intervention values for the ATE contrast
             (default ``(0.0, 1.0)``), matching :meth:`ate`.
         n_permutations : int
-            Number of placebo permutations / folds (default 4).
+            Number of placebo permutations / folds (default 4). Four is a
+            floor — the between-fold volatility ``tau_het`` is
+            prior-dominated at small J; use 8+ for a data-driven null
+            spread (each fold is a full MCMC re-fit, so cost is linear).
         significance_level : float
             Threshold for the ``effect_survives`` verdict (default 0.05).
         sample_kwargs : dict | None
@@ -1610,6 +1613,9 @@ def model(
         "panel": panel,
         "pooling": pooling,
         "latent": latent,
+        # Recorded for completeness only. _refit_permuted intentionally
+        # rebuilds with the current merged self._priors (not this original
+        # arg) so priors changed via set_priors() are honored on refit.
         "priors": priors,
     }
     return path_model

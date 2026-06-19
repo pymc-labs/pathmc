@@ -120,10 +120,13 @@ class PlaceboRefutationResult:
     p_tail : float
         One-sided (directional) calibrated tail probability: the fraction
         of observable-null predictive draws at least as extreme, *in the
-        direction of the observed effect*, as the observed ATE. This is a
-        deliberately one-sided tail (the substantive question is
-        directional), floored at ``1 / (n_draws + 1)`` to reflect the
-        Monte Carlo resolution rather than reporting an exact zero.
+        direction of the observed effect*, as the observed ATE. The tail
+        side is selected *post hoc* from ``sign(observed_ate - null_mean)``
+        (effectively the sign of the observed effect, since the null
+        straddles zero) — it is not a pre-registered side, so do not read
+        it as a fixed one-sided hypothesis test. Floored at
+        ``1 / (n_draws + 1)`` to reflect the Monte Carlo resolution rather
+        than reporting an exact zero.
     n_permutations : int
         Number of placebo permutations (folds).
     significance_level : float
@@ -543,10 +546,17 @@ def _fit_hierarchical_null(
     if sys.platform == "darwin":
         hier_kwargs.setdefault("mp_ctx", "forkserver")
 
+    # Prior scale = 2 * sigma_hat. The factor 2 follows Roever (2021)'s
+    # weakly-informative heterogeneity prior for random-effects meta-analysis
+    # (HalfNormal scale = 2x the empirical SD): wide enough not to over-shrink
+    # tau_het at small J, while still scaling to the data. The same scale is
+    # used for mu_null. This constant does real work at small J -- see the
+    # docstring note that the null spread is prior-dominated until ~8+ folds.
+    prior_scale = 2.0 * sigma_hat
     with pm.Model(coords={"fold": np.arange(n_folds)}):
         obs_sd = pm.Data("obs_sd", fold_sds, dims="fold")
-        mu = pm.Normal("mu_null", mu=0.0, sigma=2.0 * sigma_hat)
-        tau = pm.HalfNormal("tau_het", sigma=2.0 * sigma_hat)
+        mu = pm.Normal("mu_null", mu=0.0, sigma=prior_scale)
+        tau = pm.HalfNormal("tau_het", sigma=prior_scale)
         z = pm.Normal("z", mu=0.0, sigma=1.0, dims="fold")
         theta = pm.Deterministic("theta", mu + tau * z, dims="fold")
         pm.Normal("lik", mu=theta, sigma=obs_sd, observed=fold_means, dims="fold")
@@ -621,8 +631,12 @@ def refute_placebo(
         ``(lo, hi)`` intervention values for the ATE contrast, matching
         :meth:`pathmc.PathModel.ate` (default ``(0.0, 1.0)``).
     n_permutations : int
-        Number of placebo permutations / folds (default 4, the practical
-        minimum for identifying the between-fold volatility ``tau_het``).
+        Number of placebo permutations / folds (default 4). Four is a
+        floor: with so few folds the between-fold volatility ``tau_het`` is
+        a variance component estimated from a handful of points and is
+        prior-dominated, so both verdicts lean on the prior scale. Use 8 or
+        more folds when you need a data-driven null spread; each fold is a
+        full MCMC re-fit, so cost scales linearly.
     significance_level : float
         Threshold for the :attr:`PlaceboRefutationResult.effect_survives`
         verdict (default 0.05).
