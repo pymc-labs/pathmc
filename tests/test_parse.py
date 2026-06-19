@@ -61,6 +61,21 @@ class TestRegressionParsing:
         assert "X1" in variables
         assert "X2" in variables
 
+    @pytest.mark.parametrize(
+        "formula",
+        [
+            "Y ~ 1 + X1 + X2",
+            "Y ~ 1 + a*X",
+            "M ~ 1 + a*X\nY ~ 1 + b*M + c*X\nindirect := a*b",
+        ],
+    )
+    def test_explicit_intercept_ignored(self, formula):
+        spec = parse_spec(formula)
+        reg = spec.regressions[0]
+        assert reg.has_intercept is True
+        variables = [t.variable for t in reg.terms]
+        assert "1" not in variables
+
     def test_single_predictor(self):
         spec = parse_spec("Y ~ X")
         assert len(spec.regressions) == 1

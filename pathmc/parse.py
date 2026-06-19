@@ -218,6 +218,8 @@ def _parse_regression(stmt: str) -> Regression:
         if raw == "0":
             has_intercept = False
             continue
+        if raw == "1":
+            continue
         terms.append(_parse_term(raw))
 
     if not terms:
