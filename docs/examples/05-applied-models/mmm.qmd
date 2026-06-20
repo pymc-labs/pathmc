@@ -768,8 +768,8 @@ The `.ate()` method computes the average treatment effect by contrasting two int
 brand_ate = model.ate("sales", "brand_spend", values=(2.0, 8.0))
 
 print(f"Total effect of brand_spend 2 → 8:")
-print(f"  Mean:    {brand_ate.mean('sales'):.3f}")
-print(f"  94% HDI: {brand_ate.hdi('sales', prob=0.94)}")
+print(f"  Mean:    {brand_ate.mean():.3f}")
+print(f"  94% HDI: {brand_ate.hdi(prob=0.94)}")
 print(f"  Expected (linear): {true_total_brand * 6:.3f}")
 ```
 
@@ -1217,8 +1217,8 @@ The `do()` operator propagates both random intercepts and random slopes, so inte
 ate_tv = model.ate("sales", "tv", values=(10.0, 30.0))
 
 print("ATE of TV spend 10 → 30 (population average):")
-print(f"  Mean:    {ate_tv.mean('sales'):.3f}")
-print(f"  94% HDI: {ate_tv.hdi('sales', prob=0.94)}")
+print(f"  Mean:    {ate_tv.mean():.3f}")
+print(f"  94% HDI: {ate_tv.hdi(prob=0.94)}")
 print(f"  Expected: {true_mu_tv * 20:.3f}")
 ```
 
@@ -1228,8 +1228,8 @@ print(f"  Expected: {true_mu_tv * 20:.3f}")
 ate_dig = model.ate("sales", "digital", values=(5.0, 20.0))
 
 print("ATE of digital spend 5 → 20:")
-print(f"  Mean:    {ate_dig.mean('sales'):.3f}")
-print(f"  94% HDI: {ate_dig.hdi('sales', prob=0.94)}")
+print(f"  Mean:    {ate_dig.mean():.3f}")
+print(f"  94% HDI: {ate_dig.hdi(prob=0.94)}")
 print(f"  Expected: {true_mu_dig * 15:.3f}")
 ```
 

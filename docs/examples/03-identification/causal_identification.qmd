@@ -78,8 +78,8 @@ The empty set is *not* valid because `Z` confounds the treatment-outcome relatio
 fork_model.fit(draws=500, tune=500, chains=2, random_seed=42)
 
 ate = fork_model.ate("Y", "X")
-print(f"ATE of X on Y:  {ate.mean('Y'):.3f}  (true = 0.4)")
-print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
+print(f"ATE of X on Y:  {ate.mean():.3f}  (true = 0.4)")
+print(f"94% HDI:        {ate.hdi(prob=0.94)}")
 ```
 
 ## Structure 2: The chain (mediation)
@@ -127,8 +127,8 @@ Notice that `M` does not appear in any adjustment set: it is a descendant of `X`
 chain_model.fit(draws=500, tune=500, chains=2, random_seed=42)
 
 ate = chain_model.ate("Y", "X")
-print(f"ATE of X on Y:  {ate.mean('Y'):.3f}  (true = 0.6 × 0.5 = 0.3)")
-print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
+print(f"ATE of X on Y:  {ate.mean():.3f}  (true = 0.6 × 0.5 = 0.3)")
+print(f"94% HDI:        {ate.hdi(prob=0.94)}")
 ```
 
 ## Structure 3: The collider
@@ -243,8 +243,8 @@ for w in warnings:
 mixed_model.fit(draws=500, tune=500, chains=2, random_seed=42)
 
 ate = mixed_model.ate("Y", "X")
-print(f"ATE of X on Y:  {ate.mean('Y'):.3f}  (true = 0.4)")
-print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
+print(f"ATE of X on Y:  {ate.mean():.3f}  (true = 0.4)")
+print(f"94% HDI:        {ate.hdi(prob=0.94)}")
 ```
 
 So far, collider bias has been a theoretical danger — we showed that conditioning on `C` *would* create bias, but we didn't measure its consequences. The birth-weight paradox shows collider bias at work in a classic epidemiological setting, where the bias is dramatic enough to reverse the sign of a harmful effect.
@@ -426,8 +426,8 @@ biased_model.fit(draws=500, tune=500, chains=4, random_seed=42)
 
 ```{python}
 biased_ate = biased_model.ate("mortality", "smoking", values=(0.0, 1.0))
-print(f"Biased ATE: {biased_ate.mean('mortality'):.3f}")
-print(f"94% HDI:    {biased_ate.hdi('mortality', prob=0.94)}")
+print(f"Biased ATE: {biased_ate.mean():.3f}")
+print(f"94% HDI:    {biased_ate.hdi(prob=0.94)}")
 ```
 
 ### Comparing estimates
@@ -443,8 +443,8 @@ fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
 correct_val = ate_bw.mean("mortality")
 correct_hdi = ate_bw.hdi("mortality", prob=0.94)
-biased_val = biased_ate.mean("mortality")
-biased_hdi = biased_ate.hdi("mortality", prob=0.94)
+biased_val = biased_ate.mean()
+biased_hdi = biased_ate.hdi(prob=0.94)
 
 ax.errorbar(
     biased_val,
@@ -605,8 +605,8 @@ naive.fit(draws=500, tune=500, chains=4, random_seed=42)
 
 ```{python}
 naive_ate = naive.ate("Y", "X", values=(0.0, 1.0))
-print(f"Naive ATE:  {naive_ate.mean('Y'):.3f}  (true = {TRUE_INDIRECT:.1f})")
-print(f"94% HDI:    {naive_ate.hdi('Y', prob=0.94)}")
+print(f"Naive ATE:  {naive_ate.mean():.3f}  (true = {TRUE_INDIRECT:.1f})")
+print(f"94% HDI:    {naive_ate.hdi(prob=0.94)}")
 ```
 
 ### The front-door solution: mediation
@@ -702,8 +702,8 @@ For the front-door criterion, the correct estimate is the **defined parameter** 
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
-naive_val = naive_ate.mean("Y")
-naive_hdi = naive_ate.hdi("Y", prob=0.94)
+naive_val = naive_ate.mean()
+naive_hdi = naive_ate.hdi(prob=0.94)
 
 ax.errorbar(
     naive_val,

@@ -312,8 +312,8 @@ The `do()` operator propagates the intervention through the entire funnel, corre
 ate_onboarding = model.ate("converted", "onboarding_score", values=(3.0, 8.0))
 
 print("Effect of improving onboarding from 3 → 8:")
-print(f"  ΔP(converted): {ate_onboarding.mean('converted'):.3f}")
-print(f"  94% HDI:        {ate_onboarding.hdi('converted', prob=0.94)}")
+print(f"  ΔP(converted): {ate_onboarding.mean():.3f}")
+print(f"  94% HDI:        {ate_onboarding.hdi(prob=0.94)}")
 ```
 
 This is the total causal effect on the probability scale — it includes the full chain: onboarding → engagement → activation → conversion, plus the bypass onboarding → engagement → conversion.
