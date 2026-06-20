@@ -700,6 +700,10 @@ fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
 naive_val = naive_ate.mean()
 naive_hdi = naive_ate.hdi(prob=0.94)
+fd_effect = effects.loc["indirect"]
+fd_mean = fd_effect["mean"]
+fd_hdi_low = fd_effect["hdi_3%"]
+fd_hdi_high = fd_effect["hdi_97%"]
 
 ax.errorbar(
     naive_val,
