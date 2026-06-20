@@ -32,7 +32,7 @@
 <text text-anchor="middle" x="386" y="-260.73" font-family="Times,serif" font-size="14.00">Data</text>
 </g>
 <!-- mu_hospitalized -->
-<g id="node7" class="node">
+<g id="node6" class="node">
 <title>mu_hospitalized</title>
 <polygon fill="none" stroke="black" points="305.5,-202.95 198.5,-202.95 198.5,-149.95 305.5,-149.95 305.5,-202.95"/>
 <text text-anchor="middle" x="252" y="-187.75" font-family="Times,serif" font-size="14.00">mu_hospitalized</text>
@@ -40,13 +40,35 @@
 <text text-anchor="middle" x="252" y="-157.75" font-family="Times,serif" font-size="14.00">Deterministic</text>
 </g>
 <!-- comorbidity&#45;&gt;mu_hospitalized -->
-<g id="edge3" class="edge">
+<g id="edge4" class="edge">
 <title>comorbidity&#45;&gt;mu_hospitalized</title>
 <path fill="none" stroke="black" d="M371.27,-252.6C362.27,-238.73 349.69,-222.2 335,-210.95 329.12,-206.45 322.54,-202.46 315.74,-198.95"/>
 <polygon fill="black" stroke="black" points="317.56,-195.94 307.03,-194.79 314.55,-202.26 317.56,-195.94"/>
 </g>
-<!-- age -->
+<!-- hospitalized -->
 <g id="node2" class="node">
+<title>hospitalized</title>
+<ellipse fill="lightgrey" stroke="black" cx="254" cy="-76.48" rx="57.97" ry="37.45"/>
+<text text-anchor="middle" x="254" y="-87.78" font-family="Times,serif" font-size="14.00">hospitalized</text>
+<text text-anchor="middle" x="254" y="-72.78" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="254" y="-57.78" font-family="Times,serif" font-size="14.00">Bernoulli</text>
+</g>
+<!-- antibody -->
+<g id="node3" class="node">
+<title>antibody</title>
+<ellipse fill="lightgrey" stroke="black" cx="281" cy="-279.43" rx="45.01" ry="37.45"/>
+<text text-anchor="middle" x="281" y="-290.73" font-family="Times,serif" font-size="14.00">antibody</text>
+<text text-anchor="middle" x="281" y="-275.73" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="281" y="-260.73" font-family="Times,serif" font-size="14.00">Normal</text>
+</g>
+<!-- antibody&#45;&gt;mu_hospitalized -->
+<g id="edge5" class="edge">
+<title>antibody&#45;&gt;mu_hospitalized</title>
+<path fill="none" stroke="black" d="M270.69,-242.55C268.06,-233.36 265.21,-223.46 262.56,-214.23"/>
+<polygon fill="black" stroke="black" points="265.99,-213.49 259.87,-204.84 259.26,-215.42 265.99,-213.49"/>
+</g>
+<!-- age -->
+<g id="node4" class="node">
 <title>age</title>
 <path fill="lightgrey" stroke="black" d="M314,-530.84C314,-530.84 284,-530.84 284,-530.84 278,-530.84 272,-524.84 272,-518.84 272,-518.84 272,-489.84 272,-489.84 272,-483.84 278,-477.84 284,-477.84 284,-477.84 314,-477.84 314,-477.84 320,-477.84 326,-483.84 326,-489.84 326,-489.84 326,-518.84 326,-518.84 326,-524.84 320,-530.84 314,-530.84"/>
 <text text-anchor="middle" x="299" y="-515.64" font-family="Times,serif" font-size="14.00">age</text>
@@ -62,27 +84,31 @@
 <text text-anchor="middle" x="290" y="-371.68" font-family="Times,serif" font-size="14.00">Deterministic</text>
 </g>
 <!-- age&#45;&gt;mu_antibody -->
-<g id="edge8" class="edge">
+<g id="edge9" class="edge">
 <title>age&#45;&gt;mu_antibody</title>
 <path fill="none" stroke="black" d="M296.91,-477.37C295.74,-462.82 294.26,-444.42 292.97,-428.38"/>
 <polygon fill="black" stroke="black" points="296.49,-428.4 292.2,-418.72 289.51,-428.97 296.49,-428.4"/>
 </g>
 <!-- age&#45;&gt;mu_hospitalized -->
-<g id="edge4" class="edge">
+<g id="edge6" class="edge">
 <title>age&#45;&gt;mu_hospitalized</title>
 <path fill="none" stroke="black" d="M290.92,-477.61C285.22,-463.41 276.22,-446.54 263,-435.86 252.93,-427.73 243.19,-437.88 235,-427.86 206.39,-392.84 211.03,-273.08 227.03,-214.19"/>
 <polygon fill="black" stroke="black" points="230.35,-215.3 229.94,-204.71 223.66,-213.25 230.35,-215.3"/>
 </g>
-<!-- hospitalized -->
-<g id="node3" class="node">
-<title>hospitalized</title>
-<ellipse fill="lightgrey" stroke="black" cx="254" cy="-76.48" rx="57.97" ry="37.45"/>
-<text text-anchor="middle" x="254" y="-87.78" font-family="Times,serif" font-size="14.00">hospitalized</text>
-<text text-anchor="middle" x="254" y="-72.78" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="254" y="-57.78" font-family="Times,serif" font-size="14.00">Bernoulli</text>
+<!-- mu_antibody&#45;&gt;antibody -->
+<g id="edge1" class="edge">
+<title>mu_antibody&#45;&gt;antibody</title>
+<path fill="none" stroke="black" d="M287.87,-363.56C287,-353.07 285.97,-340.6 284.97,-328.55"/>
+<polygon fill="black" stroke="black" points="288.47,-328.38 284.16,-318.71 281.5,-328.96 288.47,-328.38"/>
+</g>
+<!-- mu_hospitalized&#45;&gt;hospitalized -->
+<g id="edge11" class="edge">
+<title>mu_hospitalized&#45;&gt;hospitalized</title>
+<path fill="none" stroke="black" d="M252.53,-149.45C252.68,-142.13 252.85,-133.93 253.01,-125.75"/>
+<polygon fill="black" stroke="black" points="256.51,-125.88 253.22,-115.81 249.51,-125.73 256.51,-125.88"/>
 </g>
 <!-- vaccine -->
-<g id="node4" class="node">
+<g id="node7" class="node">
 <title>vaccine</title>
 <path fill="lightgrey" stroke="black" d="M242,-530.84C242,-530.84 208,-530.84 208,-530.84 202,-530.84 196,-524.84 196,-518.84 196,-518.84 196,-489.84 196,-489.84 196,-483.84 202,-477.84 208,-477.84 208,-477.84 242,-477.84 242,-477.84 248,-477.84 254,-483.84 254,-489.84 254,-489.84 254,-518.84 254,-518.84 254,-524.84 248,-530.84 242,-530.84"/>
 <text text-anchor="middle" x="225" y="-515.64" font-family="Times,serif" font-size="14.00">vaccine</text>
@@ -90,42 +116,16 @@
 <text text-anchor="middle" x="225" y="-485.64" font-family="Times,serif" font-size="14.00">Data</text>
 </g>
 <!-- vaccine&#45;&gt;mu_antibody -->
-<g id="edge9" class="edge">
+<g id="edge10" class="edge">
 <title>vaccine&#45;&gt;mu_antibody</title>
 <path fill="none" stroke="black" d="M239.24,-477.59C246.29,-464.96 254.99,-449.55 263,-435.86 264.72,-432.91 266.53,-429.87 268.35,-426.82"/>
 <polygon fill="black" stroke="black" points="271.22,-428.84 273.37,-418.47 265.22,-425.23 271.22,-428.84"/>
 </g>
 <!-- vaccine&#45;&gt;mu_hospitalized -->
-<g id="edge5" class="edge">
+<g id="edge7" class="edge">
 <title>vaccine&#45;&gt;mu_hospitalized</title>
 <path fill="none" stroke="black" d="M216.25,-477.55C200.45,-426.5 171.96,-309.79 212.19,-213.48"/>
 <polygon fill="black" stroke="black" points="215.36,-214.98 216.25,-204.42 208.97,-212.12 215.36,-214.98"/>
-</g>
-<!-- antibody -->
-<g id="node6" class="node">
-<title>antibody</title>
-<ellipse fill="lightgrey" stroke="black" cx="281" cy="-279.43" rx="45.01" ry="37.45"/>
-<text text-anchor="middle" x="281" y="-290.73" font-family="Times,serif" font-size="14.00">antibody</text>
-<text text-anchor="middle" x="281" y="-275.73" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="281" y="-260.73" font-family="Times,serif" font-size="14.00">Normal</text>
-</g>
-<!-- mu_antibody&#45;&gt;antibody -->
-<g id="edge2" class="edge">
-<title>mu_antibody&#45;&gt;antibody</title>
-<path fill="none" stroke="black" d="M287.87,-363.56C287,-353.07 285.97,-340.6 284.97,-328.55"/>
-<polygon fill="black" stroke="black" points="288.47,-328.38 284.16,-318.71 281.5,-328.96 288.47,-328.38"/>
-</g>
-<!-- antibody&#45;&gt;mu_hospitalized -->
-<g id="edge6" class="edge">
-<title>antibody&#45;&gt;mu_hospitalized</title>
-<path fill="none" stroke="black" d="M270.69,-242.55C268.06,-233.36 265.21,-223.46 262.56,-214.23"/>
-<polygon fill="black" stroke="black" points="265.99,-213.49 259.87,-204.84 259.26,-215.42 265.99,-213.49"/>
-</g>
-<!-- mu_hospitalized&#45;&gt;hospitalized -->
-<g id="edge11" class="edge">
-<title>mu_hospitalized&#45;&gt;hospitalized</title>
-<path fill="none" stroke="black" d="M252.53,-149.45C252.68,-142.13 252.85,-133.93 253.01,-125.75"/>
-<polygon fill="black" stroke="black" points="256.51,-125.88 253.22,-115.81 249.51,-125.73 256.51,-125.88"/>
 </g>
 <!-- beta_hospitalized -->
 <g id="node8" class="node">
@@ -136,7 +136,7 @@
 <text text-anchor="middle" x="94" y="-260.73" font-family="Times,serif" font-size="14.00">Normal</text>
 </g>
 <!-- beta_hospitalized&#45;&gt;mu_hospitalized -->
-<g id="edge7" class="edge">
+<g id="edge3" class="edge">
 <title>beta_hospitalized&#45;&gt;mu_hospitalized</title>
 <path fill="none" stroke="black" d="M133.2,-246.55C148.59,-234.71 166.69,-221.58 184,-210.95 185.4,-210.09 186.83,-209.24 188.28,-208.39"/>
 <polygon fill="black" stroke="black" points="189.74,-211.58 196.73,-203.62 186.3,-205.48 189.74,-211.58"/>
@@ -150,7 +150,7 @@
 <text text-anchor="middle" x="518" y="-371.68" font-family="Times,serif" font-size="14.00">Halfnormal</text>
 </g>
 <!-- sigma_antibody&#45;&gt;antibody -->
-<g id="edge1" class="edge">
+<g id="edge2" class="edge">
 <title>sigma_antibody&#45;&gt;antibody</title>
 <path fill="none" stroke="black" d="M466.09,-363.58C457.48,-359.74 448.57,-356.04 440,-352.91 395.04,-336.48 378.65,-346.65 336,-324.91 330.46,-322.08 324.96,-318.64 319.7,-314.92"/>
 <polygon fill="black" stroke="black" points="321.85,-312.16 311.75,-308.94 317.64,-317.75 321.85,-312.16"/>
@@ -164,7 +164,7 @@
 <text text-anchor="middle" x="518" y="-485.64" font-family="Times,serif" font-size="14.00">Normal</text>
 </g>
 <!-- beta_antibody&#45;&gt;mu_antibody -->
-<g id="edge10" class="edge">
+<g id="edge8" class="edge">
 <title>beta_antibody&#45;&gt;mu_antibody</title>
 <path fill="none" stroke="black" d="M486.94,-471.06C473.5,-458.6 456.96,-445.14 440,-435.86 411.18,-420.09 376.11,-409.29 347.13,-402.29"/>
 <polygon fill="black" stroke="black" points="347.95,-398.89 337.42,-400.04 346.37,-405.71 347.95,-398.89"/>
