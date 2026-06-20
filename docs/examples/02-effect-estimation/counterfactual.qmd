@@ -120,8 +120,8 @@ $$
 
 ```{python}
 do_result = model.do(set={"H": 2.0})
-print(f"E[Y | do(H=2)]:  {do_result.mean('Y'):.3f}")
-print(f"94% HDI:          {do_result.hdi('Y', prob=0.94)}")
+print("Expected: E[Y | do(H=2)] ≈ 0.8")
+do_result
 ```
 
 This is a valid causal quantity, but it answers the wrong question for Joe. The do-operator tells us about the *average* student under the intervention, not about Joe specifically. Joe is not average — he has above-average encouragement ($X = 0.5 > 0$) and (as we will see) above-average inherent exam ability.

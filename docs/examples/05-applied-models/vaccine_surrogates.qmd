@@ -274,10 +274,7 @@ To get the quantities that matter for clinical decision-making, we use `do()` to
 
 ```{python}
 ate_vaccine = model.ate("hospitalized", "vaccine", values=(0.0, 1.0))
-
-print("Total causal effect of vaccination on hospitalization:")
-print(f"  ΔP(hospitalized): {ate_vaccine.mean():.4f}")
-print(f"  94% HDI:           {ate_vaccine.hdi(prob=0.94)}")
+ate_vaccine
 ```
 
 The negative value means vaccination *reduces* hospitalization probability — exactly what we'd hope.

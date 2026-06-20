@@ -177,10 +177,10 @@ r_treated = model.do(set={"treat_post": 1.0, "treated": 1.0, "time": 15.0})
 r_control = model.do(set={"treat_post": 0.0, "treated": 1.0, "time": 15.0})
 
 att = r_treated - r_control
-print(f"ATT estimate: {att.mean('Y'):.3f}")
-print(f"True ATT:     {true_att}")
-print(f"94% HDI:      {att.hdi('Y', prob=0.94)}")
+att
 ```
+
+The posterior mean should be close to the true ATT of 2.0.
 
 ## Model predictions and counterfactual
 
