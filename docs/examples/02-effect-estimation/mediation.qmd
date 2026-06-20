@@ -110,10 +110,12 @@ The `effect()` method computes path-specific effects by multiplying coefficient 
 
 ```{python}
 indirect = model.effect("X -> M -> Y")
-print(indirect)
+indirect
+```
 
+```{python}
 direct = model.effect("X -> Y")
-print(direct)
+direct
 ```
 
 ### Causal effect via do()
