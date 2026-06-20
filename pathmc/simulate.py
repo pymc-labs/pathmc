@@ -261,8 +261,7 @@ class EstimandResult:
         if key not in self._values:
             available = sorted(self._values.keys())
             raise KeyError(
-                f"Unknown variable '{key}'. "
-                f"Available variables: {available}"
+                f"Unknown variable '{key}'. Available variables: {available}"
             )
         return key
 
