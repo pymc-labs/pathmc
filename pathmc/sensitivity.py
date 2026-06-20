@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 
 from pathmc.idata import hdi
+from pathmc.reprs import ReprSpec, ResultReprMixin
 
 if TYPE_CHECKING:
     import matplotlib.axes
@@ -40,8 +41,8 @@ if TYPE_CHECKING:
 __all__ = ["SensitivityResult"]
 
 
-@dataclass
-class SensitivityResult:
+@dataclass(repr=False)
+class SensitivityResult(ResultReprMixin):
     """Result of unmeasured confounding sensitivity analysis.
 
     Contains the observed ATE posterior draws and adjusted ATE values
@@ -102,17 +103,31 @@ class SensitivityResult:
         """
         return self.observed_ate
 
-    def __repr__(self) -> str:
-        hdi = self.observed_ate_hdi
+    def _repr_compact(self) -> str:
+        tp = self.tipping_point
+        return (
+            f"SensitivityResult({self.treatment}→{self.outcome}, "
+            f"ATE={self.observed_ate:.4f}, tipping_point={tp:.4f})"
+        )
+
+    def _repr_spec(self) -> ReprSpec:
+        hdi_vals = self.observed_ate_hdi
         tp = abs(self.tipping_point)
         sym = float(np.sqrt(tp)) if tp > 0 else 0.0
-        return (
-            f"SensitivityResult(treatment='{self.treatment}' → "
-            f"outcome='{self.outcome}')\n"
-            f"  Observed ATE: {self.observed_ate:.4f} "
-            f"[{hdi[0]:.4f}, {hdi[1]:.4f}] (94% HDI)\n"
-            f"  Tipping point: γ × δ = {self.tipping_point:.4f}\n"
-            f"  (e.g., γ = {sym:.4f}, δ = {sym:.4f} would nullify the effect)"
+        return ReprSpec(
+            title=f"Sensitivity Analysis — {self.treatment} → {self.outcome}",
+            rows=[
+                [
+                    "Observed ATE",
+                    f"{self.observed_ate:.4f} [{hdi_vals[0]:.4f}, {hdi_vals[1]:.4f}] (94% HDI)",
+                ],
+                ["Tipping point", f"γ × δ = {self.tipping_point:.4f}"],
+                [
+                    "Symmetric example",
+                    f"γ = {sym:.4f}, δ = {sym:.4f} would nullify the effect",
+                ],
+            ],
+            footer="Methods: .plot() &nbsp;·&nbsp; Attributes: .tipping_point .observed_ate_hdi",
         )
 
     def plot(

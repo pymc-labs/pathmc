@@ -42,11 +42,12 @@ from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.idata import hdi as compute_hdi
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
+from pathmc.reprs import ReprSpec, ResultReprMixin
 
 __all__ = ["DoResult", "EstimandResult"]
 
 
-class DoResult:
+class DoResult(ResultReprMixin):
     """Container for propagated posterior draws under an intervention.
 
     Supports ``.mean(var)``, ``.hdi(var)``, and contrast arithmetic
@@ -167,25 +168,32 @@ class DoResult:
             time_index=self._time_index,
         )
 
-    def __repr__(self) -> str:
-        """Tabular summary of the propagated draws for every variable."""
+    def _repr_compact(self) -> str:
         if not self._values:
-            return "DoResult (empty)"
+            return "DoResult(empty)"
         n_samples = len(next(iter(self._values.values())))
         n_vars = len(self._values)
-        name_w = max((len(v) for v in self._values), default=8)
-        name_w = max(name_w, 8)
-        header = f"DoResult ({n_samples} draws, {n_vars} variables)"
-        col_head = f"  {'':<{name_w}}  {'mean':>8}   94% HDI"
-        lines = [header, col_head]
+        return f"DoResult({n_samples} draws, {n_vars} variables)"
+
+    def _repr_spec(self) -> ReprSpec:
+        if not self._values:
+            return ReprSpec(title="DoResult (empty)", rows=[])
+        n_samples = len(next(iter(self._values.values())))
+        n_vars = len(self._values)
+        rows = []
         for var, draws in self._values.items():
             mean = float(np.mean(draws))
             lo, hi = compute_hdi(draws)
-            lines.append(f"  {var:<{name_w}}  {mean:>8.2f}   [{lo:.2f}, {hi:.2f}]")
-        return "\n".join(lines)
+            rows.append([var, f"{mean:.2f}", f"[{lo:.2f}, {hi:.2f}]"])
+        return ReprSpec(
+            title=f"DoResult — {n_samples} draws, {n_vars} variables",
+            rows=rows,
+            columns=["variable", "mean", "94% HDI"],
+            footer="Methods: .draws() .mean() .hdi() .by_time()",
+        )
 
 
-class EstimandResult:
+class EstimandResult(ResultReprMixin):
     """Posterior draws for a causal estimand (ATE, CATE, ATT, ATU).
 
     Unlike :class:`DoResult`, which describes the whole system under an
@@ -420,19 +428,30 @@ class EstimandResult:
             time_index=self._time_index,
         )
 
-    def __repr__(self) -> str:
-        """Notebook-friendly summary focused on the estimand."""
+    def _repr_compact(self) -> str:
+        draws = self._values[self._default_var]
+        mean = float(np.mean(draws))
+        lo, hi = compute_hdi(draws)
+        return (
+            f"{self._estimand}: {self._treatment}→{self._default_var}  "
+            f"mean={mean:.2f}  94% HDI=[{lo:.2f}, {hi:.2f}]"
+        )
+
+    def _repr_spec(self) -> ReprSpec:
         draws = self._values[self._default_var]
         mean = float(np.mean(draws))
         lo, hi = compute_hdi(draws)
         p_gt_0 = float(np.mean(draws > 0))
         n_samples = len(draws)
-        return (
-            f"{self._estimand} of {self._treatment} on {self._default_var}\n"
-            f"  Mean:    {mean:.2f}\n"
-            f"  94% HDI: [{lo:.2f}, {hi:.2f}]\n"
-            f"  P(> 0):  {p_gt_0:.2f}\n"
-            f"  Draws:   {n_samples}"
+        return ReprSpec(
+            title=f"{self._estimand} of {self._treatment} on {self._default_var}",
+            rows=[
+                ["Mean", f"{mean:.2f}"],
+                ["94% HDI", f"[{lo:.2f}, {hi:.2f}]"],
+                ["P(> 0)", f"{p_gt_0:.2f}"],
+                ["Draws", str(n_samples)],
+            ],
+            footer="Methods: .hdi() .prob() .summary() .draws() .by_time()",
         )
 
 

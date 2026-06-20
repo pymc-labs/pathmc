@@ -30,6 +30,7 @@ import pandas as pd
 from scipy import stats
 
 from pathmc.graph import GraphInfo
+from pathmc.reprs import ResultReprMixin
 
 __all__ = ["ImplicationTestResult"]
 
@@ -339,8 +340,8 @@ class ConditionalIndependence:
         return str(self)
 
 
-@dataclass
-class ImplicationTestResult:
+@dataclass(repr=False)
+class ImplicationTestResult(ResultReprMixin):
     """Results of testing implied conditional independences against data.
 
     Each row corresponds to one implied independence statement from the
@@ -379,24 +380,11 @@ class ImplicationTestResult:
         """Return the full results as a DataFrame."""
         return self.results.copy()
 
-    def __repr__(self) -> str:
-        lines = [
-            f"ImplicationTestResult: {self.n_tests} tests, "
-            f"{self.n_violations} violations (α = {self.alpha})",
-            "",
-        ]
-        if self.n_violations == 0:
-            lines.append("All implied independences are consistent with the data.")
-        else:
-            lines.append("Violated independences (data suggests a missing edge):")
-            for _, row in self.violations.iterrows():
-                cond = row["conditioning_set"]
-                cond_str = f" | {{{cond}}}" if cond else ""
-                lines.append(
-                    f"  {row['x']} ⊥⊥ {row['y']}{cond_str}  "
-                    f"r = {row['partial_corr']:.3f}, p = {row['p_value']:.4f}"
-                )
-        return "\n".join(lines)
+    def _repr_compact(self) -> str:
+        return (
+            f"ImplicationTestResult({self.n_tests} tests, "
+            f"{self.n_violations} violations, α={self.alpha})"
+        )
 
     def _repr_html_(self) -> str:
         """Rich HTML display for Jupyter notebooks."""

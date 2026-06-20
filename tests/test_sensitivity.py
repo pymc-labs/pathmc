@@ -138,7 +138,7 @@ class TestComputeSensitivity:
 class TestSensitivityResult:
     """Test the SensitivityResult dataclass."""
 
-    def test_repr_contains_key_info(self):
+    def test_repr_is_compact_one_liner(self):
         draws = np.random.default_rng(0).normal(loc=0.5, scale=0.1, size=1000)
         result = compute_sensitivity(
             draws,
@@ -149,10 +149,26 @@ class TestSensitivityResult:
             n_grid=5,
         )
         r = repr(result)
-        assert "treatment='X'" in r
-        assert "outcome='Y'" in r
-        assert "Observed ATE" in r
-        assert "Tipping point" in r
+        assert "\n" not in r
+        assert "X" in r
+        assert "Y" in r
+        assert "ATE=" in r
+        assert "tipping_point=" in r
+
+    def test_repr_html_contains_key_info(self):
+        draws = np.random.default_rng(0).normal(loc=0.5, scale=0.1, size=1000)
+        result = compute_sensitivity(
+            draws,
+            "Y",
+            "X",
+            gamma_range=(0.0, 1.0),
+            delta_range=(0.0, 1.0),
+            n_grid=5,
+        )
+        html = result._repr_html_()
+        assert "Observed ATE" in html
+        assert "Tipping point" in html
+        assert "<table" in html
 
     def test_observed_ate_hdi(self):
         draws = np.random.default_rng(0).normal(loc=0.5, scale=0.1, size=1000)
