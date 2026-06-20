@@ -40,6 +40,7 @@ from pytensor.graph.traversal import ancestors
 from pathmc.graph import GraphInfo
 from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.idata import hdi as compute_hdi
+from pathmc.idata import hdi_label
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
 from pathmc.reprs import ReprSpec, ResultReprMixin
@@ -188,7 +189,7 @@ class DoResult(ResultReprMixin):
         return ReprSpec(
             title=f"DoResult — {n_samples} draws, {n_vars} variables",
             rows=rows,
-            columns=["variable", "mean", "94% HDI"],
+            columns=["variable", "mean", hdi_label()],
             footer="Methods: .draws() .mean() .hdi() .by_time()",
         )
 
@@ -432,9 +433,10 @@ class EstimandResult(ResultReprMixin):
         draws = self._values[self._default_var]
         mean = float(np.mean(draws))
         lo, hi = compute_hdi(draws)
+        label = hdi_label()
         return (
             f"{self._estimand}: {self._treatment}→{self._default_var}  "
-            f"mean={mean:.2f}  94% HDI=[{lo:.2f}, {hi:.2f}]"
+            f"mean={mean:.2f}  {label}=[{lo:.2f}, {hi:.2f}]"
         )
 
     def _repr_spec(self) -> ReprSpec:
@@ -443,11 +445,12 @@ class EstimandResult(ResultReprMixin):
         lo, hi = compute_hdi(draws)
         p_gt_0 = float(np.mean(draws > 0))
         n_samples = len(draws)
+        label = hdi_label()
         return ReprSpec(
             title=f"{self._estimand} of {self._treatment} on {self._default_var}",
             rows=[
                 ["Mean", f"{mean:.2f}"],
-                ["94% HDI", f"[{lo:.2f}, {hi:.2f}]"],
+                [label, f"[{lo:.2f}, {hi:.2f}]"],
                 ["P(> 0)", f"{p_gt_0:.2f}"],
                 ["Draws", str(n_samples)],
             ],

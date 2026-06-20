@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi
+from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi, hdi_label
 from pathmc.parse import Spec
 from pathmc.reprs import ReprSpec, ResultReprMixin
 
@@ -66,20 +66,22 @@ class EffectResult(ResultReprMixin):
 
     def _repr_compact(self) -> str:
         lo, hi = self.hdi()
+        label = hdi_label()
         return (
             f"EffectResult('{self.name}', "
-            f"mean={self.mean:.4f}, 94% HDI=[{lo:.4f}, {hi:.4f}])"
+            f"mean={self.mean:.4f}, {label}=[{lo:.4f}, {hi:.4f}])"
         )
 
     def _repr_spec(self) -> ReprSpec:
         lo, hi = self.hdi()
         n = len(self.draws)
+        label = hdi_label()
         return ReprSpec(
             title=f"EffectResult — {self.name}",
             rows=[
                 ["Mean", f"{self.mean:.4f}"],
                 ["SD", f"{self.sd:.4f}"],
-                ["94% HDI", f"[{lo:.4f}, {hi:.4f}]"],
+                [label, f"[{lo:.4f}, {hi:.4f}]"],
                 ["P(> 0)", f"{self.prob_gt_zero:.4f}"],
                 ["Draws", str(n)],
             ],

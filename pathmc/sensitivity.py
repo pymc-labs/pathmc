@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
-from pathmc.idata import hdi
+from pathmc.idata import hdi, hdi_label
 from pathmc.reprs import ReprSpec, ResultReprMixin
 
 if TYPE_CHECKING:
@@ -89,7 +89,7 @@ class SensitivityResult(ResultReprMixin):
 
     @property
     def observed_ate_hdi(self) -> np.ndarray:
-        """94% highest density interval of the unadjusted ATE."""
+        """Highest density interval of the unadjusted ATE at the default probability mass."""
         return hdi(self.observed_ate_draws)
 
     @property
@@ -114,12 +114,13 @@ class SensitivityResult(ResultReprMixin):
         hdi_vals = self.observed_ate_hdi
         tp = abs(self.tipping_point)
         sym = float(np.sqrt(tp)) if tp > 0 else 0.0
+        label = hdi_label()
         return ReprSpec(
             title=f"Sensitivity Analysis — {self.treatment} → {self.outcome}",
             rows=[
                 [
                     "Observed ATE",
-                    f"{self.observed_ate:.4f} [{hdi_vals[0]:.4f}, {hdi_vals[1]:.4f}] (94% HDI)",
+                    f"{self.observed_ate:.4f} [{hdi_vals[0]:.4f}, {hdi_vals[1]:.4f}] ({label})",
                 ],
                 ["Tipping point", f"γ × δ = {self.tipping_point:.4f}"],
                 [
