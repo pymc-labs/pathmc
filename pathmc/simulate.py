@@ -257,7 +257,14 @@ class EstimandResult:
         return self._treatment
 
     def _resolve(self, var: str | None) -> str:
-        return self._default_var if var is None else var
+        key = self._default_var if var is None else var
+        if key not in self._values:
+            available = sorted(self._values.keys())
+            raise KeyError(
+                f"Unknown variable '{key}'. "
+                f"Available variables: {available}"
+            )
+        return key
 
     def draws(self, var: str | None = None) -> np.ndarray:
         """Return raw contrast draws, defaulting to the outcome variable.
@@ -317,7 +324,7 @@ class EstimandResult:
         namespace: dict[str, Any] = {"x": draws, "np": np, "__builtins__": {}}
         try:
             mask = eval(f"x {expr}", namespace)  # noqa: S307
-        except SyntaxError as err:
+        except (SyntaxError, NameError) as err:
             raise ValueError(
                 f"Could not parse prob() expression '{expr}'. "
                 f"Pass a comparison applied to the estimand, e.g. '> 0'."
@@ -398,11 +405,20 @@ class EstimandResult:
             for var in self._values
             if var in other._values
         }
+        new_by_time: dict[str, np.ndarray] | None = None
+        if self._values_by_time is not None and other._values_by_time is not None:
+            new_by_time = {
+                var: self._values_by_time[var] - other._values_by_time[var]
+                for var in self._values_by_time
+                if var in other._values_by_time
+            }
         return EstimandResult(
             values=new_values,
             outcome=self._default_var,
             treatment=self._treatment,
             estimand=self._estimand,
+            values_by_time=new_by_time,
+            time_index=self._time_index,
         )
 
     def __repr__(self) -> str:
