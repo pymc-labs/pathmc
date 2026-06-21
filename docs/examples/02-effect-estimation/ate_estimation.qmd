@@ -112,13 +112,10 @@ The coefficient `bT` is close to 1.0. Now let's verify that `do()` agrees:
 
 ```{python}
 ate_lin = model_lin.ate("Y", "T", values=(0.0, 1.0))
-print(f"Coefficient bT:   ~{true_bT_lin:.1f}")
-print(f"ATE via do():      {ate_lin.mean():.3f}")
-print(f"94% HDI:           {ate_lin.hdi(prob=0.94)}")
+ate_lin
 ```
 
-As expected, the coefficient and `do()` agree.
-For a linear model, the coefficient *is* the ATE — no further computation needed.
+As expected, the result matches — for a linear model, the coefficient *is* the ATE.
 
 ## Logistic model: ATE does NOT equal the coefficient
 
@@ -188,14 +185,10 @@ To get the ATE (risk difference), we need `do()`:
 
 ```{python}
 ate_log = model_log.ate("Y", "T", values=(0.0, 1.0))
-
-print(f"Coefficient bT (log-odds):       ~{true_bT_log:.1f}")
-print(f"ATE via do() (risk difference):   {ate_log.mean():.3f}")
-print(f"94% HDI:                          {ate_log.hdi(prob=0.94)}")
-print(f"True ATE (risk difference):       {true_ate_logistic:.3f}")
+ate_log
 ```
 
-The `do()` operator correctly computes the ATE on the probability scale — matching the true value, not the coefficient.
+The `do()` operator correctly computes the ATE on the probability scale — matching the true value (~0.19), not the coefficient of 1.0 on the log-odds scale.
 
 ::: {.callout-important}
 ## What `do()` is doing: g-computation
@@ -454,10 +447,8 @@ model_conf.equations()
 model_conf.fit(draws=500, tune=500, chains=4, random_seed=42)
 
 ate_conf = model_conf.ate("Y", "T", values=(0.0, 1.0))
-print(f"Naive (biased):               {naive_rd:.3f}")
-print(f"ATE via do() (adjusted):      {ate_conf.mean():.3f}")
-print(f"94% HDI:                      {ate_conf.hdi(prob=0.94)}")
-print(f"True ATE:                     {true_ate_conf:.3f}")
+print(f"Naive (biased):  {naive_rd:.3f}    True ATE: {true_ate_conf:.3f}")
+ate_conf
 ```
 
 By modelling the full DAG — including `T ~ Z` — pathmc adjusts for confounding through the structural equations and computes the ATE on the probability scale via g-computation.
@@ -543,10 +534,7 @@ r0_mix = model_mix.do(set={"X": 0.0}, kind="mean")
 r1_mix = model_mix.do(set={"X": 1.0}, kind="mean")
 
 ate_mix = r1_mix - r0_mix
-print(f"P(Y=1 | do(X=0)): {r0_mix.mean('Y'):.3f}")
-print(f"P(Y=1 | do(X=1)): {r1_mix.mean('Y'):.3f}")
-print(f"ATE (risk difference): {ate_mix.mean('Y'):.3f}")
-print(f"94% HDI: {ate_mix.hdi('Y', prob=0.94)}")
+ate_mix
 ```
 
 With `kind="predictive"`, residual noise is added at each step. For Gaussian variables this adds Normal noise; for Bernoulli variables the draws are binary (0 or 1) rather than probabilities. The predictive mean converges to the same value, but individual draws differ:
@@ -555,8 +543,12 @@ With `kind="predictive"`, residual noise is added at each step. For Gaussian var
 r_mean_mix = model_mix.do(set={"X": 1.0}, kind="mean")
 r_pred_mix = model_mix.do(set={"X": 1.0}, kind="predictive")
 
-print(f"Mean propagation  - E[Y | do(X=1)]: {r_mean_mix.mean('Y'):.3f}")
-print(f"Predictive draws  - E[Y | do(X=1)]: {r_pred_mix.mean('Y'):.3f}")
+print("kind='mean' vs kind='predictive' — E[Y | do(X=1)]:")
+r_mean_mix
+```
+
+```{python}
+r_pred_mix
 ```
 
 ## Summary

@@ -78,9 +78,10 @@ The empty set is *not* valid because `Z` confounds the treatment-outcome relatio
 fork_model.fit(draws=500, tune=500, chains=2, random_seed=42)
 
 ate = fork_model.ate("Y", "X")
-print(f"ATE of X on Y:  {ate.mean():.3f}  (true = 0.4)")
-print(f"94% HDI:        {ate.hdi(prob=0.94)}")
+ate
 ```
+
+The posterior mean should be close to the true causal effect of 0.4.
 
 ## Structure 2: The chain (mediation)
 
@@ -127,9 +128,10 @@ Notice that `M` does not appear in any adjustment set: it is a descendant of `X`
 chain_model.fit(draws=500, tune=500, chains=2, random_seed=42)
 
 ate = chain_model.ate("Y", "X")
-print(f"ATE of X on Y:  {ate.mean():.3f}  (true = 0.6 × 0.5 = 0.3)")
-print(f"94% HDI:        {ate.hdi(prob=0.94)}")
+ate
 ```
+
+The posterior mean should be close to the true total effect of 0.3 (0.6 × 0.5).
 
 ## Structure 3: The collider
 
@@ -243,9 +245,10 @@ for w in warnings:
 mixed_model.fit(draws=500, tune=500, chains=2, random_seed=42)
 
 ate = mixed_model.ate("Y", "X")
-print(f"ATE of X on Y:  {ate.mean():.3f}  (true = 0.4)")
-print(f"94% HDI:        {ate.hdi(prob=0.94)}")
+ate
 ```
+
+The posterior mean should be close to the true causal effect of 0.4.
 
 So far, collider bias has been a theoretical danger — we showed that conditioning on `C` *would* create bias, but we didn't measure its consequences. The birth-weight paradox shows collider bias at work in a classic epidemiological setting, where the bias is dramatic enough to reverse the sign of a harmful effect.
 
@@ -403,10 +406,7 @@ r0 = model_bw.do(set={"smoking": 0.0}, kind="mean")
 r1 = model_bw.do(set={"smoking": 1.0}, kind="mean")
 
 ate_bw = r1 - r0
-print(f"P(mortality | do(smoking=0)): {r0.mean('mortality'):.3f}")
-print(f"P(mortality | do(smoking=1)): {r1.mean('mortality'):.3f}")
-print(f"ATE (risk difference):       {ate_bw.mean('mortality'):.3f}")
-print(f"94% HDI:                     {ate_bw.hdi('mortality', prob=0.94)}")
+ate_bw
 ```
 
 The ATE is positive — smoking increases mortality, as expected.
@@ -426,8 +426,7 @@ biased_model.fit(draws=500, tune=500, chains=4, random_seed=42)
 
 ```{python}
 biased_ate = biased_model.ate("mortality", "smoking", values=(0.0, 1.0))
-print(f"Biased ATE: {biased_ate.mean():.3f}")
-print(f"94% HDI:    {biased_ate.hdi(prob=0.94)}")
+biased_ate
 ```
 
 ### Comparing estimates
@@ -605,8 +604,8 @@ naive.fit(draws=500, tune=500, chains=4, random_seed=42)
 
 ```{python}
 naive_ate = naive.ate("Y", "X", values=(0.0, 1.0))
-print(f"Naive ATE:  {naive_ate.mean():.3f}  (true = {TRUE_INDIRECT:.1f})")
-print(f"94% HDI:    {naive_ate.hdi(prob=0.94)}")
+print(f"True indirect effect: {TRUE_INDIRECT:.1f}")
+naive_ate
 ```
 
 ### The front-door solution: mediation
@@ -672,15 +671,12 @@ model_fd.fit(draws=500, tune=500, chains=4, random_seed=42)
 model_fd.effects_summary()
 ```
 
-The `indirect` parameter (`a × b`) recovers the true causal effect without observing `U`.
+The `indirect` parameter (`a × b`) recovers the true causal effect of {TRUE_INDIRECT:.1f} without observing `U`.
 
 ```{python}
 effects = model_fd.effects_summary()
-fd_mean = effects.loc["indirect", "mean"]
-fd_hdi_low = effects.loc["indirect", "hdi_3%"]
-fd_hdi_high = effects.loc["indirect", "hdi_97%"]
-print(f"Front-door indirect (a×b): {fd_mean:.3f}  (true = {TRUE_INDIRECT:.1f})")
-print(f"94% HDI:                   [{fd_hdi_low:.3f}, {fd_hdi_high:.3f}]")
+print(f"True indirect effect (a×b): {TRUE_INDIRECT:.1f}")
+effects
 ```
 
 ::: {.callout-warning}
@@ -704,6 +700,10 @@ fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
 naive_val = naive_ate.mean()
 naive_hdi = naive_ate.hdi(prob=0.94)
+fd_effect = effects.loc["indirect"]
+fd_mean = fd_effect["mean"]
+fd_hdi_low = fd_effect["hdi_3%"]
+fd_hdi_high = fd_effect["hdi_97%"]
 
 ax.errorbar(
     naive_val,

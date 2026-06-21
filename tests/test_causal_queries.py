@@ -154,12 +154,20 @@ class TestDrawCount:
         for var in ("X", "Y", "Z"):
             assert result.draws(var).shape == (n_samples,)
 
-    def test_estimand_repr_reports_posterior_sample_count(self, fork_model):
+    def test_estimand_repr_is_compact_one_liner(self, fork_model):
         n_samples = _n_posterior_samples(fork_model)
         ate = fork_model.ate("Y", "X")
-        draws_lines = [line for line in repr(ate).splitlines() if "Draws:" in line]
-        assert draws_lines
-        assert draws_lines[0].split(":", 1)[1].strip() == str(n_samples)
+        r = repr(ate)
+        assert "\n" not in r
+        assert "ATE" in r
+        assert str(n_samples) not in r  # draws count lives in _repr_html_, not __repr__
+
+    def test_estimand_repr_html_reports_posterior_sample_count(self, fork_model):
+        n_samples = _n_posterior_samples(fork_model)
+        ate = fork_model.ate("Y", "X")
+        html = ate._repr_html_()
+        assert str(n_samples) in html
+        assert "Draws" in html
 
     def test_doresult_repr_reports_posterior_sample_count(self, fork_model):
         n_samples = _n_posterior_samples(fork_model)

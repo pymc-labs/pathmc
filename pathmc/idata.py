@@ -38,6 +38,19 @@ DEFAULT_HDI_PROB = 0.94
 __all__: list[str] = []
 
 
+def hdi_label(prob: float = DEFAULT_HDI_PROB) -> str:
+    """Return a short HDI label for the given probability mass.
+
+    Examples
+    --------
+    >>> hdi_label()
+    '94% HDI'
+    >>> hdi_label(0.89)
+    '89% HDI'
+    """
+    return f"{round(prob * 100):g}% HDI"
+
+
 def posterior(idata: xr.DataTree) -> xr.Dataset:
     """Return the ``posterior`` group of *idata* as a :class:`xarray.Dataset`."""
     return idata["posterior"].dataset

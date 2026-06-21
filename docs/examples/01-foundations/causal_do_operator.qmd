@@ -150,11 +150,10 @@ r_do_lo = model.do(set={"X": 0.0})
 r_do_hi = model.do(set={"X": 1.0})
 
 causal_contrast = r_do_hi - r_do_lo
-print(f"E[Y | do(X=1)] - E[Y | do(X=0)]: {causal_contrast.mean('Y'):.3f}")
-print(f"True causal effect (1 × {TRUE_EFFECT}):       {1.0 * TRUE_EFFECT:.3f}")
+causal_contrast
 ```
 
-The `do()` contrast uses the *same* 0-to-1 comparison as the seeing calculation above, but now the estimate lands on the true causal effect. Graph surgery breaks the $Z \to X$ link, so high $X$ no longer implies high $Z$ — the confounding path is severed.
+The `do()` contrast uses the *same* 0-to-1 comparison as the seeing calculation above, but now the estimate lands on the true causal effect (`TRUE_EFFECT = 0.4`). Graph surgery breaks the $Z \to X$ link, so high $X$ no longer implies high $Z$ — the confounding path is severed.
 
 ## Side by side: seeing ≠ doing
 
@@ -165,12 +164,7 @@ ate = model.ate("Y", "X", values=(0.0, 1.0))
 ate
 ```
 
-Because the result knows the outcome, the accessors take no arguments:
-
-```{python}
-print(f"Causal ATE (do-operator): {ate.mean():.3f}  (true = {TRUE_EFFECT})")
-print(f"94% HDI:                  {ate.hdi(prob=0.94)}")
-```
+The result table shows the posterior mean, HDI, P(> 0), and draw count — no separate accessor calls needed.
 
 ```{python}
 # | label: fig-seeing-vs-doing-confounded
@@ -234,11 +228,12 @@ Without confounding, the regression slope of Y on X — the "seeing" estimate �
 
 ```{python}
 seeing_slope = polyfit(X_rand, Y_rand, 1)[1]
+print(f"Seeing  (OLS slope): {seeing_slope:.3f}   True effect: {TRUE_EFFECT}")
+```
 
+```{python}
 ate_rand = model_rand.ate("Y", "X", values=(0.0, 1.0))
-print(f"Seeing  (OLS slope):   {seeing_slope:.3f}")
-print(f"Doing   (do-operator): {ate_rand.mean():.3f}")
-print(f"True effect:           {TRUE_EFFECT}")
+ate_rand
 ```
 
 ```{python}
@@ -293,8 +288,7 @@ The `.ate()` method is shorthand for the two-`do()` contrast:
 
 ```{python}
 ate = model.ate("Y", "X", values=(0.0, 1.0))
-print(f"ATE of X on Y: {ate.mean():.3f}")
-print(f"94% HDI:       {ate.hdi(prob=0.94)}")
+ate
 ```
 
 The `EstimandResult` also answers decision-oriented questions directly. `float()` collapses it to the posterior mean, `.prob()` reports the posterior probability that the effect clears a threshold, and `.summary()` returns a tidy one-row table:
@@ -347,8 +341,7 @@ r_low = model.do(set={"X": -1.0})
 r_high = model.do(set={"X": 2.0})
 
 contrast = r_high - r_low
-print(f"Effect of X: -1 → 2: {contrast.mean('Y'):.3f}")
-print(f"94% HDI:             {contrast.hdi('Y', prob=0.94)}")
+contrast
 ```
 
 Since the model is linear, the effect should scale proportionally: a shift of 3 units in `X` should produce roughly `3 × 0.4 = 1.2` units of change in `Y`.

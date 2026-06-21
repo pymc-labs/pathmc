@@ -239,7 +239,8 @@ class TestCannotEvaluate:
         })
         m = pathmc.model("Y ~ X", data=df)
         r = m.falsify(random_seed=0)
-        assert "cannot be evaluated" in repr(r).lower()
+        assert "not_evaluable" in repr(r)
+        assert "\n" not in repr(r)
         assert "Cannot be evaluated" in r._repr_html_()
 
     def test_plot_raises_when_cannot_evaluate(self):
@@ -750,12 +751,14 @@ class TestResultDisplay:
     def test_repr_rejected(self):
         r = self._make(p_lmc=0.5, p_tpa=0.0, n_in_mec=0)
         text = repr(r)
-        assert "reject" in text.lower()
-        assert "we do not reject" not in text.lower()
+        assert "falsified" in text
+        assert "\n" not in text
 
     def test_repr_not_rejected(self):
         r = self._make(p_lmc=0.0, p_tpa=0.0, n_in_mec=0)
-        assert "we do not reject" in repr(r).lower()
+        text = repr(r)
+        assert "not_rejected" in text
+        assert "\n" not in text
 
     def test_html_states(self):
         rejected = self._make(p_lmc=0.5, p_tpa=0.0, n_in_mec=0)

@@ -57,6 +57,7 @@ import pandas as pd
 from scipy import stats
 
 from pathmc.graph import GraphInfo
+from pathmc.reprs import ResultReprMixin
 
 if TYPE_CHECKING:
     import matplotlib.axes
@@ -84,8 +85,8 @@ _MAX_SAMPLED_PERMUTATIONS = 1_000_000
 _DEFAULT_PERMUTATION_CAP = 1_000
 
 
-@dataclass
-class FalsificationResult:
+@dataclass(repr=False)
+class FalsificationResult(ResultReprMixin):
     """Result of a permutation-based DAG falsification test.
 
     Produced by :func:`falsify_graph`. The verdict follows Eulig et al.
@@ -219,8 +220,20 @@ class FalsificationResult:
             f"  Verdict: we {decision} the DAG.",
         ]
 
-    def __repr__(self) -> str:
-        return "\n".join(self._summary_lines())
+    def _repr_compact(self) -> str:
+        if not self.can_evaluate:
+            return f"FalsificationResult(not_evaluable, {self.n_permutations} permutations)"
+        if self.falsified:
+            verdict = "falsified"
+        elif not self.falsifiable:
+            verdict = "not_falsifiable"
+        else:
+            verdict = "not_rejected"
+        return (
+            f"FalsificationResult({verdict}, "
+            f"p_lmc={self.p_value_lmc:.3f}, "
+            f"{self.n_permutations} permutations)"
+        )
 
     def _repr_html_(self) -> str:
         """Rich HTML display for Jupyter notebooks."""

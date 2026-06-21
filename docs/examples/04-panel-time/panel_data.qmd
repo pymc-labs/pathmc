@@ -152,12 +152,10 @@ The `do()` operator confirms — setting promo regardless of foot traffic isolat
 
 ```{python}
 ate_cs = model_cs.ate("revenue", "promo", values=(1.0, 3.0))
-
-print("Cross-sectional ATE (promo: 1 → 3):")
-print(f"  Mean:     {ate_cs.mean():.3f}")
-print(f"  94% HDI:  {ate_cs.hdi(prob=0.94)}")
-print(f"  Expected: {TRUE_B_PROMO * 2:.3f}")
+ate_cs
 ```
+
+The expected causal effect for a 2-unit increase in promo is `TRUE_B_PROMO × 2 = 1.0`.
 
 This works, but it assumes the effect is **instantaneous** — no carry-over, no temporal dynamics.
 If promotions take time to affect revenue, the cross-sectional estimate captures only part of the story.
@@ -363,10 +361,8 @@ ate_panel = model_panel.ate(
     simulate_over="time",
 )
 
-print("Panel ATE (promo: 1 → 3, time-forward):")
-print(f"  Mean:     {ate_panel.mean():.3f}")
-print(f"  94% HDI:  {ate_panel.hdi(prob=0.94)}")
-print(f"  Expected: {(TRUE_CONTEMP + TRUE_LAG) * 2:.3f}  (steady-state)")
+print(f"Steady-state expected: {(TRUE_CONTEMP + TRUE_LAG) * 2:.3f}")
+ate_panel
 ```
 
 ### What happens if you ignore the lags?
