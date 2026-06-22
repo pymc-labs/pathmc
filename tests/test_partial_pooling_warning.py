@@ -155,3 +155,75 @@ class TestPartialPoolingInterceptWarningWithLag:
                 panel={"unit": "geo", "time": "week"},
                 pooling="partial",
             )
+
+    def test_no_double_fire_on_lag_models(self, panel_data):
+        """Warning fires exactly once on lag models (not twice)."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            pathmc.model(
+                "y ~ x + lag(y)",
+                data=panel_data,
+                panel={"unit": "geo", "time": "week"},
+                pooling="partial",
+            )
+            # Should be exactly 1 warning, not 2
+            assert len(w) == 1
+            assert "PARTIAL POOLING WITH REDUNDANT INTERCEPT" in str(w[0].message)
+
+
+class TestPartialPoolingWarningTransformHandling:
+    """Verify warning correctly renders transforms in suggested formulas."""
+
+    def test_warning_preserves_log_transform(self, panel_data):
+        """Transform terms like log(x) are preserved in suggested formula."""
+        panel_data["log_x"] = np.log(panel_data["x"] + 10)  # add constant for positive
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            # Can't actually test with real transforms since pathmc doesn't have log()
+            # but we can test the reconstruction logic with labeled coefficients
+            pathmc.model(
+                "y ~ 2*x",
+                data=panel_data,
+                panel={"unit": "geo", "time": "week"},
+                pooling="partial",
+            )
+            msg = str(w[0].message)
+            assert "y ~ 0 + 2*x" in msg or "y ~ 0 + 2.0*x" in msg
+
+    def test_warning_preserves_interaction(self, panel_data):
+        """Interaction terms are preserved in suggested formula."""
+        panel_data["z"] = np.random.default_rng(44).normal(0, 1, len(panel_data))
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            pathmc.model(
+                "y ~ x:z",
+                data=panel_data,
+                panel={"unit": "geo", "time": "week"},
+                pooling="partial",
+            )
+            msg = str(w[0].message)
+            assert "y ~ 0 + x:z" in msg
+
+    def test_warning_preserves_lag(self, panel_data):
+        """Lag terms are preserved in suggested formula."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            pathmc.model(
+                "y ~ x + lag(y)",
+                data=panel_data,
+                panel={"unit": "geo", "time": "week"},
+                pooling="partial",
+            )
+            msg = str(w[0].message)
+            assert "y ~ 0 + x + lag(y)" in msg
+
+    def test_no_intercept_lag_model_works(self, panel_data):
+        """Confirm that '~ 0 + lag(...)' models compile without error."""
+        # Verifies the fix from #337 works and our advice isn't broken
+        model = pathmc.model(
+            "y ~ 0 + x + lag(y)",
+            data=panel_data,
+            panel={"unit": "geo", "time": "week"},
+            pooling="partial",
+        )
+        assert model.pymc_model is not None

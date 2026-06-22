@@ -994,6 +994,37 @@ def _validate_residual_cov_families(spec: Spec, families: dict[str, str]) -> Non
                 )
 
 
+def _render_term_for_formula(term: Term) -> str:
+    """Reconstruct the original term string from a parsed Term.
+
+    Handles transforms, interactions, lags, and labeled coefficients.
+    """
+    prefix = ""
+    if term.label is not None:
+        prefix = f"{term.label}*"
+    elif term.fixed_value is not None:
+        prefix = f"{term.fixed_value}*"
+
+    if term.transform is not None:
+        return prefix + _render_transform_call(term.transform)
+    # Interactions and lags already have the full string in .variable
+    return prefix + term.variable
+
+
+def _render_transform_call(tc: TransformCall) -> str:
+    """Recursively render a TransformCall back to its original syntax."""
+    if isinstance(tc.input_expr, TransformCall):
+        input_str = _render_transform_call(tc.input_expr)
+    else:
+        input_str = tc.input_expr
+
+    if not tc.params:
+        return f"{tc.name}({input_str})"
+
+    param_strs = [f"{key}={val}" for key, val in tc.params.items()]
+    return f"{tc.name}({input_str}, {', '.join(param_strs)})"
+
+
 def _warn_partial_pooling_intercept(spec: Spec, pooling: str | dict | None) -> None:
     """Warn if partial pooling is combined with formula intercepts.
 
@@ -1020,7 +1051,7 @@ def _warn_partial_pooling_intercept(spec: Spec, pooling: str | dict | None) -> N
 
     var_list = ", ".join(f"'{v}'" for v in equations_with_intercepts)
     formulas = "\n".join(
-        f"  {reg.lhs} ~ 0 + {' + '.join(t.variable for t in reg.terms)}"
+        f"  {reg.lhs} ~ 0 + {' + '.join(_render_term_for_formula(t) for t in reg.terms)}"
         for reg in spec.regressions
         if reg.has_intercept
     )
@@ -1241,8 +1272,6 @@ def _compile_scan_panel(
 
     if priors is None:
         priors = default_priors(spec, families, pooling, latent)
-
-    _warn_partial_pooling_intercept(spec, pooling)
 
     reg_by_lhs = {r.lhs: r for r in spec.regressions}
     transform_map = _build_transform_map(spec)
