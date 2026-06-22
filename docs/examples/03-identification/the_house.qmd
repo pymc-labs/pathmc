@@ -214,8 +214,8 @@ Fitting `X3 ~ b*X1 + X0` works, but it leans on the analyst to have *already* fo
 house.fit(draws=500, tune=500, chains=2, random_seed=42, progressbar=False)
 
 ate = house.ate("X3", "X1", values=(0.0, 1.0))
-print(f"do-operator ATE of X1 on X3: {ate.mean('X3'):.3f}  (true = {TRUE_EFFECT})")
-print(f"94% HDI:                     {np.round(ate.hdi('X3'), 3)}")
+print(f"True effect: {TRUE_EFFECT}")
+ate
 ```
 
 The interventional estimate recovers the true effect of 6 directly from the DAG — no adjustment set to choose, no sink to accidentally include.

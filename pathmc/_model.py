@@ -62,11 +62,12 @@ from pathmc.refute import PlaceboRefutationResult, refute_placebo as _refute_pla
 from pathmc.sensitivity import SensitivityResult, compute_sensitivity
 from pathmc.simulate import (
     DoResult,
+    EstimandResult,
     run_do_panel_unified,
     run_do_pymc,
 )
 
-__all__ = ["DoResult", "PathModel", "model", "simulate"]
+__all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
 
 
 class PathModel:
@@ -808,12 +809,13 @@ class PathModel:
     def _subgroup_effect(
         self,
         method_name: str,
+        outcome: str,
         treatment: str,
         values: tuple[float, float],
         subgroup_value: float,
         value_param: str,
         kind: str,
-    ) -> DoResult:
+    ) -> EstimandResult:
         """Shared implementation of ``att`` and ``atu``.
 
         Estimates ``E[Y(hi) - Y(lo) | treatment = subgroup_value]`` by
@@ -843,7 +845,12 @@ class PathModel:
         lo, hi = values
         r_lo = self._run_do({treatment: lo}, kind, subgroup_indices=subgroup_idx)
         r_hi = self._run_do({treatment: hi}, kind, subgroup_indices=subgroup_idx)
-        return r_hi - r_lo
+        return EstimandResult.from_contrast(
+            r_hi - r_lo,
+            outcome=outcome,
+            treatment=treatment,
+            estimand=method_name.upper(),
+        )
 
     def falsify(
         self,
@@ -1162,7 +1169,7 @@ class PathModel:
         treatment: str,
         values: tuple[float, float] = (0.0, 1.0),
         **do_kwargs: Any,
-    ) -> DoResult:
+    ) -> EstimandResult:
         """Compute the average treatment effect of *treatment* on *outcome*.
 
         Shorthand for ``do(set={treatment: hi}) - do(set={treatment: lo})``.
@@ -1170,8 +1177,8 @@ class PathModel:
         Parameters
         ----------
         outcome : str
-            Outcome variable name (used only for documentation;
-            the contrast is computed over all variables).
+            Outcome variable name; the default target of the result's
+            accessors (``.mean()``, ``.hdi()``, ``.prob()``).
         treatment : str
             Treatment variable to intervene on.
         values : tuple[float, float]
@@ -1181,14 +1188,17 @@ class PathModel:
 
         Returns
         -------
-        DoResult
-            Contrast ``do(treatment=hi) - do(treatment=lo)``.
+        EstimandResult
+            Contrast ``do(treatment=hi) - do(treatment=lo)``, focused on
+            *outcome*.
         """
         self._require_data("ate")
         lo, hi = values
         r_lo = self.do(set={treatment: lo}, **do_kwargs)
         r_hi = self.do(set={treatment: hi}, **do_kwargs)
-        return r_hi - r_lo
+        return EstimandResult.from_contrast(
+            r_hi - r_lo, outcome=outcome, treatment=treatment, estimand="ATE"
+        )
 
     def cate(
         self,
@@ -1197,7 +1207,7 @@ class PathModel:
         values: tuple[float, float] = (0.0, 1.0),
         condition: dict[str, float] | None = None,
         **do_kwargs: Any,
-    ) -> DoResult:
+    ) -> EstimandResult:
         """Compute the conditional average treatment effect.
 
         Like ``ate()`` but with additional variables fixed in both
@@ -1206,7 +1216,8 @@ class PathModel:
         Parameters
         ----------
         outcome : str
-            Outcome variable name.
+            Outcome variable name; the default target of the result's
+            accessors.
         treatment : str
             Treatment variable to intervene on.
         values : tuple[float, float]
@@ -1218,8 +1229,9 @@ class PathModel:
 
         Returns
         -------
-        DoResult
-            Contrast with conditioning variables held fixed.
+        EstimandResult
+            Contrast with conditioning variables held fixed, focused on
+            *outcome*.
         """
         self._require_data("cate")
         if condition is None:
@@ -1229,7 +1241,9 @@ class PathModel:
         set_hi: dict[str, float | np.ndarray] = {treatment: hi, **condition}
         r_lo = self.do(set=set_lo, **do_kwargs)
         r_hi = self.do(set=set_hi, **do_kwargs)
-        return r_hi - r_lo
+        return EstimandResult.from_contrast(
+            r_hi - r_lo, outcome=outcome, treatment=treatment, estimand="CATE"
+        )
 
     def att(
         self,
@@ -1238,7 +1252,7 @@ class PathModel:
         values: tuple[float, float] = (0.0, 1.0),
         treated_value: float = 1.0,
         kind: str = "mean",
-    ) -> DoResult:
+    ) -> EstimandResult:
         """Compute the average treatment effect on the treated (ATT).
 
         Estimates ``E[Y(hi) - Y(lo) | T = treated_value]`` using
@@ -1269,9 +1283,10 @@ class PathModel:
 
         Returns
         -------
-        DoResult
+        EstimandResult
             Contrast ``do(treatment=hi) - do(treatment=lo)`` integrated
-            over the treated subgroup's covariate distribution.
+            over the treated subgroup's covariate distribution, focused on
+            *outcome*.
 
         Raises
         ------
@@ -1287,10 +1302,11 @@ class PathModel:
         >>> model = pathmc.model("Y ~ T + X", data=df)
         >>> model.fit(draws=1000, tune=1000)
         >>> att = model.att("Y", "T")
-        >>> att.mean("Y")  # E[Y(1) - Y(0) | T=1]
+        >>> att.mean()  # E[Y(1) - Y(0) | T=1]
         """
         return self._subgroup_effect(
             "att",
+            outcome,
             treatment,
             values,
             subgroup_value=treated_value,
@@ -1305,7 +1321,7 @@ class PathModel:
         values: tuple[float, float] = (0.0, 1.0),
         untreated_value: float = 0.0,
         kind: str = "mean",
-    ) -> DoResult:
+    ) -> EstimandResult:
         """Compute the average treatment effect on the untreated (ATU).
 
         Estimates ``E[Y(hi) - Y(lo) | T = untreated_value]`` using
@@ -1336,9 +1352,10 @@ class PathModel:
 
         Returns
         -------
-        DoResult
+        EstimandResult
             Contrast ``do(treatment=hi) - do(treatment=lo)`` integrated
-            over the untreated subgroup's covariate distribution.
+            over the untreated subgroup's covariate distribution, focused
+            on *outcome*.
 
         Raises
         ------
@@ -1354,10 +1371,11 @@ class PathModel:
         >>> model = pathmc.model("Y ~ T + X", data=df)
         >>> model.fit(draws=1000, tune=1000)
         >>> atu = model.atu("Y", "T")
-        >>> atu.mean("Y")  # E[Y(1) - Y(0) | T=0]
+        >>> atu.mean()  # E[Y(1) - Y(0) | T=0]
         """
         return self._subgroup_effect(
             "atu",
+            outcome,
             treatment,
             values,
             subgroup_value=untreated_value,

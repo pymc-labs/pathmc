@@ -53,12 +53,13 @@ import numpy as np
 import pymc as pm
 
 from pathmc.idata import hdi, posterior
+from pathmc.reprs import ResultReprMixin
 
 if TYPE_CHECKING:
     import matplotlib.axes
     import matplotlib.figure
 
-    from pathmc.model import PathModel
+    from pathmc._model import PathModel
 
 __all__ = ["PlaceboRefutationResult", "refute_placebo"]
 
@@ -72,8 +73,8 @@ _MIN_FOLD_SD = 1e-6
 _SD_OUTLIER_FACTOR = 10.0
 
 
-@dataclass
-class PlaceboRefutationResult:
+@dataclass(repr=False)
+class PlaceboRefutationResult(ResultReprMixin):
     """Result of a Bayesian placebo-treatment refutation.
 
     Produced by :func:`refute_placebo` / :meth:`pathmc.PathModel.refute_placebo`.
@@ -249,26 +250,14 @@ class PlaceboRefutationResult:
         """
         return bool(self.p_tail < self.significance_level)
 
-    def _summary_lines(self) -> list[str]:
-        mu_lo, mu_hi = self.mu_null_hdi
-        ate_lo, ate_hi = self.observed_ate_hdi
+    def _repr_compact(self) -> str:
         placebo = "PASS" if self.passes_placebo else "FAIL"
-        straddles = "straddles" if self.passes_placebo else "does not straddle"
-        survives = "survives" if self.effect_survives else "does not survive"
-        return [
-            f"PlaceboRefutationResult(treatment='{self.treatment}' → "
-            f"outcome='{self.outcome}')",
-            f"  Placebo bias: μ_null = {self.mu_null:.4f} "
-            f"[{mu_lo:.4f}, {mu_hi:.4f}] (94% HDI), τ_het = {self.tau_het:.4f}",
-            f"  Placebo test: {placebo} (null bias {straddles} zero)",
-            f"  Null predictive (calibration): mean = {self.null_mean:.4f}, "
-            f"sd = {self.null_sd:.4f}, σ_pred = {self.sigma_pred:.4f}",
-            f"  Observed ATE: {self.observed_ate:.4f} "
-            f"[{ate_lo:.4f}, {ate_hi:.4f}] (94% HDI)",
-            f"  Calibration: z_cal = {self.z_cal:.3f}, p_tail = {self.p_tail:.4f} "
-            f"→ effect {survives} the placebo null",
-            f"  Based on {self.n_permutations} placebo permutations",
-        ]
+        survives = "survives" if self.effect_survives else "does-not-survive"
+        return (
+            f"PlaceboRefutationResult({self.treatment}→{self.outcome}: "
+            f"placebo={placebo}, μ_null={self.mu_null:.3f}, "
+            f"ATE={self.observed_ate:.3f}, p_tail={self.p_tail:.3f} [{survives}])"
+        )
 
     def summary(self) -> str:
         """Return a dowhy-style textual summary of the refutation.
@@ -293,9 +282,6 @@ class PlaceboRefutationResult:
             f"(pooled placebo effect; ~0 if sound) [{placebo}]\n"
             f"p value: {self.p_tail:.4f}"
         )
-
-    def __repr__(self) -> str:
-        return "\n".join(self._summary_lines())
 
     def _repr_html_(self) -> str:
         """Rich HTML display for Jupyter notebooks."""

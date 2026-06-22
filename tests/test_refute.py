@@ -111,7 +111,7 @@ class TestPlaceboRefutationResult:
         assert np.isfinite(result.null_mean)
         assert result.null_sd >= 0
 
-    def test_sigma_pred_and_repr_reconstructable(self):
+    def test_sigma_pred_property(self):
         mu = np.random.default_rng(15).normal(loc=0.0, scale=1.0, size=2000)
         result = _make_result(mu_null_draws=mu)
         # sigma_pred combines the null predictive SD and the mean within-fold
@@ -119,17 +119,16 @@ class TestPlaceboRefutationResult:
         expected = np.sqrt(result.null_sd**2 + np.mean(result.fold_sds**2))
         assert np.isclose(result.sigma_pred, expected)
         assert result.sigma_pred > 0
-        assert "σ_pred" in repr(result)
 
-    def test_repr_contains_key_info(self):
+    def test_repr_is_compact_single_line(self):
         mu = np.random.default_rng(9).normal(loc=0.0, scale=1.0, size=2000)
         result = _make_result(mu_null_draws=mu)
         r = repr(result)
-        assert "treatment='T'" in r
-        assert "outcome='Y'" in r
-        assert "Placebo test" in r
-        assert "Observed ATE" in r
-        assert "Calibration" in r
+        assert "\n" not in r
+        assert "PlaceboRefutationResult" in r
+        assert "T" in r and "Y" in r
+        assert "placebo=" in r
+        assert "p_tail=" in r
 
     def test_repr_html_pass_and_fail(self):
         mu_pass = np.random.default_rng(10).normal(loc=0.0, scale=1.0, size=2000)

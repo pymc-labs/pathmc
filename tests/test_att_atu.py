@@ -23,6 +23,13 @@ import pytest
 from scipy.special import expit
 
 import pathmc
+from pathmc.idata import posterior as _posterior
+
+
+def _n_posterior_samples(model) -> int:
+    """Number of posterior draws (chains * draws) for a fitted model."""
+    ds = _posterior(model._idata)
+    return ds.sizes["chain"] * ds.sizes["draw"]
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +167,18 @@ class TestAttAtuSemantics:
     def test_atu_finite(self, fitted_binary):
         atu = fitted_binary.atu("Y", "T")
         assert np.isfinite(atu.mean("Y"))
+
+    def test_att_draws_count_equals_posterior_samples(self, fitted_binary):
+        # The subgroup average must collapse over treated units within each
+        # draw, leaving exactly one value per posterior sample.
+        n_samples = _n_posterior_samples(fitted_binary)
+        att = fitted_binary.att("Y", "T")
+        assert att.draws().shape == (n_samples,)
+
+    def test_atu_draws_count_equals_posterior_samples(self, fitted_binary):
+        n_samples = _n_posterior_samples(fitted_binary)
+        atu = fitted_binary.atu("Y", "T")
+        assert atu.draws().shape == (n_samples,)
 
     def test_att_hdi(self, fitted_binary):
         att = fitted_binary.att("Y", "T")

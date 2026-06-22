@@ -109,19 +109,24 @@ The DSL is lavaan-inspired:
    conditioning on observed values. For typical user-facing queries,
    prefer the wrappers `m.ate()`, `m.cate()`, `m.att()`, `m.atu()`,
    `m.prob()`.
-3. **The DSL is lavaan-*inspired*, not a 1:1 reimplementation.**
+3. **`ate()`/`cate()`/`att()`/`atu()` return an `EstimandResult`, not a `DoResult`.**
+   It knows the outcome, so `r.mean()`, `r.hdi()`, and `r.prob("> 0")` need
+   no variable argument, `float(r)` gives the posterior mean, and printing it
+   shows a tidy summary. `m.do(...)` returns a `DoResult` describing the whole
+   system, where accessors still take a variable name (`r.mean("Y")`).
+4. **The DSL is lavaan-*inspired*, not a 1:1 reimplementation.**
    `~`, `~~`, `:=`, and labeled coefficients all work. Latent-variable
    measurement models (`=~`) are out of scope in v0.1 — see the user
    guide for the full operator list.
-4. **`Prior` is re-exported from `pymc_extras` for convenience.**
+5. **`Prior` is re-exported from `pymc_extras` for convenience.**
    `from pathmc import Prior` is a shortcut for
    `from pymc_extras.prior import Prior`. The canonical reference and
    list of supported distributions live in `pymc_extras`.
-5. **Panel lag terms are declared in the model spec.**
+6. **Panel lag terms are declared in the model spec.**
    Use `lag(sales)` directly in the DSL and pass
    `panel={"unit": "region", "time": "week"}` to `pathmc.model(...)`.
    pathmc builds the lagged design internally.
-6. **Data-free models have a partial method surface.**
+7. **Data-free models have a partial method surface.**
    When `data=None`, `graph()`, `equations()`, `priors()`,
    `adjustment_sets()`, `is_identifiable()`, `collider_warnings()`,
    `implied_independences()` all work. `fit()`, `do()`, `ate()`,
@@ -129,7 +134,7 @@ The DSL is lavaan-inspired:
    `test_implications()`, `falsify()`, `sensitivity()`,
    `refute_placebo()` raise `RuntimeError` until the model is rebuilt
    with data (and `refute_placebo()` also needs a prior `.fit()`).
-7. **`PathModel` is not in `pathmc.__all__`** — it's the class returned
+8. **`PathModel` is not in `pathmc.__all__`** — it's the class returned
    by `model()`. You don't import it directly; you receive it. Type
    annotations can use `pathmc.PathModel` (it is reachable as an
    attribute) but the public entrypoint is the `model()` function.

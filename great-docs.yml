@@ -83,30 +83,31 @@ reference:
   - title: Modeling
     desc: Build, fit, and query Bayesian path models.
     contents:
-      - model.model
-      - model.PathModel
+      - _model.model
+      - _model.PathModel
   - title: Simulation
     desc: Time-forward and counterfactual simulation helpers.
     contents:
-      - model.simulate
-      - simulate.DoResult
-  - title: Result objects
-    desc: Result containers returned by PathModel methods for programmatic inspection.
-    contents:
-      - effects.EffectResult
-      - identify.ImplicationTestResult
-      - sensitivity.SensitivityResult
+      - _model.simulate
   - title: DAG falsification
     desc: Whole-graph validation via a permutation-based test.
     contents:
       - falsify.falsify_graph
-      - falsify.FalsificationResult
   - title: Custom transforms
     desc: Extend the model DSL with domain-specific transformations.
     contents:
       - transforms.Transform
       - transforms.ParamSpec
       - transforms.register_transform
+  - title: Result objects
+    desc: Result containers returned by PathModel methods for programmatic inspection.
+    contents:
+      - simulate.DoResult
+      - simulate.EstimandResult
+      - effects.EffectResult
+      - identify.ImplicationTestResult
+      - sensitivity.SensitivityResult
+      - falsify.FalsificationResult
 
 # Site appearance ------------------------------------------------------------
 logo:

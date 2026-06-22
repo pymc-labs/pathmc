@@ -14,7 +14,7 @@ Modern causal inference — across the Pearl, potential outcomes, and epidemiolo
 |---|---|---|
 | **Estimand** | The causal quantity defined by the research question and the DAG — *what* you want to learn | A query like "What is the ATE of X on Y?" expressed via `ate()`, `cate()`, or `prob()` |
 | **Estimator** | The statistical procedure that computes the estimand from data — *how* you learn it | G-computation: fit the structural model, then forward-simulate under the intervention via `do()` |
-| **Estimate** | The numerical result | The posterior distribution in the `DoResult` returned by `do()`, `ate()`, or `cate()` |
+| **Estimate** | The numerical result | The posterior distribution in the `EstimandResult` returned by `ate()`, `cate()`, `att()`, and `atu()` (or the `DoResult` returned by `do()`) |
 
 The **estimand** is determined by your research question and the causal assumptions encoded in the DAG.
 pathmc's **estimator** is [g-computation](https://en.wikipedia.org/wiki/G-computation) (Robins, 1986) — also known as the *truncated factorization formula* in Pearl's framework.
@@ -130,6 +130,15 @@ The result is a full posterior distribution over the causal effect, computed via
 ## Causal queries
 
 pathmc provides convenience methods for common causal estimands, built on top of `do()`.
+These return an `EstimandResult`, which knows the outcome variable you asked about — so accessors like `.mean()`, `.hdi()`, and `.prob()` need no arguments.
+
+::: {.callout-note}
+## `DoResult` vs `EstimandResult`
+
+`do()` returns a `DoResult` — a snapshot of the *whole system* under an intervention, with no privileged outcome, so accessors require a variable name (`result.mean("Y")`).
+
+`ate()`, `cate()`, `att()`, and `atu()` return an `EstimandResult` — a focused answer to "*what is the effect of X on Y?*". It defaults to the outcome (`result.mean()`), prints a tidy summary, supports `float(result)`, and adds `.prob()` for posterior sign/threshold probabilities. You can still pass another variable name (`result.mean("M")`) to inspect any variable in the contrast.
+:::
 
 ### Average treatment effect
 
@@ -137,8 +146,17 @@ pathmc provides convenience methods for common causal estimands, built on top of
 
 ```python
 ate = model.ate("Y", "X", values=(0.0, 1.0))
-ate.mean("Y")  # E[Y | do(X=1)] - E[Y | do(X=0)]
-ate.hdi("Y")  # 94% HDI of the ATE
+ate
+# ATE of X on Y
+#   Mean:    0.41
+#   94% HDI: [0.29, 0.53]
+#   P(> 0):  1.00
+#   Draws:   2000
+
+ate.mean()  # E[Y | do(X=1)] - E[Y | do(X=0)], defaults to the outcome
+ate.hdi()  # 94% HDI of the ATE
+float(ate)  # posterior mean as a plain float
+ate.summary()  # one-row tidy DataFrame
 ```
 
 ### Conditional average treatment effect
@@ -147,7 +165,7 @@ ate.hdi("Y")  # 94% HDI of the ATE
 
 ```python
 cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": 2.0})
-cate.mean("Y")  # ATE of X on Y, with Z fixed at 2
+cate.mean()  # ATE of X on Y, with Z fixed at 2
 ```
 
 ### Average treatment effect on the treated (ATT)
@@ -156,7 +174,7 @@ cate.mean("Y")  # ATE of X on Y, with Z fixed at 2
 
 ```python
 att = model.att("Y", "T", values=(0.0, 1.0), treated_value=1.0)
-att.mean("Y")  # E[Y(1) - Y(0) | T = 1]
+att.mean()  # E[Y(1) - Y(0) | T = 1]
 ```
 
 ATT answers: *"Among those who were treated, what was the average effect of the treatment?"* This is a natural estimand for evaluating a policy that has already been deployed — you want to know how much it helped the people it actually reached, not a hypothetical random population.
@@ -167,7 +185,7 @@ ATT answers: *"Among those who were treated, what was the average effect of the 
 
 ```python
 atu = model.atu("Y", "T", values=(0.0, 1.0), untreated_value=0.0)
-atu.mean("Y")  # E[Y(1) - Y(0) | T = 0]
+atu.mean()  # E[Y(1) - Y(0) | T = 0]
 ```
 
 ATU answers: *"If we extended the treatment to those who did not receive it, what effect would we expect?"* This is useful for policy expansion decisions.
@@ -187,10 +205,23 @@ When treatment assignment is correlated with these effect-modifying covariates (
 
 ### Probability queries
 
-`.prob()` computes `P(expression | do(set))` using predictive draws:
+Two complementary `prob()` methods answer probabilistic questions.
+
+`EstimandResult.prob()` reports the posterior probability that the **estimand itself** clears a threshold — the Bayesian analog of a one-sided significance statement.
+Pass a comparison applied to the estimand draws:
 
 ```python
-model.prob("Y > 0", set={"X": 1.0})  # fraction of draws where Y > 0
+ate = model.ate("Y", "X", values=(0.0, 1.0))
+ate.prob("> 0")  # P(ATE > 0) — probability the effect is positive
+ate.prob(">= 0.5")  # P(ATE >= 0.5) — probability the effect is at least 0.5
+```
+
+This is often the headline number for a decision: rather than "is the effect significant?", ask "how probable is it that the effect is positive (or large enough to matter)?".
+
+`PathModel.prob()` instead computes `P(expression | do(set))` over the predictive draws of an *outcome* under a single intervention:
+
+```python
+model.prob("Y > 0", set={"X": 1.0})  # fraction of predictive draws where Y > 0
 ```
 
 ## Standardized effects

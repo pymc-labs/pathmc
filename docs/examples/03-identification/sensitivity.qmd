@@ -74,9 +74,8 @@ model.fit(draws=500, tune=500, chains=2, random_seed=42)
 
 ```{python}
 ate = model.ate("Y", "X")
-print(f"Estimated ATE:  {ate.mean('Y'):.3f}")
-print(f"94% HDI:        {ate.hdi('Y', prob=0.94)}")
-print(f"True effect:    {true_effect}")
+print(f"True effect: {true_effect}")
+ate
 ```
 
 The ATE is well-recovered and the credible interval excludes zero. But this result assumes `Z` is the **only** confounder. What if there's a variable we didn't measure?
@@ -118,7 +117,7 @@ pathmc's `sensitivity()` method computes this over a grid of confounder strength
 
 ```{python}
 result = model.sensitivity("Y", "X")
-print(result)
+result
 ```
 
 The **tipping point** is the γ × δ product that would exactly nullify the observed effect. The symmetric example (γ ≈ δ ≈ √tipping_point) shows what equal effects on treatment and outcome would look like.
@@ -191,16 +190,15 @@ model2.equations()
 model2.fit(draws=500, tune=500, chains=2, random_seed=42)
 
 ate2 = model2.ate("Y", "X")
-print(f"Estimated ATE:  {ate2.mean('Y'):.3f}")
-print(f"94% HDI:        {ate2.hdi('Y', prob=0.94)}")
-print(f"True effect:    {true_effect_weak}")
+print(f"True effect: {true_effect_weak}")
+ate2
 ```
 
 The ATE is positive and the credible interval just barely excludes zero — it looks "significant." But the sensitivity analysis reveals how fragile this conclusion is:
 
 ```{python}
 result2 = model2.sensitivity("Y", "X")
-print(result2)
+result2
 ```
 
 The tipping point is far smaller than in the robust case. A confounder with symmetric effects of only ~0.3 on treatment and outcome would overturn the conclusion — much weaker than the observed confounder Z.

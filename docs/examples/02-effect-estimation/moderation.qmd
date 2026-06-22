@@ -152,8 +152,8 @@ for z_val in [-1.0, 0.0, 1.0]:
     cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": z_val})
     true_cate = TRUE_MAIN_X + TRUE_INTER * z_val
     print(
-        f"CATE at Z={z_val:+.0f}:  {cate.mean('Y'):.3f}  "
-        f"(true = {true_cate:.1f},  94% HDI: {cate.hdi('Y', prob=0.94)})"
+        f"CATE at Z={z_val:+.0f}:  {cate.mean():.3f}  "
+        f"(true = {true_cate:.1f},  94% HDI: {cate.hdi(prob=0.94)})"
     )
 ```
 
@@ -174,7 +174,7 @@ cate_draws_list = []
 
 for z_val in z_grid:
     cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": z_val})
-    cate_draws_list.append(cate.draws("Y"))
+    cate_draws_list.append(cate.draws())
 
 cate_draws_2d = np.column_stack(cate_draws_list)
 true_cate = TRUE_MAIN_X + TRUE_INTER * z_grid
@@ -210,7 +210,7 @@ cate_from_coeffs = a_draws + c_draws * z_check
 cate_from_cate = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": z_check})
 
 print(f"CATE at Z=1 from coefficients: {np.mean(cate_from_coeffs):.4f}")
-print(f"CATE at Z=1 from cate():       {cate_from_cate.mean('Y'):.4f}")
+print(f"CATE at Z=1 from cate():       {cate_from_cate.mean():.4f}")
 ```
 
 Both methods agree. The coefficient approach is faster (no model evaluation needed), but `cate()` generalizes to nonlinear models and more complex causal structures where the CATE cannot be read directly from coefficients.
@@ -281,10 +281,10 @@ ate = model_att.ate("Y", "T")
 
 print(f"{'Estimand':<12} {'Estimate':>10} {'True':>10}")
 print(
-    f"{'ATE':<12} {ate.mean('Y'):>10.3f} {(TRUE_MAIN_X + TRUE_INTER * Z_att.mean()):>10.3f}"
+    f"{'ATE':<12} {ate.mean():>10.3f} {(TRUE_MAIN_X + TRUE_INTER * Z_att.mean()):>10.3f}"
 )
-print(f"{'ATT':<12} {att.mean('Y'):>10.3f} {true_att:>10.3f}")
-print(f"{'ATU':<12} {atu.mean('Y'):>10.3f} {true_atu:>10.3f}")
+print(f"{'ATT':<12} {att.mean():>10.3f} {true_att:>10.3f}")
+print(f"{'ATU':<12} {atu.mean():>10.3f} {true_atu:>10.3f}")
 ```
 
 The ATT and ATU diverge because the treated group has higher `Z`, where the interaction amplifies the treatment effect. The `cate()` method fixes `Z` at a single value; `att()`/`atu()` average over each subgroup's actual covariate distribution — a natural complement when treatment assignment is non-random.

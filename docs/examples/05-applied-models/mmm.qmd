@@ -766,11 +766,7 @@ The `.ate()` method computes the average treatment effect by contrasting two int
 
 ```{python}
 brand_ate = model.ate("sales", "brand_spend", values=(2.0, 8.0))
-
-print(f"Total effect of brand_spend 2 → 8:")
-print(f"  Mean:    {brand_ate.mean('sales'):.3f}")
-print(f"  94% HDI: {brand_ate.hdi('sales', prob=0.94)}")
-print(f"  Expected (linear): {true_total_brand * 6:.3f}")
+brand_ate
 ```
 
 The ATE should be close to `0.55 × 6 = 3.3` — the total effect times the intervention size.
@@ -794,14 +790,18 @@ r_perf_only = model.do(set={"brand_spend": 0.0, "perf_spend": 5.0})
 
 brand_lift = r_brand_only - r_base
 perf_lift = r_perf_only - r_base
+```
 
-print("Incremental sales from 5 units of spend:")
-print(
-    f"  Brand: {brand_lift.mean('sales'):.3f}  (HDI: {brand_lift.hdi('sales', prob=0.94)})"
-)
-print(
-    f"  Perf:  {perf_lift.mean('sales'):.3f}  (HDI: {perf_lift.hdi('sales', prob=0.94)})"
-)
+Incremental sales from 5 units of brand spend:
+
+```{python}
+brand_lift
+```
+
+Incremental sales from 5 units of performance spend:
+
+```{python}
+perf_lift
 ```
 
 ```{python}
@@ -836,15 +836,17 @@ Because the model includes the funnel equation, `do()` also gives us the downstr
 ```{python}
 r_low = model.do(set={"brand_spend": 2.0})
 r_high = model.do(set={"brand_spend": 8.0})
-
-print("Search traffic under brand interventions:")
-print(f"  do(brand=2): E[search] = {r_low.mean('search_traffic'):.3f}")
-print(f"  do(brand=8): E[search] = {r_high.mean('search_traffic'):.3f}")
-print(
-    f"  Lift in search traffic:  {r_high.mean('search_traffic') - r_low.mean('search_traffic'):.3f}"
-)
-print(f"  Expected (a × 6):        {true_a * 6:.3f}")
 ```
+
+```{python}
+r_low
+```
+
+```{python}
+r_high
+```
+
+The expected lift in search traffic from 6 units of brand spend is `true_a × 6`.
 
 ### Budget allocation
 
@@ -1215,23 +1217,19 @@ The `do()` operator propagates both random intercepts and random slopes, so inte
 
 ```{python}
 ate_tv = model.ate("sales", "tv", values=(10.0, 30.0))
-
-print("ATE of TV spend 10 → 30 (population average):")
-print(f"  Mean:    {ate_tv.mean('sales'):.3f}")
-print(f"  94% HDI: {ate_tv.hdi('sales', prob=0.94)}")
-print(f"  Expected: {true_mu_tv * 20:.3f}")
+ate_tv
 ```
+
+The expected population-average effect is `0.6 × 20 = 12.0`.
 
 #### Comparing channels
 
 ```{python}
 ate_dig = model.ate("sales", "digital", values=(5.0, 20.0))
-
-print("ATE of digital spend 5 → 20:")
-print(f"  Mean:    {ate_dig.mean('sales'):.3f}")
-print(f"  94% HDI: {ate_dig.hdi('sales', prob=0.94)}")
-print(f"  Expected: {true_mu_dig * 15:.3f}")
+ate_dig
 ```
+
+The expected effect for digital is `0.4 × 15 = 6.0`.
 
 #### Probability query
 

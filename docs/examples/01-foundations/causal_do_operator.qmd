@@ -150,21 +150,21 @@ r_do_lo = model.do(set={"X": 0.0})
 r_do_hi = model.do(set={"X": 1.0})
 
 causal_contrast = r_do_hi - r_do_lo
-print(f"E[Y | do(X=1)] - E[Y | do(X=0)]: {causal_contrast.mean('Y'):.3f}")
-print(f"True causal effect (1 × {TRUE_EFFECT}):       {1.0 * TRUE_EFFECT:.3f}")
+causal_contrast
 ```
 
-The `do()` contrast uses the *same* 0-to-1 comparison as the seeing calculation above, but now the estimate lands on the true causal effect. Graph surgery breaks the $Z \to X$ link, so high $X$ no longer implies high $Z$ — the confounding path is severed.
+The `do()` contrast uses the *same* 0-to-1 comparison as the seeing calculation above, but now the estimate lands on the true causal effect (`TRUE_EFFECT = 0.4`). Graph surgery breaks the $Z \to X$ link, so high $X$ no longer implies high $Z$ — the confounding path is severed.
 
 ## Side by side: seeing ≠ doing
 
-The `.ate()` method wraps the entire do-calculus pipeline into a single call: specify the outcome, the treatment, and two contrast values, and pathmc returns a full posterior over the causal effect.
+The `.ate()` method wraps the entire do-calculus pipeline into a single call: specify the outcome, the treatment, and two contrast values, and pathmc returns an `EstimandResult` — a full posterior over the causal effect that already knows its outcome variable.
 
 ```{python}
 ate = model.ate("Y", "X", values=(0.0, 1.0))
-print(f"Causal ATE (do-operator): {ate.mean('Y'):.3f}  (true = {TRUE_EFFECT})")
-print(f"94% HDI:                  {ate.hdi('Y', prob=0.94)}")
+ate
 ```
+
+The result table shows the posterior mean, HDI, P(> 0), and draw count — no separate accessor calls needed.
 
 ```{python}
 # | label: fig-seeing-vs-doing-confounded
@@ -173,8 +173,8 @@ print(f"94% HDI:                  {ate.hdi('Y', prob=0.94)}")
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
-causal_val = ate.mean("Y")
-causal_hdi = ate.hdi("Y", prob=0.94)
+causal_val = ate.mean()
+causal_hdi = ate.hdi(prob=0.94)
 seeing_diff = y_see_hi - y_see_lo
 
 ax.errorbar(
@@ -228,11 +228,12 @@ Without confounding, the regression slope of Y on X — the "seeing" estimate �
 
 ```{python}
 seeing_slope = polyfit(X_rand, Y_rand, 1)[1]
+print(f"Seeing  (OLS slope): {seeing_slope:.3f}   True effect: {TRUE_EFFECT}")
+```
 
+```{python}
 ate_rand = model_rand.ate("Y", "X", values=(0.0, 1.0))
-print(f"Seeing  (OLS slope):   {seeing_slope:.3f}")
-print(f"Doing   (do-operator): {ate_rand.mean('Y'):.3f}")
-print(f"True effect:           {TRUE_EFFECT}")
+ate_rand
 ```
 
 ```{python}
@@ -242,8 +243,8 @@ print(f"True effect:           {TRUE_EFFECT}")
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.65))
 
-rand_val = ate_rand.mean("Y")
-rand_hdi = ate_rand.hdi("Y", prob=0.94)
+rand_val = ate_rand.mean()
+rand_hdi = ate_rand.hdi(prob=0.94)
 
 ax.errorbar(
     seeing_slope,
@@ -287,11 +288,18 @@ The `.ate()` method is shorthand for the two-`do()` contrast:
 
 ```{python}
 ate = model.ate("Y", "X", values=(0.0, 1.0))
-print(f"ATE of X on Y: {ate.mean('Y'):.3f}")
-print(f"94% HDI:       {ate.hdi('Y', prob=0.94)}")
+ate
 ```
 
-This is equivalent to the manual contrast:
+The `EstimandResult` also answers decision-oriented questions directly. `float()` collapses it to the posterior mean, `.prob()` reports the posterior probability that the effect clears a threshold, and `.summary()` returns a tidy one-row table:
+
+```{python}
+print(f"Posterior mean:  {float(ate):.3f}")
+print(f"P(ATE > 0):      {ate.prob('> 0'):.3f}")
+ate.summary()
+```
+
+This is equivalent to the manual contrast with `do()`. The manual contrast returns a `DoResult` (no privileged outcome), so its accessors still take a variable name:
 
 ```{python}
 r0 = model.do(set={"X": 0.0})
@@ -309,9 +317,9 @@ This answers: "what is the causal effect of `X` on `Y` *when `Z` is held at a pa
 cate_z_low = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": -1.0})
 cate_z_high = model.cate("Y", "X", values=(0.0, 1.0), condition={"Z": 2.0})
 
-print(f"CATE at Z = -1: {cate_z_low.mean('Y'):.3f}")
-print(f"CATE at Z =  2: {cate_z_high.mean('Y'):.3f}")
-print(f"ATE (no cond):  {ate.mean('Y'):.3f}")
+print(f"CATE at Z = -1: {cate_z_low.mean():.3f}")
+print(f"CATE at Z =  2: {cate_z_high.mean():.3f}")
+print(f"ATE (no cond):  {ate.mean():.3f}")
 ```
 
 In a linear model without interactions, the CATE equals the ATE regardless of the conditioning value — the `X → Y` coefficient does not depend on `Z`.
@@ -333,8 +341,7 @@ r_low = model.do(set={"X": -1.0})
 r_high = model.do(set={"X": 2.0})
 
 contrast = r_high - r_low
-print(f"Effect of X: -1 → 2: {contrast.mean('Y'):.3f}")
-print(f"94% HDI:             {contrast.hdi('Y', prob=0.94)}")
+contrast
 ```
 
 Since the model is linear, the effect should scale proportionally: a shift of 3 units in `X` should produce roughly `3 × 0.4 = 1.2` units of change in `Y`.
@@ -440,9 +447,9 @@ att = model_att.att("Y", "T", values=(0.0, 1.0), treated_value=1.0)
 atu = model_att.atu("Y", "T", values=(0.0, 1.0), untreated_value=0.0)
 
 print(f"{'Estimand':<12} {'Estimate':>10} {'True':>10}")
-print(f"{'ATE':<12} {ate_att.mean('Y'):>10.3f} {truth['true_ate']:>10.3f}")
-print(f"{'ATT':<12} {att.mean('Y'):>10.3f} {truth['true_att']:>10.3f}")
-print(f"{'ATU':<12} {atu.mean('Y'):>10.3f} {truth['true_atu']:>10.3f}")
+print(f"{'ATE':<12} {ate_att.mean():>10.3f} {truth['true_ate']:>10.3f}")
+print(f"{'ATT':<12} {att.mean():>10.3f} {truth['true_att']:>10.3f}")
+print(f"{'ATU':<12} {atu.mean():>10.3f} {truth['true_atu']:>10.3f}")
 ```
 
 ::: {.callout-tip}
@@ -467,7 +474,7 @@ Always pair `do()` with careful thinking about your causal assumptions. See [Cau
 - **Doing** is intervening: $P(Y \mid do(X = x))$. It simulates an experiment by severing all non-causal paths into $X$ [@pearl2016primer, §3.1].
 - **When confounding is present**, seeing ≠ doing. The scatter plot (@fig-seeing-doing-scatter) makes this visible: the raw regression slope conflates causation and confounding.
 - **When $X$ is randomized** (no confounders), seeing = doing. The association *is* the causal effect — this is why randomized experiments are the gold standard [@pearl2018why, Ch. 4].
-- **The do() API** provides `.ate()`, `.cate()`, `.att()`, and `.atu()` for common causal queries, plus raw `do()` and `DoResult` subtraction for custom contrasts.
+- **The do() API** provides `.ate()`, `.cate()`, `.att()`, and `.atu()` for common causal queries — each returning an `EstimandResult` whose `.mean()`, `.hdi()`, and `.prob()` default to the outcome — plus raw `do()` and `DoResult` subtraction for custom contrasts.
 - **Mean vs predictive propagation**: `kind="mean"` isolates parameter uncertainty (for causal effects); `kind="predictive"` adds residual noise (for outcome prediction).
 - **ATT and ATU** diverge from ATE when effect modification is present and treatment assignment is correlated with the modifier.
 

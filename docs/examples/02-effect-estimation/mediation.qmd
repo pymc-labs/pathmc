@@ -110,10 +110,12 @@ The `effect()` method computes path-specific effects by multiplying coefficient 
 
 ```{python}
 indirect = model.effect("X -> M -> Y")
-print(indirect)
+indirect
+```
 
+```{python}
 direct = model.effect("X -> Y")
-print(direct)
+direct
 ```
 
 ### Causal effect via do()
@@ -123,20 +125,19 @@ We can verify this with `do()`:
 
 ```{python}
 ate = model.ate("Y", "X", values=(0.0, 1.0))
-print(f"ATE on Y: {ate.mean('Y'):.3f}  (true: 0.700)")
-print(f"94% HDI:  {ate.hdi('Y', prob=0.94)}")
+ate
 ```
 
-Fixing the mediator blocks the indirect path, isolating the direct effect:
+The total effect should be close to the true value of 0.7 (direct 0.3 + indirect 0.4 via M). Fixing the mediator blocks the indirect path, isolating the direct effect:
 
 ```{python}
 r_d0 = model.do(set={"X": 0.0, "M": 0.0})
 r_d1 = model.do(set={"X": 1.0, "M": 0.0})
 direct_only = r_d1 - r_d0
-
-print(f"Direct-only X effect on Y: {direct_only.mean('Y'):.3f}  (true: 0.300)")
-print(f"94% HDI:                   {direct_only.hdi('Y', prob=0.94)}")
+direct_only
 ```
+
+The direct-only estimate should be close to 0.3 — the true direct effect, with the mediated path held fixed.
 
 ### Standardized effects
 
@@ -490,8 +491,8 @@ Despite the partial non-identifiability of individual paths, the `do()` operator
 
 ```{python}
 ate3 = model3.ate("Y", "X")
-print(f"ATE: {ate3.mean('Y'):.3f}  (true: 0.620)")
-print(f"HDI: [{ate3.hdi('Y')[0]:.3f}, {ate3.hdi('Y')[1]:.3f}]")
+print("True total effect: 0.620")
+ate3
 ```
 
 ## Summary

@@ -18,6 +18,13 @@ import pandas as pd
 import pytest
 
 import pathmc
+from pathmc.idata import posterior as _posterior
+
+
+def _n_posterior_samples(model) -> int:
+    """Number of posterior draws (chains * draws) for a fitted model."""
+    ds = _posterior(model._idata)
+    return ds.sizes["chain"] * ds.sizes["draw"]
 
 
 @pytest.fixture(scope="module")
@@ -112,3 +119,57 @@ class TestProb:
     def test_prob_always_false(self, fork_model):
         p = fork_model.prob("Y > 1000", set={"X": 0.0})
         assert p == 0.0
+
+
+class TestDrawCount:
+    """Guard the reported draw count against per-unit inflation.
+
+    For ``kind="mean"`` results the draws are a posterior over an expectation:
+    there must be exactly ``chains * draws`` of them (one per posterior sample,
+    averaged over units), never ``chains * draws * n_units``. This invariant
+    must survive the planned migration to an xarray-backed internal store.
+    """
+
+    def test_ate_draws_count_equals_posterior_samples(self, fork_model):
+        n_samples = _n_posterior_samples(fork_model)
+        ate = fork_model.ate("Y", "X")
+        assert ate.draws().shape == (n_samples,)
+
+    def test_ate_draws_independent_of_n_rows(self, fork_model):
+        n_samples = _n_posterior_samples(fork_model)
+        n_rows = len(fork_model._data)
+        ate = fork_model.ate("Y", "X")
+        # The bug returned one value per (draw, unit); guard against that.
+        assert ate.draws().shape[0] == n_samples
+        assert ate.draws().shape[0] != n_samples * n_rows
+
+    def test_cate_draws_count_equals_posterior_samples(self, fork_model):
+        n_samples = _n_posterior_samples(fork_model)
+        cate = fork_model.cate("Y", "X", condition={"Z": 1.0})
+        assert cate.draws().shape == (n_samples,)
+
+    def test_do_mean_draws_count_for_every_variable(self, fork_model):
+        n_samples = _n_posterior_samples(fork_model)
+        result = fork_model.do(set={"X": 1.0}, kind="mean")
+        for var in ("X", "Y", "Z"):
+            assert result.draws(var).shape == (n_samples,)
+
+    def test_estimand_repr_is_compact_one_liner(self, fork_model):
+        n_samples = _n_posterior_samples(fork_model)
+        ate = fork_model.ate("Y", "X")
+        r = repr(ate)
+        assert "\n" not in r
+        assert "ATE" in r
+        assert str(n_samples) not in r  # draws count lives in _repr_html_, not __repr__
+
+    def test_estimand_repr_html_reports_posterior_sample_count(self, fork_model):
+        n_samples = _n_posterior_samples(fork_model)
+        ate = fork_model.ate("Y", "X")
+        html = ate._repr_html_()
+        assert str(n_samples) in html
+        assert "Draws" in html
+
+    def test_doresult_repr_reports_posterior_sample_count(self, fork_model):
+        n_samples = _n_posterior_samples(fork_model)
+        result = fork_model.do(set={"X": 1.0}, kind="mean")
+        assert f"{n_samples} draws" in repr(result)
