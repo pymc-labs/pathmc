@@ -90,10 +90,18 @@ def mu_context_discrepancy(model, *, seed=0):
     )
 
     args = _perturbed_point(pm_model, seed)
-    alone = f_alone(*args)
-    joint = f_joint(*args)[:-1]  # drop the logp output
-    if not isinstance(alone, list):  # single mu -> pytensor returns a bare array
-        alone = [alone]
+
+    def _to_list(out):
+        # pytensor.function returns a list/tuple for a multi-output graph and a
+        # bare array for a single-variable output. Normalize to a list so the
+        # zip below pairs every mu with its node regardless of how many there
+        # are (a multi-outcome model has one mu_<y> per outcome).
+        if isinstance(out, (list, tuple)):
+            return list(out)
+        return [out]
+
+    alone = _to_list(f_alone(*args))
+    joint = _to_list(f_joint(*args))[:-1]  # drop the trailing logp output
 
     return {
         det.name: float(np.max(np.abs(np.asarray(a) - np.asarray(j))))

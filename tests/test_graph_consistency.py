@@ -80,11 +80,25 @@ def _panel_data(seed=1, ngeo=5, ntime=12):
     return pd.concat(frames, ignore_index=True)
 
 
+def _mediation_data(seed=42, n=200):
+    rng = np.random.default_rng(seed)
+    x = rng.normal(size=n)
+    m = 0.5 * x + rng.normal(scale=0.5, size=n)
+    y = 0.8 * m + 0.3 * x + rng.normal(scale=0.5, size=n)
+    return pd.DataFrame({"X": x, "M": m, "Y": y})
+
+
 _PANEL = {"unit": "geo", "time": "week"}
 
 
 def _m_xsec_gaussian():
     return pathmc.model("Y ~ X1 + X2", data=_xsec_data())
+
+
+def _m_xsec_mediation():
+    # Two-outcome SCM (mu_M and mu_Y) — exercises the harness's multi-`mu`
+    # path, which the single-outcome cells do not.
+    return pathmc.model("M ~ a*X\nY ~ b*M + c*X", data=_mediation_data())
 
 
 def _m_xsec_interaction():
@@ -134,6 +148,7 @@ def _m_panel_lag_partial():
 # (id, builder, expected_to_pass_today). Cells that fail are the #316 red tests.
 _CELLS = [
     ("xsec-gaussian", _m_xsec_gaussian, True),
+    ("xsec-mediation-2outcome", _m_xsec_mediation, True),
     ("xsec-interaction", _m_xsec_interaction, True),
     ("xsec-bernoulli", _m_xsec_bernoulli, True),
     ("xsec-poisson", _m_xsec_poisson, True),
