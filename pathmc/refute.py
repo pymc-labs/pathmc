@@ -73,6 +73,20 @@ _MIN_FOLD_SD = 1e-6
 _SD_OUTLIER_FACTOR = 10.0
 
 
+def _predictive_null_sd(null_sd: float, fold_sds: np.ndarray) -> float:
+    """Predictive-null SD used in the ``z_cal`` denominator.
+
+    ``sqrt(null_sd**2 + mean(s_j**2))``: the null-predictive spread convolved
+    with the *mean within-fold variance*. The mean of squares (not the square
+    of the mean) keeps ``z_cal`` coherent with the bootstrap ``p_tail``, which
+    draws ``Normal(0, s_j)`` noise and so has variance ``mean(s_j**2)``. Single
+    source of truth for both the inline ``z_cal`` calc and the
+    :attr:`PlaceboRefutationResult.sigma_pred` property.
+    """
+    mean_within_var = float(np.mean(np.asarray(fold_sds, dtype=float) ** 2))
+    return float(np.sqrt(null_sd**2 + mean_within_var))
+
+
 @dataclass(repr=False)
 class PlaceboRefutationResult(ResultReprMixin):
     """Result of a Bayesian placebo-treatment refutation.
@@ -216,8 +230,7 @@ class PlaceboRefutationResult(ResultReprMixin):
         is coherent with the bootstrap ``p_tail``, which draws
         ``Normal(0, s_j)`` noise and thus has variance ``mean(s_j**2)``.
         """
-        mean_within_var = float(np.mean(np.asarray(self.fold_sds, dtype=float) ** 2))
-        return float(np.sqrt(self.null_sd**2 + mean_within_var))
+        return _predictive_null_sd(self.null_sd, self.fold_sds)
 
     @property
     def passes_placebo(self) -> bool:
@@ -236,6 +249,13 @@ class PlaceboRefutationResult(ResultReprMixin):
             :attr:`mu_null` (the bias magnitude): a ``mu_null`` that is
             tiny relative to the observed effect is practically benign even
             when its HDI excludes zero.
+
+            The opposite failure mode also exists at small ``n_permutations``:
+            with few folds the prior dominates ``tau_het`` and inflates the
+            ``mu_null`` HDI, so it almost always straddles zero — a genuinely
+            biased pipeline can then be masked as a PASS. Use 8+ folds (see
+            :func:`refute_placebo`) before trusting a PASS as evidence the
+            pipeline is unbiased.
         """
         lo, hi = self.mu_null_hdi
         return bool(lo <= 0.0 <= hi)
@@ -804,8 +824,7 @@ def refute_placebo(
     # mu_null / tau_het parameter posteriors; kept distinct on purpose.
     null_mean = float(np.mean(theta_new_draws))
     null_sd = float(np.std(theta_new_draws))
-    mean_within_var = float(np.mean(fold_sds**2))
-    sigma_pred = float(np.sqrt(null_sd**2 + mean_within_var))
+    sigma_pred = _predictive_null_sd(null_sd, fold_sds)
     observed_mean = float(np.mean(observed_draws))
     z_cal = (observed_mean - null_mean) / sigma_pred if sigma_pred > 0.0 else 0.0
 
