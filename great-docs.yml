@@ -83,12 +83,12 @@ reference:
   - title: Modeling
     desc: Build, fit, and query Bayesian path models.
     contents:
-      - model.model
-      - model.PathModel
+      - _model.model
+      - _model.PathModel
   - title: Simulation
     desc: Time-forward and counterfactual simulation helpers.
     contents:
-      - model.simulate
+      - _model.simulate
   - title: DAG falsification
     desc: Whole-graph validation via a permutation-based test.
     contents:
