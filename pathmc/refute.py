@@ -475,7 +475,8 @@ def _permute_and_refit(
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message=".*outside.*observed data range.*")
         placebo_ate = clone.ate(outcome, treatment, values=values)
-    draws = np.asarray(placebo_ate.draws(outcome), dtype=float)
+    # ate() returns an EstimandResult whose default accessor is the outcome.
+    draws = np.asarray(placebo_ate.draws(), dtype=float)
     return float(np.mean(draws)), float(np.std(draws))
 
 
@@ -750,7 +751,7 @@ def refute_placebo(
     rng = np.random.default_rng(random_seed)
 
     observed = model.ate(outcome, treatment, values=values)
-    observed_draws = np.asarray(observed.draws(outcome), dtype=float)
+    observed_draws = np.asarray(observed.draws(), dtype=float)
     if observed_draws.size == 0:
         raise RuntimeError(
             "The fitted posterior has no draws for the ATE. Re-fit the model "
