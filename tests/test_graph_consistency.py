@@ -143,6 +143,12 @@ def _m_panel_lag_partial():
     )
 
 
+def _m_panel_lag_no_intercept():
+    return pathmc.model(
+        "sales ~ 0 + lag(spend)", data=_panel_data(), panel=_PANEL, pooling="partial"
+    )
+
+
 # (id, builder). All cells must pass since issue #316 is fixed.
 _CELLS = [
     ("xsec-gaussian", _m_xsec_gaussian),
@@ -155,6 +161,7 @@ _CELLS = [
     ("panel-lag(y)-complete", _m_panel_lag_endogenous),
     ("panel-lag(x)-complete", _m_panel_lag_complete),
     ("panel-lag(x)-partial", _m_panel_lag_partial),
+    ("panel-lag(x)-no-intercept", _m_panel_lag_no_intercept),
 ]
 
 
