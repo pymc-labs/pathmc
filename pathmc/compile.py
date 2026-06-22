@@ -1392,8 +1392,35 @@ def _compile_scan_panel(
                 f"carry_innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
 
+        # Pre-compute lagged exogenous sequences from pm.Data nodes.
+        #
+        # PyTensor's scan-merge optimizer has a bug that fires when a sit_sot
+        # carry update is trivially ``inner_out = current_seq_slice`` (i.e., the
+        # carry merely echoes the input sequence one step behind). That structure
+        # appeared in the original exog-lag carry: ``out[i] = exog_t[base]``.
+        # When two scan computations sharing the same inner function are compiled
+        # together (as happens when ``pytensor.function`` receives both
+        # ``mu_valued`` and ``logp``), the optimizer merges the two scans but
+        # incorrectly permutes the carry channels, producing a wrong logp graph
+        # that ``pm.sample`` then optimizes — causing the zeroed-out lag-effect
+        # posteriors reported in issue #316.
+        #
+        # Fix: build the lagged tensor directly from the existing pm.Data nodes
+        # (so pm.set_data / do() interventions still propagate automatically)
+        # and pass it as a plain scan *sequence* rather than carry state.  This
+        # eliminates the trivial-echo carry that triggered the merge bug.
+        lagged_exog_sequences: dict[str, Any] = {}
+        for base in exog_lag_bases:
+            init_row = pt.as_tensor_variable(
+                init_exog_lag[base][None, :]
+            )  # (1, n_units)
+            lagged_exog_sequences[base] = pt.concatenate(
+                [init_row, exog_data_nodes[base][:-1]], axis=0
+            )  # (n_times, n_units)
+
         sequences = (
             [exog_data_nodes[k] for k in exog_keys]
+            + [lagged_exog_sequences[k] for k in exog_lag_bases]
             + [observed_carry_nodes[k] for k in stochastic_carry_vars]
             + [latent_innovation_nodes[k] for k in stochastic_latent]
             + [carry_innovation_nodes[k] for k in stochastic_carry_vars]
@@ -1414,7 +1441,6 @@ def _compile_scan_panel(
         outputs_info = (
             [_init_carry(init_endo[k]) for k in endo_keys]
             + [_init_carry(init_adstock[k]) for k in adstock_keys]
-            + [_init_carry(init_exog_lag[k]) for k in exog_lag_bases]
             + [None for _ in stochastic_carry_vars]
         )
 
@@ -1447,12 +1473,12 @@ def _compile_scan_panel(
 
         n_seq = len(sequences)
         n_exog_seq = len(exog_keys)
+        n_exog_lag_seq = len(exog_lag_bases)
         n_obs_carry_seq = len(stochastic_carry_vars)
         n_latent_innov_seq = len(stochastic_latent)
         n_endo = len(endo_keys)
         n_adstock = len(adstock_keys)
-        n_exog_lag = len(exog_lag_bases)
-        n_carry = n_endo + n_adstock + n_exog_lag
+        n_carry = n_endo + n_adstock
 
         def step_fn(*args: Any) -> list[Any]:
             seq_args = args[:n_seq]
@@ -1460,25 +1486,32 @@ def _compile_scan_panel(
             ns_args = args[n_seq + n_carry :]
 
             exog_t = {k: seq_args[i] for i, k in enumerate(exog_keys)}
+            lagged_exog_t = {
+                k: seq_args[n_exog_seq + i] for i, k in enumerate(exog_lag_bases)
+            }
             obs_carry_t = {
-                k: seq_args[n_exog_seq + i] for i, k in enumerate(stochastic_carry_vars)
+                k: seq_args[n_exog_seq + n_exog_lag_seq + i]
+                for i, k in enumerate(stochastic_carry_vars)
             }
             latent_innov_t = {
-                k: seq_args[n_exog_seq + n_obs_carry_seq + i]
+                k: seq_args[n_exog_seq + n_exog_lag_seq + n_obs_carry_seq + i]
                 for i, k in enumerate(stochastic_latent)
             }
             carry_innov_t = {
-                k: seq_args[n_exog_seq + n_obs_carry_seq + n_latent_innov_seq + i]
+                k: seq_args[
+                    n_exog_seq
+                    + n_exog_lag_seq
+                    + n_obs_carry_seq
+                    + n_latent_innov_seq
+                    + i
+                ]
                 for i, k in enumerate(stochastic_carry_vars)
             }
             prev_endo = {k: carry_args[i] for i, k in enumerate(endo_keys)}
             prev_adstock_state = {
                 k: carry_args[n_endo + i] for i, k in enumerate(adstock_keys)
             }
-            prev_exog = {
-                k: carry_args[n_endo + n_adstock + i]
-                for i, k in enumerate(exog_lag_bases)
-            }
+            prev_exog = lagged_exog_t
 
             ns_map: dict[str, Any] = {
                 name: ns_args[i] for i, name in enumerate(non_seq_names)
@@ -1539,7 +1572,6 @@ def _compile_scan_panel(
 
             out = [new_endo[k] for k in endo_keys]
             out += [new_adstock[k] for k in adstock_keys]
-            out += [exog_t.get(k, pt.zeros(n_units)) for k in exog_lag_bases]
             out += [carry_mu[k] for k in stochastic_carry_vars]
             return out
 
