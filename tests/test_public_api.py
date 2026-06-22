@@ -49,13 +49,6 @@ def test_public_submodule_exports_are_intentional() -> None:
         "pathmc.identify": ["ImplicationTestResult"],
         "pathmc.idata": [],
         "pathmc.introspect": [],
-        "pathmc.model": [
-            "DoResult",
-            "EstimandResult",
-            "PathModel",
-            "model",
-            "simulate",
-        ],
         "pathmc.panel": ["PanelInfo"],
         "pathmc.parse": [],
         "pathmc.priors": [],
@@ -77,3 +70,16 @@ def test_public_submodule_exports_are_intentional() -> None:
 def test_top_level_public_symbols_import() -> None:
     for name in pathmc.__all__:
         assert getattr(pathmc, name) is not None
+
+
+def test_pathmc_model_is_the_callable_not_a_submodule() -> None:
+    # Regression for #329: `pathmc.model` must unambiguously resolve to the
+    # `model()` function, never to a submodule, regardless of import order.
+    # The implementation lives in the private `pathmc._model` module so the
+    # public `model` name cannot be shadowed by a same-named submodule.
+    assert callable(pathmc.model)
+
+    # Importing the implementation module directly must not clobber the
+    # public attribute (the failure mode the old `pathmc/model.py` had).
+    import_module("pathmc._model")
+    assert callable(pathmc.model)

@@ -23,7 +23,7 @@ import pytest
 from pymc_extras.prior import Prior
 
 import pathmc
-from pathmc.model import model
+from pathmc._model import model
 from pathmc.parse import parse_spec
 from pathmc.priors import (
     _ensure_dims,
