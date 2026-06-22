@@ -1466,12 +1466,17 @@ def _compile_scan_panel(
         # Non-sequences: all parameters
         non_seq_list: list[Any] = []
         non_seq_names: list[str] = []
+        beta_component_names: dict[str, list[str]] = {}
         non_seq_list.append(use_observed_carry)
         non_seq_names.append("_use_observed_carry")
         for var in endo_keys:
             if beta_rvs[var] is not None:
-                non_seq_list.append(beta_rvs[var])
-                non_seq_names.append(f"beta_{var}")
+                beta_component_names[var] = []
+                for idx in range(len(get_free_predictor_columns(reg_by_lhs[var]))):
+                    component_name = f"beta_{var}__{idx}"
+                    non_seq_list.append(beta_rvs[var][idx])
+                    non_seq_names.append(component_name)
+                    beta_component_names[var].append(component_name)
         for name, rv in tparam_rvs.items():
             non_seq_list.append(rv)
             non_seq_names.append(name)
@@ -1542,7 +1547,12 @@ def _compile_scan_panel(
             carry_mu: dict[str, Any] = {}
 
             for var in endo_keys:
-                beta = ns_map.get(f"beta_{var}")
+                beta_names = beta_component_names.get(var)
+                beta = (
+                    [ns_map[name] for name in beta_names]
+                    if beta_names is not None
+                    else None
+                )
 
                 resolver = _make_scan_resolver(
                     exog_t,
