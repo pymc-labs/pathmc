@@ -1404,6 +1404,9 @@ def _compile_scan_panel(
         # incorrectly permutes the carry channels, producing a wrong logp graph
         # that ``pm.sample`` then optimizes — causing the zeroed-out lag-effect
         # posteriors reported in issue #316.
+        # Upstream bug: https://github.com/pymc-devs/pytensor/issues/2252
+        # TODO: once pytensor/issues/2252 is fixed and released, revert to a
+        # scan carry here and remove this workaround (see pathmc issue #333).
         #
         # Fix: build the lagged tensor directly from the existing pm.Data nodes
         # (so pm.set_data / do() interventions still propagate automatically)
