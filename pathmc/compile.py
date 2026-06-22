@@ -1404,6 +1404,9 @@ def _compile_scan_panel(
         # incorrectly permutes the carry channels, producing a wrong logp graph
         # that ``pm.sample`` then optimizes — causing the zeroed-out lag-effect
         # posteriors reported in issue #316.
+        # Upstream bug: https://github.com/pymc-devs/pytensor/issues/2252
+        # TODO: once pytensor/issues/2252 is fixed and released, revert to a
+        # scan carry here and remove this workaround (see pathmc issue #333).
         #
         # Fix: build the lagged tensor directly from the existing pm.Data nodes
         # (so pm.set_data / do() interventions still propagate automatically)
@@ -1414,9 +1417,25 @@ def _compile_scan_panel(
             init_row = pt.as_tensor_variable(
                 init_exog_lag[base][None, :]
             )  # (1, n_units)
-            lagged_exog_sequences[base] = pt.concatenate(
-                [init_row, exog_data_nodes[base][:-1]], axis=0
-            )  # (n_times, n_units)
+            if base in exog_data_nodes:
+                lagged_exog_sequences[base] = pt.concatenate(
+                    [init_row, exog_data_nodes[base][:-1]], axis=0
+                )  # (n_times, n_units)
+            else:
+                # No contemporaneous exog data node for this lag base — e.g. a
+                # ``lag(x)`` term whose base column is absent from the data (the
+                # same case ``init_exog_lag`` handles with its zeros/lag1
+                # fallback above).  ``exog_lag_bases`` filters only on
+                # ``base not in endo_set`` while ``exog_data_nodes`` additionally
+                # requires ``base in data_sorted.columns``, so the two key sets
+                # can diverge.  The old carry path resolved such bases to the
+                # init row at t=0 and zeros for t>=1 (via
+                # ``exog_t.get(k, pt.zeros(n_units))``); reproduce that here
+                # rather than raising KeyError on a direct index.
+                zeros_tail = pt.zeros((n_times - 1, n_units))
+                lagged_exog_sequences[base] = pt.concatenate(
+                    [init_row, zeros_tail], axis=0
+                )  # (n_times, n_units)
 
         sequences = (
             [exog_data_nodes[k] for k in exog_keys]
