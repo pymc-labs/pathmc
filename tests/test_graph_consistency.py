@@ -57,9 +57,7 @@ def _xsec_data(seed=1, n=150):
     y = 0.5 * x1 + 0.3 * x2 + rng.normal(scale=0.5, size=n)
     counts = rng.poisson(np.exp(0.2 * x1), size=n)
     binary = (rng.uniform(size=n) < 1.0 / (1.0 + np.exp(-(0.5 * x1)))).astype(int)
-    return pd.DataFrame(
-        {"X1": x1, "X2": x2, "Y": y, "Ycount": counts, "Ybin": binary}
-    )
+    return pd.DataFrame({"X1": x1, "X2": x2, "Y": y, "Ycount": counts, "Ybin": binary})
 
 
 def _panel_data(seed=1, ngeo=5, ntime=12):
@@ -71,15 +69,13 @@ def _panel_data(seed=1, ngeo=5, ntime=12):
         sales = np.ones(ntime) * 20
         sales[1:] = 10 + spend[:-1] + rng.normal(0, 1, ntime - 1)
         frames.append(
-            pd.DataFrame(
-                {
-                    "spend": spend,
-                    "x2": x2,
-                    "sales": sales,
-                    "week": np.arange(ntime),
-                    "geo": g,
-                }
-            )
+            pd.DataFrame({
+                "spend": spend,
+                "x2": x2,
+                "sales": sales,
+                "week": np.arange(ntime),
+                "geo": g,
+            })
         )
     return pd.concat(frames, ignore_index=True)
 
@@ -96,9 +92,7 @@ def _m_xsec_interaction():
 
 
 def _m_xsec_bernoulli():
-    return pathmc.model(
-        "Ybin ~ X1", data=_xsec_data(), families={"Ybin": "bernoulli"}
-    )
+    return pathmc.model("Ybin ~ X1", data=_xsec_data(), families={"Ybin": "bernoulli"})
 
 
 def _m_xsec_poisson():

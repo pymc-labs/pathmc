@@ -157,7 +157,9 @@ def gaussian_loglike(y_obs, mu, sigma):
     y_obs = np.asarray(y_obs, dtype=float)
     mu = np.asarray(mu, dtype=float)
     return float(
-        np.sum(-0.5 * np.log(2.0 * np.pi * sigma**2) - 0.5 * ((y_obs - mu) / sigma) ** 2)
+        np.sum(
+            -0.5 * np.log(2.0 * np.pi * sigma**2) - 0.5 * ((y_obs - mu) / sigma) ** 2
+        )
     )
 
 
@@ -192,9 +194,10 @@ def gaussian_likelihood_oracle_gap(model, *, seed=0):
     # Evaluate the *forward* mu and sigma in value space over all value vars,
     # so the function accepts the same point dict the logp does.
     value_vars = pm_model.value_vars
-    mu_node, sigma_node = pm_model.replace_rvs_by_values(
-        [pm_model[f"mu_{var}"], pm_model[f"sigma_{var}"]]
-    )
+    mu_node, sigma_node = pm_model.replace_rvs_by_values([
+        pm_model[f"mu_{var}"],
+        pm_model[f"sigma_{var}"],
+    ])
     forward = pytensor.function(
         value_vars, [mu_node, sigma_node], on_unused_input="ignore"
     )
