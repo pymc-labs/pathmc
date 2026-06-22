@@ -23,9 +23,10 @@ Implements, from #326:
   * Tier 1 — ``gaussian_likelihood_oracle_gap`` (hand logp oracle)
   * Tier 2 — ``assert_logp_and_grad_finite``
 
-The ``lag(x)`` panel cells are the **red test for #316**: they are marked
-``xfail(strict=True)`` so the suite stays green today and will flip to a hard
-failure (alerting us to un-mark them) the moment #316 is fixed.
+All ``lag(x)`` panel cells were the **red tests for #316** (marked
+``xfail(strict=True)`` in the prior PR).  The fix in the follow-up commit
+eliminates the exogenous-lag scan carry that triggered PyTensor's scan-merge
+optimizer bug, so all cells now pass unconditionally.
 """
 
 from __future__ import annotations
@@ -35,13 +36,10 @@ import pandas as pd
 import pytest
 
 import pathmc
-
 from _consistency import (
     assert_model_consistent,
     gaussian_likelihood_oracle_gap,
 )
-
-ISSUE_316 = "https://github.com/pymc-labs/pathmc/issues/316"
 
 
 # ---------------------------------------------------------------------------
@@ -145,29 +143,24 @@ def _m_panel_lag_partial():
     )
 
 
-# (id, builder, expected_to_pass_today). Cells that fail are the #316 red tests.
+# (id, builder). All cells must pass since issue #316 is fixed.
 _CELLS = [
-    ("xsec-gaussian", _m_xsec_gaussian, True),
-    ("xsec-mediation-2outcome", _m_xsec_mediation, True),
-    ("xsec-interaction", _m_xsec_interaction, True),
-    ("xsec-bernoulli", _m_xsec_bernoulli, True),
-    ("xsec-poisson", _m_xsec_poisson, True),
-    ("panel-plain-complete", _m_panel_plain_complete, True),
-    ("panel-plain-partial", _m_panel_plain_partial, True),
-    ("panel-lag(y)-complete", _m_panel_lag_endogenous, True),
-    ("panel-lag(x)-complete", _m_panel_lag_complete, False),
-    ("panel-lag(x)-partial", _m_panel_lag_partial, False),
+    ("xsec-gaussian", _m_xsec_gaussian),
+    ("xsec-mediation-2outcome", _m_xsec_mediation),
+    ("xsec-interaction", _m_xsec_interaction),
+    ("xsec-bernoulli", _m_xsec_bernoulli),
+    ("xsec-poisson", _m_xsec_poisson),
+    ("panel-plain-complete", _m_panel_plain_complete),
+    ("panel-plain-partial", _m_panel_plain_partial),
+    ("panel-lag(y)-complete", _m_panel_lag_endogenous),
+    ("panel-lag(x)-complete", _m_panel_lag_complete),
+    ("panel-lag(x)-partial", _m_panel_lag_partial),
 ]
 
 
 def _param(cell):
-    cell_id, builder, passes = cell
-    marks = (
-        ()
-        if passes
-        else (pytest.mark.xfail(strict=True, reason=f"issue #316 — {ISSUE_316}"),)
-    )
-    return pytest.param(builder, id=cell_id, marks=marks)
+    cell_id, builder = cell
+    return pytest.param(builder, id=cell_id)
 
 
 _ALL = [_param(c) for c in _CELLS]

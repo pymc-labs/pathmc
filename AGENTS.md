@@ -2,9 +2,11 @@
 
 `pathmc` is a Python package for Bayesian path analysis (observed-variable SEM). It compiles a lavaan-inspired formula DSL into PyMC models, provides introspection, and supports a `do()` operator for interventional simulation.
 
+Remember, when running into bugs or complex issues, it is not impossible we are finding bugs in external packages. In which case, flag potential issues to the user, suggesting the formation of an issue in the relevant upstream repo.
+
 ## Workflow
 
-1. Make your changes. Do not modify test files — if a test seems wrong, flag it for human review.
+1. Make your changes. Do not modify test files — if a test seems wrong, flag it for human review. Exceptions are for adding new tests or removing obsolete ones, but never for changing the expected behavior of existing tests.
 2. Run the relevant gate tests, e.g. `uv run pytest tests/test_<module>.py -x -v`. `make test-fast` skips MCMC sampling; `make test` runs everything.
 3. Run `make lint` before considering work done or committing. It runs `prek run --all-files` (ruff, ruff-format, mypy, YAML/TOML, license checks).
 
