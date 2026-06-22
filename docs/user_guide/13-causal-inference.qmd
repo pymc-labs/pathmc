@@ -303,11 +303,11 @@ result.plot()  # observed vs. placebo effect (kind="comparison")
 result.plot(kind="null")  # placebo null predictive vs. observed effect
 ```
 
-Like dowhy's refuters, `result.summary()` reports the originally `estimated_effect`, the `new_effect` under placebo (the pooled placebo bias, which should be near zero), and a `p value`. The default `plot()` shows those two effects side by side with their credible intervals against a zero reference; `plot(kind="null")` shows the full placebo null-predictive distribution.
+Like DoWhy's refuters, `result.summary()` reports the originally `estimated_effect`, the `new_effect` under placebo (the pooled placebo bias, which should be near zero), and a `p value`. The default `plot()` shows those two effects side by side with their credible intervals against a zero reference; `plot(kind="null")` shows the full placebo null-predictive distribution.
 
-Each permutation triggers a full MCMC re-fit, so the cost scales with `n_permutations`. Four folds is a floor: the between-fold volatility `tau_het` is a variance component estimated from only a few points, so it (and therefore both verdicts) stays prior-dominated until roughly eight or more folds — bump `n_permutations` when you need a data-driven null spread. Pass `sample_kwargs={...}` to control the sampler and `random_seed=` for reproducibility. Panel models are not yet supported.
+Each permutation triggers a full MCMC re-fit, so the cost scales with `n_permutations`. Four permutations is a floor: the between-fold volatility `tau_het` is a variance component estimated from only a few points, so it (and therefore both verdicts) stays prior-dominated until roughly eight or more folds — bump `n_permutations` when you need a data-driven null spread. Pass `sample_kwargs={...}` to control the sampler and `random_seed=` for reproducibility. Panel models are not yet supported.
 
-One asymmetry is worth knowing for client work: the calibration compares a *full* predictive null distribution against the real effect reduced to its posterior *mean* (`z_cal` and `p_tail` use `observed_ate`, not its spread, faithful to the source paper). A wide-but-large ATE therefore survives the null on its mean alone — inspect `observed_ate_hdi` alongside the verdict.
+Note: one asymmetry in the calibration is the comparison of a *full* predictive null distribution against the real effect reduced to its posterior *mean* (`z_cal` and `p_tail` use `observed_ate`, not its spread, faithful to the source paper). A wide-but-large ATE therefore survives the null on its mean alone — inspect `observed_ate_hdi` alongside the verdict.
 
 ## Causal assumptions and limitations
 

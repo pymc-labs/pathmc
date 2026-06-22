@@ -108,6 +108,7 @@ reference:
       - identify.ImplicationTestResult
       - sensitivity.SensitivityResult
       - falsify.FalsificationResult
+      - refute.PlaceboRefutationResult
 
 # Site appearance ------------------------------------------------------------
 logo:
