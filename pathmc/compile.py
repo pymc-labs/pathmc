@@ -362,6 +362,7 @@ def compile_to_pymc(
         graph_info = build_graph(spec, latent=latent)
 
     _validate_residual_cov_families(spec, families)
+    _warn_partial_pooling_intercept(spec, pooling)
 
     if panel_info is not None and _has_temporal_deps(spec, graph_info):
         _validate_scan_non_gaussian_intermediaries(spec, families, latent)
@@ -993,6 +994,61 @@ def _validate_residual_cov_families(spec: Spec, families: dict[str, str]) -> Non
                 )
 
 
+def _warn_partial_pooling_intercept(spec: Spec, pooling: str | dict | None) -> None:
+    """Warn if partial pooling is combined with formula intercepts.
+
+    Partial pooling models include both a fixed intercept (beta[Intercept])
+    and a hierarchical mean (mu_alpha). Only their sum is identified by the
+    data, creating a non-identifiable parameterization that causes divergences.
+
+    Raises
+    ------
+    UserWarning
+        When any equation has an intercept and pooling requests random intercepts.
+    """
+    import warnings
+
+    if not _has_random_intercepts(pooling):
+        return
+
+    equations_with_intercepts = [
+        reg.lhs for reg in spec.regressions if reg.has_intercept
+    ]
+
+    if not equations_with_intercepts:
+        return
+
+    var_list = ", ".join(f"'{v}'" for v in equations_with_intercepts)
+    formulas = "\n".join(
+        f"  {reg.lhs} ~ 0 + {' + '.join(t.variable for t in reg.terms)}"
+        for reg in spec.regressions
+        if reg.has_intercept
+    )
+
+    warnings.warn(
+        f"\n{'=' * 78}\n"
+        f"PARTIAL POOLING WITH REDUNDANT INTERCEPT\n"
+        f"{'=' * 78}\n"
+        f"\n"
+        f"Your model uses pooling='partial' (random intercepts) but the following\n"
+        f"equations include a formula intercept: {var_list}.\n"
+        f"\n"
+        f"This creates a NON-IDENTIFIABLE parameterization:\n"
+        f"  • beta[Intercept] (fixed global intercept)\n"
+        f"  • mu_alpha (mean of random intercepts)\n"
+        f"Only their sum is identified by the data. This causes sampling divergences.\n"
+        f"\n"
+        f"SOLUTION: Remove the intercept from your formula(s):\n"
+        f"\n"
+        f"{formulas}\n"
+        f"\n"
+        f"The hierarchical mean mu_alpha will serve as the effective intercept.\n"
+        f"{'=' * 78}\n",
+        UserWarning,
+        stacklevel=4,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Temporal dependency detection
 # ---------------------------------------------------------------------------
@@ -1185,6 +1241,8 @@ def _compile_scan_panel(
 
     if priors is None:
         priors = default_priors(spec, families, pooling, latent)
+
+    _warn_partial_pooling_intercept(spec, pooling)
 
     reg_by_lhs = {r.lhs: r for r in spec.regressions}
     transform_map = _build_transform_map(spec)
