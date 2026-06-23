@@ -1,0 +1,214 @@
+---
+title: "Causal Discovery"
+guide-section: "Concepts"
+---
+
+Most of pathmc assumes you already have a DAG: you write the structural equations, and pathmc estimates, identifies, and falsifies against that graph.
+Causal **discovery** flips the starting point — it learns *candidate* structure from data, so you can use it when the graph is unknown or only partially known.
+The discovery front end is `TBFPC`; the resulting graph feeds into `dag_to_spec()` and `BuildModelFromDAG`, which turn it into a model you can fit and intervene on with the rest of pathmc. See the API Reference for the full signatures of each.
+
+::: {.callout-important}
+## Discovery is not a substitute for domain knowledge
+
+Structure learning recovers an *equivalence class* of graphs that are statistically indistinguishable, not a single ground truth. Treat its output as a set of hypotheses to combine with what you already know — forbid edges that are impossible by domain assumption, and keep the conclusions you draw honest about the structural uncertainty that remains. `TBFPC` is **experimental** and emits a warning on construction; its API may change.
+:::
+
+## Discovery returns an equivalence class, not one DAG
+
+A key idea: data alone usually cannot orient every edge.
+The chain `A → B → C`, the other chain `A ← B ← C`, and the fork `A ← B → C` all imply exactly the same conditional independencies, so no test on observational data can tell them apart — they form a *Markov equivalence class*.
+Discovery therefore returns a **CPDAG** (completed partially directed acyclic graph): some edges are oriented (they point the same way in every member of the class), and the rest are left undirected (they may point either way).
+pathmc preserves this distinction end to end rather than collapsing to one arbitrary DAG, because downstream model-averaging needs the whole set.
+
+## Learning structure with `TBFPC`
+
+`TBFPC` (Target-first Bayes Factor PC) is a target-oriented variant of the PC algorithm.
+It first tests which candidate drivers connect to your outcome, then builds the skeleton among the drivers, using a Bayes-factor (ΔBIC) test for conditional independence at each step.
+Standardizing the columns first (zero mean, unit variance) keeps that test well scaled.
+
+```python
+import numpy as np
+import pandas as pd
+from pathmc import TBFPC
+
+rng = np.random.default_rng(7)
+n = 2000
+C = rng.gamma(2, 1, n)
+A = 0.7 * C + rng.gamma(2, 1, n)
+D = 0.5 * C + rng.gamma(2, 1, n)
+B = 0.8 * A + rng.gamma(2, 1, n)
+Y = 0.9 * B + 0.6 * D + 0.7 * C + rng.gamma(2, 1, n)
+
+df = pd.DataFrame({"A": A, "B": B, "C": C, "D": D, "Y": Y})
+df = (df - df.mean()) / df.std()  # recommended scaling
+
+model = TBFPC(target="Y", target_edge_rule="fullS")
+model.fit(df, drivers=["A", "B", "C", "D"])
+
+model.get_directed_edges()  # e.g. [("B", "Y"), ("C", "Y"), ("D", "Y")]
+model.get_undirected_edges()  # e.g. [("A", "B"), ("A", "C"), ("C", "D")]
+print(model.summary())
+```
+
+The fitted model exposes its result several ways:
+
+| Method | Returns |
+|---|---|
+| `get_directed_edges()` | Oriented edges `(u, v)`, sorted |
+| `get_undirected_edges()` | Unoriented adjacencies `(u, v)`, sorted |
+| `summary()` | A text report of directed/undirected edges and the number of CI tests run |
+| `to_digraph()` | The CPDAG as a DOT string (undirected edges drawn dashed; the target highlighted) |
+| `get_test_results(x, y)` | The per-conditioning-set ΔBIC diagnostics (`bic0`, `bic1`, `delta_bic`, `logBF10`, `BF10`, `independent`) for a pair |
+
+### Choosing how driver → target edges are kept
+
+`target_edge_rule` controls how aggressively a candidate driver is connected to the target:
+
+| Rule | Keeps `X → Y` when … |
+|---|---|
+| `"any"` (default) | … no conditioning set makes `X ⟂ Y` |
+| `"conservative"` | … *at least one* conditioning set shows dependence |
+| `"fullS"` | … `X` and `Y` are dependent given the **full** set of other drivers |
+
+`bf_thresh` sets the Bayes-factor threshold for declaring independence (default `1.0`, a neutral prior-odds cut).
+
+### Encoding background knowledge
+
+You will almost always know something the data cannot tell you — that an edge is impossible (reverse causation, temporal order) or that one is certain.
+`forbidden_edges` removes a pair from consideration entirely (in both directions), and `required_edges` forces a directed edge to appear.
+
+```python
+model = TBFPC(
+    target="Y",
+    forbidden_edges=[("A", "C")],  # A and C are never adjacent
+    required_edges=[("B", "Y")],  # B -> Y is known and forced
+)
+model.fit(df, drivers=["A", "B", "C", "D"])
+```
+
+This is the same workflow analysts use when co-owning a set of equally plausible DAGs with a client and cutting impossible edges by assumption.
+
+## From a CPDAG to candidate DAGs
+
+To turn the equivalence class into concrete graphs you can model, enumerate the acyclic orientations of the undirected edges with `get_all_cdags_from_cpdag()`.
+Each returned DOT string is a fully oriented DAG; orientations that would create a cycle are dropped.
+
+```python
+candidate_dags = model.get_all_cdags_from_cpdag()
+len(candidate_dags)  # number of acyclic completions of the CPDAG
+```
+
+Fitting *each* candidate and pooling the effect posteriors is how structural uncertainty propagates into the final estimate (Bayesian model averaging over structure) — the natural next step once you have this set.
+
+To check whether two graphs are statistically indistinguishable — for example, to confirm a hand-drawn DAG lies in the discovered class — use `same_markov_equivalence_class()`.
+It accepts DOT strings, `graphviz` objects (anything with a `.source` attribute), or `networkx.DiGraph` objects, and compares them by skeleton and v-structures.
+
+```python
+from pathmc import same_markov_equivalence_class
+
+# A chain and a fork share a skeleton and have no v-structure: equivalent.
+same_markov_equivalence_class(
+    "digraph { A -> B; B -> C; }", "digraph { B -> A; B -> C; }"
+)  # True
+
+# A collider (A -> B <- C) is distinguishable: not equivalent.
+same_markov_equivalence_class(
+    "digraph { A -> B; B -> C; }", "digraph { A -> B; C -> B; }"
+)  # False
+```
+
+## Turning a DAG into a model
+
+Once you have settled on a DAG — whether discovered, drawn by hand, or chosen from the candidate set — two helpers build a model from it.
+
+### `dag_to_spec()` — DAG to the pathmc DSL
+
+`dag_to_spec()` translates a DAG (a DOT string, an `"A->B"` edge list, or a `networkx.DiGraph`) into a pathmc [DSL spec](model-specification.qmd): every node with parents becomes one regression equation, root nodes appear only on the right-hand side.
+
+```python
+from pathmc import dag_to_spec, model
+
+spec = dag_to_spec("digraph { X -> M; M -> Y; X -> Y; }")
+print(spec)
+# M ~ X
+# Y ~ M + X
+
+m = model(spec, data=df)  # a normal PathModel — fit(), do(), ate(), falsify(), ...
+```
+
+Because the result is just a spec string, you can edit it before building — add a label, a transform, or a family — which is the bridge to everything else pathmc offers.
+
+### `BuildModelFromDAG` — two styles
+
+`BuildModelFromDAG` wraps that translation and offers two build styles, trading directness for flexibility.
+
+| `style` | What you get | When to use it |
+|---|---|---|
+| `"digraph"` (default) | A **fully linear Gaussian** model built directly: one slope per edge, an intercept and likelihood per node, observed data aligned to `dims`/`coords` via xarray | A quick, literal reading of the graph; multi-dimensional (e.g. date × country) observed data |
+| `"native"` | The DAG is translated to the DSL and compiled with `model()`, unlocking non-Gaussian families, transforms, latent mediators, custom priors, panel/pooling, and the full `do()` / `ate()` API | Anything beyond a plain linear model |
+
+The **digraph** style reads the graph at face value:
+
+```python
+import pandas as pd
+from pathmc import BuildModelFromDAG
+
+dates = pd.date_range("2024-01-01", periods=50, freq="D")
+data = pd.DataFrame({"date": dates, "X": ..., "Y": ...})
+
+builder = BuildModelFromDAG(
+    dag="X->Y", df=data, target="Y", dims=("date",), coords={"date": dates}
+)
+pymc_model = builder.build()  # a pm.Model
+```
+
+The **native** style hands the structure to pathmc's full machinery, so you get a `PathModel` back via `to_pathmodel()`:
+
+```python
+builder = BuildModelFromDAG(
+    dag="X->M, M->Y, X->Y",
+    df=data,
+    target="Y",
+    style="native",
+    families={"Y": "bernoulli"},  # families/priors/latent are forwarded to model()
+)
+path_model = builder.to_pathmodel()
+path_model.fit(draws=1000, tune=1000)
+path_model.ate("X", "Y")
+```
+
+## A full workflow
+
+Putting the pieces together: discover candidate structure, sanity-check it against domain knowledge, turn a chosen DAG into a model, then estimate and validate as usual.
+
+```python
+from pathmc import TBFPC, dag_to_spec, model
+
+# 1. Discover a CPDAG from data (with any known constraints).
+discovery = TBFPC(target="Y", forbidden_edges=[("A", "C")])
+discovery.fit(df, drivers=["A", "B", "C", "D"])
+
+# 2. Pick a fully oriented DAG from the equivalence class.
+dag = discovery.get_all_cdags_from_cpdag()[0]
+
+# 3. Build a model from it and estimate an effect.
+m = model(dag_to_spec(dag), data=df)
+m.fit(draws=1000, tune=1000)
+m.ate("Y", "B")
+
+# 4. Validate the assumed structure against the data.
+m.falsify()
+m.test_implications()
+```
+
+::: {.callout-warning}
+## The independence test is linear
+
+`TBFPC`'s conditional-independence test is a linear (ΔBIC) test, so it detects linear dependencies only — purely nonlinear relationships can be missed, and a "no edge" verdict is only as strong as the linear-Gaussian assumption. This is the same caveat that applies to [`falsify()`](causal-inference.qmd) and `test_implications()`. Always pair discovery with the validation tools above and with domain knowledge.
+:::
+
+## See also
+
+- [Causal Inference](causal-inference.qmd) — the do-operator, identification, and how pathmc estimates effects once you have a DAG.
+- [Model Specification](model-specification.qmd) — the DSL that `dag_to_spec()` emits.
+- [Estimation Approaches](estimation-approaches.qmd) — choosing between `ate()`, `att()`, `atu()`, and `cate()`.
