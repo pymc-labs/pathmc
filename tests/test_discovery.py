@@ -321,6 +321,57 @@ def test_cdags_invalid_dot_raises():
         model.get_all_cdags_from_cpdag(dot_cpdag="not a graph at all")
 
 
+def test_cdags_exclude_orientations_outside_equivalence_class():
+    # Path CPDAG A -- B -- C (no A--C edge). The Markov equivalence class has
+    # exactly three members: the chains A->B->C, C->B->A, and the fork
+    # A<-B->C. The collider A->B<-C adds a new v-structure and is NOT a member,
+    # so it must not be returned.
+    dot = (
+        "digraph G {\n"
+        '  "A";\n'
+        '  "B";\n'
+        '  "C";\n'
+        '  "A" -> "B" [style=dashed, dir=none];\n'
+        '  "B" -> "C" [style=dashed, dir=none];\n'
+        "}"
+    )
+    model = _make(target="Y")
+    cdags = model.get_all_cdags_from_cpdag(dot_cpdag=dot)
+    # 4 acyclic orientations exist, but the collider is filtered out -> 3.
+    assert len(cdags) == 3
+    for c in cdags:
+        assert pathmc.same_markov_equivalence_class(c, dot)
+
+
+def test_cdags_are_all_markov_equivalent_to_cpdag(synthetic_df):
+    # Every enumerated DAG must be a member of the CPDAG's equivalence class.
+    model = _make(target="Y", target_edge_rule="fullS")
+    model.fit(synthetic_df, drivers=DRIVERS)
+    cpdag = model.to_digraph()
+    cdags = model.get_all_cdags_from_cpdag()
+    assert len(cdags) > 0
+    for c in cdags:
+        assert pathmc.same_markov_equivalence_class(c, cpdag)
+
+
+def test_max_conditioning_set_size_is_validated():
+    with pytest.raises(TypeError, match="max_conditioning_set_size"):
+        _make(target="Y", max_conditioning_set_size=2.0)
+    with pytest.raises(ValueError, match="non-negative"):
+        _make(target="Y", max_conditioning_set_size=-1)
+
+
+def test_max_conditioning_set_size_bounds_search(synthetic_df):
+    # A smaller cap means strictly fewer conditioning sets are ever tested.
+    shallow = _make(target="Y", max_conditioning_set_size=0)
+    shallow.fit(synthetic_df, drivers=DRIVERS)
+    deep = _make(target="Y", max_conditioning_set_size=3)
+    deep.fit(synthetic_df, drivers=DRIVERS)
+    max_cond_shallow = max(len(k[2]) for k in shallow.test_results)
+    assert max_cond_shallow == 0
+    assert len(deep.test_results) > len(shallow.test_results)
+
+
 # ---------------------------------------------------------------------------
 # get_test_results
 # ---------------------------------------------------------------------------

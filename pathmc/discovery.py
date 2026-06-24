@@ -129,6 +129,13 @@ class TBFPC:
     bf_thresh : float
         Positive Bayes-factor threshold for the conditional-independence
         tests.
+    max_conditioning_set_size : int
+        Largest conditioning set ``|S|`` searched in the ``"any"`` and
+        ``"conservative"`` phases (default 3). This bounds the combinatorial
+        cost of the search; a pair that is only separable by a larger
+        conditioning set will not be separated, so its edge is retained.
+        The ``"fullS"`` rule ignores this and always conditions on the full
+        set of other drivers.
     forbidden_edges : Sequence[tuple[str, str]] | None
         Node pairs that must never be connected in the learned graph
         (background knowledge / orientation constraints). Symmetric: an
@@ -183,6 +190,7 @@ class TBFPC:
         *,
         target_edge_rule: Literal["any", "conservative", "fullS"] = "any",
         bf_thresh: float = 1.0,
+        max_conditioning_set_size: int = 3,
         forbidden_edges: Sequence[tuple[str, str]] | None = None,
         required_edges: Sequence[tuple[str, str]] | None = None,
     ) -> None:
@@ -208,10 +216,23 @@ class TBFPC:
                 f"bf_thresh must be a positive Bayes-factor threshold, got "
                 f"{bf_thresh}. Use a value > 0 (1.0 is a neutral default)."
             )
+        if not isinstance(max_conditioning_set_size, int) or isinstance(
+            max_conditioning_set_size, bool
+        ):
+            raise TypeError(
+                "max_conditioning_set_size must be an int, got "
+                f"{type(max_conditioning_set_size).__name__}."
+            )
+        if max_conditioning_set_size < 0:
+            raise ValueError(
+                "max_conditioning_set_size must be a non-negative int, got "
+                f"{max_conditioning_set_size}."
+            )
 
         self.target = target
         self.target_edge_rule = target_edge_rule
         self.bf_thresh = bf_thresh
+        self.max_conditioning_set_size = max_conditioning_set_size
         self.forbidden_edges = self._coerce_edges(forbidden_edges, "forbidden_edges")
         self.required_edges = self._coerce_edges(required_edges, "required_edges")
 
@@ -256,28 +277,6 @@ class TBFPC:
                 )
             result.add((edge[0], edge[1]))
         return result
-
-    @staticmethod
-    def _bitmasks(k: int):
-        """Yield tuples of 0/1 of length ``k`` (a minimal binary counter)."""
-        if k == 0:
-            yield ()
-            return
-        stack = [0] * k
-        i = 0
-        while True:
-            if i < k:
-                stack[i] = 0
-                i += 1
-                continue
-            yield tuple(stack)
-            i -= 1
-            while i >= 0 and stack[i] == 1:
-                i -= 1
-            if i < 0:
-                break
-            stack[i] = 1
-            i += 1
 
     @staticmethod
     def _parse_cpdag_dot(
@@ -509,7 +508,7 @@ class TBFPC:
         """Phase 1: test driver → target edges per ``target_edge_rule``."""
         for xi in drivers:
             neighbor_sets = [d for d in drivers if d != xi]
-            max_k = min(3, len(neighbor_sets))
+            max_k = min(self.max_conditioning_set_size, len(neighbor_sets))
             all_sets = [
                 tuple(S)
                 for k in range(max_k + 1)
@@ -552,7 +551,7 @@ class TBFPC:
         """Phase 2: build the undirected driver skeleton via pairwise CI tests."""
         for xi, xj in it.combinations(drivers, 2):
             others = [d for d in drivers if d not in (xi, xj)]
-            max_k = min(3, len(others))
+            max_k = min(self.max_conditioning_set_size, len(others))
             dependent = True
             sep_rec = False
             for k in range(max_k + 1):
@@ -694,13 +693,18 @@ class TBFPC:
         return "\n".join(lines)
 
     def get_all_cdags_from_cpdag(self, dot_cpdag: str | None = None) -> list[str]:
-        """Enumerate every acyclic orientation (DAG) consistent with the CPDAG.
+        """Enumerate the member DAGs of the CPDAG's Markov equivalence class.
 
         This is what makes the discovery output a *set* of equally plausible
         graphs rather than one arbitrary DAG: every undirected edge is
-        oriented both ways, and orientations that introduce a cycle are
-        discarded. Downstream model averaging fits each returned DAG and
-        pools the effect posteriors.
+        oriented both ways, then an orientation is kept only if it (a) stays
+        acyclic and (b) introduces no *new* v-structure (unshielded collider)
+        beyond those already compelled by the CPDAG's directed edges. The two
+        filters together are exactly the membership test for the Markov
+        equivalence class, so every returned DAG satisfies
+        :func:`pathmc.same_markov_equivalence_class` against the input CPDAG.
+        Downstream model averaging fits each returned DAG and pools the effect
+        posteriors.
 
         Parameters
         ----------
@@ -713,8 +717,13 @@ class TBFPC:
         Returns
         -------
         list[str]
-            DOT strings, each a fully oriented DAG (no dashed edges).
+            DOT strings, each a fully oriented DAG (no dashed edges) and a
+            member of the same Markov equivalence class as the CPDAG.
         """
+        from itertools import product
+
+        from pathmc.cpdag import _skeleton, _v_structures
+
         nodes, fixed_dir, undirected = (
             self._parse_cpdag_dot(dot_cpdag)
             if dot_cpdag is not None
@@ -731,14 +740,25 @@ class TBFPC:
                 return [self._dot_from_edges(nodes, edges)]
             return []
 
-        cdags: list[str] = []
+        # The CPDAG's skeleton (orientation never changes it) and the
+        # v-structures compelled by its already-directed edges. A member DAG
+        # must reproduce exactly these v-structures — no more, no fewer.
         und = sorted({self._key(u, v) for (u, v) in undirected})
-        for mask in self._bitmasks(len(und)):
+        skeleton = _skeleton(set(fixed_dir), {frozenset(e) for e in und})
+        baseline_v = _v_structures(set(fixed_dir), skeleton)
+
+        cdags: list[str] = []
+        for mask in product((0, 1), repeat=len(und)):
             oriented = list(fixed_dir)
             oriented.extend(
                 (u, v) if b == 0 else (v, u)
                 for b, (u, v) in zip(mask, und, strict=False)
             )
-            if self._is_acyclic(nodes, oriented):
-                cdags.append(self._dot_from_edges(nodes, oriented))
+            if not self._is_acyclic(nodes, oriented):
+                continue
+            if _v_structures(set(oriented), skeleton) != baseline_v:
+                # Orienting an undirected edge created a new collider, so this
+                # DAG lies in a different equivalence class than the CPDAG.
+                continue
+            cdags.append(self._dot_from_edges(nodes, oriented))
         return cdags

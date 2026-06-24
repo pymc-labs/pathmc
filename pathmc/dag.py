@@ -256,6 +256,13 @@ class BuildModelFromDAG:
         (digraph style) Optional ``Prior`` objects for ``"intercept"``,
         ``"slope"`` and ``"likelihood"``; missing keys fall back to
         :pyattr:`default_model_config`.
+    time_dim : str
+        (digraph style) Name of the time dimension within *dims*. It is the
+        one dim that slope/intercept priors are *not* broadcast over (slopes
+        vary across the remaining, cross-sectional dims but are shared across
+        time). Defaults to ``"date"``; set it to match your own time column
+        (``"week"``, ``"t"``, ...) so slopes are not accidentally given a
+        per-timestep dimension.
     style : {"digraph", "native"}
         Which builder to use (see above). Defaults to ``"digraph"``.
     families : dict[str, str] | None
@@ -302,6 +309,7 @@ class BuildModelFromDAG:
         dims: tuple[str, ...] | None = None,
         coords: dict | None = None,
         model_config: dict | None = None,
+        time_dim: str = "date",
         style: Literal["digraph", "native"] = "digraph",
         families: dict[str, str] | None = None,
         priors: dict[str, Any] | None = None,
@@ -311,6 +319,8 @@ class BuildModelFromDAG:
             raise TypeError(f"df must be a pandas.DataFrame, got {type(df).__name__}.")
         if not isinstance(target, str) or not target:
             raise ValueError(f"target must be a non-empty string, got {target!r}.")
+        if not isinstance(time_dim, str) or not time_dim:
+            raise ValueError(f"time_dim must be a non-empty string, got {time_dim!r}.")
         if style not in ("digraph", "native"):
             raise ValueError(
                 f"Unknown style {style!r}. Choose 'digraph' (fully linear) or "
@@ -322,6 +332,7 @@ class BuildModelFromDAG:
         self.target = target
         self.dims = dims
         self.coords = coords
+        self.time_dim = time_dim
         self.style = style
         self.families = families
         self.priors = priors
@@ -385,7 +396,7 @@ class BuildModelFromDAG:
             Keys ``"intercept"``, ``"slope"`` and ``"likelihood"`` mapping to
             ``Prior`` instances whose dims derive from :pyattr:`dims`.
         """
-        slope_dims = tuple(dim for dim in (self.dims or ()) if dim != "date")
+        slope_dims = tuple(dim for dim in (self.dims or ()) if dim != self.time_dim)
         return {
             "intercept": Prior("Normal", mu=0, sigma=2, dims=slope_dims),
             "slope": Prior("Normal", mu=0, sigma=2, dims=slope_dims),
@@ -410,7 +421,9 @@ class BuildModelFromDAG:
         if like_dims is None:
             expected_slope_dims: tuple[str, ...] = ()
         else:
-            expected_slope_dims = tuple(dim for dim in like_dims if dim != "date")
+            expected_slope_dims = tuple(
+                dim for dim in like_dims if dim != self.time_dim
+            )
 
         slope_dims = getattr(slope_prior, "dims", None)
         if slope_dims is None or not isinstance(slope_dims, tuple):
@@ -539,16 +552,32 @@ class BuildModelFromDAG:
         assert dims is not None and coords is not None
 
         with pm.Model(coords=coords) as model:
+            # Index once outside the node loop; to_xarray() then yields a
+            # Dataset whose every variable shares this index.
+            indexed = self.df.set_index(list(dims))
+            dataset = indexed.to_xarray()
+            target_coords = {d: list(coords[d]) for d in dims}
+
             data_containers: dict[str, pm.Data] = {}
             for node in self.nodes:
                 if node not in self.df.columns:
                     raise KeyError(f"Column '{node}' not found in df.")
-                indexed = self.df.set_index(list(dims))
-                xarr = indexed.to_xarray()[node]
+                xarr = dataset[node]
+                nan_before = int(xarr.isnull().sum())
                 # to_xarray() sorts each index; realign to the user-declared
                 # coord order so the data columns line up with the model's
                 # coord labels (and the dim-indexed slope/intercept priors).
-                xarr = xarr.reindex({d: list(coords[d]) for d in dims})
+                xarr = xarr.reindex(target_coords)
+                nan_after = int(xarr.isnull().sum())
+                if nan_after > nan_before:
+                    raise ValueError(
+                        f"Reindexing '{node}' to the declared coords introduced "
+                        f"{nan_after - nan_before} missing value(s): some coord "
+                        f"label(s) in {list(dims)} are absent from the data. PyMC "
+                        "cannot build a likelihood over NaN, so this would fail "
+                        "downstream — check that every value in coords appears in "
+                        "df (and vice versa)."
+                    )
                 values = xarr.values
 
                 data_containers[node] = pm.Data(f"_{node}", values, dims=dims)

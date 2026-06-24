@@ -72,6 +72,8 @@ The fitted model exposes its result several ways:
 
 `bf_thresh` sets the Bayes-factor threshold for declaring independence (default `1.0`, a neutral prior-odds cut).
 
+`max_conditioning_set_size` bounds how large a conditioning set `S` the `"any"` and `"conservative"` rules will search (default `3`), keeping the test count tractable; a pair that is only separable by a larger set will keep its edge. (`"fullS"` ignores this and always conditions on every other driver.)
+
 ### Encoding background knowledge
 
 You will almost always know something the data cannot tell you — that an edge is impossible (reverse causation, temporal order) or that one is certain.
@@ -90,12 +92,12 @@ This is the same workflow analysts use when co-owning a set of equally plausible
 
 ## From a CPDAG to candidate DAGs
 
-To turn the equivalence class into concrete graphs you can model, enumerate the acyclic orientations of the undirected edges with `get_all_cdags_from_cpdag()`.
-Each returned DOT string is a fully oriented DAG; orientations that would create a cycle are dropped.
+To turn the equivalence class into concrete graphs you can model, enumerate its member DAGs with `get_all_cdags_from_cpdag()`.
+Each returned DOT string is a fully oriented DAG. An orientation is kept only if it stays acyclic *and* introduces no new v-structure — i.e. it is a genuine member of the CPDAG's Markov equivalence class — so every returned DAG satisfies `same_markov_equivalence_class()` against the CPDAG.
 
 ```python
 candidate_dags = model.get_all_cdags_from_cpdag()
-len(candidate_dags)  # number of acyclic completions of the CPDAG
+len(candidate_dags)  # number of DAGs in the CPDAG's equivalence class
 ```
 
 Fitting *each* candidate and pooling the effect posteriors is how structural uncertainty propagates into the final estimate (Bayesian model averaging over structure) — the natural next step once you have this set.
