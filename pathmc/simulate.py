@@ -48,6 +48,125 @@ from pathmc.reprs import ReprSpec, ResultReprMixin
 __all__ = ["DoResult", "EstimandResult"]
 
 
+# ---------------------------------------------------------------------------
+# xarray storage helpers
+# ---------------------------------------------------------------------------
+
+
+def _stack_sample(da: xr.DataArray) -> np.ndarray:
+    """Flatten ``("chain", "draw")`` (and unit) into a 1-D ``sample`` axis.
+
+    Returns a ``(n_samples,)`` numpy array, preserving the historical public
+    contract of ``draws()``. A ``unit`` dim (present for ``kind="predictive"``
+    results) is flattened into the sample axis — matching the prior
+    ``raw.flatten()`` behaviour. A ``time`` dim is averaged over first (the
+    cross-sectional view of a panel var).
+    """
+    dims = list(da.dims)
+    if "time" in dims:
+        da = da.mean(dim="time")
+    stack_dims = [d for d in ("chain", "draw", "unit") if d in da.dims]
+    if not stack_dims:
+        return np.asarray(da.values).ravel()
+    stacked = da.stack(sample=stack_dims)
+    return stacked.transpose("sample").values
+
+
+def _stack_sample_time(da: xr.DataArray) -> np.ndarray:
+    """Flatten ``("chain", "draw")`` within each time step.
+
+    Returns a ``(n_times, n_samples)`` numpy array for a panel per-time var.
+    A ``unit`` dim is flattened into the sample axis (predictive panel).
+    """
+    extra = [d for d in da.dims if d not in ("chain", "draw", "time", "unit")]
+    if extra:
+        da = da.mean(dim=extra)
+    stack_dims = [d for d in ("chain", "draw", "unit") if d in da.dims]
+    if not stack_dims:
+        return np.asarray(da.values)
+    stacked = da.stack(sample=stack_dims)
+    return stacked.transpose("time", "sample").values
+
+
+def _build_dataset(
+    values: dict[str, np.ndarray],
+    values_by_time: dict[str, np.ndarray] | None,
+    time_index: np.ndarray | None,
+    *,
+    n_chains: int | None = None,
+    n_draws: int | None = None,
+    n_units: int | None = None,
+) -> xr.Dataset:
+    """Build the internal ``("chain", "draw"[, "unit"][, "time"])`` Dataset.
+
+    ``values`` arrays are flat ``(n_samples,)`` (chain*draw stacked, or
+    chain*draw*units for predictive); they are reshaped back to named dims
+    when ``n_chains``/``n_draws`` are supplied and the length matches. Arrays
+    of unrecognised length fall back to a 1-D ``"sample"`` dim so legacy
+    callers (e.g. test fixtures) keep working.
+    """
+    data_vars: dict[str, xr.DataArray] = {}
+
+    def _chain_draw_coords(nc: int, nd: int) -> dict[str, np.ndarray]:
+        return {"chain": np.arange(nc), "draw": np.arange(nd)}
+
+    if values:
+        first = next(iter(values.values()))
+        n_samples = first.shape[0]
+        if n_chains is None:
+            n_chains = 1
+        if n_draws is None:
+            n_draws = n_samples // n_chains
+
+        # Vars that also have a per-time entry are stored from values_by_time
+        # (with a time dim); the time-averaged view is derived by _stack_sample.
+        time_var_names = set(values_by_time or {})
+        for var, arr in values.items():
+            if var in time_var_names:
+                continue  # stored from values_by_time below
+            arr = np.asarray(arr)
+            length = arr.shape[0]
+            coords = _chain_draw_coords(n_chains, n_draws)
+            if length == n_chains * n_draws:
+                data_vars[var] = xr.DataArray(
+                    arr.reshape(n_chains, n_draws),
+                    dims=("chain", "draw"),
+                    coords=coords,
+                )
+            elif n_units is not None and length == n_chains * n_draws * n_units:
+                data_vars[var] = xr.DataArray(
+                    arr.reshape(n_chains, n_draws, n_units),
+                    dims=("chain", "draw", "unit"),
+                    coords={**coords, "unit": np.arange(n_units)},
+                )
+            else:
+                # Legacy/unknown shape: store flat on a "sample" dim.
+                data_vars[var] = xr.DataArray(arr, dims=("sample",))
+
+    if values_by_time:
+        n_times = next(iter(values_by_time.values())).shape[0]
+        time_coord = (
+            np.asarray(time_index) if time_index is not None else np.arange(n_times)
+        )
+        for var, arr in values_by_time.items():
+            arr = np.asarray(arr)  # (n_times, n_samples)
+            if n_chains is None:
+                n_chains = 1
+            if n_draws is None:
+                n_draws = arr.shape[1] // n_chains
+            coords = {
+                "time": time_coord,
+                **_chain_draw_coords(n_chains, n_draws),
+            }
+            data_vars[var] = xr.DataArray(
+                arr.reshape(n_times, n_chains, n_draws),
+                dims=("time", "chain", "draw"),
+                coords=coords,
+            )
+
+    return xr.Dataset(data_vars)
+
+
 class DoResult(ResultReprMixin):
     """Container for propagated posterior draws under an intervention.
 
@@ -57,26 +176,87 @@ class DoResult(ResultReprMixin):
     For panel ``do(simulate_over="time")``, the result also stores
     per-time-step draws accessible via :meth:`by_time`.
 
+    Internal storage is an :class:`xarray.Dataset` with named dims
+    ``("chain", "draw")`` for cross-sectional draws and an additional
+    ``"time"`` dim for panel per-time draws. The ``_values`` and
+    ``_values_by_time`` attributes are backward-compatible dict views
+    (stacked over ``chain``/``draw`` into a ``"sample"`` axis) that
+    preserve the historical numpy-array public contract.
+
     Parameters
     ----------
     values : dict[str, np.ndarray]
-        Posterior draws for each variable, shape ``(n_samples,)``.
+        Posterior draws for each variable, shape ``(n_samples,)`` where
+        ``n_samples = chain * draw``. Used to build the internal
+        ``("chain", "draw")`` Dataset when ``ds`` is not supplied.
     values_by_time : dict[str, np.ndarray] | None
         Per-time-step draws, shape ``(n_times, n_samples)``.
         Available only for panel do() results.
     time_index : array-like | None
-        Time labels corresponding to the first axis of *values_by_time*.
+        Time labels corresponding to the ``time`` dim.
+    ds : xr.Dataset | None
+        Pre-built internal Dataset with dims ``("chain", "draw")`` and,
+        optionally, a ``"time"`` dim. When supplied, takes precedence over
+        the dict arguments (which are used only by legacy callers).
+    n_chains, n_draws : int | None
+        Chain/draw sizes used to reconstruct the ``chain``/``draw`` dims
+        when building the Dataset from flat ``values`` dicts. If omitted,
+        inferred from the first variable's length (treating the array as
+        a flattened ``chain * draw`` sample vector with ``chain=1``).
     """
 
     def __init__(
         self,
-        values: dict[str, np.ndarray],
+        values: dict[str, np.ndarray] | None = None,
         values_by_time: dict[str, np.ndarray] | None = None,
         time_index: np.ndarray | None = None,
+        *,
+        ds: xr.Dataset | None = None,
+        n_chains: int | None = None,
+        n_draws: int | None = None,
+        n_units: int | None = None,
     ) -> None:
-        self._values = values
-        self._values_by_time = values_by_time
-        self._time_index = time_index
+        if ds is not None:
+            self._ds = ds
+        else:
+            self._ds = _build_dataset(
+                values or {},
+                values_by_time,
+                time_index,
+                n_chains=n_chains,
+                n_draws=n_draws,
+                n_units=n_units,
+            )
+
+    # -- backward-compatible dict views (backed by the xarray store) --------
+
+    @property
+    def _values(self) -> dict[str, np.ndarray]:
+        """Flat ``(n_samples,)`` draws per variable (chain+draw stacked).
+
+        Variables with a ``time`` dim (panel per-time vars) are averaged over
+        time first, matching the historical ``values[var] = by_time.mean(axis=0)``
+        contract.
+        """
+        out: dict[str, np.ndarray] = {}
+        for var in self._ds.data_vars:
+            out[str(var)] = _stack_sample(self._ds[var])
+        return out
+
+    @property
+    def _values_by_time(self) -> dict[str, np.ndarray] | None:
+        """Per-time ``(n_times, n_samples)`` draws, or None if cross-sectional."""
+        by_time_vars = [v for v in self._ds.data_vars if "time" in self._ds[v].dims]
+        if not by_time_vars:
+            return None
+        return {str(var): _stack_sample_time(self._ds[var]) for var in by_time_vars}
+
+    @property
+    def _time_index(self) -> np.ndarray | None:
+        """Time coord of the internal Dataset, or None."""
+        if "time" in self._ds.coords:
+            return np.asarray(self._ds["time"].values)
+        return None
 
     def draws(self, var: str) -> np.ndarray:
         """Return raw posterior draws for *var* under this intervention.
@@ -149,40 +329,27 @@ class DoResult(ResultReprMixin):
 
     def __sub__(self, other: DoResult) -> DoResult:
         """Element-wise contrast between two DoResults."""
-        new_values: dict[str, np.ndarray] = {}
-        for var in self._values:
-            if var in other._values:
-                new_values[var] = self._values[var] - other._values[var]
-
-        new_by_time: dict[str, np.ndarray] | None = None
-        if self._values_by_time is not None and other._values_by_time is not None:
-            new_by_time = {}
-            for var in self._values_by_time:
-                if var in other._values_by_time:
-                    new_by_time[var] = (
-                        self._values_by_time[var] - other._values_by_time[var]
-                    )
-
-        return DoResult(
-            values=new_values,
-            values_by_time=new_by_time,
-            time_index=self._time_index,
-        )
+        # Align on shared variables; xarray handles dim alignment.
+        common = [v for v in self._ds.data_vars if v in other._ds.data_vars]
+        diff = self._ds[common] - other._ds[common]
+        return DoResult(ds=diff)
 
     def _repr_compact(self) -> str:
-        if not self._values:
+        values = self._values
+        if not values:
             return "DoResult(empty)"
-        n_samples = len(next(iter(self._values.values())))
-        n_vars = len(self._values)
+        n_samples = len(next(iter(values.values())))
+        n_vars = len(values)
         return f"DoResult({n_samples} draws, {n_vars} variables)"
 
     def _repr_spec(self) -> ReprSpec:
-        if not self._values:
+        values = self._values
+        if not values:
             return ReprSpec(title="DoResult (empty)", rows=[])
-        n_samples = len(next(iter(self._values.values())))
-        n_vars = len(self._values)
+        n_samples = len(next(iter(values.values())))
+        n_vars = len(values)
         rows = []
-        for var, draws in self._values.items():
+        for var, draws in values.items():
             mean = float(np.mean(draws))
             lo, hi = compute_hdi(draws)
             rows.append([var, f"{mean:.2f}", f"[{lo:.2f}, {hi:.2f}]"])
@@ -205,6 +372,11 @@ class EstimandResult(ResultReprMixin):
     The same per-variable draws are retained, so ``mean(other_var)`` still
     works for any variable in the contrast.
 
+    Internal storage mirrors :class:`DoResult`: an :class:`xarray.Dataset`
+    with dims ``("chain", "draw")`` (and ``"time"`` for panel estimands).
+    The ``_values`` / ``_values_by_time`` attributes are backward-compatible
+    dict views.
+
     Parameters
     ----------
     values : dict[str, np.ndarray]
@@ -218,24 +390,41 @@ class EstimandResult(ResultReprMixin):
     values_by_time : dict[str, np.ndarray] | None
         Per-time-step contrast draws, shape ``(n_times, n_samples)``.
     time_index : array-like | None
-        Time labels for the first axis of *values_by_time*.
+        Time labels for the ``time`` dim.
+    ds : xr.Dataset | None
+        Pre-built internal Dataset (takes precedence over the dicts).
+    n_chains, n_draws : int | None
+        Chain/draw sizes for reconstructing dims from flat arrays.
     """
 
     def __init__(
         self,
-        values: dict[str, np.ndarray],
-        outcome: str,
-        treatment: str,
-        estimand: str,
+        values: dict[str, np.ndarray] | None = None,
+        outcome: str | None = None,
+        treatment: str | None = None,
+        estimand: str | None = None,
         values_by_time: dict[str, np.ndarray] | None = None,
         time_index: np.ndarray | None = None,
+        *,
+        ds: xr.Dataset | None = None,
+        n_chains: int | None = None,
+        n_draws: int | None = None,
     ) -> None:
-        self._values = values
-        self._default_var = outcome
-        self._treatment = treatment
-        self._estimand = estimand
-        self._values_by_time = values_by_time
-        self._time_index = time_index
+        if ds is not None:
+            self._ds = ds
+        else:
+            self._ds = _build_dataset(
+                values or {},
+                values_by_time,
+                time_index,
+                n_chains=n_chains,
+                n_draws=n_draws,
+            )
+        # outcome/treatment/estimand are required metadata; keep them as
+        # plain attributes (not derived from the Dataset).
+        self._default_var: str = outcome if outcome is not None else ""
+        self._treatment: str = treatment if treatment is not None else ""
+        self._estimand: str = estimand if estimand is not None else ""
 
     @classmethod
     def from_contrast(
@@ -247,12 +436,10 @@ class EstimandResult(ResultReprMixin):
     ) -> EstimandResult:
         """Wrap a :class:`DoResult` contrast as a focused estimand result."""
         return cls(
-            values=contrast._values,
+            ds=contrast._ds,
             outcome=outcome,
             treatment=treatment,
             estimand=estimand,
-            values_by_time=contrast._values_by_time,
-            time_index=contrast._time_index,
         )
 
     @property
@@ -265,12 +452,34 @@ class EstimandResult(ResultReprMixin):
         """The treatment variable that was intervened on."""
         return self._treatment
 
+    # -- backward-compatible dict views (backed by the xarray store) --------
+
+    @property
+    def _values(self) -> dict[str, np.ndarray]:
+        out: dict[str, np.ndarray] = {}
+        for var in self._ds.data_vars:
+            out[str(var)] = _stack_sample(self._ds[var])
+        return out
+
+    @property
+    def _values_by_time(self) -> dict[str, np.ndarray] | None:
+        by_time_vars = [v for v in self._ds.data_vars if "time" in self._ds[v].dims]
+        if not by_time_vars:
+            return None
+        return {str(var): _stack_sample_time(self._ds[var]) for var in by_time_vars}
+
+    @property
+    def _time_index(self) -> np.ndarray | None:
+        if "time" in self._ds.coords:
+            return np.asarray(self._ds["time"].values)
+        return None
+
     def _resolve(self, var: str | None) -> str:
         key = self._default_var if var is None else var
-        if key not in self._values:
-            available = sorted(self._values.keys())
+        available = [str(v) for v in self._ds.data_vars]
+        if key not in available:
             raise KeyError(
-                f"Unknown variable '{key}'. Available variables: {available}"
+                f"Unknown variable '{key}'. Available variables: {sorted(available)}"
             )
         return key
 
@@ -408,25 +617,13 @@ class EstimandResult(ResultReprMixin):
 
     def __sub__(self, other: EstimandResult) -> EstimandResult:
         """Element-wise contrast between two estimands, preserving the outcome."""
-        new_values: dict[str, np.ndarray] = {
-            var: self._values[var] - other._values[var]
-            for var in self._values
-            if var in other._values
-        }
-        new_by_time: dict[str, np.ndarray] | None = None
-        if self._values_by_time is not None and other._values_by_time is not None:
-            new_by_time = {
-                var: self._values_by_time[var] - other._values_by_time[var]
-                for var in self._values_by_time
-                if var in other._values_by_time
-            }
+        common = [v for v in self._ds.data_vars if v in other._ds.data_vars]
+        diff = self._ds[common] - other._ds[common]
         return EstimandResult(
-            values=new_values,
+            ds=diff,
             outcome=self._default_var,
             treatment=self._treatment,
             estimand=self._estimand,
-            values_by_time=new_by_time,
-            time_index=self._time_index,
         )
 
     def _repr_compact(self) -> str:
@@ -682,7 +879,9 @@ def run_do_pymc(
                 else:
                     values[var] = resp.reshape(n_samples)
 
-        return DoResult(values=values)
+        return DoResult(
+            values=values, n_chains=post.sizes["chain"], n_draws=post.sizes["draw"]
+        )
 
     do_model = pm.do(gen_model, replacements)
     with warnings.catch_warnings():
@@ -728,6 +927,9 @@ def run_do_pymc(
     post = posterior(idata)
     n_samples = post.sizes["chain"] * post.sizes["draw"]
     values = {}
+    # Track per-variable unit counts so the Dataset builder can label the
+    # unit dim for predictive (flattened chain*draw*N) arrays.
+    n_units_per_var: dict[str, int] = {}
     for var in graph_info.topological_order:
         if var in set:
             values[var] = np.full(n_samples, set[var])
@@ -743,19 +945,30 @@ def run_do_pymc(
             raw = ppc.posterior_predictive[var].to_numpy()
             if subgroup_indices is not None and raw.ndim >= 3:
                 raw = raw[:, :, subgroup_indices]
+            n_units_per_var[var] = raw.shape[-1] if raw.ndim >= 3 else 1
             values[var] = raw.flatten()
         elif f"mu_{var}" in ppc.posterior_predictive:
             raw = ppc.posterior_predictive[f"mu_{var}"].to_numpy()
             if subgroup_indices is not None and raw.ndim >= 3:
                 raw = raw[:, :, subgroup_indices]
+            n_units_per_var[var] = raw.shape[-1] if raw.ndim >= 3 else 1
             values[var] = raw.flatten()
         elif extra_det is not None and f"mu_{var}" in extra_det:
             raw = extra_det[f"mu_{var}"].to_numpy()
             if subgroup_indices is not None and raw.ndim >= 3:
                 raw = raw[:, :, subgroup_indices]
+            n_units_per_var[var] = raw.shape[-1] if raw.ndim >= 3 else 1
             values[var] = raw.flatten()
 
-    return DoResult(values=values)
+    # Predictive arrays flatten chain*draw*N into one axis; pass the largest
+    # unit count so the builder can label a unit dim where lengths match.
+    n_units = max(n_units_per_var.values()) if n_units_per_var else None
+    return DoResult(
+        values=values,
+        n_chains=post.sizes["chain"],
+        n_draws=post.sizes["draw"],
+        n_units=n_units,
+    )
 
 
 def run_do_panel_unified(
@@ -870,7 +1083,11 @@ def run_do_panel_unified(
             else np.arange(n_times)
         )
         return DoResult(
-            values=values, values_by_time=values_by_time, time_index=time_idx
+            values=values,
+            values_by_time=values_by_time,
+            time_index=time_idx,
+            n_chains=post.sizes["chain"],
+            n_draws=post.sizes["draw"],
         )
 
     # kind == "predictive"
@@ -929,4 +1146,10 @@ def run_do_panel_unified(
     time_idx = (
         np.array(scan_info.time_values) if scan_info.time_values else np.arange(n_times)
     )
-    return DoResult(values=values, values_by_time=values_by_time, time_index=time_idx)
+    return DoResult(
+        values=values,
+        values_by_time=values_by_time,
+        time_index=time_idx,
+        n_chains=post.sizes["chain"],
+        n_draws=post.sizes["draw"],
+    )
