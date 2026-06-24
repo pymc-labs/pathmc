@@ -281,6 +281,34 @@ model.collider_warnings({"C"}, "X", "Y")
 # ["'C' is a collider between 'X' and 'Y'. Conditioning on it may open a spurious path..."]
 ```
 
+## Robustness checks
+
+An estimate is only as trustworthy as the assumptions behind it. pathmc ports DoWhy's *refute* step to a Bayesian setting with three complementary checks:
+
+- `m.falsify()` grades the whole DAG against randomly-rewired competitors (a permutation test).
+- `m.sensitivity(outcome, treatment)` quantifies how strong an unmeasured confounder would have to be to overturn the conclusion.
+- `m.refute_placebo(outcome, treatment)` replaces the treatment with permuted ("placebo") copies, re-fits, and checks that the effect collapses to zero.
+
+The placebo refuter is the Bayesian upgrade of DoWhy's `placebo_treatment_refuter`. Each permutation severs the treatment-outcome link, so a sound pipeline should report no effect. Because every re-fit yields a full posterior (not a point estimate), the per-permutation summaries are pooled through a hierarchical normal-normal random-effects model that separates a systematic placebo bias `mu_null` (which should straddle zero) from the structural volatility `tau_het`. The real effect is then calibrated against the resulting null predictive distribution.
+
+```python
+model.fit(draws=1000, chains=2)
+
+result = model.refute_placebo("Y", "X", n_permutations=4)
+result.passes_placebo  # True if the placebo null straddles zero
+result.effect_survives  # True if the real effect is too extreme for placebo noise
+result.z_cal, result.p_tail  # calibration of the real effect against the null
+print(result.summary())  # dowhy-style: Estimated effect / New effect / p value
+result.plot()  # observed vs. placebo effect (kind="comparison")
+result.plot(kind="null")  # placebo null predictive vs. observed effect
+```
+
+Like DoWhy's refuters, `result.summary()` reports the originally `estimated_effect`, the `new_effect` under placebo (the pooled placebo bias, which should be near zero), and a `p value`. The default `plot()` shows those two effects side by side with their credible intervals against a zero reference; `plot(kind="null")` shows the full placebo null-predictive distribution.
+
+Each permutation triggers a full MCMC re-fit, so the cost scales with `n_permutations`. Four permutations is a floor: the between-fold volatility `tau_het` is a variance component estimated from only a few points, so it (and therefore both verdicts) stays prior-dominated until roughly eight or more folds — bump `n_permutations` when you need a data-driven null spread. Pass `sample_kwargs={...}` to control the sampler and `random_seed=` for reproducibility. Panel models are not yet supported.
+
+Note: one asymmetry in the calibration is the comparison of a *full* predictive null distribution against the real effect reduced to its posterior *mean* (`z_cal` and `p_tail` use `observed_ate`, not its spread, faithful to the source paper). A wide-but-large ATE therefore survives the null on its mean alone — inspect `observed_ate_hdi` alongside the verdict.
+
 ## Causal assumptions and limitations
 
 pathmc makes causal reasoning *possible* but not *automatic*.
