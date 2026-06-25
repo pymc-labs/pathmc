@@ -490,3 +490,125 @@ def test_ci_independent_log_space_handles_inf_bf10():
     assert np.isinf(result["BF10"])
     assert np.isfinite(result["logBF10"])
     assert result["independent"] is False
+
+
+# ---------------------------------------------------------------------------
+# max_conditioning_set_size
+# ---------------------------------------------------------------------------
+
+
+def test_max_conditioning_set_size_is_validated():
+    with pytest.raises(TypeError, match="max_conditioning_set_size"):
+        _make(target="Y", max_conditioning_set_size=2.0)
+    with pytest.raises(ValueError, match="non-negative"):
+        _make(target="Y", max_conditioning_set_size=-1)
+
+
+def test_max_conditioning_set_size_bounds_search(synthetic_df):
+    # A smaller cap means strictly fewer conditioning sets are ever tested.
+    shallow = _make(target="Y", max_conditioning_set_size=0)
+    shallow.fit(synthetic_df, drivers=DRIVERS)
+    deep = _make(target="Y", max_conditioning_set_size=3)
+    deep.fit(synthetic_df, drivers=DRIVERS)
+    max_cond_shallow = max(len(k[2]) for k in shallow.test_results)
+    assert max_cond_shallow == 0
+    assert len(deep.test_results) > len(shallow.test_results)
+
+
+# ---------------------------------------------------------------------------
+# Markov-equivalence-class membership of enumerated DAGs
+# ---------------------------------------------------------------------------
+
+
+def test_cdags_exclude_orientations_outside_equivalence_class():
+    # Path CPDAG A -- B -- C (no A--C edge). The Markov equivalence class has
+    # exactly three members: the chains A->B->C, C->B->A, and the fork
+    # A<-B->C. The collider A->B<-C adds a new v-structure and is NOT a member,
+    # so it must not be returned.
+    dot = (
+        "digraph G {\n"
+        '  "A";\n'
+        '  "B";\n'
+        '  "C";\n'
+        '  "A" -> "B" [style=dashed, dir=none];\n'
+        '  "B" -> "C" [style=dashed, dir=none];\n'
+        "}"
+    )
+    model = _make(target="Y")
+    cdags = model.get_all_cdags_from_cpdag(dot_cpdag=dot)
+    # 4 acyclic orientations exist, but the collider is filtered out -> 3.
+    assert len(cdags) == 3
+    for c in cdags:
+        assert pathmc.same_markov_equivalence_class(c, dot)
+
+
+def test_cdags_are_all_markov_equivalent_to_cpdag(synthetic_df):
+    # Every enumerated DAG must be a member of the CPDAG's equivalence class.
+    model = _make(target="Y", target_edge_rule="fullS")
+    model.fit(synthetic_df, drivers=DRIVERS)
+    cpdag = model.to_digraph()
+    cdags = model.get_all_cdags_from_cpdag()
+    assert len(cdags) > 0
+    for c in cdags:
+        assert pathmc.same_markov_equivalence_class(c, cpdag)
+
+
+# ---------------------------------------------------------------------------
+# v-structure orientation in fit (identifiable colliders vs reversible edges)
+# ---------------------------------------------------------------------------
+
+
+def _collider_df() -> pd.DataFrame:
+    """Standardized data from the collider A -> B <- C, with B -> Y."""
+    rng = np.random.default_rng(0)
+    n = 4000
+    A = rng.normal(size=n)
+    C = rng.normal(size=n)
+    B = A + C + rng.normal(size=n)
+    Y = B + rng.normal(size=n)
+    df = pd.DataFrame({"A": A, "B": B, "C": C, "Y": Y})
+    return (df - df.mean()) / df.std()
+
+
+def _chain_df() -> pd.DataFrame:
+    """Standardized data from the chain A -> B -> C, with B -> Y."""
+    rng = np.random.default_rng(1)
+    n = 4000
+    A = rng.normal(size=n)
+    B = A + rng.normal(size=n)
+    C = B + rng.normal(size=n)
+    Y = B + rng.normal(size=n)
+    df = pd.DataFrame({"A": A, "B": B, "C": C, "Y": Y})
+    return (df - df.mean()) / df.std()
+
+
+def test_fit_orients_identifiable_collider():
+    # A -> B <- C is identifiable: A and C are marginally independent, so B is
+    # absent from sepset(A, C) and the v-structure must be oriented. The class
+    # is then a singleton -> exactly one enumerated DAG, equal to the collider.
+    model = _make(target="Y", target_edge_rule="any")
+    model.fit(_collider_df(), drivers=["A", "B", "C"])
+
+    directed = model.get_directed_edges()
+    assert ("A", "B") in directed
+    assert ("C", "B") in directed
+    assert model.get_undirected_edges() == []
+
+    cdags = model.get_all_cdags_from_cpdag()
+    assert len(cdags) == 1
+    collider = "digraph { A -> B; C -> B; B -> Y; }"
+    assert pathmc.same_markov_equivalence_class(cdags[0], collider)
+
+
+def test_fit_preserves_reversible_cpdag():
+    # The chain A -- B -- C has no collider (B is in sepset(A, C)), so both
+    # edges stay reversible: a genuine multi-member CPDAG must survive.
+    model = _make(target="Y", target_edge_rule="any")
+    model.fit(_chain_df(), drivers=["A", "B", "C"])
+
+    assert len(model.get_undirected_edges()) > 0
+    cdags = model.get_all_cdags_from_cpdag()
+    assert len(cdags) > 1
+    cpdag = model.to_digraph()
+    for c in cdags:
+        assert pathmc.same_markov_equivalence_class(c, cpdag)

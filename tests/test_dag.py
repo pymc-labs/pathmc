@@ -334,6 +334,38 @@ class TestDefaultModelConfig:
         assert mc["intercept"].dims == mc["slope"].dims
         assert mc["likelihood"].dims == ("date", "country")
 
+    def test_custom_time_dim_dropped_from_slope(self, rng):
+        # With time_dim="week", the slope should drop 'week', not 'date'.
+        weeks = pd.date_range("2024-01-01", periods=6, freq="W")
+        df = pd.DataFrame({
+            "week": list(weeks) * 2,
+            "country": ["a"] * 6 + ["b"] * 6,
+            "X": rng.normal(size=12),
+            "Y": rng.normal(size=12),
+        })
+        b = BuildModelFromDAG(
+            dag="X->Y",
+            df=df,
+            target="Y",
+            dims=("week", "country"),
+            coords={"week": weeks, "country": ["a", "b"]},
+            time_dim="week",
+        )
+        mc = b.default_model_config
+        assert mc["slope"].dims == ("country",)
+        assert mc["likelihood"].dims == ("week", "country")
+
+    def test_empty_time_dim_rejected(self, xy_df, dates):
+        with pytest.raises(ValueError, match="time_dim"):
+            BuildModelFromDAG(
+                dag="X->Y",
+                df=xy_df,
+                target="Y",
+                dims=("date",),
+                coords={"date": dates},
+                time_dim="",
+            )
+
 
 # ===========================================================================
 # slope-dims mismatch warning
@@ -408,6 +440,17 @@ class TestDigraphBuild:
         df = pd.DataFrame({"date": dates, "X": np.zeros(len(dates))})  # no Y
         b = self._builder(df, dates)
         with pytest.raises(KeyError, match=r"Column '.*' not found in df"):
+            b.build()
+
+    def test_build_raises_when_coords_introduce_nan(self, xy_df, dates):
+        # Declaring a coord label absent from the data forces reindex to
+        # inject NaN; the builder should raise a clear error instead of
+        # letting PyMC fail with a cryptic masked-array message.
+        extra = dates.append(pd.DatetimeIndex(["2024-12-31"]))
+        b = BuildModelFromDAG(
+            dag="X->Y", df=xy_df, target="Y", dims=("date",), coords={"date": extra}
+        )
+        with pytest.raises(ValueError, match="introduced"):
             b.build()
 
     def test_model_graph_before_build(self, xy_df, dates):

@@ -24,6 +24,7 @@ pathmc preserves this distinction end to end rather than collapsing to one arbit
 
 `TBFPC` (Target-first Bayes Factor PC) is a target-oriented variant of the PC algorithm.
 It first tests which candidate drivers connect to your outcome, then builds the skeleton among the drivers, using a Bayes-factor (ΔBIC) test for conditional independence at each step.
+It then orients the edges whose direction is *compelled* by the data — unshielded colliders (v-structures) read off the separating sets, propagated by Meek's rules — and leaves the genuinely reversible edges undirected. The result is a proper CPDAG.
 Standardizing the columns first (zero mean, unit variance) keeps that test well scaled.
 
 ```python
@@ -71,6 +72,7 @@ The fitted model exposes its result several ways:
 | `"fullS"` | … `X` and `Y` are dependent given the **full** set of other drivers |
 
 `bf_thresh` sets the Bayes-factor threshold for declaring independence (default `1.0`, a neutral prior-odds cut).
+`max_conditioning_set_size` bounds the size of the conditioning sets searched (default `3`), trading completeness for speed: a pair separable only by a larger set keeps its edge. Because the same separating sets drive the v-structure orientation, an overly small value can leave a real collider undetected.
 
 ### Encoding background knowledge
 
@@ -90,12 +92,13 @@ This is the same workflow analysts use when co-owning a set of equally plausible
 
 ## From a CPDAG to candidate DAGs
 
-To turn the equivalence class into concrete graphs you can model, enumerate the acyclic orientations of the undirected edges with `get_all_cdags_from_cpdag()`.
-Each returned DOT string is a fully oriented DAG; orientations that would create a cycle are dropped.
+To turn the equivalence class into concrete graphs you can model, enumerate its members with `get_all_cdags_from_cpdag()`.
+It orients the undirected edges every way that stays acyclic *and* introduces no new v-structure beyond those already in the CPDAG — exactly the membership test for the Markov equivalence class, so every returned DAG passes `same_markov_equivalence_class()` against the CPDAG.
+Because `fit()` already compelled the identifiable edges, a CPDAG with no reversible edges collapses to a single DAG, while genuinely reversible structure (chains, forks, cliques) yields several.
 
 ```python
 candidate_dags = model.get_all_cdags_from_cpdag()
-len(candidate_dags)  # number of acyclic completions of the CPDAG
+len(candidate_dags)  # number of members of the equivalence class
 ```
 
 Fitting *each* candidate and pooling the effect posteriors is how structural uncertainty propagates into the final estimate (Bayesian model averaging over structure) — the natural next step once you have this set.
