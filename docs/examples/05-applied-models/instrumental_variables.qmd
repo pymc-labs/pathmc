@@ -141,6 +141,7 @@ def ols_slope(y, x):
     X = np.column_stack([np.ones(len(x)), x])
     return np.linalg.lstsq(X, y, rcond=None)[0][1]
 
+
 naive = ols_slope(df["in_app_purchase"].values, df["push_delivered"].values)
 print(f"Naive OLS (purchase ~ delivered): {naive:.2f}")
 print(f"True effect:                      {TRUE_LATE:.2f}")
@@ -231,13 +232,16 @@ model.summary()
 
 ```{python}
 late_draws = (
-    idata.posterior["beta_in_app_purchase"]
+    idata
+    .posterior["beta_in_app_purchase"]
     .sel(in_app_purchase_predictors="push_delivered")
     .values.flatten()
 )
 hdi = az.hdi(late_draws)
-print(f"IV posterior LATE: mean = {late_draws.mean():.2f}, "
-      f"94% HDI = [{hdi[0]:.2f}, {hdi[1]:.2f}]")
+print(
+    f"IV posterior LATE: mean = {late_draws.mean():.2f}, "
+    f"94% HDI = [{hdi[0]:.2f}, {hdi[1]:.2f}]"
+)
 print(f"True LATE:         {TRUE_LATE}")
 print(f"Naive OLS:         {naive:.2f}  (outside the HDI)")
 print(f"Wald estimate:     {wald:.2f}")
@@ -252,7 +256,9 @@ fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 x_kde, y_kde, _ = az.kde(late_draws)
 ax.plot(x_kde, y_kde, color=COLOR_IV, lw=2, label="IV posterior (pathmc)")
 ax.fill_between(x_kde, y_kde, alpha=0.3, color=COLOR_IV)
-ax.axvline(TRUE_LATE, color=COLOR_TRUE, ls="--", lw=1.5, label=f"True LATE ({TRUE_LATE})")
+ax.axvline(
+    TRUE_LATE, color=COLOR_TRUE, ls="--", lw=1.5, label=f"True LATE ({TRUE_LATE})"
+)
 ax.axvline(wald, color=COLOR_WALD, ls="--", lw=1.5, label=f"Wald ({wald:.2f})")
 ax.axvline(naive, color=COLOR_NAIVE, ls="--", lw=1.5, label=f"Naive OLS ({naive:.2f})")
 ax.set_xlabel("Effect of push delivery on in-app purchase ($)")
@@ -275,7 +281,8 @@ Because the confounder is modeled explicitly as a residual correlation, we can i
 # | code-fold: true
 
 resid_corr = (
-    idata.posterior["chol_in_app_purchase_push_delivered_corr"]
+    idata
+    .posterior["chol_in_app_purchase_push_delivered_corr"]
     .isel(
         chol_in_app_purchase_push_delivered_corr_dim_0=0,
         chol_in_app_purchase_push_delivered_corr_dim_1=1,
@@ -318,8 +325,9 @@ pathmc's `is_identifiable` reasons via the **backdoor criterion** today: it look
 With an *unobserved* confounder there is no such set, so backdoor identification fails — even though the effect is perfectly identified through the instrument.
 
 ```{python}
-print("Backdoor-identifiable?",
-      model.is_identifiable("push_delivered", "in_app_purchase"))
+print(
+    "Backdoor-identifiable?", model.is_identifiable("push_delivered", "in_app_purchase")
+)
 ```
 
 This is a *false negative* for the IV case, and IV-aware identification is [planned work](https://github.com/pymc-labs/pathmc/issues/344).

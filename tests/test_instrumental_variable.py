@@ -101,7 +101,8 @@ def test_iv_recovers_positive_residual_correlation():
     model = pathmc.model(IV_SPEC, data=df)
     model.fit(random_seed=0, progressbar=False)
     corr = (
-        model._idata.posterior["chol_T_Y_corr"]
+        model._idata
+        .posterior["chol_T_Y_corr"]
         .isel(chol_T_Y_corr_dim_0=0, chol_T_Y_corr_dim_1=1)
         .values.flatten()
     )
