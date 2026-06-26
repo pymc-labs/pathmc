@@ -89,97 +89,61 @@ def _stack_sample_time(da: xr.DataArray) -> np.ndarray:
     return stacked.transpose("time", "sample").values
 
 
-def _build_dataset(
-    values: dict[str, np.ndarray],
-    values_by_time: dict[str, np.ndarray] | None,
-    time_index: np.ndarray | None,
-    *,
-    n_chains: int | None = None,
-    n_draws: int | None = None,
-    n_units_per_var: dict[str, int] | None = None,
-) -> xr.Dataset:
-    """Build the internal ``("chain", "draw"[, "unit"][, "time"])`` Dataset.
+def _chain_draw_coords(n_chains: int, n_draws: int) -> dict[str, np.ndarray]:
+    """Integer ``chain`` / ``draw`` coordinate labels."""
+    return {"chain": np.arange(n_chains), "draw": np.arange(n_draws)}
 
-    ``values`` arrays are flat ``(n_samples,)`` where ``n_samples`` is
-    ``chain * draw`` for mean-path results or ``chain * draw * unit`` for
-    predictive. ``n_chains`` and ``n_draws`` are required whenever *values*
-    or *values_by_time* is non-empty.
-    """
-    data_vars: dict[str, xr.DataArray] = {}
 
-    def _chain_draw_coords(nc: int, nd: int) -> dict[str, np.ndarray]:
-        return {"chain": np.arange(nc), "draw": np.arange(nd)}
+def _da_chain_draw(
+    arr: np.ndarray,
+    n_chains: int,
+    n_draws: int,
+) -> xr.DataArray:
+    """Wrap a ``(chain, draw)`` array with labelled coords."""
+    arr = np.asarray(arr).reshape(n_chains, n_draws)
+    return xr.DataArray(
+        arr,
+        dims=("chain", "draw"),
+        coords=_chain_draw_coords(n_chains, n_draws),
+    )
 
-    def _require_chain_draw() -> None:
-        if n_chains is None or n_draws is None:
-            raise ValueError(
-                "n_chains and n_draws are required when building from flat "
-                "values dicts. Pass ds= for a pre-built Dataset."
-            )
 
-    if values:
-        _require_chain_draw()
-        assert n_chains is not None and n_draws is not None
-        # Vars that also have a per-time entry are stored from values_by_time
-        # (with a time dim); the time-averaged view is derived by _stack_sample.
-        time_var_names = set(values_by_time or {})
+def _da_chain_draw_unit(
+    arr: np.ndarray,
+    n_chains: int,
+    n_draws: int,
+) -> xr.DataArray:
+    """Wrap a ``(chain, draw, unit)`` array with labelled coords."""
+    arr = np.asarray(arr)
+    n_units = arr.shape[-1]
+    arr = arr.reshape(n_chains, n_draws, n_units)
+    return xr.DataArray(
+        arr,
+        dims=("chain", "draw", "unit"),
+        coords={
+            **_chain_draw_coords(n_chains, n_draws),
+            "unit": np.arange(n_units),
+        },
+    )
 
-        for var, arr in values.items():
-            if var in time_var_names:
-                continue  # stored from values_by_time below
-            arr = np.asarray(arr)
-            length = arr.shape[0]
-            coords = _chain_draw_coords(n_chains, n_draws)
-            var_n_units = (n_units_per_var or {}).get(var)
-            if length == n_chains * n_draws:
-                data_vars[var] = xr.DataArray(
-                    arr.reshape(n_chains, n_draws),
-                    dims=("chain", "draw"),
-                    coords=coords,
-                )
-            elif var_n_units is not None and length == n_chains * n_draws * var_n_units:
-                data_vars[var] = xr.DataArray(
-                    arr.reshape(n_chains, n_draws, var_n_units),
-                    dims=("chain", "draw", "unit"),
-                    coords={**coords, "unit": np.arange(var_n_units)},
-                )
-            else:
-                raise ValueError(
-                    f"Cannot store variable '{var}': length {length} does not "
-                    f"match chain*draw ({n_chains * n_draws})"
-                    + (
-                        f" or chain*draw*unit with n_units={var_n_units!r}."
-                        if var_n_units is not None
-                        else ". Supply n_units_per_var for predictive lengths."
-                    )
-                )
 
-    if values_by_time:
-        _require_chain_draw()
-        assert n_chains is not None and n_draws is not None
-        n_times = next(iter(values_by_time.values())).shape[0]
-        time_coord = (
-            np.asarray(time_index) if time_index is not None else np.arange(n_times)
-        )
-        for var, arr in values_by_time.items():
-            arr = np.asarray(arr)  # (n_times, n_samples)
-            expected = n_times * n_chains * n_draws
-            if arr.size != expected:
-                raise ValueError(
-                    f"Cannot store per-time variable '{var}': size {arr.size} "
-                    f"does not match n_times*chain*draw ({expected})."
-                )
-            coords = {
-                "time": time_coord,
-                **_chain_draw_coords(n_chains, n_draws),
-            }
-            data_vars[var] = xr.DataArray(
-                arr.reshape(n_times, n_chains, n_draws),
-                dims=("time", "chain", "draw"),
-                coords=coords,
-            )
-
-    return xr.Dataset(data_vars)
+def _da_time_chain_draw(
+    arr: np.ndarray,
+    n_times: int,
+    n_chains: int,
+    n_draws: int,
+    time_index: np.ndarray,
+) -> xr.DataArray:
+    """Wrap a ``(time, chain, draw)`` array with labelled coords."""
+    arr = np.asarray(arr).reshape(n_times, n_chains, n_draws)
+    return xr.DataArray(
+        arr,
+        dims=("time", "chain", "draw"),
+        coords={
+            "time": np.asarray(time_index),
+            **_chain_draw_coords(n_chains, n_draws),
+        },
+    )
 
 
 def _has_by_time(ds: xr.Dataset) -> bool:
@@ -187,7 +151,53 @@ def _has_by_time(ds: xr.Dataset) -> bool:
     return any("time" in ds[v].dims for v in ds.data_vars)
 
 
-class DoResult(ResultReprMixin):
+class _DrawStorageMixin:
+    """Shared labelled xarray storage for draw-backed result types."""
+
+    _ds: xr.Dataset
+
+    @property
+    def dataset(self) -> xr.Dataset:
+        """Labeled draws as an :class:`xarray.Dataset`.
+
+        Variables use dims ``("chain", "draw")`` for cross-sectional results,
+        plus ``"unit"`` for ``kind="predictive"`` and ``"time"`` for panel
+        per-time results. For a flat ``(n_samples,)`` numpy view, use
+        :meth:`draws` instead.
+        """
+        return self._ds
+
+    def _draw(self, var: str) -> np.ndarray:
+        """Flat ``(n_samples,)`` draws for one variable."""
+        return _stack_sample(self._ds[var])
+
+    def _draw_by_time(self, var: str) -> np.ndarray:
+        """Per-time ``(n_times, n_samples)`` draws for one panel variable."""
+        return _stack_sample_time(self._ds[var])
+
+    @property
+    def _time_index(self) -> np.ndarray | None:
+        """Time coord of the internal Dataset, or None."""
+        if "time" in self._ds.coords:
+            return np.asarray(self._ds["time"].values)
+        return None
+
+    @property
+    def time_index(self) -> np.ndarray | None:
+        """Time labels for the first axis of :meth:`by_time` results."""
+        return self._time_index
+
+    def _by_time_draws(self, var: str) -> np.ndarray:
+        """Per-time draws, raising when no ``time`` dim is stored."""
+        if not _has_by_time(self._ds):
+            raise ValueError(
+                "Per-time data not available. "
+                "Use do(simulate_over='time') to get per-time results."
+            )
+        return self._draw_by_time(var)
+
+
+class DoResult(_DrawStorageMixin, ResultReprMixin):
     """Container for propagated posterior draws under an intervention.
 
     Supports ``.mean(var)``, ``.hdi(var)``, and contrast arithmetic
@@ -204,80 +214,13 @@ class DoResult(ResultReprMixin):
 
     Parameters
     ----------
-    values : dict[str, np.ndarray]
-        Posterior draws for each variable, shape ``(n_samples,)`` where
-        ``n_samples`` is ``chain * draw`` for mean-path results or
-        ``chain * draw * unit`` for predictive. Used to build the internal
-        Dataset when ``ds`` is not supplied.
-    values_by_time : dict[str, np.ndarray] | None
-        Per-time-step draws, shape ``(n_times, n_samples)``.
-        Available only for panel do() results.
-    time_index : array-like | None
-        Time labels corresponding to the ``time`` dim.
-    ds : xr.Dataset | None
-        Pre-built internal Dataset with dims ``("chain", "draw")`` and,
-        optionally, a ``"time"`` dim. When supplied, takes precedence over
-        the dict arguments.
-    n_chains, n_draws : int | None
-        Chain/draw sizes used to reconstruct the ``chain``/``draw`` dims
-        when building the Dataset from flat ``values`` dicts. Required when
-        *values* or *values_by_time* is non-empty and ``ds`` is omitted.
-    n_units_per_var : dict[str, int] | None
-        Per-variable unit counts for predictive ``values`` arrays whose length
-        is ``chain * draw * unit``.
+    ds : xr.Dataset
+        Labelled posterior draws with dims ``("chain", "draw")`` and,
+        optionally, ``"unit"`` or ``"time"``.
     """
 
-    def __init__(
-        self,
-        values: dict[str, np.ndarray] | None = None,
-        values_by_time: dict[str, np.ndarray] | None = None,
-        time_index: np.ndarray | None = None,
-        *,
-        ds: xr.Dataset | None = None,
-        n_chains: int | None = None,
-        n_draws: int | None = None,
-        n_units_per_var: dict[str, int] | None = None,
-    ) -> None:
-        if ds is not None:
-            self._ds = ds
-        else:
-            self._ds = _build_dataset(
-                values or {},
-                values_by_time,
-                time_index,
-                n_chains=n_chains,
-                n_draws=n_draws,
-                n_units_per_var=n_units_per_var,
-            )
-
-    @property
-    def dataset(self) -> xr.Dataset:
-        """Labeled posterior draws as an :class:`xarray.Dataset`.
-
-        Variables are stored with dims ``("chain", "draw")`` for mean-path
-        results, plus ``"unit"`` for ``kind="predictive"`` and ``"time"`` for
-        panel per-time results. Mutating this object affects the result
-        in place (and any :class:`EstimandResult` built via
-        :meth:`EstimandResult.from_contrast` that shares it).
-
-        For a flat ``(n_samples,)`` numpy view, use :meth:`draws` instead.
-        """
-        return self._ds
-
-    def _draw(self, var: str) -> np.ndarray:
-        """Flat ``(n_samples,)`` draws for one variable (O(1) stack)."""
-        return _stack_sample(self._ds[var])
-
-    def _draw_by_time(self, var: str) -> np.ndarray:
-        """Per-time ``(n_times, n_samples)`` draws for one panel variable."""
-        return _stack_sample_time(self._ds[var])
-
-    @property
-    def _time_index(self) -> np.ndarray | None:
-        """Time coord of the internal Dataset, or None."""
-        if "time" in self._ds.coords:
-            return np.asarray(self._ds["time"].values)
-        return None
+    def __init__(self, *, ds: xr.Dataset) -> None:
+        self._ds = ds
 
     def draws(self, var: str) -> np.ndarray:
         """Return raw posterior draws for *var* under this intervention.
@@ -336,17 +279,7 @@ class DoResult(ResultReprMixin):
         ValueError
             If per-time data is not available (cross-sectional do).
         """
-        if not _has_by_time(self._ds):
-            raise ValueError(
-                "Per-time data not available. "
-                "Use do(simulate_over='time') to get per-time results."
-            )
-        return self._draw_by_time(var)
-
-    @property
-    def time_index(self) -> np.ndarray | None:
-        """Time labels for the first axis of :meth:`by_time` results."""
-        return self._time_index
+        return self._by_time_draws(var)
 
     def __sub__(self, other: DoResult) -> DoResult:
         """Element-wise contrast between two DoResults."""
@@ -381,7 +314,7 @@ class DoResult(ResultReprMixin):
         )
 
 
-class EstimandResult(ResultReprMixin):
+class EstimandResult(_DrawStorageMixin, ResultReprMixin):
     """Posterior draws for a causal estimand (ATE, CATE, ATT, ATU).
 
     Unlike :class:`DoResult`, which describes the whole system under an
@@ -398,69 +331,28 @@ class EstimandResult(ResultReprMixin):
 
     Parameters
     ----------
-    values : dict[str, np.ndarray]
-        Contrast draws for each variable, shape ``(n_samples,)`` where
-        ``n_samples`` is ``chain * draw`` or ``chain * draw * unit``.
+    ds : xr.Dataset
+        Labelled contrast draws.
     outcome : str
         The outcome variable; the default target of all accessors.
     treatment : str
         The treatment variable that was intervened on.
     estimand : str
         Estimand label, e.g. ``"ATE"``, ``"CATE"``, ``"ATT"``, ``"ATU"``.
-    values_by_time : dict[str, np.ndarray] | None
-        Per-time-step contrast draws, shape ``(n_times, n_samples)``.
-    time_index : array-like | None
-        Time labels for the ``time`` dim.
-    ds : xr.Dataset | None
-        Pre-built internal Dataset (takes precedence over the dicts).
-    n_chains, n_draws : int | None
-        Chain/draw sizes for reconstructing dims from flat arrays.
     """
 
     def __init__(
         self,
-        values: dict[str, np.ndarray] | None = None,
-        outcome: str | None = None,
-        treatment: str | None = None,
-        estimand: str | None = None,
-        values_by_time: dict[str, np.ndarray] | None = None,
-        time_index: np.ndarray | None = None,
         *,
-        ds: xr.Dataset | None = None,
-        n_chains: int | None = None,
-        n_draws: int | None = None,
+        ds: xr.Dataset,
+        outcome: str,
+        treatment: str,
+        estimand: str,
     ) -> None:
-        if ds is not None:
-            self._ds = ds
-        else:
-            self._ds = _build_dataset(
-                values or {},
-                values_by_time,
-                time_index,
-                n_chains=n_chains,
-                n_draws=n_draws,
-            )
-        # outcome/treatment/estimand are required metadata; keep them as
-        # plain attributes (not derived from the Dataset).
-        self._default_var: str = outcome if outcome is not None else ""
-        self._treatment: str = treatment if treatment is not None else ""
-        self._estimand: str = estimand if estimand is not None else ""
-
-    @property
-    def dataset(self) -> xr.Dataset:
-        """Labeled contrast draws as an :class:`xarray.Dataset`.
-
-        See :attr:`DoResult.dataset` for dim conventions and aliasing notes.
-        """
-        return self._ds
-
-    def _draw(self, var: str) -> np.ndarray:
-        """Flat ``(n_samples,)`` contrast draws for one variable."""
-        return _stack_sample(self._ds[var])
-
-    def _draw_by_time(self, var: str) -> np.ndarray:
-        """Per-time ``(n_times, n_samples)`` contrast draws for one variable."""
-        return _stack_sample_time(self._ds[var])
+        self._ds = ds
+        self._default_var = outcome
+        self._treatment = treatment
+        self._estimand = estimand
 
     @classmethod
     def from_contrast(
@@ -487,12 +379,6 @@ class EstimandResult(ResultReprMixin):
     def treatment(self) -> str:
         """The treatment variable that was intervened on."""
         return self._treatment
-
-    @property
-    def _time_index(self) -> np.ndarray | None:
-        if "time" in self._ds.coords:
-            return np.asarray(self._ds["time"].values)
-        return None
 
     def _resolve(self, var: str | None) -> str:
         key = self._default_var if var is None else var
@@ -619,17 +505,7 @@ class EstimandResult(ResultReprMixin):
         ValueError
             If per-time data is not available (cross-sectional estimand).
         """
-        if not _has_by_time(self._ds):
-            raise ValueError(
-                "Per-time data not available. "
-                "Use simulate_over='time' to get per-time results."
-            )
-        return self._draw_by_time(self._resolve(var))
-
-    @property
-    def time_index(self) -> np.ndarray | None:
-        """Time labels for the first axis of :meth:`by_time` results."""
-        return self._time_index
+        return self._by_time_draws(self._resolve(var))
 
     def __float__(self) -> float:
         """Posterior mean of the estimand (outcome variable)."""
@@ -870,37 +746,37 @@ def run_do_pymc(
         )
 
         post = posterior(idata)
-        n_samples = post.sizes["chain"] * post.sizes["draw"]
-        values: dict[str, np.ndarray] = {}
+        n_chains = post.sizes["chain"]
+        n_draws = post.sizes["draw"]
+        data_vars: dict[str, xr.DataArray] = {}
         for var in graph_info.topological_order:
             if var in set:
-                values[var] = np.full(n_samples, set[var])
+                data_vars[var] = _da_chain_draw(
+                    np.full((n_chains, n_draws), set[var]), n_chains, n_draws
+                )
             elif var in graph_info.exogenous:
                 if var in data.columns:
                     col = data[var].to_numpy()
                     if subgroup_indices is not None:
                         col = col[subgroup_indices]
-                    values[var] = np.full(n_samples, _exogenous_fill(col))
+                    fill = _exogenous_fill(col)
                 else:
-                    values[var] = np.zeros(n_samples)
+                    fill = 0.0
+                data_vars[var] = _da_chain_draw(
+                    np.full((n_chains, n_draws), fill), n_chains, n_draws
+                )
             else:
                 mu_raw = det[mean_det_names[var]].to_numpy()
                 if subgroup_indices is not None and mu_raw.ndim >= 3:
                     mu_raw = mu_raw[:, :, subgroup_indices]
                 # Map to the response scale per unit, then average over units
                 # within each posterior draw (g-computation standardization).
-                # The inverse link must be applied before averaging because
-                # E[g^{-1}(mu)] != g^{-1}(E[mu]) for non-identity links. This
-                # yields one value per draw (n_samples,), not per draw-unit pair.
                 resp = _apply_inverse_link(mu_raw, families.get(var, ""))
                 if resp.ndim >= 3:
-                    values[var] = resp.reshape(n_samples, -1).mean(axis=1)
-                else:
-                    values[var] = resp.reshape(n_samples)
+                    resp = resp.mean(axis=-1)
+                data_vars[var] = _da_chain_draw(resp, n_chains, n_draws)
 
-        return DoResult(
-            values=values, n_chains=post.sizes["chain"], n_draws=post.sizes["draw"]
-        )
+        return DoResult(ds=xr.Dataset(data_vars))
 
     do_model = pm.do(gen_model, replacements)
     with warnings.catch_warnings():
@@ -944,49 +820,51 @@ def run_do_pymc(
         extra_det = None
 
     post = posterior(idata)
-    n_samples = post.sizes["chain"] * post.sizes["draw"]
-    values = {}
-    # Track per-variable unit counts so the Dataset builder can label the
-    # unit dim for predictive (flattened chain*draw*N) arrays.
-    n_units_per_var: dict[str, int] = {}
+    n_chains = post.sizes["chain"]
+    n_draws = post.sizes["draw"]
+    predictive_vars: dict[str, xr.DataArray] = {}
     for var in graph_info.topological_order:
         if var in set:
-            values[var] = np.full(n_samples, set[var])
+            predictive_vars[var] = _da_chain_draw(
+                np.full((n_chains, n_draws), set[var]), n_chains, n_draws
+            )
         elif var in graph_info.exogenous:
             if var in data.columns:
                 col = data[var].to_numpy()
                 if subgroup_indices is not None:
                     col = col[subgroup_indices]
-                values[var] = np.full(n_samples, _exogenous_fill(col))
+                fill = _exogenous_fill(col)
             else:
-                values[var] = np.zeros(n_samples)
+                fill = 0.0
+            predictive_vars[var] = _da_chain_draw(
+                np.full((n_chains, n_draws), fill), n_chains, n_draws
+            )
         elif var in ppc.posterior_predictive:
             raw = ppc.posterior_predictive[var].to_numpy()
             if subgroup_indices is not None and raw.ndim >= 3:
                 raw = raw[:, :, subgroup_indices]
-            n_units_per_var[var] = raw.shape[-1] if raw.ndim >= 3 else 1
-            values[var] = raw.flatten()
+            if raw.ndim >= 3:
+                predictive_vars[var] = _da_chain_draw_unit(raw, n_chains, n_draws)
+            else:
+                predictive_vars[var] = _da_chain_draw(raw, n_chains, n_draws)
         elif f"mu_{var}" in ppc.posterior_predictive:
             raw = ppc.posterior_predictive[f"mu_{var}"].to_numpy()
             if subgroup_indices is not None and raw.ndim >= 3:
                 raw = raw[:, :, subgroup_indices]
-            n_units_per_var[var] = raw.shape[-1] if raw.ndim >= 3 else 1
-            values[var] = raw.flatten()
+            if raw.ndim >= 3:
+                predictive_vars[var] = _da_chain_draw_unit(raw, n_chains, n_draws)
+            else:
+                predictive_vars[var] = _da_chain_draw(raw, n_chains, n_draws)
         elif extra_det is not None and f"mu_{var}" in extra_det:
             raw = extra_det[f"mu_{var}"].to_numpy()
             if subgroup_indices is not None and raw.ndim >= 3:
                 raw = raw[:, :, subgroup_indices]
-            n_units_per_var[var] = raw.shape[-1] if raw.ndim >= 3 else 1
-            values[var] = raw.flatten()
+            if raw.ndim >= 3:
+                predictive_vars[var] = _da_chain_draw_unit(raw, n_chains, n_draws)
+            else:
+                predictive_vars[var] = _da_chain_draw(raw, n_chains, n_draws)
 
-    # Predictive arrays flatten chain*draw*N into one axis; pass per-var unit
-    # counts so the builder can label a unit dim where lengths match.
-    return DoResult(
-        values=values,
-        n_chains=post.sizes["chain"],
-        n_draws=post.sizes["draw"],
-        n_units_per_var=n_units_per_var or None,
-    )
+    return DoResult(ds=xr.Dataset(predictive_vars))
 
 
 def run_do_panel_unified(
@@ -1069,44 +947,47 @@ def run_do_panel_unified(
         )
 
         post = posterior(idata)
-        n_samples = post.sizes["chain"] * post.sizes["draw"]
-
-        values: dict[str, np.ndarray] = {}
-        values_by_time: dict[str, np.ndarray] = {}
-
-        for var in graph_info.topological_order:
-            if var in set:
-                val = set[var]
-                scalar = float(np.mean(val)) if isinstance(val, np.ndarray) else val
-                values[var] = np.full(n_samples, scalar)
-                if isinstance(val, np.ndarray):
-                    values_by_time[var] = np.broadcast_to(
-                        val[:, None], (n_times, n_samples)
-                    ).copy()
-                else:
-                    values_by_time[var] = np.full((n_times, n_samples), val)
-            elif var in graph_info.exogenous:
-                values[var] = np.zeros(n_samples)
-            elif var in graph_info.endogenous:
-                det_key = var if var in stochastic_latent else f"mu_{var}"
-                mu_raw = det[det_key].to_numpy()
-                mu_flat = mu_raw.reshape(-1, n_times, n_units)
-                by_time = mu_flat.mean(axis=2).T
-                values_by_time[var] = by_time
-                values[var] = by_time.mean(axis=0)
-
+        n_chains = post.sizes["chain"]
+        n_draws = post.sizes["draw"]
         time_idx = (
             np.array(scan_info.time_values)
             if scan_info.time_values
             else np.arange(n_times)
         )
-        return DoResult(
-            values=values,
-            values_by_time=values_by_time,
-            time_index=time_idx,
-            n_chains=post.sizes["chain"],
-            n_draws=post.sizes["draw"],
-        )
+        data_vars: dict[str, xr.DataArray] = {}
+
+        for var in graph_info.topological_order:
+            if var in set:
+                val = set[var]
+                if isinstance(val, np.ndarray):
+                    by_time = np.broadcast_to(
+                        val[:, None], (n_times, n_chains * n_draws)
+                    )
+                    data_vars[var] = _da_time_chain_draw(
+                        by_time, n_times, n_chains, n_draws, time_idx
+                    )
+                else:
+                    data_vars[var] = _da_time_chain_draw(
+                        np.full((n_times, n_chains, n_draws), val),
+                        n_times,
+                        n_chains,
+                        n_draws,
+                        time_idx,
+                    )
+            elif var in graph_info.exogenous:
+                data_vars[var] = _da_chain_draw(
+                    np.zeros((n_chains, n_draws)), n_chains, n_draws
+                )
+            elif var in graph_info.endogenous:
+                det_key = var if var in stochastic_latent else f"mu_{var}"
+                mu_raw = det[det_key].to_numpy()
+                mu_4d = mu_raw.reshape(n_chains, n_draws, n_times, n_units)
+                by_time_3d = mu_4d.mean(axis=3).transpose(2, 0, 1)
+                data_vars[var] = _da_time_chain_draw(
+                    by_time_3d, n_times, n_chains, n_draws, time_idx
+                )
+
+        return DoResult(ds=xr.Dataset(data_vars))
 
     # kind == "predictive"
     do_model = pm.do(gen_model, replacements)
@@ -1135,39 +1016,49 @@ def run_do_panel_unified(
         latent_det = None
 
     post = posterior(idata)
-    n_samples = post.sizes["chain"] * post.sizes["draw"]
+    n_chains = post.sizes["chain"]
+    n_draws = post.sizes["draw"]
+    time_idx = (
+        np.array(scan_info.time_values) if scan_info.time_values else np.arange(n_times)
+    )
+    predictive_vars: dict[str, xr.DataArray] = {}
 
-    values = {}
-    values_by_time = {}
     for var in graph_info.topological_order:
         if var in set:
             val = set[var]
             scalar = float(np.mean(val)) if isinstance(val, np.ndarray) else val
-            values[var] = np.full(n_samples, scalar)
+            if isinstance(val, np.ndarray):
+                by_time = np.broadcast_to(val[:, None], (n_times, n_chains * n_draws))
+                predictive_vars[var] = _da_time_chain_draw(
+                    by_time, n_times, n_chains, n_draws, time_idx
+                )
+            else:
+                predictive_vars[var] = _da_time_chain_draw(
+                    np.full((n_times, n_chains, n_draws), scalar),
+                    n_times,
+                    n_chains,
+                    n_draws,
+                    time_idx,
+                )
         elif var in graph_info.exogenous:
-            values[var] = np.zeros(n_samples)
+            predictive_vars[var] = _da_chain_draw(
+                np.zeros((n_chains, n_draws)), n_chains, n_draws
+            )
         elif var in ppc.posterior_predictive:
             raw = ppc.posterior_predictive[var].to_numpy()
-            flat = raw.reshape(-1, n_times, n_units)
-            by_time = flat.mean(axis=2).T
-            values_by_time[var] = by_time
-            values[var] = by_time.mean(axis=0)
+            flat = raw.reshape(n_chains, n_draws, n_times, n_units)
+            by_time_3d = flat.mean(axis=3).transpose(2, 0, 1)
+            predictive_vars[var] = _da_time_chain_draw(
+                by_time_3d, n_times, n_chains, n_draws, time_idx
+            )
         elif latent_det is not None:
             det_key = var if var in stochastic_latent else f"mu_{var}"
             if det_key in latent_det:
                 mu_raw = latent_det[det_key].to_numpy()
-                mu_flat = mu_raw.reshape(-1, n_times, n_units)
-                by_time = mu_flat.mean(axis=2).T
-                values_by_time[var] = by_time
-                values[var] = by_time.mean(axis=0)
+                mu_4d = mu_raw.reshape(n_chains, n_draws, n_times, n_units)
+                by_time_3d = mu_4d.mean(axis=3).transpose(2, 0, 1)
+                predictive_vars[var] = _da_time_chain_draw(
+                    by_time_3d, n_times, n_chains, n_draws, time_idx
+                )
 
-    time_idx = (
-        np.array(scan_info.time_values) if scan_info.time_values else np.arange(n_times)
-    )
-    return DoResult(
-        values=values,
-        values_by_time=values_by_time,
-        time_index=time_idx,
-        n_chains=post.sizes["chain"],
-        n_draws=post.sizes["draw"],
-    )
+    return DoResult(ds=xr.Dataset(predictive_vars))
