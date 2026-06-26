@@ -43,16 +43,44 @@
 <path fill="none" stroke="black" d="M244,-8C244,-8 634,-8 634,-8 640,-8 646,-14 646,-20 646,-20 646,-109.95 646,-109.95 646,-115.95 640,-121.95 634,-121.95 634,-121.95 244,-121.95 244,-121.95 238,-121.95 232,-115.95 232,-109.95 232,-109.95 232,-20 232,-20 232,-14 238,-8 244,-8"/>
 <text text-anchor="middle" x="606.5" y="-15.8" font-family="Times,serif" font-size="14.00">2000 x 2</text>
 </g>
-<!-- mu_push_delivered -->
+<!-- push_assigned -->
 <g id="node1" class="node">
+<title>push_assigned</title>
+<path fill="lightgrey" stroke="black" d="M159.5,-346.88C159.5,-346.88 62.5,-346.88 62.5,-346.88 56.5,-346.88 50.5,-340.88 50.5,-334.88 50.5,-334.88 50.5,-305.88 50.5,-305.88 50.5,-299.88 56.5,-293.88 62.5,-293.88 62.5,-293.88 159.5,-293.88 159.5,-293.88 165.5,-293.88 171.5,-299.88 171.5,-305.88 171.5,-305.88 171.5,-334.88 171.5,-334.88 171.5,-340.88 165.5,-346.88 159.5,-346.88"/>
+<text text-anchor="middle" x="111" y="-331.68" font-family="Times,serif" font-size="14.00">push_assigned</text>
+<text text-anchor="middle" x="111" y="-316.68" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="111" y="-301.68" font-family="Times,serif" font-size="14.00">Data</text>
+</g>
+<!-- mu_push_delivered -->
+<g id="node2" class="node">
 <title>mu_push_delivered</title>
 <polygon fill="none" stroke="black" points="180,-224.93 26,-224.93 26,-171.93 180,-171.93 180,-224.93"/>
 <text text-anchor="middle" x="103" y="-209.73" font-family="Times,serif" font-size="14.00">mu_push_delivered</text>
 <text text-anchor="middle" x="103" y="-194.73" font-family="Times,serif" font-size="14.00">~</text>
 <text text-anchor="middle" x="103" y="-179.73" font-family="Times,serif" font-size="14.00">Deterministic</text>
 </g>
+<!-- push_assigned&#45;&gt;mu_push_delivered -->
+<g id="edge1" class="edge">
+<title>push_assigned&#45;&gt;mu_push_delivered</title>
+<path fill="none" stroke="black" d="M109.28,-293.65C108.14,-276.57 106.63,-253.93 105.38,-235.12"/>
+<polygon fill="black" stroke="black" points="108.87,-234.87 104.71,-225.12 101.89,-235.33 108.87,-234.87"/>
+</g>
+<!-- in_app_purchase_push_delivered_obs -->
+<g id="node9" class="node">
+<title>in_app_purchase_push_delivered_obs</title>
+<ellipse fill="lightgrey" stroke="black" cx="439" cy="-76.48" rx="198.89" ry="37.45"/>
+<text text-anchor="middle" x="439" y="-87.78" font-family="Times,serif" font-size="14.00">in_app_purchase_push_delivered_obs</text>
+<text text-anchor="middle" x="439" y="-72.78" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="439" y="-57.78" font-family="Times,serif" font-size="14.00">Multivariate_normal</text>
+</g>
+<!-- push_assigned&#45;&gt;in_app_purchase_push_delivered_obs -->
+<g id="edge7" class="edge">
+<title>push_assigned&#45;&gt;in_app_purchase_push_delivered_obs</title>
+<path fill="none" stroke="black" d="M164.98,-293.8C199.6,-278.7 245.96,-260.83 289,-251.91 307.62,-248.04 446.87,-257.67 460,-243.91 490.21,-212.25 477.72,-160.41 462.25,-123"/>
+<polygon fill="black" stroke="black" points="465.46,-121.6 458.28,-113.81 459.04,-124.38 465.46,-121.6"/>
+</g>
 <!-- mu_in_app_purchase -->
-<g id="node2" class="node">
+<g id="node3" class="node">
 <title>mu_in_app_purchase</title>
 <polygon fill="none" stroke="black" points="180,-102.98 16,-102.98 16,-49.98 180,-49.98 180,-102.98"/>
 <text text-anchor="middle" x="98" y="-87.78" font-family="Times,serif" font-size="14.00">mu_in_app_purchase</text>
@@ -65,39 +93,11 @@
 <path fill="none" stroke="black" d="M101.93,-171.7C101.22,-154.62 100.27,-131.97 99.49,-113.16"/>
 <polygon fill="black" stroke="black" points="102.98,-113.01 99.07,-103.17 95.99,-113.3 102.98,-113.01"/>
 </g>
-<!-- in_app_purchase_push_delivered_obs -->
-<g id="node9" class="node">
-<title>in_app_purchase_push_delivered_obs</title>
-<ellipse fill="lightgrey" stroke="black" cx="439" cy="-76.48" rx="198.89" ry="37.45"/>
-<text text-anchor="middle" x="439" y="-87.78" font-family="Times,serif" font-size="14.00">in_app_purchase_push_delivered_obs</text>
-<text text-anchor="middle" x="439" y="-72.78" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="439" y="-57.78" font-family="Times,serif" font-size="14.00">Multivariate_normal</text>
-</g>
 <!-- mu_push_delivered&#45;&gt;in_app_purchase_push_delivered_obs -->
-<g id="edge8" class="edge">
+<g id="edge9" class="edge">
 <title>mu_push_delivered&#45;&gt;in_app_purchase_push_delivered_obs</title>
 <path fill="none" stroke="black" d="M130.18,-171.77C146.83,-157.41 169.25,-140.36 192,-129.95 217.41,-118.33 245.48,-109.24 273.3,-102.15"/>
 <polygon fill="black" stroke="black" points="274.26,-105.52 283.13,-99.72 272.58,-98.72 274.26,-105.52"/>
-</g>
-<!-- push_assigned -->
-<g id="node3" class="node">
-<title>push_assigned</title>
-<path fill="lightgrey" stroke="black" d="M159.5,-346.88C159.5,-346.88 62.5,-346.88 62.5,-346.88 56.5,-346.88 50.5,-340.88 50.5,-334.88 50.5,-334.88 50.5,-305.88 50.5,-305.88 50.5,-299.88 56.5,-293.88 62.5,-293.88 62.5,-293.88 159.5,-293.88 159.5,-293.88 165.5,-293.88 171.5,-299.88 171.5,-305.88 171.5,-305.88 171.5,-334.88 171.5,-334.88 171.5,-340.88 165.5,-346.88 159.5,-346.88"/>
-<text text-anchor="middle" x="111" y="-331.68" font-family="Times,serif" font-size="14.00">push_assigned</text>
-<text text-anchor="middle" x="111" y="-316.68" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="111" y="-301.68" font-family="Times,serif" font-size="14.00">Data</text>
-</g>
-<!-- push_assigned&#45;&gt;mu_push_delivered -->
-<g id="edge2" class="edge">
-<title>push_assigned&#45;&gt;mu_push_delivered</title>
-<path fill="none" stroke="black" d="M109.28,-293.65C108.14,-276.57 106.63,-253.93 105.38,-235.12"/>
-<polygon fill="black" stroke="black" points="108.87,-234.87 104.71,-225.12 101.89,-235.33 108.87,-234.87"/>
-</g>
-<!-- push_assigned&#45;&gt;in_app_purchase_push_delivered_obs -->
-<g id="edge9" class="edge">
-<title>push_assigned&#45;&gt;in_app_purchase_push_delivered_obs</title>
-<path fill="none" stroke="black" d="M164.98,-293.8C199.6,-278.7 245.96,-260.83 289,-251.91 307.62,-248.04 446.87,-257.67 460,-243.91 490.21,-212.25 477.72,-160.41 462.25,-123"/>
-<polygon fill="black" stroke="black" points="465.46,-121.6 458.28,-113.81 459.04,-124.38 465.46,-121.6"/>
 </g>
 <!-- beta_push_delivered -->
 <g id="node4" class="node">
@@ -108,13 +108,13 @@
 <text text-anchor="middle" x="416" y="-301.68" font-family="Times,serif" font-size="14.00">Normal</text>
 </g>
 <!-- beta_push_delivered&#45;&gt;mu_push_delivered -->
-<g id="edge1" class="edge">
+<g id="edge2" class="edge">
 <title>beta_push_delivered&#45;&gt;mu_push_delivered</title>
 <path fill="none" stroke="black" d="M332.81,-294.38C290.18,-280.81 237.75,-262.94 192,-243.91 181.64,-239.6 170.8,-234.61 160.4,-229.57"/>
 <polygon fill="black" stroke="black" points="161.92,-226.41 151.4,-225.14 158.83,-232.69 161.92,-226.41"/>
 </g>
 <!-- beta_push_delivered&#45;&gt;in_app_purchase_push_delivered_obs -->
-<g id="edge7" class="edge">
+<g id="edge8" class="edge">
 <title>beta_push_delivered&#45;&gt;in_app_purchase_push_delivered_obs</title>
 <path fill="none" stroke="black" d="M460.34,-285.39C472.26,-273.68 483.62,-259.54 490,-243.91 509.15,-197.02 509.05,-176.88 490,-129.95 488.84,-127.1 487.45,-124.32 485.87,-121.62"/>
 <polygon fill="black" stroke="black" points="488.76,-119.65 480.28,-113.3 482.95,-123.55 488.76,-119.65"/>
@@ -134,7 +134,7 @@
 <polygon fill="black" stroke="black" points="157.12,-104.62 146.64,-103.07 153.86,-110.82 157.12,-104.62"/>
 </g>
 <!-- beta_in_app_purchase&#45;&gt;in_app_purchase_push_delivered_obs -->
-<g id="edge11" class="edge">
+<g id="edge10" class="edge">
 <title>beta_in_app_purchase&#45;&gt;in_app_purchase_push_delivered_obs</title>
 <path fill="none" stroke="black" d="M359.29,-162.09C371.38,-149.26 385.18,-134.61 397.86,-121.15"/>
 <polygon fill="black" stroke="black" points="400.46,-123.49 404.77,-113.81 395.37,-118.69 400.46,-123.49"/>
@@ -176,7 +176,7 @@
 <polygon fill="black" stroke="black" points="1087.87,-109.57 1096.18,-103 1085.59,-102.95 1087.87,-109.57"/>
 </g>
 <!-- chol_in_app_purchase_push_delivered&#45;&gt;in_app_purchase_push_delivered_obs -->
-<g id="edge10" class="edge">
+<g id="edge11" class="edge">
 <title>chol_in_app_purchase_push_delivered&#45;&gt;in_app_purchase_push_delivered_obs</title>
 <path fill="none" stroke="black" d="M722.11,-165.91C668.97,-149.31 603.71,-128.93 549.24,-111.91"/>
 <polygon fill="black" stroke="black" points="550.14,-108.53 539.55,-108.89 548.05,-115.21 550.14,-108.53"/>

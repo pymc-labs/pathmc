@@ -106,10 +106,7 @@ push_delivered = rng.binomial(1, deliver_prob)
 # Outcome: purchases rise with the push (the causal effect we want) and with
 # engagement (the confounder we never observe).
 in_app_purchase = (
-    5.0
-    + TRUE_LATE * push_delivered
-    + 1.0 * engagement
-    + rng.normal(scale=0.5, size=n)
+    5.0 + TRUE_LATE * push_delivered + 1.0 * engagement + rng.normal(scale=0.5, size=n)
 )
 
 df = pd.DataFrame({
