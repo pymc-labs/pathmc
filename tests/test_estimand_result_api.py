@@ -28,6 +28,7 @@ import pandas as pd
 import pytest
 
 from pathmc.simulate import DoResult, EstimandResult
+from _draw_fixtures import do_result_from_flat, estimand_result_from_flat
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +48,7 @@ def _make_draws(loc: float, scale: float = 0.1) -> np.ndarray:
 @pytest.fixture
 def estimand_result() -> EstimandResult:
     """An ATE of X on Y with positive effect draws."""
-    return EstimandResult(
+    return estimand_result_from_flat(
         values={"Y": _make_draws(loc=0.5), "X": _make_draws(loc=1.0)},
         outcome="Y",
         treatment="X",
@@ -60,7 +61,7 @@ def estimand_result() -> EstimandResult:
 @pytest.fixture
 def estimand_result_negative() -> EstimandResult:
     """An ATE with negative effect draws (for prob('< 0') tests)."""
-    return EstimandResult(
+    return estimand_result_from_flat(
         values={"Y": _make_draws(loc=-0.5)},
         outcome="Y",
         treatment="X",
@@ -73,7 +74,7 @@ def estimand_result_negative() -> EstimandResult:
 @pytest.fixture
 def do_contrast() -> DoResult:
     """A DoResult contrast to exercise from_contrast()."""
-    return DoResult(
+    return do_result_from_flat(
         values={"Y": _make_draws(loc=0.5), "X": _make_draws(loc=1.0)},
         n_chains=N_CHAINS,
         n_draws=N_DRAWS,
@@ -219,7 +220,7 @@ class TestSub:
     """Subtracting two EstimandResults preserves the outcome and shapes."""
 
     def test_draws_shape_preserved(self, estimand_result):
-        other = EstimandResult(
+        other = estimand_result_from_flat(
             values={"Y": _make_draws(loc=0.1), "X": _make_draws(loc=0.0)},
             outcome="Y",
             treatment="X",
@@ -231,7 +232,7 @@ class TestSub:
         assert diff.draws().shape == (N_SAMPLES,)
 
     def test_mean_is_difference(self, estimand_result):
-        other = EstimandResult(
+        other = estimand_result_from_flat(
             values={"Y": _make_draws(loc=0.1), "X": _make_draws(loc=0.0)},
             outcome="Y",
             treatment="X",
@@ -243,7 +244,7 @@ class TestSub:
         assert abs(diff.mean() - (estimand_result.mean() - other.mean())) < 1e-12
 
     def test_outcome_preserved(self, estimand_result):
-        other = EstimandResult(
+        other = estimand_result_from_flat(
             values={"Y": _make_draws(loc=0.1), "X": _make_draws(loc=0.0)},
             outcome="Y",
             treatment="X",
