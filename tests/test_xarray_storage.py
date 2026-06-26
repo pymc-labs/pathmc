@@ -11,12 +11,12 @@
 #   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
-"""Tests locking in the xarray-backed internal storage of :class:`DoResult`
+"""Tests locking in the xarray-backed storage of :class:`DoResult`
 and :class:`EstimandResult` (issue #319).
 
-These assert the *internal* representation is an :class:`xarray.Dataset` with
-named dims, while the public API continues to return numpy arrays. They are
-intentionally decoupled from MCMC — all fixtures are hand-built.
+These assert draws are stored in an :class:`xarray.Dataset` (via the public
+:attr:`~DoResult.dataset` property) with named dims, while ``draws()`` and
+related accessors continue to return numpy arrays. Fixtures are hand-built.
 """
 
 from __future__ import annotations
@@ -45,13 +45,21 @@ def _draws(loc: float = 0.0, scale: float = 0.1) -> np.ndarray:
 class TestDoResultStorage:
     """DoResult stores draws in an xr.Dataset with named dims."""
 
-    def test_internal_is_dataset(self):
+    def test_dataset_is_xarray(self):
         result = DoResult(
             values={"Y": _draws()},
             n_chains=N_CHAINS,
             n_draws=N_DRAWS,
         )
-        assert isinstance(result._ds, xr.Dataset)
+        assert isinstance(result.dataset, xr.Dataset)
+
+    def test_dataset_aliases_internal_store(self):
+        result = DoResult(
+            values={"Y": _draws()},
+            n_chains=N_CHAINS,
+            n_draws=N_DRAWS,
+        )
+        assert result.dataset is result._ds
 
     def test_chain_and_draw_dims_present(self):
         result = DoResult(
@@ -59,10 +67,10 @@ class TestDoResultStorage:
             n_chains=N_CHAINS,
             n_draws=N_DRAWS,
         )
-        assert "chain" in result._ds.dims
-        assert "draw" in result._ds.dims
-        assert result._ds.sizes["chain"] == N_CHAINS
-        assert result._ds.sizes["draw"] == N_DRAWS
+        assert "chain" in result.dataset.dims
+        assert "draw" in result.dataset.dims
+        assert result.dataset.sizes["chain"] == N_CHAINS
+        assert result.dataset.sizes["draw"] == N_DRAWS
 
     def test_chain_coord_is_integer_range(self):
         result = DoResult(
@@ -70,12 +78,14 @@ class TestDoResultStorage:
             n_chains=N_CHAINS,
             n_draws=N_DRAWS,
         )
-        np.testing.assert_array_equal(result._ds["chain"].values, np.arange(N_CHAINS))
-        np.testing.assert_array_equal(result._ds["draw"].values, np.arange(N_DRAWS))
+        np.testing.assert_array_equal(
+            result.dataset["chain"].values, np.arange(N_CHAINS)
+        )
+        np.testing.assert_array_equal(result.dataset["draw"].values, np.arange(N_DRAWS))
 
     def test_no_time_dim_for_cross_sectional(self):
         result = DoResult(values={"Y": _draws()}, n_chains=N_CHAINS, n_draws=N_DRAWS)
-        assert "time" not in result._ds.dims
+        assert "time" not in result.dataset.dims
 
     def test_draws_returns_numpy_not_xarray(self):
         result = DoResult(values={"Y": _draws()}, n_chains=N_CHAINS, n_draws=N_DRAWS)
@@ -103,8 +113,8 @@ class TestDoResultStorage:
             n_draws=N_DRAWS,
             n_units=n_units,
         )
-        assert "unit" in result._ds["Y"].dims
-        assert result._ds.sizes["unit"] == n_units
+        assert "unit" in result.dataset["Y"].dims
+        assert result.dataset.sizes["unit"] == n_units
 
     def test_heterogeneous_unit_counts_per_var(self):
         n_units_y, n_units_z = 10, 5
@@ -117,8 +127,8 @@ class TestDoResultStorage:
             n_draws=N_DRAWS,
             n_units_per_var={"Y": n_units_y, "Z": n_units_z},
         )
-        assert result._ds["Y"].sizes["unit_Y"] == n_units_y
-        assert result._ds["Z"].sizes["unit_Z"] == n_units_z
+        assert result.dataset["Y"].sizes["unit_Y"] == n_units_y
+        assert result.dataset["Z"].sizes["unit_Z"] == n_units_z
         assert result.draws("Y").shape == (N_CHAINS * N_DRAWS * n_units_y,)
         assert result.draws("Z").shape == (N_CHAINS * N_DRAWS * n_units_z,)
 
@@ -135,8 +145,8 @@ class TestDoResultPanelStorage:
             n_chains=N_CHAINS,
             n_draws=N_DRAWS,
         )
-        assert "time" in result._ds.dims
-        assert result._ds.sizes["time"] == n_times
+        assert "time" in result.dataset.dims
+        assert result.dataset.sizes["time"] == n_times
 
     def test_time_coord_matches_time_index(self):
         n_times = 5
@@ -149,7 +159,7 @@ class TestDoResultPanelStorage:
             n_chains=N_CHAINS,
             n_draws=N_DRAWS,
         )
-        np.testing.assert_array_equal(result._ds["time"].values, time_index)
+        np.testing.assert_array_equal(result.dataset["time"].values, time_index)
         np.testing.assert_array_equal(result.time_index, time_index)
 
     def test_time_coord_defaults_to_range(self):
@@ -161,7 +171,7 @@ class TestDoResultPanelStorage:
             n_chains=N_CHAINS,
             n_draws=N_DRAWS,
         )
-        np.testing.assert_array_equal(result._ds["time"].values, np.arange(n_times))
+        np.testing.assert_array_equal(result.dataset["time"].values, np.arange(n_times))
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +182,7 @@ class TestDoResultPanelStorage:
 class TestEstimandResultStorage:
     """EstimandResult stores draws in an xr.Dataset with named dims."""
 
-    def test_internal_is_dataset(self):
+    def test_dataset_is_xarray(self):
         er = EstimandResult(
             values={"Y": _draws(), "X": _draws()},
             outcome="Y",
@@ -181,7 +191,7 @@ class TestEstimandResultStorage:
             n_chains=N_CHAINS,
             n_draws=N_DRAWS,
         )
-        assert isinstance(er._ds, xr.Dataset)
+        assert isinstance(er.dataset, xr.Dataset)
 
     def test_chain_and_draw_dims_present(self):
         er = EstimandResult(
@@ -192,8 +202,8 @@ class TestEstimandResultStorage:
             n_chains=N_CHAINS,
             n_draws=N_DRAWS,
         )
-        assert "chain" in er._ds.dims
-        assert "draw" in er._ds.dims
+        assert "chain" in er.dataset.dims
+        assert "draw" in er.dataset.dims
 
     def test_draws_returns_numpy(self):
         er = EstimandResult(
@@ -220,8 +230,8 @@ class TestSubOnXarray:
         a = DoResult(values={"Y": _draws(1.0)}, n_chains=N_CHAINS, n_draws=N_DRAWS)
         b = DoResult(values={"Y": _draws(0.0)}, n_chains=N_CHAINS, n_draws=N_DRAWS)
         diff = a - b
-        assert isinstance(diff._ds, xr.Dataset)
-        assert "chain" in diff._ds.dims
+        assert isinstance(diff.dataset, xr.Dataset)
+        assert "chain" in diff.dataset.dims
 
     def test_subtraction_values_correct(self):
         a = DoResult(
@@ -239,8 +249,8 @@ class TestSubOnXarray:
         )
         b = DoResult(values={"Y": _draws()}, n_chains=N_CHAINS, n_draws=N_DRAWS)
         diff = a - b
-        assert "Y" in diff._ds.data_vars
-        assert "Z" not in diff._ds.data_vars
+        assert "Y" in diff.dataset.data_vars
+        assert "Z" not in diff.dataset.data_vars
 
     def test_subtract_legacy_vs_labeled_layout(self):
         flat = np.arange(N_SAMPLES, dtype=float)
@@ -268,7 +278,7 @@ class TestFromContrastOnXarray:
         )
         # from_contrast passes the same Dataset object; mutating the contrast
         # would affect the estimand. This characterizes the current sharing.
-        assert er._ds is contrast._ds
+        assert er.dataset is contrast.dataset
 
     def test_from_contrast_draws_match(self):
         contrast = DoResult(
@@ -291,8 +301,8 @@ class TestLegacyFallback:
     def test_legacy_flat_storage(self):
         # Without n_chains/n_draws, the builder falls back to a per-var sample dim.
         result = DoResult(values={"Y": _draws()})
-        assert isinstance(result._ds, xr.Dataset)
-        y_dims = result._ds["Y"].dims
+        assert isinstance(result.dataset, xr.Dataset)
+        y_dims = result.dataset["Y"].dims
         assert "chain" in y_dims or any(d.startswith("sample_") for d in y_dims)
         # Public API still works.
         assert result.draws("Y").shape == (N_SAMPLES,)
@@ -304,5 +314,5 @@ class TestLegacyFallback:
             treatment="X",
             estimand="ATE",
         )
-        assert isinstance(er._ds, xr.Dataset)
+        assert isinstance(er.dataset, xr.Dataset)
         assert er.draws().shape == (N_SAMPLES,)

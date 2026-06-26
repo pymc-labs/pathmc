@@ -273,9 +273,9 @@ class DoResult(ResultReprMixin):
     For panel ``do(simulate_over="time")``, the result also stores
     per-time-step draws accessible via :meth:`by_time`.
 
-    Internal storage is an :class:`xarray.Dataset` with named dims
-    ``("chain", "draw")`` for cross-sectional draws and an additional
-    ``"time"`` dim for panel per-time draws. The ``_values`` and
+    Internal storage is an :class:`xarray.Dataset` exposed as :attr:`dataset`
+    with named dims ``("chain", "draw")`` for cross-sectional draws and an
+    additional ``"time"`` dim for panel per-time draws. The ``_values`` and
     ``_values_by_time`` attributes are backward-compatible dict views
     (stacked over ``chain``/``draw`` into a ``"sample"`` axis) that
     preserve the historical numpy-array public contract.
@@ -331,6 +331,20 @@ class DoResult(ResultReprMixin):
                 n_units=n_units,
                 n_units_per_var=n_units_per_var,
             )
+
+    @property
+    def dataset(self) -> xr.Dataset:
+        """Labeled posterior draws as an :class:`xarray.Dataset`.
+
+        Variables are stored with dims ``("chain", "draw")`` for mean-path
+        results, plus ``"unit"`` for ``kind="predictive"`` and ``"time"`` for
+        panel per-time results. Mutating this object affects the result
+        in place (and any :class:`EstimandResult` built via
+        :meth:`EstimandResult.from_contrast` that shares it).
+
+        For a flat ``(n_samples,)`` numpy view, use :meth:`draws` instead.
+        """
+        return self._ds
 
     def _draw(self, var: str) -> np.ndarray:
         """Flat ``(n_samples,)`` draws for one variable (O(1) stack)."""
@@ -466,7 +480,7 @@ class DoResult(ResultReprMixin):
             title=f"DoResult — {n_samples} draws, {n_vars} variables",
             rows=rows,
             columns=["variable", "mean", hdi_label()],
-            footer="Methods: .draws() .mean() .hdi() .by_time()",
+            footer="Methods: .draws() .mean() .hdi() .by_time() .dataset",
         )
 
 
@@ -482,9 +496,9 @@ class EstimandResult(ResultReprMixin):
     works for any variable in the contrast.
 
     Internal storage mirrors :class:`DoResult`: an :class:`xarray.Dataset`
-    with dims ``("chain", "draw")`` (and ``"time"`` for panel estimands).
-    The ``_values`` / ``_values_by_time`` attributes are backward-compatible
-    dict views.
+    exposed as :attr:`dataset` with dims ``("chain", "draw")`` (and
+    ``"time"`` for panel estimands). The ``_values`` / ``_values_by_time``
+    attributes are backward-compatible dict views.
 
     Parameters
     ----------
@@ -536,6 +550,14 @@ class EstimandResult(ResultReprMixin):
         self._treatment: str = treatment if treatment is not None else ""
         self._estimand: str = estimand if estimand is not None else ""
 
+    @property
+    def dataset(self) -> xr.Dataset:
+        """Labeled contrast draws as an :class:`xarray.Dataset`.
+
+        See :attr:`DoResult.dataset` for dim conventions and aliasing notes.
+        """
+        return self._ds
+
     def _draw(self, var: str) -> np.ndarray:
         """Flat ``(n_samples,)`` contrast draws for one variable."""
         return _stack_sample(self._ds[var])
@@ -554,7 +576,7 @@ class EstimandResult(ResultReprMixin):
     ) -> EstimandResult:
         """Wrap a :class:`DoResult` contrast as a focused estimand result."""
         return cls(
-            ds=contrast._ds,
+            ds=contrast.dataset,
             outcome=outcome,
             treatment=treatment,
             estimand=estimand,
@@ -767,7 +789,7 @@ class EstimandResult(ResultReprMixin):
                 ["P(> 0)", f"{p_gt_0:.2f}"],
                 ["Draws", str(n_samples)],
             ],
-            footer="Methods: .hdi() .prob() .summary() .draws() .by_time()",
+            footer="Methods: .hdi() .prob() .summary() .draws() .by_time() .dataset",
         )
 
 
