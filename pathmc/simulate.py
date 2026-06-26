@@ -89,106 +89,47 @@ def _stack_sample_time(da: xr.DataArray) -> np.ndarray:
     return stacked.transpose("time", "sample").values
 
 
-def _chain_draw_coords(n_chains: int, n_draws: int) -> dict[str, np.ndarray]:
-    """Integer ``chain`` / ``draw`` coordinate labels."""
-    return {"chain": np.arange(n_chains), "draw": np.arange(n_draws)}
+def _obs_dims(da: xr.DataArray) -> list[str]:
+    """Observation dims of a PyMC output: everything except chain / draw."""
+    return [str(d) for d in da.dims if d not in ("chain", "draw")]
 
 
-def _extra_dims(da: xr.DataArray) -> list[str]:
-    """Dims other than ``chain`` / ``draw`` on a PyMC output array."""
-    return [d for d in da.dims if d not in ("chain", "draw")]
+def _chain_draw_ones(post: xr.Dataset) -> xr.DataArray:
+    """A ``(chain, draw)`` array of ones carrying the posterior's coords.
+
+    Multiplying by a value yields a labelled constant aligned with the
+    propagated draws, so interventions and exogenous fills slot into the
+    output Dataset without any manual coordinate bookkeeping.
+    """
+    return xr.ones_like(post["chain"] * post["draw"], dtype=float)
 
 
-def _select_subgroup(
-    da: xr.DataArray, subgroup_indices: np.ndarray | None
+def _spread_over_time(
+    ones: xr.DataArray, value: float | np.ndarray, time_index: np.ndarray
 ) -> xr.DataArray:
-    """Restrict observation rows to *subgroup_indices* (first extra dim)."""
-    if subgroup_indices is None:
-        return da
-    extra = _extra_dims(da)
-    if extra:
-        return da.isel({extra[0]: subgroup_indices})
-    return da
-
-
-def _const_chain_draw(
-    fill: float | np.ndarray, n_chains: int, n_draws: int
-) -> xr.DataArray:
-    """Constant ``(chain, draw)`` array with integer coords."""
-    scalar = float(np.mean(fill)) if isinstance(fill, np.ndarray) else float(fill)
-    coords = _chain_draw_coords(n_chains, n_draws)
-    return xr.DataArray(
-        np.broadcast_to(scalar, (n_chains, n_draws)),
-        dims=("chain", "draw"),
-        coords=coords,
+    """Broadcast a scalar or per-time intervention to ``(time, chain, draw)``."""
+    per_time = xr.DataArray(
+        np.broadcast_to(value, len(time_index)),
+        dims="time",
+        coords={"time": np.asarray(time_index)},
     )
+    return (ones * per_time).transpose("time", "chain", "draw")
 
 
-def _const_time_chain_draw(
-    val: float | np.ndarray,
-    n_times: int,
-    n_chains: int,
-    n_draws: int,
-    time_index: np.ndarray,
-) -> xr.DataArray:
-    """Constant or time-varying ``(time, chain, draw)`` array."""
-    coords = {"time": np.asarray(time_index), **_chain_draw_coords(n_chains, n_draws)}
-    if isinstance(val, np.ndarray):
-        time_da = xr.DataArray(val, dims=("time",), coords={"time": coords["time"]})
-        ones = xr.DataArray(
-            np.ones((n_chains, n_draws)),
-            dims=("chain", "draw"),
-            coords=_chain_draw_coords(n_chains, n_draws),
-        )
-        return (time_da * ones).transpose("time", "chain", "draw")
-    return xr.DataArray(
-        np.broadcast_to(val, (n_times, n_chains, n_draws)),
-        dims=("time", "chain", "draw"),
-        coords=coords,
+def _panel_unit_mean(da: xr.DataArray, time_index: np.ndarray) -> xr.DataArray:
+    """Average over units, returning labelled ``(time, chain, draw)`` draws.
+
+    Scan-compiled panel outputs carry ``(time, unit)`` observation dims in
+    that order; units are averaged within each draw, leaving per-time draws.
+    """
+    time_dim, *unit_dims = _obs_dims(da)
+    if unit_dims:
+        da = da.mean(unit_dims)
+    if time_dim != "time":
+        da = da.rename({time_dim: "time"})
+    return da.transpose("time", "chain", "draw").assign_coords(
+        time=np.asarray(time_index)
     )
-
-
-def _mean_to_chain_draw(da: xr.DataArray, family: str) -> xr.DataArray:
-    """Collapse observation dims to ``(chain, draw)`` on the response scale."""
-    da = _apply_inverse_link(da, family)
-    extra = _extra_dims(da)
-    if extra:
-        da = da.mean(dim=extra)
-    return da.transpose("chain", "draw")
-
-
-def _predictive_to_chain_draw(
-    da: xr.DataArray, subgroup_indices: np.ndarray | None
-) -> xr.DataArray:
-    """Label predictive draws as ``(chain, draw)`` or ``(chain, draw, unit)``."""
-    da = _select_subgroup(da, subgroup_indices)
-    extra = _extra_dims(da)
-    if len(extra) == 1 and da.sizes[extra[0]] > 1:
-        return da.rename({extra[0]: "unit"}).transpose("chain", "draw", "unit")
-    if extra:
-        da = da.mean(dim=extra)
-    return da.transpose("chain", "draw")
-
-
-def _panel_to_time_chain_draw(
-    da: xr.DataArray,
-    time_index: np.ndarray,
-) -> xr.DataArray:
-    """Average over units and return ``(time, chain, draw)``."""
-    extra = _extra_dims(da)
-    if len(extra) >= 2:
-        time_dim, unit_dim = extra[0], extra[1]
-        out = da.mean(dim=unit_dim).transpose(time_dim, "chain", "draw")
-        if time_dim != "time":
-            out = out.rename({time_dim: "time"})
-        return out.assign_coords(time=np.asarray(time_index))
-    if len(extra) == 1:
-        time_dim = extra[0]
-        out = da.transpose(time_dim, "chain", "draw")
-        if time_dim != "time":
-            out = out.rename({time_dim: "time"})
-        return out.assign_coords(time=np.asarray(time_index))
-    raise ValueError("Panel output missing time/unit dims on deterministics")
 
 
 def _fill_missing_posterior_rvs(
@@ -642,23 +583,17 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
 
 
 def _apply_inverse_link(mu_vals: Any, family: str) -> Any:
-    """Map linear-predictor values back to the response scale."""
+    """Map linear-predictor values back to the response scale.
+
+    Accepts either an :class:`xarray.DataArray` (the ``kind="mean"`` draw
+    pipeline) or a PyTensor expression (graph rewriting); ``exp`` / ``expit``
+    dispatch on the input type so both stay symbolic-or-labelled end to end.
+    """
+    exp = np.exp if isinstance(mu_vals, xr.DataArray) else pt.exp
     if family == "bernoulli":
-        if isinstance(mu_vals, xr.DataArray):
-            return xr.apply_ufunc(
-                lambda x: 1.0 / (1.0 + np.exp(-x)),
-                mu_vals,
-                dask="parallelized",
-            )
-        if isinstance(mu_vals, np.ndarray):
-            return 1.0 / (1.0 + np.exp(-mu_vals))
-        return 1.0 / (1.0 + pt.exp(-mu_vals))
+        return 1.0 / (1.0 + exp(-mu_vals))
     if family in ("poisson", "negbinomial"):
-        if isinstance(mu_vals, xr.DataArray):
-            return xr.apply_ufunc(np.exp, mu_vals, dask="parallelized")
-        if isinstance(mu_vals, np.ndarray):
-            return np.exp(mu_vals)
-        return pt.exp(mu_vals)
+        return exp(mu_vals)
     return mu_vals
 
 
@@ -706,6 +641,18 @@ def _exogenous_fill(values: np.ndarray) -> float:
     if arr.size == 0 or np.all(np.isnan(arr)):
         return float("nan")
     return float(np.nanmean(arr))
+
+
+def _exog_value(
+    var: str, data: nw.DataFrame, subgroup_indices: np.ndarray | None
+) -> float:
+    """Empirical fill for an exogenous variable, restricted to a subgroup."""
+    if var not in data.columns:
+        return 0.0
+    col = data[var].to_numpy()
+    if subgroup_indices is not None:
+        col = col[subgroup_indices]
+    return _exogenous_fill(col)
 
 
 def run_do_pymc(
@@ -829,25 +776,21 @@ def run_do_pymc(
             progressbar=False,
         )
 
-        post = posterior(idata)
-        n_chains = post.sizes["chain"]
-        n_draws = post.sizes["draw"]
+        ones = _chain_draw_ones(posterior(idata))
         data_vars: dict[str, xr.DataArray] = {}
         for var in graph_info.topological_order:
             if var in set:
-                data_vars[var] = _const_chain_draw(set[var], n_chains, n_draws)
+                data_vars[var] = ones * float(np.mean(set[var]))
             elif var in graph_info.exogenous:
-                if var in data.columns:
-                    col = data[var].to_numpy()
-                    if subgroup_indices is not None:
-                        col = col[subgroup_indices]
-                    fill = _exogenous_fill(col)
-                else:
-                    fill = 0.0
-                data_vars[var] = _const_chain_draw(fill, n_chains, n_draws)
+                data_vars[var] = ones * _exog_value(var, data, subgroup_indices)
             else:
-                mu_da = _select_subgroup(det[mean_det_names[var]], subgroup_indices)
-                data_vars[var] = _mean_to_chain_draw(mu_da, families.get(var, ""))
+                mu = _apply_inverse_link(
+                    det[mean_det_names[var]], families.get(var, "")
+                )
+                if subgroup_indices is not None:
+                    mu = mu.isel({_obs_dims(mu)[0]: subgroup_indices})
+                # Average over observation rows: g-computation standardization.
+                data_vars[var] = mu.mean(_obs_dims(mu))
 
         return DoResult(ds=xr.Dataset(data_vars))
 
@@ -876,24 +819,20 @@ def run_do_pymc(
     else:
         extra_det = None
 
-    post = posterior(idata)
-    n_chains = post.sizes["chain"]
-    n_draws = post.sizes["draw"]
+    ones = _chain_draw_ones(posterior(idata))
     predictive_vars: dict[str, xr.DataArray] = {}
     for var in graph_info.topological_order:
         if var in set:
-            predictive_vars[var] = _const_chain_draw(set[var], n_chains, n_draws)
+            predictive_vars[var] = ones * float(np.mean(set[var]))
         elif var in graph_info.exogenous:
-            if var in data.columns:
-                col = data[var].to_numpy()
-                if subgroup_indices is not None:
-                    col = col[subgroup_indices]
-                fill = _exogenous_fill(col)
-            else:
-                fill = 0.0
-            predictive_vars[var] = _const_chain_draw(fill, n_chains, n_draws)
+            predictive_vars[var] = ones * _exog_value(var, data, subgroup_indices)
         elif (src := _predictive_source(ppc, extra_det, var)) is not None:
-            predictive_vars[var] = _predictive_to_chain_draw(src, subgroup_indices)
+            if subgroup_indices is not None:
+                src = src.isel({_obs_dims(src)[0]: subgroup_indices})
+            # Each row is its own draw: keep them on a ``unit`` axis that
+            # ``draws()`` later flattens into the sample dimension.
+            obs = _obs_dims(src)
+            predictive_vars[var] = src.rename({obs[0]: "unit"}) if obs else src
 
     return DoResult(ds=xr.Dataset(predictive_vars))
 
@@ -978,9 +917,7 @@ def run_do_panel_unified(
             progressbar=False,
         )
 
-        post = posterior(idata)
-        n_chains = post.sizes["chain"]
-        n_draws = post.sizes["draw"]
+        ones = _chain_draw_ones(posterior(idata))
         time_idx = (
             np.array(scan_info.time_values)
             if scan_info.time_values
@@ -990,14 +927,12 @@ def run_do_panel_unified(
 
         for var in graph_info.topological_order:
             if var in set:
-                data_vars[var] = _const_time_chain_draw(
-                    set[var], n_times, n_chains, n_draws, time_idx
-                )
+                data_vars[var] = _spread_over_time(ones, set[var], time_idx)
             elif var in graph_info.exogenous:
-                data_vars[var] = _const_chain_draw(0.0, n_chains, n_draws)
+                data_vars[var] = ones * 0.0
             elif var in graph_info.endogenous:
                 det_key = var if var in stochastic_latent else f"mu_{var}"
-                data_vars[var] = _panel_to_time_chain_draw(det[det_key], time_idx)
+                data_vars[var] = _panel_unit_mean(det[det_key], time_idx)
 
         return DoResult(ds=xr.Dataset(data_vars))
 
@@ -1027,9 +962,7 @@ def run_do_panel_unified(
     else:
         latent_det = None
 
-    post = posterior(idata)
-    n_chains = post.sizes["chain"]
-    n_draws = post.sizes["draw"]
+    ones = _chain_draw_ones(posterior(idata))
     time_idx = (
         np.array(scan_info.time_values) if scan_info.time_values else np.arange(n_times)
     )
@@ -1037,20 +970,16 @@ def run_do_panel_unified(
 
     for var in graph_info.topological_order:
         if var in set:
-            predictive_vars[var] = _const_time_chain_draw(
-                set[var], n_times, n_chains, n_draws, time_idx
-            )
+            predictive_vars[var] = _spread_over_time(ones, set[var], time_idx)
         elif var in graph_info.exogenous:
-            predictive_vars[var] = _const_chain_draw(0.0, n_chains, n_draws)
+            predictive_vars[var] = ones * 0.0
         elif var in ppc.posterior_predictive:
-            predictive_vars[var] = _panel_to_time_chain_draw(
+            predictive_vars[var] = _panel_unit_mean(
                 ppc.posterior_predictive[var], time_idx
             )
         elif latent_det is not None:
             det_key = var if var in stochastic_latent else f"mu_{var}"
             if det_key in latent_det:
-                predictive_vars[var] = _panel_to_time_chain_draw(
-                    latent_det[det_key], time_idx
-                )
+                predictive_vars[var] = _panel_unit_mean(latent_det[det_key], time_idx)
 
     return DoResult(ds=xr.Dataset(predictive_vars))
