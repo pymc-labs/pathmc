@@ -56,7 +56,9 @@ def do_result(draws_positive) -> DoResult:
             "X": rng.normal(loc=1.0, scale=0.1, size=1000),
             "Y": draws_positive,
             "Z": rng.normal(loc=0.5, scale=0.2, size=1000),
-        }
+        },
+        n_chains=1,
+        n_draws=1000,
     )
 
 
@@ -68,6 +70,8 @@ def estimand_result(draws_positive) -> EstimandResult:
         outcome="Y",
         treatment="X",
         estimand="ATE",
+        n_chains=1,
+        n_draws=1000,
     )
 
 

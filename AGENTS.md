@@ -10,7 +10,15 @@ Remember, when running into bugs or complex issues, it is not impossible we are 
 2. Run the relevant gate tests, e.g. `uv run pytest tests/test_<module>.py -x -v`. `make test-fast` skips MCMC sampling; `make test` runs everything.
 3. Run `make lint` before considering work done or committing. It runs `prek run --all-files` (ruff, ruff-format, mypy, YAML/TOML, license checks).
 
-Developer-local and ephemeral notes (specs, drafts, exploration) live in `.scratch/` at the repo root, which is gitignored. Never add scratch files to the tracked tree.
+## Scratch space (`.scratch/`)
+
+Put developer-local and ephemeral files in `.scratch/` at the repo root — it is gitignored. Never add scratch files to the tracked tree. Use it for drafts and throwaways that should not be committed, for example:
+
+- GitHub issue or PR description drafts
+- Exploration marimo notebooks (e.g. `uv run marimo edit .scratch/my_explore.py`)
+- Ad-hoc scripts, specs, or notes while investigating a bug
+
+Create subdirectories under `.scratch/` if it helps keep things tidy.
 
 ## Required Module Structure
 
