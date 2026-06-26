@@ -86,7 +86,7 @@ COLOR_NAIVE = "#e6550d"
 COLOR_TRUE = "#000000"
 COLOR_WALD = "#31a354"
 
-TRUE_LATE = 5.0  # known causal effect of receiving the push, in $ of in-app purchase
+TRUE_LATE = 0.6  # known causal effect of receiving the push, in $ of in-app purchase
 
 rng = np.random.default_rng(42)
 n = 10_000
@@ -106,10 +106,10 @@ push_delivered = rng.binomial(1, deliver_prob)
 # Outcome: purchases rise with the push (the causal effect we want) and with
 # engagement (the confounder we never observe).
 in_app_purchase = (
-    45.0
+    5.0
     + TRUE_LATE * push_delivered
-    + 10.0 * engagement
-    + rng.normal(scale=3.0, size=n)
+    + 1.0 * engagement
+    + rng.normal(scale=0.5, size=n)
 )
 
 df = pd.DataFrame({
