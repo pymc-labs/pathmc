@@ -66,7 +66,7 @@ Neither can be read off the data — they are structural assumptions the analyst
 
 ## Simulate the campaign
 
-We simulate 10,000 customers with a **known** treatment effect so we can check recovery.
+We simulate 2,000 customers with a **known** treatment effect so we can check recovery.
 Engagement is unobserved. It raises both the chance of actually receiving the push (more engaged customers have the app installed) and in-app spend — this is the confounding.
 Assignment is randomized, so it is independent of engagement.
 
@@ -89,7 +89,7 @@ COLOR_WALD = "#31a354"
 TRUE_LATE = 0.6  # known causal effect of receiving the push, in $ of in-app purchase
 
 rng = np.random.default_rng(42)
-n = 10_000
+n = 2_000
 
 # Instrument: randomized assignment (half the customers).
 push_assigned = rng.binomial(1, 0.5, size=n)
@@ -220,7 +220,7 @@ pm.model_to_graphviz(model.pymc_model)
 
 ```{python}
 idata = model.fit(
-    draws=1000, tune=1000, chains=4, nuts_sampler="nutpie", random_seed=42
+    draws=500, tune=500, chains=4, nuts_sampler="nutpie", random_seed=42
 )
 ```
 
