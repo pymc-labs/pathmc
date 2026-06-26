@@ -22,6 +22,7 @@ intentionally decoupled from MCMC — all fixtures are hand-built.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import xarray as xr
 
 from pathmc.simulate import DoResult, EstimandResult
@@ -88,6 +89,11 @@ class TestDoResultStorage:
             assert isinstance(arr, np.ndarray)
             assert arr.shape == (N_SAMPLES,)
 
+    def test_draws_roundtrip_preserves_order(self):
+        arr = np.arange(N_SAMPLES, dtype=float)
+        result = DoResult(values={"Y": arr}, n_chains=N_CHAINS, n_draws=N_DRAWS)
+        np.testing.assert_array_equal(result.draws("Y"), arr)
+
     def test_unit_dim_for_predictive_length(self):
         n_units = 10
         predictive_len = N_CHAINS * N_DRAWS * n_units
@@ -99,6 +105,22 @@ class TestDoResultStorage:
         )
         assert "unit" in result._ds["Y"].dims
         assert result._ds.sizes["unit"] == n_units
+
+    def test_heterogeneous_unit_counts_per_var(self):
+        n_units_y, n_units_z = 10, 5
+        result = DoResult(
+            values={
+                "Y": RNG.normal(size=N_CHAINS * N_DRAWS * n_units_y),
+                "Z": RNG.normal(size=N_CHAINS * N_DRAWS * n_units_z),
+            },
+            n_chains=N_CHAINS,
+            n_draws=N_DRAWS,
+            n_units_per_var={"Y": n_units_y, "Z": n_units_z},
+        )
+        assert result._ds["Y"].sizes["unit_Y"] == n_units_y
+        assert result._ds["Z"].sizes["unit_Z"] == n_units_z
+        assert result.draws("Y").shape == (N_CHAINS * N_DRAWS * n_units_y,)
+        assert result.draws("Z").shape == (N_CHAINS * N_DRAWS * n_units_z,)
 
 
 class TestDoResultPanelStorage:
@@ -192,7 +214,7 @@ class TestEstimandResultStorage:
 
 
 class TestSubOnXarray:
-    """__sub__ operates on aligned xarray Datasets."""
+    """__sub__ uses positional flat subtraction, not xarray coord alignment."""
 
     def test_subtraction_produces_dataset(self):
         a = DoResult(values={"Y": _draws(1.0)}, n_chains=N_CHAINS, n_draws=N_DRAWS)
@@ -219,6 +241,19 @@ class TestSubOnXarray:
         diff = a - b
         assert "Y" in diff._ds.data_vars
         assert "Z" not in diff._ds.data_vars
+
+    def test_subtract_legacy_vs_labeled_layout(self):
+        flat = np.arange(N_SAMPLES, dtype=float)
+        labeled = DoResult(values={"Y": flat}, n_chains=N_CHAINS, n_draws=N_DRAWS)
+        legacy = DoResult(values={"Y": flat})
+        diff = labeled - legacy
+        np.testing.assert_allclose(diff.draws("Y"), 0.0)
+
+    def test_subtract_raises_on_length_mismatch(self):
+        a = DoResult(values={"Y": np.ones(N_SAMPLES)})
+        b = DoResult(values={"Y": np.ones(N_SAMPLES // 2)})
+        with pytest.raises(ValueError, match="incompatible draw"):
+            a - b
 
 
 class TestFromContrastOnXarray:
@@ -254,10 +289,11 @@ class TestLegacyFallback:
     """Callers that omit n_chains/n_draws still get a working Dataset."""
 
     def test_legacy_flat_storage(self):
-        # Without n_chains/n_draws, the builder falls back to a "sample" dim.
+        # Without n_chains/n_draws, the builder falls back to a per-var sample dim.
         result = DoResult(values={"Y": _draws()})
         assert isinstance(result._ds, xr.Dataset)
-        assert "sample" in result._ds["Y"].dims or "chain" in result._ds["Y"].dims
+        y_dims = result._ds["Y"].dims
+        assert "chain" in y_dims or any(d.startswith("sample_") for d in y_dims)
         # Public API still works.
         assert result.draws("Y").shape == (N_SAMPLES,)
 
