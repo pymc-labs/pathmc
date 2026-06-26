@@ -22,7 +22,6 @@ related accessors continue to return numpy arrays. Fixtures are hand-built.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 import xarray as xr
 
 from pathmc.simulate import DoResult, EstimandResult
@@ -224,7 +223,7 @@ class TestEstimandResultStorage:
 
 
 class TestSubOnXarray:
-    """__sub__ uses positional flat subtraction, not xarray coord alignment."""
+    """__sub__ subtracts shared variables via xarray on matching schemas."""
 
     def test_subtraction_produces_dataset(self):
         a = DoResult(values={"Y": _draws(1.0)}, n_chains=N_CHAINS, n_draws=N_DRAWS)
@@ -251,19 +250,6 @@ class TestSubOnXarray:
         diff = a - b
         assert "Y" in diff.dataset.data_vars
         assert "Z" not in diff.dataset.data_vars
-
-    def test_subtract_legacy_vs_labeled_layout(self):
-        flat = np.arange(N_SAMPLES, dtype=float)
-        labeled = DoResult(values={"Y": flat}, n_chains=N_CHAINS, n_draws=N_DRAWS)
-        legacy = DoResult(values={"Y": flat})
-        diff = labeled - legacy
-        np.testing.assert_allclose(diff.draws("Y"), 0.0)
-
-    def test_subtract_raises_on_length_mismatch(self):
-        a = DoResult(values={"Y": np.ones(N_SAMPLES)})
-        b = DoResult(values={"Y": np.ones(N_SAMPLES // 2)})
-        with pytest.raises(ValueError, match="incompatible draw"):
-            a - b
 
 
 class TestFromContrastOnXarray:

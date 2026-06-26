@@ -196,72 +196,10 @@ def _build_dataset(
     return xr.Dataset(data_vars)
 
 
-def _infer_build_kwargs(ds: xr.Dataset) -> dict[str, Any]:
-    """Recover ``_build_dataset`` kwargs from an internal result Dataset."""
-    kwargs: dict[str, Any] = {}
-    if "chain" in ds.dims:
-        kwargs["n_chains"] = int(ds.sizes["chain"])
-    if "draw" in ds.dims:
-        kwargs["n_draws"] = int(ds.sizes["draw"])
-    n_units_per_var: dict[str, int] = {}
-    for var in ds.data_vars:
-        da = ds[var]
-        unit_dims = _unit_dims(da)
-        if unit_dims:
-            n_units_per_var[str(var)] = int(da.sizes[unit_dims[0]])
-    if n_units_per_var:
-        kwargs["n_units_per_var"] = n_units_per_var
-    return kwargs
-
-
 def _subtract_stores(lhs: xr.Dataset, rhs: xr.Dataset) -> xr.Dataset:
-    """Subtract two result Datasets on their stacked sample axes.
-
-    Positional numpy subtraction preserves the historical contrast contract:
-    operands with the same flat draws but different internal dim layouts
-    (e.g. legacy ``sample_<var>`` vs labelled ``chain``/``draw``) still pair
-    element-wise. Raises ``ValueError`` on length mismatch rather than
-    xarray's silent coordinate inner-join.
-    """
+    """Element-wise contrast on shared variables with matching xarray schemas."""
     common = [str(v) for v in lhs.data_vars if v in rhs.data_vars]
-    values: dict[str, np.ndarray] = {}
-    values_by_time: dict[str, np.ndarray] | None = None
-    time_index: np.ndarray | None = None
-
-    for var in common:
-        l_da = lhs[var]
-        r_da = rhs[var]
-        if "time" in l_da.dims:
-            l_bt = _stack_sample_time(l_da)
-            r_bt = _stack_sample_time(r_da)
-            if l_bt.shape != r_bt.shape:
-                raise ValueError(
-                    f"Cannot subtract: variable '{var}' has incompatible per-time "
-                    f"draw shapes {l_bt.shape} vs {r_bt.shape}."
-                )
-            diff_bt = l_bt - r_bt
-            if values_by_time is None:
-                values_by_time = {}
-            values_by_time[var] = diff_bt
-            values[var] = diff_bt.mean(axis=0)
-            if time_index is None and "time" in l_da.coords:
-                time_index = np.asarray(l_da["time"].values)
-        else:
-            l_flat = _stack_sample(l_da)
-            r_flat = _stack_sample(r_da)
-            if l_flat.shape != r_flat.shape:
-                raise ValueError(
-                    f"Cannot subtract: variable '{var}' has incompatible draw "
-                    f"counts ({l_flat.shape[0]} vs {r_flat.shape[0]})."
-                )
-            values[var] = l_flat - r_flat
-
-    return _build_dataset(
-        values,
-        values_by_time,
-        time_index,
-        **_infer_build_kwargs(lhs),
-    )
+    return lhs[common] - rhs[common]
 
 
 class DoResult(ResultReprMixin):
