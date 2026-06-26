@@ -1,0 +1,348 @@
+---
+title: "Instrumental Variables: LATE under Non-Compliance"
+author:
+  - name: "Juan Orduz"
+description: "Recover the causal effect of a marketing push under non-compliance using an instrumental variable, written with pathmc's correlated-residual operator."
+tags: [Causal Inference, Instrumental Variables, Identification, Treatment Effects]
+image: thumbnails/instrumental_variables.png
+jupyter: pathmc
+---
+
+A marketing team runs a randomized campaign: half of all customers are **assigned** to receive a push notification nudging them to engage with the app, half are not.
+The question they care about is causal — *what is the effect of the push on in-app purchases?*
+
+The trouble is **non-compliance**.
+Being *assigned* a push is not the same as *receiving* one: phones are off, notifications are disabled, the app was uninstalled.
+And crucially, *who* actually receives the push is not random — the most engaged customers are exactly the ones with the app installed and notifications on, and they would have spent more anyway.
+So a naive regression of purchases on *push received* conflates the effect of the push with the fact that engaged customers both receive more pushes and buy more.
+
+This is a textbook setting for an **instrumental variable (IV)**.
+This example reproduces the non-compliance / LATE example from Matheus Facure's [*Causal Inference for the Brave and True*](https://matheusfacure.github.io/python-causality-handbook/09-Non-Compliance-and-LATE.html) and its [PyMC counterpart by Juan Orduz](https://juanitorduz.github.io/iv_pymc/), and shows that pathmc estimates it with **zero API change** through the `~~` correlated-residual operator.
+
+## What is an instrumental variable?
+
+When the treatment $T$ and the outcome $Y$ share an **unobserved common cause** $U$, we cannot identify the causal effect of $T$ on $Y$ by adjustment — we cannot condition on a variable we never measured.
+An **instrument** $Z$ offers a different route. It is a variable that satisfies three conditions:
+
+1. **Relevance** — $Z$ actually moves the treatment: $Z \to T$. (Here: random assignment changes who receives the push.)
+2. **Exclusion** — $Z$ affects the outcome *only through* $T$, never directly. (Random assignment changes purchases only by changing whether the push is received — being on a list, by itself, does nothing.)
+3. **Exogeneity / independence** — $Z$ is independent of the unobserved confounder $U$. (Assignment is randomized, so it is independent of customer engagement.)
+
+If such a $Z$ exists, the part of the variation in $T$ that is *driven by $Z$* is as good as randomized, and that slice identifies the causal effect — even though $T$ as a whole is confounded.
+
+::: {.callout-note}
+## Why the estimand is a *Local* Average Treatment Effect (LATE)
+
+The instrument only identifies the effect for the units whose treatment status it actually changes — the **compliers** (customers who receive the push *because* they were assigned it).
+It says nothing about *never-takers* (who never receive a push) or *always-takers* (who would receive it regardless).
+The IV estimand is therefore the **Local** Average Treatment Effect: the average effect among compliers.
+Under one-sided non-compliance — as here, where no one in the control arm can receive the push — there are no always-takers, and the LATE is the effect of treatment on the treated compliers.
+:::
+
+## The causal structure
+
+```{dot}
+//| label: fig-dag
+//| fig-cap: "The IV DAG. Random assignment (the instrument) drives push delivery, which drives purchases. Unobserved engagement confounds delivery and purchases (dashed bidirected edge). Assignment is independent of engagement (randomization) and affects purchases only through delivery (exclusion) — the two properties that make it a valid instrument."
+//| fig-width: 7
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+  push_assigned [label="push_assigned\n(instrument Z)"]
+  push_delivered [label="push_delivered\n(treatment T)"]
+  in_app_purchase [label="in_app_purchase\n(outcome Y)"]
+  engagement [label="engagement\n(unobserved U)", style="rounded,dashed"]
+
+  push_assigned -> push_delivered [label=" relevance"]
+  push_delivered -> in_app_purchase [label=" causal effect (LATE)"]
+  engagement -> push_delivered [style=dashed]
+  engagement -> in_app_purchase [style=dashed]
+}
+```
+
+The instrument `push_assigned` has two arrows it is *missing*, and those absences are the assumptions:
+there is **no** arrow from `engagement` to `push_assigned` (randomization gives us exogeneity), and **no** direct arrow from `push_assigned` to `in_app_purchase` (exclusion).
+Neither can be read off the data — they are structural assumptions the analyst must own.
+
+## Simulate the campaign
+
+We simulate 10,000 customers with a **known** treatment effect so we can check recovery.
+Engagement is unobserved. It raises both the chance of actually receiving the push (more engaged customers have the app installed) and in-app spend — this is the confounding.
+Assignment is randomized, so it is independent of engagement.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import arviz as az
+import pymc as pm
+from scipy.special import expit
+import pathmc
+
+FIG_WIDTH = 8
+FIG_HEIGHT = 4
+COLOR_IV = "#2171b5"
+COLOR_NAIVE = "#e6550d"
+COLOR_TRUE = "#000000"
+COLOR_WALD = "#31a354"
+
+TRUE_LATE = 5.0  # known causal effect of receiving the push, in $ of in-app purchase
+
+rng = np.random.default_rng(42)
+n = 10_000
+
+# Instrument: randomized assignment (half the customers).
+push_assigned = rng.binomial(1, 0.5, size=n)
+
+# Unobserved confounder: customer engagement.
+engagement = rng.normal(size=n)
+
+# Non-compliance: only assigned customers can receive the push, and more
+# engaged customers are more likely to actually receive it. No one in the
+# control arm receives a push (one-sided non-compliance).
+deliver_prob = push_assigned * expit(0.4 + 1.3 * engagement)
+push_delivered = rng.binomial(1, deliver_prob)
+
+# Outcome: purchases rise with the push (the causal effect we want) and with
+# engagement (the confounder we never observe).
+in_app_purchase = (
+    45.0
+    + TRUE_LATE * push_delivered
+    + 10.0 * engagement
+    + rng.normal(scale=3.0, size=n)
+)
+
+df = pd.DataFrame({
+    "push_assigned": push_assigned.astype(float),
+    "push_delivered": push_delivered.astype(float),
+    "in_app_purchase": in_app_purchase,
+})
+print(f"Customers: {len(df)}")
+df.head()
+```
+
+```{python}
+compliance = (
+    df.groupby("push_assigned")["push_delivered"].mean().rename("delivery_rate")
+)
+print("Delivery rate by assignment (one-sided non-compliance):")
+compliance
+```
+
+Among assigned customers only a fraction actually receive the push, and among unassigned customers *none* do.
+The compliers — those who receive the push because they were assigned it — are the subpopulation the instrument can speak to.
+
+## Why naive regression fails
+
+The obvious analysis regresses purchases on whether the push was received.
+
+```{python}
+def ols_slope(y, x):
+    X = np.column_stack([np.ones(len(x)), x])
+    return np.linalg.lstsq(X, y, rcond=None)[0][1]
+
+naive = ols_slope(df["in_app_purchase"].values, df["push_delivered"].values)
+print(f"Naive OLS (purchase ~ delivered): {naive:.2f}")
+print(f"True effect:                      {TRUE_LATE:.2f}")
+```
+
+::: {.callout-warning}
+## The endogeneity trap
+
+The naive estimate is roughly **double** the truth.
+The reason: the customers who actually *receive* the push are the engaged ones, and they would have purchased more regardless.
+The coefficient soaks up both the genuine effect of the push *and* the engagement gap between receivers and non-receivers.
+Adjustment cannot fix this — engagement is unobserved.
+:::
+
+## The IV identification, by hand
+
+Before fitting a model, the classic estimators show *why* the instrument works.
+The **first stage** measures relevance (how much assignment moves delivery); the **reduced form** measures the total effect of assignment on purchases; their ratio — the **Wald estimator** — is the LATE.
+
+```{python}
+first_stage = ols_slope(df["push_delivered"].values, df["push_assigned"].values)
+reduced_form = ols_slope(df["in_app_purchase"].values, df["push_assigned"].values)
+wald = reduced_form / first_stage
+
+print(f"First stage  (delivered ~ assigned): {first_stage:.3f}")
+print(f"Reduced form (purchase  ~ assigned): {reduced_form:.3f}")
+print(f"Wald LATE = reduced form / first stage: {wald:.2f}  (true = {TRUE_LATE})")
+```
+
+The intuition: assignment is randomized, so the reduced form is an unbiased estimate of assignment's *total* effect on purchases.
+But assignment only works *through* delivery, and it moves delivery by the first-stage amount.
+Rescaling the reduced form by the first stage recovers the effect *per unit of delivery* — the LATE.
+
+## The IV model in pathmc
+
+Two-stage least squares and the Wald estimator are point estimates.
+pathmc fits the same identification as a **single joint Bayesian model**, propagating uncertainty end to end.
+The key is the `~~` correlated-residual operator: it ties the residuals of the treatment and outcome equations into a joint `MvNormal` with an `LKJCholeskyCov` prior.
+That residual correlation *is* the unobserved confounder — it soaks up exactly the engagement endogeneity that biases naive regression.
+
+```{python}
+spec = """
+push_delivered  ~ b_first*push_assigned
+in_app_purchase ~ b_late*push_delivered
+push_delivered ~~ in_app_purchase
+"""
+
+model = pathmc.model(spec, data=df)
+```
+
+Read the spec as the IV assumptions written down:
+
+- `push_delivered ~ push_assigned` — the **first stage** (relevance): the instrument enters the treatment equation.
+- `in_app_purchase ~ push_delivered` — the **structural equation**: notice `push_assigned` is *omitted* here. That omission **is** the exclusion restriction.
+- `push_delivered ~~ in_app_purchase` — the **endogeneity**: the unobserved confounder, declared as a correlation between the two equations' residuals.
+
+```{python}
+model.equations()
+```
+
+```{python}
+model.graph()
+```
+
+The dashed bidirected edge (`~~`) is the model's representation of the unmeasured confounder.
+
+### PyMC model graph
+
+```{python}
+# | label: fig-pymc-graph
+# | fig-cap: "The compiled PyMC model. The two regression equations are joined through a single MvNormal with an LKJ-distributed residual covariance — the Bayesian limited-information IV structure."
+pm.model_to_graphviz(model.pymc_model)
+```
+
+## Fit
+
+```{python}
+idata = model.fit(
+    draws=1000, tune=1000, chains=4, nuts_sampler="nutpie", random_seed=42
+)
+```
+
+```{python}
+model.summary()
+```
+
+## Did we recover the effect?
+
+```{python}
+late_draws = (
+    idata.posterior["beta_in_app_purchase"]
+    .sel(in_app_purchase_predictors="push_delivered")
+    .values.flatten()
+)
+hdi = az.hdi(late_draws)
+print(f"IV posterior LATE: mean = {late_draws.mean():.2f}, "
+      f"94% HDI = [{hdi[0]:.2f}, {hdi[1]:.2f}]")
+print(f"True LATE:         {TRUE_LATE}")
+print(f"Naive OLS:         {naive:.2f}  (outside the HDI)")
+print(f"Wald estimate:     {wald:.2f}")
+```
+
+```{python}
+# | label: fig-recovery
+# | fig-cap: "Posterior of the LATE from the pathmc IV model. The posterior brackets the true effect (black) and the frequentist Wald estimate (green), while the naive OLS estimate (orange) sits far outside the credible interval — confounding inflated it by roughly a factor of two."
+# | code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+x_kde, y_kde, _ = az.kde(late_draws)
+ax.plot(x_kde, y_kde, color=COLOR_IV, lw=2, label="IV posterior (pathmc)")
+ax.fill_between(x_kde, y_kde, alpha=0.3, color=COLOR_IV)
+ax.axvline(TRUE_LATE, color=COLOR_TRUE, ls="--", lw=1.5, label=f"True LATE ({TRUE_LATE})")
+ax.axvline(wald, color=COLOR_WALD, ls="--", lw=1.5, label=f"Wald ({wald:.2f})")
+ax.axvline(naive, color=COLOR_NAIVE, ls="--", lw=1.5, label=f"Naive OLS ({naive:.2f})")
+ax.set_xlabel("Effect of push delivery on in-app purchase ($)")
+ax.set_ylabel("Density")
+ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+The IV model recovers the true effect; the naive regression does not.
+
+## Reading the endogeneity
+
+Because the confounder is modeled explicitly as a residual correlation, we can inspect it.
+`compute_corr=True` on the `LKJCholeskyCov` exposes the correlation as a deterministic.
+
+```{python}
+# | label: fig-residual-corr
+# | fig-cap: "Posterior of the residual correlation between the treatment and outcome equations. A positive value is the signature of upward confounding bias: the same unobserved engagement that raises purchases also raises the chance of receiving the push."
+# | code-fold: true
+
+resid_corr = (
+    idata.posterior["chol_in_app_purchase_push_delivered_corr"]
+    .isel(
+        chol_in_app_purchase_push_delivered_corr_dim_0=0,
+        chol_in_app_purchase_push_delivered_corr_dim_1=1,
+    )
+    .values.flatten()
+)
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+x_kde, y_kde, _ = az.kde(resid_corr)
+ax.plot(x_kde, y_kde, color="#756bb1", lw=2)
+ax.fill_between(x_kde, y_kde, alpha=0.3, color="#756bb1")
+ax.axvline(0, color="black", ls=":", alpha=0.5)
+ax.set_xlabel("Residual correlation (treatment vs outcome equation)")
+ax.set_ylabel("Density")
+plt.tight_layout()
+plt.show()
+
+print(f"Residual correlation: mean = {resid_corr.mean():.2f}")
+```
+
+The correlation is clearly positive.
+That is the model telling us, quantitatively, that the unobserved driver of *receiving the push* also drives *spending* — precisely the channel that makes naive regression overstate the effect.
+The IV model has separated this confounding channel from the causal one.
+
+## Counterfactual: turn the push on for everyone
+
+Because the structural equation is generative, `do()` propagates an intervention through the model.
+Setting `push_delivered` to 0 versus 1 and differencing gives the causal contrast — and it agrees with the structural coefficient.
+
+```{python}
+r0 = model.do(set={"push_delivered": 0.0}, kind="mean")
+r1 = model.do(set={"push_delivered": 1.0}, kind="mean")
+ate = r1.mean("in_app_purchase") - r0.mean("in_app_purchase")
+print(f"do(delivered=1) - do(delivered=0): {ate:.2f}  (true = {TRUE_LATE})")
+```
+
+## A note on identification
+
+pathmc's `is_identifiable` reasons via the **backdoor criterion** today: it looks for an adjustment set that blocks confounding.
+With an *unobserved* confounder there is no such set, so backdoor identification fails — even though the effect is perfectly identified through the instrument.
+
+```{python}
+print("Backdoor-identifiable?",
+      model.is_identifiable("push_delivered", "in_app_purchase"))
+```
+
+This is a *false negative* for the IV case, and IV-aware identification is [planned work](https://github.com/pymc-labs/pathmc/issues/344).
+The deeper point is that an instrument's validity — exclusion and exogeneity — cannot be verified from a DAG or from data.
+The `~~` edge and the *omission* of the instrument from the outcome equation are structural assumptions you assert and must defend on substantive grounds (here: the randomization of assignment).
+pathmc will estimate the model you write; it will not invent the confounding edge for you.
+
+## Summary
+
+- **Non-compliance creates endogeneity.** When who-gets-treated is not random, regressing the outcome on treatment-received conflates the treatment effect with whatever drives compliance. Here, naive OLS overstated the effect by roughly 2×.
+- **An instrument identifies the effect.** Random assignment is relevant (it moves delivery), excluded (it affects purchases only through delivery), and exogenous (independent of engagement). That makes it a valid instrument, and the slice of treatment variation it drives identifies the LATE.
+- **pathmc fits IV with zero API change.** Writing the first stage, the structural equation (instrument omitted), and a `~~` residual correlation compiles to the Bayesian limited-information IV model. The structural coefficient recovers the LATE; the residual correlation quantifies the confounding.
+- **The estimand is local.** IV speaks to compliers — the units whose treatment the instrument actually changes — not the whole population.
+- **Identification is an assumption you own.** Exclusion and exogeneity are untestable. pathmc estimates the structure you declare; it does not infer hidden confounding for you.
+
+::: {.callout-note}
+## Reflection
+
+Where do valid instruments hide in your own work?
+
+- **Marketing**: randomized intent-to-treat (email/push assignment) when delivery or open is non-random.
+- **Pricing**: an exogenous cost shock that moves price but not demand directly.
+- **Policy**: a lottery, a distance-to-provider, or an eligibility cutoff that nudges take-up without affecting the outcome on its own.
+
+In each case the test is the same three conditions — relevance, exclusion, exogeneity — and the last two are assumptions, not estimates.
+:::
