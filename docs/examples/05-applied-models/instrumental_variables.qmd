@@ -219,9 +219,7 @@ pm.model_to_graphviz(model.pymc_model)
 ## Fit
 
 ```{python}
-idata = model.fit(
-    draws=500, tune=500, chains=4, nuts_sampler="nutpie", random_seed=42
-)
+idata = model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
 ```{python}
