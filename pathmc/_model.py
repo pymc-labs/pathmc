@@ -1461,7 +1461,7 @@ class PathModel:
             raise ValueError(f"n_grid must be >= 2, got {n_grid}.")
 
         ate_result = self.ate(outcome, treatment, values=values, **do_kwargs)
-        ate_draws = ate_result._draw(outcome)
+        ate_draws = ate_result.draws(outcome)
 
         return compute_sensitivity(
             observed_ate_draws=ate_draws,
@@ -1503,7 +1503,7 @@ class PathModel:
         self._require_data("prob")
         result = self.do(set=set, kind=kind, **do_kwargs)
         namespace: dict[str, Any] = {
-            str(var): result._draw(str(var)) for var in result.dataset.data_vars
+            str(var): result.draws(str(var)) for var in result.dataset.data_vars
         }
         namespace["np"] = np
         namespace["__builtins__"] = {}
