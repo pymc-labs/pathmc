@@ -36,6 +36,8 @@ from pathmc.simulate import DoResult, EstimandResult
 
 RNG = np.random.default_rng(0)
 N_SAMPLES = 1000
+N_CHAINS = 1
+N_DRAWS = N_SAMPLES
 
 
 def _make_draws(loc: float, scale: float = 0.1) -> np.ndarray:
@@ -50,6 +52,8 @@ def estimand_result() -> EstimandResult:
         outcome="Y",
         treatment="X",
         estimand="ATE",
+        n_chains=N_CHAINS,
+        n_draws=N_DRAWS,
     )
 
 
@@ -61,6 +65,8 @@ def estimand_result_negative() -> EstimandResult:
         outcome="Y",
         treatment="X",
         estimand="ATE",
+        n_chains=N_CHAINS,
+        n_draws=N_DRAWS,
     )
 
 
@@ -69,6 +75,8 @@ def do_contrast() -> DoResult:
     """A DoResult contrast to exercise from_contrast()."""
     return DoResult(
         values={"Y": _make_draws(loc=0.5), "X": _make_draws(loc=1.0)},
+        n_chains=N_CHAINS,
+        n_draws=N_DRAWS,
     )
 
 
@@ -216,6 +224,8 @@ class TestSub:
             outcome="Y",
             treatment="X",
             estimand="ATE",
+            n_chains=N_CHAINS,
+            n_draws=N_DRAWS,
         )
         diff = estimand_result - other
         assert diff.draws().shape == (N_SAMPLES,)
@@ -226,6 +236,8 @@ class TestSub:
             outcome="Y",
             treatment="X",
             estimand="ATE",
+            n_chains=N_CHAINS,
+            n_draws=N_DRAWS,
         )
         diff = estimand_result - other
         assert abs(diff.mean() - (estimand_result.mean() - other.mean())) < 1e-12
@@ -236,6 +248,8 @@ class TestSub:
             outcome="Y",
             treatment="X",
             estimand="ATE",
+            n_chains=N_CHAINS,
+            n_draws=N_DRAWS,
         )
         diff = estimand_result - other
         assert diff.outcome == "Y"

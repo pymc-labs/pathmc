@@ -22,6 +22,7 @@ related accessors continue to return numpy arrays. Fixtures are hand-built.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import xarray as xr
 
 from pathmc.simulate import DoResult, EstimandResult
@@ -92,12 +93,6 @@ class TestDoResultStorage:
         assert isinstance(out, np.ndarray)
         assert out.shape == (N_SAMPLES,)
 
-    def test_values_dict_view_is_numpy(self):
-        result = DoResult(values={"Y": _draws()}, n_chains=N_CHAINS, n_draws=N_DRAWS)
-        for arr in result._values.values():
-            assert isinstance(arr, np.ndarray)
-            assert arr.shape == (N_SAMPLES,)
-
     def test_draws_roundtrip_preserves_order(self):
         arr = np.arange(N_SAMPLES, dtype=float)
         result = DoResult(values={"Y": arr}, n_chains=N_CHAINS, n_draws=N_DRAWS)
@@ -110,26 +105,10 @@ class TestDoResultStorage:
             values={"Y": RNG.normal(size=predictive_len)},
             n_chains=N_CHAINS,
             n_draws=N_DRAWS,
-            n_units=n_units,
+            n_units_per_var={"Y": n_units},
         )
         assert "unit" in result.dataset["Y"].dims
         assert result.dataset.sizes["unit"] == n_units
-
-    def test_heterogeneous_unit_counts_per_var(self):
-        n_units_y, n_units_z = 10, 5
-        result = DoResult(
-            values={
-                "Y": RNG.normal(size=N_CHAINS * N_DRAWS * n_units_y),
-                "Z": RNG.normal(size=N_CHAINS * N_DRAWS * n_units_z),
-            },
-            n_chains=N_CHAINS,
-            n_draws=N_DRAWS,
-            n_units_per_var={"Y": n_units_y, "Z": n_units_z},
-        )
-        assert result.dataset["Y"].sizes["unit_Y"] == n_units_y
-        assert result.dataset["Z"].sizes["unit_Z"] == n_units_z
-        assert result.draws("Y").shape == (N_CHAINS * N_DRAWS * n_units_y,)
-        assert result.draws("Z").shape == (N_CHAINS * N_DRAWS * n_units_z,)
 
 
 class TestDoResultPanelStorage:
@@ -276,29 +255,18 @@ class TestFromContrastOnXarray:
         np.testing.assert_array_equal(er.draws(), contrast.draws("Y"))
 
 
-# ---------------------------------------------------------------------------
-# Legacy fallback (no n_chains/n_draws supplied)
-# ---------------------------------------------------------------------------
+class TestBuildDatasetRequiresChainDraw:
+    """Flat dict constructors require explicit chain/draw sizes."""
 
+    def test_do_result_raises_without_chain_draw(self):
+        with pytest.raises(ValueError, match="n_chains and n_draws are required"):
+            DoResult(values={"Y": _draws()})
 
-class TestLegacyFallback:
-    """Callers that omit n_chains/n_draws still get a working Dataset."""
-
-    def test_legacy_flat_storage(self):
-        # Without n_chains/n_draws, the builder falls back to a per-var sample dim.
-        result = DoResult(values={"Y": _draws()})
-        assert isinstance(result.dataset, xr.Dataset)
-        y_dims = result.dataset["Y"].dims
-        assert "chain" in y_dims or any(d.startswith("sample_") for d in y_dims)
-        # Public API still works.
-        assert result.draws("Y").shape == (N_SAMPLES,)
-
-    def test_legacy_estimand(self):
-        er = EstimandResult(
-            values={"Y": _draws()},
-            outcome="Y",
-            treatment="X",
-            estimand="ATE",
-        )
-        assert isinstance(er.dataset, xr.Dataset)
-        assert er.draws().shape == (N_SAMPLES,)
+    def test_estimand_raises_without_chain_draw(self):
+        with pytest.raises(ValueError, match="n_chains and n_draws are required"):
+            EstimandResult(
+                values={"Y": _draws()},
+                outcome="Y",
+                treatment="X",
+                estimand="ATE",
+            )

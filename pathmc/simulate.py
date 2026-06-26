@@ -53,11 +53,6 @@ __all__ = ["DoResult", "EstimandResult"]
 # ---------------------------------------------------------------------------
 
 
-def _unit_dims(da: xr.DataArray) -> list[str]:
-    """Return unit-like dim names on *da* (shared ``unit`` or per-var ``unit_*``)."""
-    return [d for d in da.dims if d == "unit" or d.startswith("unit_")]
-
-
 def _stack_sample(da: xr.DataArray) -> np.ndarray:
     """Flatten ``("chain", "draw")`` (and unit) into a 1-D ``sample`` axis.
 
@@ -70,7 +65,7 @@ def _stack_sample(da: xr.DataArray) -> np.ndarray:
     dims = list(da.dims)
     if "time" in dims:
         da = da.mean(dim="time")
-    stack_dims = [d for d in ("chain", "draw") if d in da.dims] + _unit_dims(da)
+    stack_dims = [d for d in ("chain", "draw", "unit") if d in da.dims]
     if not stack_dims:
         return np.asarray(da.values).ravel()
     stacked = da.stack(sample=stack_dims)
@@ -84,13 +79,7 @@ def _stack_sample_time(da: xr.DataArray) -> np.ndarray:
     Panel producers average over units before storage, so no ``unit`` dim is
     expected here.
     """
-    extra = [
-        d
-        for d in da.dims
-        if d not in ("chain", "draw", "time")
-        and d != "unit"
-        and not d.startswith("unit_")
-    ]
+    extra = [d for d in da.dims if d not in ("chain", "draw", "time", "unit")]
     if extra:
         da = da.mean(dim=extra)
     stack_dims = [d for d in ("chain", "draw") if d in da.dims]
@@ -107,45 +96,33 @@ def _build_dataset(
     *,
     n_chains: int | None = None,
     n_draws: int | None = None,
-    n_units: int | None = None,
     n_units_per_var: dict[str, int] | None = None,
 ) -> xr.Dataset:
     """Build the internal ``("chain", "draw"[, "unit"][, "time"])`` Dataset.
 
     ``values`` arrays are flat ``(n_samples,)`` where ``n_samples`` is
     ``chain * draw`` for mean-path results or ``chain * draw * unit`` for
-    predictive; they are reshaped back to named dims when ``n_chains``/
-    ``n_draws`` are supplied and the length matches. Arrays of unrecognised
-    length fall back to a per-variable ``"sample_<var>"`` dim so legacy
-    callers (e.g. test fixtures) keep working without colliding.
+    predictive. ``n_chains`` and ``n_draws`` are required whenever *values*
+    or *values_by_time* is non-empty.
     """
     data_vars: dict[str, xr.DataArray] = {}
 
     def _chain_draw_coords(nc: int, nd: int) -> dict[str, np.ndarray]:
         return {"chain": np.arange(nc), "draw": np.arange(nd)}
 
-    if values:
-        first = next(iter(values.values()))
-        n_samples = first.shape[0]
-        if n_chains is None:
-            n_chains = 1
-        if n_draws is None:
-            n_draws = n_samples // n_chains
+    def _require_chain_draw() -> None:
+        if n_chains is None or n_draws is None:
+            raise ValueError(
+                "n_chains and n_draws are required when building from flat "
+                "values dicts. Pass ds= for a pre-built Dataset."
+            )
 
+    if values:
+        _require_chain_draw()
+        assert n_chains is not None and n_draws is not None
         # Vars that also have a per-time entry are stored from values_by_time
         # (with a time dim); the time-averaged view is derived by _stack_sample.
         time_var_names = set(values_by_time or {})
-        predictive_lengths: list[int] = []
-        for var, arr in values.items():
-            if var in time_var_names:
-                continue
-            var_n_units = (n_units_per_var or {}).get(var, n_units)
-            if (
-                var_n_units is not None
-                and arr.shape[0] == n_chains * n_draws * var_n_units
-            ):
-                predictive_lengths.append(var_n_units)
-        heterogeneous_units = len(set(predictive_lengths)) > 1
 
         for var, arr in values.items():
             if var in time_var_names:
@@ -153,7 +130,7 @@ def _build_dataset(
             arr = np.asarray(arr)
             length = arr.shape[0]
             coords = _chain_draw_coords(n_chains, n_draws)
-            var_n_units = (n_units_per_var or {}).get(var, n_units)
+            var_n_units = (n_units_per_var or {}).get(var)
             if length == n_chains * n_draws:
                 data_vars[var] = xr.DataArray(
                     arr.reshape(n_chains, n_draws),
@@ -161,28 +138,37 @@ def _build_dataset(
                     coords=coords,
                 )
             elif var_n_units is not None and length == n_chains * n_draws * var_n_units:
-                unit_dim = f"unit_{var}" if heterogeneous_units else "unit"
                 data_vars[var] = xr.DataArray(
                     arr.reshape(n_chains, n_draws, var_n_units),
-                    dims=("chain", "draw", unit_dim),
-                    coords={**coords, unit_dim: np.arange(var_n_units)},
+                    dims=("chain", "draw", "unit"),
+                    coords={**coords, "unit": np.arange(var_n_units)},
                 )
             else:
-                # Legacy/unknown shape: per-var sample dim avoids collisions.
-                sample_dim = f"sample_{var}"
-                data_vars[var] = xr.DataArray(arr, dims=(sample_dim,))
+                raise ValueError(
+                    f"Cannot store variable '{var}': length {length} does not "
+                    f"match chain*draw ({n_chains * n_draws})"
+                    + (
+                        f" or chain*draw*unit with n_units={var_n_units!r}."
+                        if var_n_units is not None
+                        else ". Supply n_units_per_var for predictive lengths."
+                    )
+                )
 
     if values_by_time:
+        _require_chain_draw()
+        assert n_chains is not None and n_draws is not None
         n_times = next(iter(values_by_time.values())).shape[0]
         time_coord = (
             np.asarray(time_index) if time_index is not None else np.arange(n_times)
         )
         for var, arr in values_by_time.items():
             arr = np.asarray(arr)  # (n_times, n_samples)
-            if n_chains is None:
-                n_chains = 1
-            if n_draws is None:
-                n_draws = arr.shape[1] // n_chains
+            expected = n_times * n_chains * n_draws
+            if arr.size != expected:
+                raise ValueError(
+                    f"Cannot store per-time variable '{var}': size {arr.size} "
+                    f"does not match n_times*chain*draw ({expected})."
+                )
             coords = {
                 "time": time_coord,
                 **_chain_draw_coords(n_chains, n_draws),
@@ -196,10 +182,9 @@ def _build_dataset(
     return xr.Dataset(data_vars)
 
 
-def _subtract_stores(lhs: xr.Dataset, rhs: xr.Dataset) -> xr.Dataset:
-    """Element-wise contrast on shared variables with matching xarray schemas."""
-    common = [str(v) for v in lhs.data_vars if v in rhs.data_vars]
-    return lhs[common] - rhs[common]
+def _has_by_time(ds: xr.Dataset) -> bool:
+    """True when any variable carries a ``time`` dim."""
+    return any("time" in ds[v].dims for v in ds.data_vars)
 
 
 class DoResult(ResultReprMixin):
@@ -213,10 +198,9 @@ class DoResult(ResultReprMixin):
 
     Internal storage is an :class:`xarray.Dataset` exposed as :attr:`dataset`
     with named dims ``("chain", "draw")`` for cross-sectional draws and an
-    additional ``"time"`` dim for panel per-time draws. The ``_values`` and
-    ``_values_by_time`` attributes are backward-compatible dict views
-    (stacked over ``chain``/``draw`` into a ``"sample"`` axis) that
-    preserve the historical numpy-array public contract.
+    additional ``"time"`` dim for panel per-time draws. Public accessors such
+    as :meth:`draws` flatten ``chain``/``draw`` (and ``unit`` when present)
+    into a 1-D numpy sample vector.
 
     Parameters
     ----------
@@ -233,16 +217,14 @@ class DoResult(ResultReprMixin):
     ds : xr.Dataset | None
         Pre-built internal Dataset with dims ``("chain", "draw")`` and,
         optionally, a ``"time"`` dim. When supplied, takes precedence over
-        the dict arguments (which are used only by legacy callers).
+        the dict arguments.
     n_chains, n_draws : int | None
         Chain/draw sizes used to reconstruct the ``chain``/``draw`` dims
-        when building the Dataset from flat ``values`` dicts. If omitted,
-        inferred from the first variable's length (treating the array as
-        a flattened ``chain * draw`` sample vector with ``chain=1``).
-    n_units, n_units_per_var : int | dict[str, int] | None
-        Unit counts for predictive ``values`` arrays whose length is
-        ``chain * draw * unit``. ``n_units_per_var`` overrides ``n_units``
-        per variable when predictive vars have heterogeneous unit counts.
+        when building the Dataset from flat ``values`` dicts. Required when
+        *values* or *values_by_time* is non-empty and ``ds`` is omitted.
+    n_units_per_var : dict[str, int] | None
+        Per-variable unit counts for predictive ``values`` arrays whose length
+        is ``chain * draw * unit``.
     """
 
     def __init__(
@@ -254,7 +236,6 @@ class DoResult(ResultReprMixin):
         ds: xr.Dataset | None = None,
         n_chains: int | None = None,
         n_draws: int | None = None,
-        n_units: int | None = None,
         n_units_per_var: dict[str, int] | None = None,
     ) -> None:
         if ds is not None:
@@ -266,7 +247,6 @@ class DoResult(ResultReprMixin):
                 time_index,
                 n_chains=n_chains,
                 n_draws=n_draws,
-                n_units=n_units,
                 n_units_per_var=n_units_per_var,
             )
 
@@ -291,29 +271,6 @@ class DoResult(ResultReprMixin):
     def _draw_by_time(self, var: str) -> np.ndarray:
         """Per-time ``(n_times, n_samples)`` draws for one panel variable."""
         return _stack_sample_time(self._ds[var])
-
-    # -- backward-compatible dict views (backed by the xarray store) --------
-
-    @property
-    def _values(self) -> dict[str, np.ndarray]:
-        """Flat ``(n_samples,)`` draws per variable (chain+draw stacked).
-
-        Variables with a ``time`` dim (panel per-time vars) are averaged over
-        time first, matching the historical ``values[var] = by_time.mean(axis=0)``
-        contract.
-        """
-        out: dict[str, np.ndarray] = {}
-        for var in self._ds.data_vars:
-            out[str(var)] = _stack_sample(self._ds[var])
-        return out
-
-    @property
-    def _values_by_time(self) -> dict[str, np.ndarray] | None:
-        """Per-time ``(n_times, n_samples)`` draws, or None if cross-sectional."""
-        by_time_vars = [v for v in self._ds.data_vars if "time" in self._ds[v].dims]
-        if not by_time_vars:
-            return None
-        return {str(var): _stack_sample_time(self._ds[var]) for var in by_time_vars}
 
     @property
     def _time_index(self) -> np.ndarray | None:
@@ -379,7 +336,7 @@ class DoResult(ResultReprMixin):
         ValueError
             If per-time data is not available (cross-sectional do).
         """
-        if self._values_by_time is None:
+        if not _has_by_time(self._ds):
             raise ValueError(
                 "Per-time data not available. "
                 "Use do(simulate_over='time') to get per-time results."
@@ -393,24 +350,26 @@ class DoResult(ResultReprMixin):
 
     def __sub__(self, other: DoResult) -> DoResult:
         """Element-wise contrast between two DoResults."""
-        return DoResult(ds=_subtract_stores(self._ds, other._ds))
+        common = [str(v) for v in self._ds.data_vars if v in other._ds.data_vars]
+        return DoResult(ds=self._ds[common] - other._ds[common])
 
     def _repr_compact(self) -> str:
-        values = self._values
-        if not values:
+        if not self._ds.data_vars:
             return "DoResult(empty)"
-        n_samples = len(next(iter(values.values())))
-        n_vars = len(values)
+        vars_list = [str(v) for v in self._ds.data_vars]
+        n_samples = len(self._draw(vars_list[0]))
+        n_vars = len(vars_list)
         return f"DoResult({n_samples} draws, {n_vars} variables)"
 
     def _repr_spec(self) -> ReprSpec:
-        values = self._values
-        if not values:
+        if not self._ds.data_vars:
             return ReprSpec(title="DoResult (empty)", rows=[])
-        n_samples = len(next(iter(values.values())))
-        n_vars = len(values)
+        vars_list = [str(v) for v in self._ds.data_vars]
+        n_samples = len(self._draw(vars_list[0]))
+        n_vars = len(vars_list)
         rows = []
-        for var, draws in values.items():
+        for var in vars_list:
+            draws = self._draw(var)
             mean = float(np.mean(draws))
             lo, hi = compute_hdi(draws)
             rows.append([var, f"{mean:.2f}", f"[{lo:.2f}, {hi:.2f}]"])
@@ -435,8 +394,7 @@ class EstimandResult(ResultReprMixin):
 
     Internal storage mirrors :class:`DoResult`: an :class:`xarray.Dataset`
     exposed as :attr:`dataset` with dims ``("chain", "draw")`` (and
-    ``"time"`` for panel estimands). The ``_values`` / ``_values_by_time``
-    attributes are backward-compatible dict views.
+    ``"time"`` for panel estimands).
 
     Parameters
     ----------
@@ -529,22 +487,6 @@ class EstimandResult(ResultReprMixin):
     def treatment(self) -> str:
         """The treatment variable that was intervened on."""
         return self._treatment
-
-    # -- backward-compatible dict views (backed by the xarray store) --------
-
-    @property
-    def _values(self) -> dict[str, np.ndarray]:
-        out: dict[str, np.ndarray] = {}
-        for var in self._ds.data_vars:
-            out[str(var)] = _stack_sample(self._ds[var])
-        return out
-
-    @property
-    def _values_by_time(self) -> dict[str, np.ndarray] | None:
-        by_time_vars = [v for v in self._ds.data_vars if "time" in self._ds[v].dims]
-        if not by_time_vars:
-            return None
-        return {str(var): _stack_sample_time(self._ds[var]) for var in by_time_vars}
 
     @property
     def _time_index(self) -> np.ndarray | None:
@@ -677,7 +619,7 @@ class EstimandResult(ResultReprMixin):
         ValueError
             If per-time data is not available (cross-sectional estimand).
         """
-        if self._values_by_time is None:
+        if not _has_by_time(self._ds):
             raise ValueError(
                 "Per-time data not available. "
                 "Use simulate_over='time' to get per-time results."
@@ -695,8 +637,9 @@ class EstimandResult(ResultReprMixin):
 
     def __sub__(self, other: EstimandResult) -> EstimandResult:
         """Element-wise contrast between two estimands, preserving the outcome."""
+        common = [str(v) for v in self._ds.data_vars if v in other._ds.data_vars]
         return EstimandResult(
-            ds=_subtract_stores(self._ds, other._ds),
+            ds=self._ds[common] - other._ds[common],
             outcome=self._default_var,
             treatment=self._treatment,
             estimand=self._estimand,

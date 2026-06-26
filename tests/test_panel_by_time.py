@@ -157,7 +157,11 @@ class TestByTimeRaisesOnCrossSectional:
 
     def test_do_result_raises(self):
         rng = np.random.default_rng(0)
-        result = DoResult(values={"Y": rng.normal(size=100)})
+        result = DoResult(
+            values={"Y": rng.normal(size=100)},
+            n_chains=1,
+            n_draws=100,
+        )
         with pytest.raises(ValueError, match="Per-time data not available"):
             result.by_time("Y")
 
@@ -168,6 +172,8 @@ class TestByTimeRaisesOnCrossSectional:
             outcome="Y",
             treatment="X",
             estimand="ATE",
+            n_chains=1,
+            n_draws=100,
         )
         with pytest.raises(ValueError, match="Per-time data not available"):
             result.by_time()
