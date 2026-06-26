@@ -309,15 +309,9 @@ The IV model has separated this confounding channel from the causal one.
 
 ## Counterfactual: turn the push on for everyone
 
-Because the structural equation is generative, `do()` propagates an intervention through the model.
-Setting `push_delivered` to 0 versus 1 and differencing gives the causal contrast — and it agrees with the structural coefficient.
-
-```{python}
-r0 = model.do(set={"push_delivered": 0.0}, kind="mean")
-r1 = model.do(set={"push_delivered": 1.0}, kind="mean")
-ate = r1.mean("in_app_purchase") - r0.mean("in_app_purchase")
-print(f"do(delivered=1) - do(delivered=0): {ate:.2f}  (true = {TRUE_LATE})")
-```
+Because the structural equation is generative, interventions propagate through the model.
+`model.do(set={"push_delivered": 1.0})` versus `set={"push_delivered": 0.0}`, differenced, gives the average causal effect of delivering the push to everyone.
+For this linear structural model that contrast is exactly the `push_delivered` coefficient plotted above — the IV recovers it, and `do()` simply re-expresses it as a counterfactual quantity, with the residual-correlation block carried along generatively so confounding is not reintroduced.
 
 ## A note on identification
 
