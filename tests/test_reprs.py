@@ -23,12 +23,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import xarray as xr
+
 from pathmc.effects import EffectResult
 from pathmc.falsify import FalsificationResult
 from pathmc.identify import ImplicationTestResult
 from pathmc.reprs import ReprSpec, ResultReprMixin, _render_html
 from pathmc.sensitivity import SensitivityResult
 from pathmc.simulate import DoResult, EstimandResult
+from _draw_fixtures import do_result_from_flat, estimand_result_from_flat
 
 
 # ---------------------------------------------------------------------------
@@ -51,23 +54,27 @@ def effect_result(draws_positive) -> EffectResult:
 @pytest.fixture
 def do_result(draws_positive) -> DoResult:
     rng = np.random.default_rng(1)
-    return DoResult(
+    return do_result_from_flat(
         values={
             "X": rng.normal(loc=1.0, scale=0.1, size=1000),
             "Y": draws_positive,
             "Z": rng.normal(loc=0.5, scale=0.2, size=1000),
-        }
+        },
+        n_chains=1,
+        n_draws=1000,
     )
 
 
 @pytest.fixture
 def estimand_result(draws_positive) -> EstimandResult:
     rng = np.random.default_rng(2)
-    return EstimandResult(
+    return estimand_result_from_flat(
         values={"Y": draws_positive, "X": rng.normal(size=1000)},
         outcome="Y",
         treatment="X",
         estimand="ATE",
+        n_chains=1,
+        n_draws=1000,
     )
 
 
@@ -294,7 +301,7 @@ class TestDoResultRepr:
         assert "3 variables" in repr(do_result)
 
     def test_repr_empty(self):
-        r = repr(DoResult(values={}))
+        r = repr(DoResult(ds=xr.Dataset()))
         assert "empty" in r.lower()
 
     def test_repr_html_contains_table(self, do_result):
@@ -311,7 +318,7 @@ class TestDoResultRepr:
         assert "Y" in html
 
     def test_repr_html_empty_do_result(self):
-        html = DoResult(values={})._repr_html_()
+        html = DoResult(ds=xr.Dataset())._repr_html_()
         assert isinstance(html, str)
 
 
