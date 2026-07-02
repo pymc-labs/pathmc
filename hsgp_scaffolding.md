@@ -114,12 +114,21 @@ def make_cov_func(cov: str, *, eta: TensorLike, ell: TensorLike) -> pm.gp.cov.Co
     """Build the HSGP covariance function ``eta**2 * Kernel(input_dim=1, ls=ell)``."""
 
 
-def hsgp_basis(call: HSGPCall, x: TensorLike) -> tuple[TensorLike, TensorLike, int]:
+def hsgp_basis(
+    call: HSGPCall, x: TensorLike, *, cov_func: pm.gp.cov.Covariance
+) -> tuple[TensorLike, TensorLike, int]:
     """Return ``(phi, sqrt_psd, n_basis)`` for a 1-D input via ``prior_linearized``.
 
     Constructs ``pm.gp.HSGP(m=[call.m], L=[call.L] if call.L is not None
-    else None, c=call.c, cov_func=...)`` -- both ``m`` and ``L`` must be
+    else None, c=call.c, cov_func=cov_func)`` -- both ``m`` and ``L`` must be
     per-dimension sequences, so the scalar ``call.L`` is wrapped into ``[call.L]``.
+
+    ``cov_func`` is required and must be the ``eta``/``ell``-parameterized
+    kernel from :func:`make_cov_func`; ``pm.gp.HSGP`` derives ``sqrt_psd`` from
+    it, so the basis is only consistent when the same kernel object that carries
+    the estimated hyperparameters is threaded in. ``hsgp_basis`` does not build
+    the kernel itself -- the caller (``assemble_hsgp_term``) owns hyperparameter
+    RV creation.
     """
 
 
@@ -321,7 +330,7 @@ if slot.kind == "hsgp":
 - `simulate()` guardrail (`pathmc/simulate.py` and the `simulate()` entry in `pathmc/_model.py`): raise a clear `NotImplementedError` when the spec contains any HSGP term, mirroring the existing rejection of `~~` residual covariances. Message names the limitation and suggests `model().fit().do()` instead.
 - `design(var)` / `build_design_matrix`: leaves the raw input column in the introspection design matrix for Phase 1 (the basis expansion is an internal graph detail). No patsy change is needed. Documented as a known limitation.
 
-`assemble_hsgp_term` responsibilities (in `pathmc/hsgp.py`): resolve `ell`/`eta` priors from the merged `priors` config (default or user override), build `cov_func` via `make_cov_func`, call `hsgp_basis` to get `(phi, sqrt_psd, n_basis)` (which builds `pm.gp.HSGP` with the sequence-wrapped `m=[call.m]` and `L=[call.L]`), assert `n_basis == call.m`, create `beta_hsgp_{lhs}_{var}` per the parametrization branch, and return `pm.Deterministic(f"f_{lhs}_{var}", ...)`. All PyMC object creation happens inside the active model context supplied by the caller (`pm.Model.get_context()`), consistent with how transforms emit RVs.
+`assemble_hsgp_term` responsibilities (in `pathmc/hsgp.py`), in order: (1) resolve and create the `ell_{lhs}_{var}`/`eta_{lhs}_{var}` RVs from the merged `priors` config (default or user override); (2) build `cov_func = make_cov_func(call.cov, eta=eta, ell=ell)` so the kernel carries those exact hyperparameters; (3) call `hsgp_basis(call, x, cov_func=cov_func)` to get `(phi, sqrt_psd, n_basis)` (which builds `pm.gp.HSGP` with the sequence-wrapped `m=[call.m]` and `L=[call.L]` and the supplied `cov_func`); (4) assert `n_basis == call.m`; (5) create `beta_hsgp_{lhs}_{var}` per the parametrization branch; (6) return `pm.Deterministic(f"f_{lhs}_{var}", ...)`. Threading the same `cov_func` object through steps 2→3 is what keeps `sqrt_psd` consistent with the estimated `eta`/`ell` — `hsgp_basis` must never construct its own kernel. All PyMC object creation happens inside the active model context supplied by the caller (`pm.Model.get_context()`), consistent with how transforms emit RVs.
 
 ## 7. Priors defaults/overrides and introspection
 
@@ -367,7 +376,7 @@ Mirror the transform test triad (parse / compile / do) and add a focused unit-te
 `tests/test_hsgp.py` (fast, unit, minimal `pm.Model` context):
 
 - `make_cov_func` returns an `ExpQuad`/`Matern52`/`Matern32` instance for each `cov`; unknown `cov` raises `ValueError`.
-- `hsgp_basis` returns `phi` shape `(n, m)`, `sqrt_psd` shape `(m,)`, and `n_basis == m` for a 1-D input, both for the `c=` and the explicit `L=` forms (the scalar `L` is wrapped into `[L]`, so an `L=`-configured `HSGPCall` builds without a `ValueError`).
+- `hsgp_basis(call, x, cov_func=make_cov_func("expquad", eta=..., ell=...))` returns `phi` shape `(n, m)`, `sqrt_psd` shape `(m,)`, and `n_basis == m` for a 1-D input, both for the `c=` and the explicit `L=` forms (the scalar `L` is wrapped into `[L]`, so an `L=`-configured `HSGPCall` builds without a `ValueError`). Also assert that varying the `eta`/`ell` passed into `cov_func` changes `sqrt_psd`, confirming the kernel is actually threaded into the basis.
 - `assemble_hsgp_term` in non-centered mode creates `ell_Y_x`, `eta_Y_x`, `beta_hsgp_Y_x` and an `f_Y_x` deterministic of shape `(n,)`.
 - `assemble_hsgp_term` in centered mode uses `sqrt_psd` as `beta` sigma and `f = phi @ beta` (assert the graph differs from non-centered).
 
