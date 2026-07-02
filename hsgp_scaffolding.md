@@ -13,7 +13,8 @@ Installed stack: `pymc 6.0.1`, `pytensor 3.0.4`, `arviz 1.1.0`, `numpy 2.4.6`.
 PyMC HSGP API (verified):
 
 - `pm.gp.HSGP(m=[M], L=None, c=None, drop_first=False, parametrization="noncentered", *, mean_func=Zero, cov_func)`. Both `m` and `L` are per-dimension sequences: `m=[M]` and, when an explicit boundary is used, `L=[L]`. Passing a scalar `L` raises a `ValueError`, so the DSL's scalar `L` must be wrapped into `[L]` before construction (see `hsgp_basis`, Section 6).
-- `phi, sqrt_psd = gp.prior_linearized(X)` where `X` is a `(n, 1)` tensor (a `pm.Data` node works); returns `phi` of shape `(n, M)` and `sqrt_psd` of shape `(M,)`. In this PyMC version `prior_linearized` centers `X` internally from `L`/`c`, so raw inputs are fine.
+- `phi, sqrt_psd = gp.prior_linearized(X)` where `X` is a `(n, 1)` tensor (a `pm.Data` node works); returns `phi` of shape `(n, M)` and `sqrt_psd` of shape `(M,)`. In this PyMC version `prior_linearized` centers `X` internally from `L`/`c`, so raw inputs are fine. **Runtime-verify, do not assume:** the centering behavior of `prior_linearized` is version-sensitive (older PyMC required pre-centered `Xs`), and getting it wrong is a *silent* correctness bug — a subtly wrong smooth, not a crash. Section 8.2 adds a non-zero-mean recovery test (`x` far from 0) so a centering regression cannot hide behind a zero-centered fixture.
+- Boundary handling under intervention (verify at implementation): when `c` is supplied (not an explicit `L`), the boundary `L` is derived from the input range. If it is frozen from the *concrete* `X` at `prior_linearized` call time, then `do(set={x: grid})` with a grid *wider* than the fitted support evaluates eigenfunctions outside `[-L, L]` and yields extrapolation artifacts. Phase 1 therefore keeps the `test_hsgp_do.py` grid within the fitted support and documents this limitation; confirm whether `L` is symbolic (recomputed under `do`) or frozen.
 - `gp.n_basis_vectors == prod(m)` (for a single 1-D input with `drop_first=False`, `M == m`).
 - Kernels: `pm.gp.cov.ExpQuad(input_dim, ls=...)`, `pm.gp.cov.Matern52(input_dim, ls=...)`, `pm.gp.cov.Matern32(input_dim, ls=...)`.
 
@@ -36,7 +37,7 @@ pathmc internals (verified in `pathmc/compile.py`), which determine the exact in
 - Top-level `coords` are assembled at `compile.py:390-394` before `pm.Model(coords=...)`. Because `m` is a compile-time literal, the HSGP weights coordinate can be registered there.
 - `build_mu` (`compile.py:506`), the cross-sectional resolver (`compile.py:555`), the residual-block compiler (`compile.py:745`, `:803-811`), and the scan-panel compiler (`compile.py:1251`, `:1644-1654`) all funnel through `build_mu` plus a resolver. These are the only choke points for dispatch and guardrails.
 - `_make_cross_sectional_resolver` (`compile.py:555`) currently takes `(data, data_vars, endogenous_rvs, transform_map, transform_param_rvs, panel_info)` and has no `lhs` or `priors` in scope. HSGP dispatch needs both, so the factory must gain `lhs: str` and `priors: PriorConfig` parameters; the per-equation call site (`compile.py:468`) has `var` and `priors` in scope and passes `lhs=var, priors=priors`.
-- `_compile_residual_block` (`compile.py:788-802`) creates `beta_{var}` whenever `has_free = any(s.coeff_type == "free" for s in ms.slots)` is true, using `dims=f"{var}_predictors"`. HSGP slots are `coeff_type="free"` yet excluded from `{var}_predictors`, so an HSGP term on a block LHS would allocate `beta` against a missing coordinate. This is why HSGP inside a residual-covariance block is rejected in Phase 1 (Section 6).
+- `_compile_residual_block` (`compile.py:788-802`) creates `beta_{var}` whenever `has_free = any(s.coeff_type == "free" for s in ms.slots)` is true, using `dims=f"{var}_predictors"`. HSGP slots are `coeff_type="free"` yet excluded from `{var}_predictors`, so an HSGP term on a block LHS would allocate `beta` against a missing coordinate. Note `priors` *is* passed to `_compile_residual_block` (its 9th positional arg) and is in scope; the only thing missing for HSGP dispatch inside a block is `lhs`. Either way, HSGP inside a residual-covariance block is rejected in Phase 1 (Section 6).
 - Exogenous inputs become 1-D `pm.Data(var, shape (n,))` at `compile.py:416-419`, so HSGP must reshape to `(n, 1)` inside the graph.
 
 ## 1. Scope, goals, and Bambi parity
@@ -288,32 +289,35 @@ Prior-interaction caveat (stated explicitly to avoid a silent-override loophole)
 Changes in `pathmc/compile.py`, each anchored to a verified choke point:
 
 - `PredictorSlot` (`:70`): add `"hsgp"` to the `kind` `Literal` and a field `hsgp: HSGPCall | None = None`.
-- `build_mu_specs` (`:157`): when `term.hsgp is not None`, emit `PredictorSlot(kind="hsgp", name=term.variable, coeff_type="free", hsgp=term.hsgp)`. Kind dispatch priority: `hsgp` before `transform`/`interaction`/`lag`.
+- `build_mu_specs` (`:157`): when `term.hsgp is not None`, emit an HSGP slot with `kind="hsgp"`, `name=term.variable`, `hsgp=term.hsgp`. Kind dispatch priority: `hsgp` before `transform`/`interaction`/`lag`. **Do not mark it `coeff_type="free"`.** An HSGP slot never contributes a scalar coefficient to `beta`, yet two independent code paths key off `coeff_type == "free"` — `build_mu`'s `free_idx` increment and `_compile_residual_block`'s `has_free` — so reusing `"free"` is a latent footgun that only stays safe as long as every such consumer special-cases `kind == "hsgp"` first. Give the slot an inert coefficient marker instead (e.g. a dedicated `coeff_type="none"`/`"managed"` value, or keep `coeff_type` but add an explicit `kind == "hsgp"` short-circuit ahead of every `coeff_type` check). Whichever is chosen, state in the `PredictorSlot` docstring that `kind == "hsgp"` carries its own basis weights and must be filtered out of any `coeff_type`-based counting.
 - `get_free_predictor_columns` (`:124`): skip terms where `term.hsgp is not None` so no spurious `beta_{lhs}` column is created. The parallel all-columns helper used by the design matrix (`:119-121`) keeps the raw input (see `design()` note below).
-- `build_mu` (`:506`): handle `slot.kind == "hsgp"` before the free/fixed coefficient logic and `continue` without advancing `free_idx`:
+- `build_mu` (`:506`): the `slot.kind == "hsgp"` branch **must sit at the very top of the loop body, before the `coeff_type` fixed/free block**, and `continue` without advancing `free_idx`:
 
 ```python
-if slot.kind == "hsgp":
-    mu = mu + resolver(slot)
-    continue
+for slot in mu_spec.slots:
+    if slot.kind == "hsgp":       # first thing in the loop, before any coef indexing
+        mu = mu + resolver(slot)
+        continue
+    # ... existing fixed/free coef logic (indexes beta[free_idx]) ...
 ```
 
-  This is why an HSGP-only regression (`Y ~ 0 + hsgp(x)`, `beta=None`) is safe: the HSGP slot never indexes `beta`.
+  Placement is load-bearing: the existing loop computes `coef = beta[free_idx]; free_idx += 1` for every non-fixed slot *before* the kind dispatch. If the HSGP branch runs after that, `free_idx` advances for the HSGP slot and misaligns with the `beta` vector, which is sized by `get_free_predictor_columns` (and that helper skips HSGP). Branching first keeps the HSGP slot out of `beta` indexing entirely, which is also why an HSGP-only regression (`Y ~ 0 + hsgp(x)`, `beta=None`) is safe.
 - Coordinate registration: in the coords loop (`:390-394`), for each HSGP term add `coords[f"{lhs}_{var}_hsgp"] = list(range(call.m))`. `m` is known at parse time, so no `add_coord` inside the model is required.
-- `_make_cross_sectional_resolver` (`:555`): the factory must gain two parameters, `lhs: str` and `priors: PriorConfig`, because the current signature `(data, data_vars, endogenous_rvs, transform_map, transform_param_rvs, panel_info)` exposes neither and HSGP dispatch needs both. The per-equation call site (`:468`) passes `lhs=var, priors=priors` (both are in scope there). Dispatch `slot.kind == "hsgp"` to `assemble_hsgp_term`, passing the reshaped input tensor. The input is resolved from `data_vars[slot.name]` (the `pm.Data` node) and reshaped to `(n, 1)` inside the graph via `data_vars[slot.name][:, None]`, which keeps `do(set={var: ...})` working through broadcasting.
+- `_make_cross_sectional_resolver` (`:555`): the factory must gain two parameters, `lhs: str` and `priors: PriorConfig`, because the current signature `(data, data_vars, endogenous_rvs, transform_map, transform_param_rvs, panel_info)` exposes neither and HSGP dispatch needs both. The per-equation call site (`:468`) passes `lhs=var, priors=priors` (both are in scope there). Dispatch `slot.kind == "hsgp"` to `assemble_hsgp_term`, passing the reshaped input tensor. Resolve the input through the existing `_resolve_var` closure — it already checks `endogenous_rvs`, then `data_vars` (the `pm.Data` node), then a constant fallback — and reshape to `(n, 1)` inside the graph, which keeps `do(set={var: ...})` working through broadcasting. No need to re-implement the `data_vars.get(...)` lookup:
 
 ```python
 if slot.kind == "hsgp":
     assert slot.hsgp is not None
-    x_node = data_vars.get(slot.name)
-    x = (x_node if x_node is not None else _resolve_var(slot.name))[:, None]
+    x = _resolve_var(slot.name)[:, None]
     return assemble_hsgp_term(slot.hsgp, x, lhs=lhs, priors=priors)
 ```
+
+  Note: for an exogenous input `x` this resolves to a `pm.Data` node; for an *endogenous* input `_resolve_var` returns an upstream RV (a smooth of a latent mediator). Reshaping works in both cases, but confirm the endogenous case is intended in Phase 1 or reject it at validation.
 
 - Model-level panel guard: the scan resolver only runs when `_has_temporal_deps` is true, so a `panel={...}` model with no `lag()`/adstock terms compiles on the cross-sectional path and would silently bypass a scan-only guard. Add an explicit pre-compile check in `compile_to_pymc` (and mirror it in `model()` validation in `pathmc/_model.py` for an early, friendly error): if `panel_info is not None` and the spec contains any HSGP term, raise `NotImplementedError` ("HSGP terms are not supported in panel models yet (see #360 follow-up). Fit the HSGP smooth in a cross-sectional model, or remove the hsgp() term."). This is the guard the parity table and compile test rely on.
 - `_make_scan_resolver` (`:600`): dispatch `slot.kind == "hsgp"` to `raise NotImplementedError("HSGP terms are not supported in panel/scan models yet (see #360 follow-up). Use a cross-sectional model or remove the hsgp() term.")`. This is defense-in-depth behind the model-level guard above.
 - `_has_temporal_deps` (`~:1102`): an HSGP term alone must not report a temporal dependency, so a cross-sectional model with only `hsgp()` does not get routed to the scan compiler.
-- Residual-covariance block (`:745`, `:788-811`): HSGP does not flow through this path safely. `_compile_residual_block` creates `beta_{var}` whenever `has_free = any(s.coeff_type == "free" for s in ms.slots)` (`:790`), using `dims=f"{var}_predictors"`; because HSGP slots are `coeff_type="free"` but excluded from `{var}_predictors`, the block would allocate a `beta` against a missing coordinate, and the block resolver at `:803` is constructed without `lhs`/`priors`. Phase 1 therefore rejects HSGP inside a residual-covariance block: before dispatching to `_compile_residual_block`, if any block-member regression contains an HSGP term, raise a clear `NotImplementedError` naming the limitation and pointing to a follow-up (for example "HSGP terms are not supported on a variable that participates in a ~~ residual-covariance block yet (see #360 follow-up)."). A dedicated compile test asserts the raise.
+- Residual-covariance block (`:745`, `:788-811`): HSGP does not flow through this path safely. `_compile_residual_block` creates `beta_{var}` whenever `has_free = any(s.coeff_type == "free" for s in ms.slots)` (`:790`), using `dims=f"{var}_predictors"`; because HSGP slots are `coeff_type="free"` but excluded from `{var}_predictors`, the block would allocate a `beta` against a missing coordinate. (`priors` *is* threaded into `_compile_residual_block`, so only `lhs` would be missing for HSGP dispatch here — but the `beta`-coordinate mismatch alone is disqualifying.) Phase 1 therefore rejects HSGP inside a residual-covariance block: before dispatching to `_compile_residual_block`, if any block-member regression contains an HSGP term, raise a clear `NotImplementedError` naming the limitation and pointing to a follow-up (for example "HSGP terms are not supported on a variable that participates in a ~~ residual-covariance block yet (see #360 follow-up)."). A dedicated compile test asserts the raise.
 - `simulate()` guardrail (`pathmc/simulate.py` and the `simulate()` entry in `pathmc/_model.py`): raise a clear `NotImplementedError` when the spec contains any HSGP term, mirroring the existing rejection of `~~` residual covariances. Message names the limitation and suggests `model().fit().do()` instead.
 - `design(var)` / `build_design_matrix`: leaves the raw input column in the introspection design matrix for Phase 1 (the basis expansion is an internal graph detail). No patsy change is needed. Documented as a known limitation.
 
@@ -338,7 +342,7 @@ Introspection (`pathmc/introspect.py`):
 - `_format_term` (`:346`): when `t.hsgp is not None`, render `f_hsgp({var})` (no coefficient prefix, since prefixes are rejected at parse time).
 - `_format_term_latex` (`:447`): render `f_{\mathrm{hsgp}}(\mathrm{var})`.
 - `build_dag_viz` (`:196`): draw an edge `var -> lhs` labeled `hsgp(var)` with a distinct style (dotted) so the smooth reads as nonparametric; no extra nodes for `ell`/`eta`.
-- `model.priors()` (`build_priors` / `_collect_transform_priors` at `:628`): include the HSGP hyperpriors. Add a sibling collector `_collect_hsgp_priors` so the priors listing and `default_priors` stay consistent (both keyed by the same RV names).
+- `model.priors()` (`build_priors` at `:518`, which calls `_collect_transform_priors` at `:628`): include the HSGP hyperpriors. Add a sibling collector `_collect_hsgp_priors` so the priors listing and `default_priors` stay consistent (both keyed by the same RV names).
 
 ## 8. Code-quality conventions and testing structure
 
@@ -379,8 +383,9 @@ Mirror the transform test triad (parse / compile / do) and add a focused unit-te
 
 `tests/test_hsgp_do.py` (slow, `@pytest.mark.slow`):
 
-- After `fit`, `do(set={"x": grid})` changes `f_Y_x` / the predicted mean relative to baseline (the acceptance-criteria intervention test that the basis recomputes from `pm.Data`).
+- After `fit`, `do(set={"x": grid})` changes `f_Y_x` / the predicted mean relative to baseline (the acceptance-criteria intervention test that the basis recomputes from `pm.Data`). The `grid` stays within the fitted support of `x` (see the boundary caveat in Section 0), so the test exercises basis recomputation, not out-of-boundary extrapolation.
 - Recovery: simulate `y = sin(2*x) + noise` on a grid, fit `y ~ hsgp(x, m=..., c=...)`, and assert the posterior-mean `f_Y_x` correlates with the true smooth at `> 0.9` (Bambi `hsgp_1d` parity).
+- Non-zero-mean recovery (centering guard): repeat the recovery test with the input shifted well away from zero (e.g. `x ∈ [10, 20]`) and assert the same `> 0.9` correlation. This fails loudly if `prior_linearized` does not center `X` as assumed in Section 0, which a zero-centered fixture would silently hide.
 
 `tests/test_priors.py` (additions, fast):
 
