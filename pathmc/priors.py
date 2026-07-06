@@ -203,6 +203,14 @@ def _collect_hsgp_defaults(
     Keys are the flat, override-able RV names ``ell_{lhs}_{var}`` (lengthscale),
     ``eta_{lhs}_{var}`` (amplitude), and ``beta_hsgp_{lhs}_{var}`` (standardized
     basis weights, non-centered).  Deduplicated by RV name.
+
+    ``beta_hsgp`` is registered only in the non-centered parametrization.  In
+    centered mode ``assemble_hsgp_term`` builds ``beta`` directly with the
+    data-derived ``sqrt_psd`` scale and never reads a ``beta_hsgp`` prior, so
+    registering the key would advertise a tunable knob that has no effect and
+    silently swallow user overrides.  Leaving it unregistered means an override
+    on ``beta_hsgp`` in centered mode raises the usual "Unknown prior key"
+    instead of being a silent no-op; tune ``ell``/``eta`` in centered mode.
     """
     var = call.variable
     ell_key = f"ell_{lhs}_{var}"
@@ -216,7 +224,7 @@ def _collect_hsgp_defaults(
         priors[ell_key] = Prior("InverseGamma", alpha=3, beta=1)
     if eta_key not in priors:
         priors[eta_key] = Prior("HalfNormal", sigma=1)
-    if beta_key not in priors:
+    if not call.centered and beta_key not in priors:
         priors[beta_key] = Prior("Normal", mu=0, sigma=1, dims=(weights_dim,))
 
 

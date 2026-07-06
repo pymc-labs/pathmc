@@ -48,7 +48,9 @@ COV_FUNCS: dict[str, type] = {
 }
 
 
-def make_cov_func(cov: str, *, eta: TensorLike, ell: TensorLike) -> object:
+def make_cov_func(
+    cov: str, *, eta: TensorLike, ell: TensorLike
+) -> pm.gp.cov.Covariance:
     """Build the HSGP covariance function ``eta**2 * Kernel(input_dim=1, ls=ell)``.
 
     Parameters
@@ -81,7 +83,7 @@ def make_cov_func(cov: str, *, eta: TensorLike, ell: TensorLike) -> object:
 
 
 def hsgp_basis(
-    call: HSGPCall, x: TensorLike, *, cov_func: object
+    call: HSGPCall, x: TensorLike, *, cov_func: pm.gp.cov.Covariance
 ) -> tuple[TensorLike, TensorLike, int]:
     """Return ``(phi, sqrt_psd, n_basis)`` for a 1-D input via ``prior_linearized``.
 
@@ -160,9 +162,12 @@ def assemble_hsgp_term(
 
     cov_func = make_cov_func(call.cov, eta=eta, ell=ell)
     phi, sqrt_psd, n_basis = hsgp_basis(call, x, cov_func=cov_func)
-    assert n_basis == call.m, (
-        f"HSGP basis count {n_basis} != requested m={call.m} for '{lhs}_{var}'."
-    )
+    # Invariant on the basis count. Raised rather than ``assert`` so it still
+    # fires under ``python -O`` (which strips asserts).
+    if n_basis != call.m:
+        raise ValueError(
+            f"HSGP basis count {n_basis} != requested m={call.m} for '{lhs}_{var}'."
+        )
 
     weights_dim = f"{lhs}_{var}_hsgp"
     beta_name = f"beta_hsgp_{lhs}_{var}"

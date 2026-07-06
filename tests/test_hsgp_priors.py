@@ -33,6 +33,25 @@ def test_default_priors_include_hsgp_hyperpriors():
     assert beta.dims == ("Y_x_hsgp",)
 
 
+def test_centered_hsgp_does_not_register_beta_prior():
+    # In centered mode beta uses the data-derived sqrt_psd scale and no
+    # beta_hsgp prior is read, so it must not be registered (otherwise an
+    # override would be a silent no-op).
+    spec = parse_spec("Y ~ hsgp(x, m=12, c=1.5, centered=true)")
+    priors = default_priors(spec)
+
+    assert "ell_Y_x" in priors
+    assert "eta_Y_x" in priors
+    assert "beta_hsgp_Y_x" not in priors
+
+
+def test_centered_hsgp_beta_override_raises_unknown_key():
+    spec = parse_spec("Y ~ hsgp(x, m=12, c=1.5, centered=true)")
+    defaults = default_priors(spec)
+    with pytest.raises(ValueError, match="Unknown prior key"):
+        merge_priors(defaults, {"beta_hsgp_Y_x": Prior("Normal", mu=0, sigma=2)})
+
+
 def test_hsgp_prior_overrides_round_trip():
     spec = parse_spec("Y ~ hsgp(x, m=12, c=1.5)")
     defaults = default_priors(spec)

@@ -517,6 +517,15 @@ def _parse_hsgp_expr(raw: str) -> HSGPCall:
             f"Multi-dimensional hsgp({joined}) is not supported yet "
             "(see follow-up). Use a single input variable."
         )
+    # A keyword-only call (e.g. ``hsgp(m=20, c=1.5)``) leaves ``positional``
+    # empty; the args[0]-non-empty guard above does not catch it, since the
+    # first arg is a kwarg. Reject explicitly so the user gets a ParseError
+    # instead of a raw IndexError from ``positional[0]``.
+    if not positional:
+        raise ParseError(
+            "hsgp(...) requires an input variable as its first argument. "
+            "Example: hsgp(x, m=20, c=1.5)."
+        )
     variable = positional[0]
     if not re.match(r"^[A-Za-z_]\w*$", variable):
         raise ParseError(
@@ -538,7 +547,9 @@ def _parse_hsgp_expr(raw: str) -> HSGPCall:
     try:
         m = int(kwargs["m"])
     except ValueError:
-        raise ParseError(f"hsgp(...) m must be an integer, got '{kwargs['m']}'.")
+        raise ParseError(
+            f"hsgp(...) m must be an integer, got '{kwargs['m']}'."
+        ) from None
     if m < 1:
         raise ParseError(f"hsgp(...) m must be >= 1, got {m}.")
 
@@ -553,12 +564,16 @@ def _parse_hsgp_expr(raw: str) -> HSGPCall:
         try:
             c = float(kwargs["c"])
         except ValueError:
-            raise ParseError(f"hsgp(...) c must be a number, got '{kwargs['c']}'.")
+            raise ParseError(
+                f"hsgp(...) c must be a number, got '{kwargs['c']}'."
+            ) from None
     if has_l:
         try:
             boundary_l = float(kwargs["L"])
         except ValueError:
-            raise ParseError(f"hsgp(...) L must be a number, got '{kwargs['L']}'.")
+            raise ParseError(
+                f"hsgp(...) L must be a number, got '{kwargs['L']}'."
+            ) from None
 
     cov = kwargs.get("cov", "expquad").strip().strip("'\"").lower()
     if cov not in _HSGP_VALID_COV:

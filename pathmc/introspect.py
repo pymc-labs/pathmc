@@ -621,9 +621,14 @@ def build_priors(
                 entries[f"eta_{reg.lhs}_{var}"] = _entry(
                     f"eta_{reg.lhs}_{var}", "HalfNormal(1)"
                 )
-                entries[f"beta_hsgp_{reg.lhs}_{var}"] = _entry(
-                    f"beta_hsgp_{reg.lhs}_{var}", "Normal(0, 1)"
-                )
+                # beta_hsgp is only a tunable prior in the non-centered
+                # parametrization; in centered mode beta uses the data-derived
+                # sqrt_psd scale, so it is intentionally not listed to match
+                # what default_priors registers (tune ell/eta instead).
+                if not term.hsgp.centered:
+                    entries[f"beta_hsgp_{reg.lhs}_{var}"] = _entry(
+                        f"beta_hsgp_{reg.lhs}_{var}", "Normal(0, 1)"
+                    )
 
     if spec.residual_covs:
         import networkx as nx

@@ -74,6 +74,7 @@ def test_centered_true_variant():
         "y ~ b*hsgp(x, m=8, c=1.5)",  # label coefficient prefix
         "y ~ hsgp(x, m=8, c=1.5, cov=rbf)",  # unknown kernel
         "y ~ hsgp(x, m=1.5, c=1.5)",  # non-integer m
+        "y ~ hsgp(m=8, c=1.5)",  # keyword-only, no positional input variable
     ],
 )
 def test_guardrails_raise_parse_error(spec_string):
