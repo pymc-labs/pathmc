@@ -354,6 +354,8 @@ def _format_term(t: Term) -> str:
     elif t.label:
         prefix = f"{t.label}*"
 
+    if t.hsgp is not None:
+        return f"f_hsgp({t.hsgp.variable})"
     if t.transform is not None:
         return f"{prefix}{_format_transform(t.transform)}"
     if t.interaction_of is not None:
@@ -456,6 +458,8 @@ def _format_term_latex(t: Term) -> str:
     else:
         prefix = ""
 
+    if t.hsgp is not None:
+        return rf"f_{{\mathrm{{hsgp}}}}(\mathrm{{{t.hsgp.variable}}})"
     if t.transform is not None:
         return f"{prefix}{_format_transform_latex(t.transform)}"
     if t.interaction_of is not None:
@@ -608,6 +612,17 @@ def build_priors(
             if term.transform is not None:
                 _collect_transform_priors(
                     term.transform, entries, seen_transform_params, prior_config
+                )
+            if term.hsgp is not None:
+                var = term.hsgp.variable
+                entries[f"ell_{reg.lhs}_{var}"] = _entry(
+                    f"ell_{reg.lhs}_{var}", "InverseGamma(3, 1)"
+                )
+                entries[f"eta_{reg.lhs}_{var}"] = _entry(
+                    f"eta_{reg.lhs}_{var}", "HalfNormal(1)"
+                )
+                entries[f"beta_hsgp_{reg.lhs}_{var}"] = _entry(
+                    f"beta_hsgp_{reg.lhs}_{var}", "Normal(0, 1)"
                 )
 
     if spec.residual_covs:
