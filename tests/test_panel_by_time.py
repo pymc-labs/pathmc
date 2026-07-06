@@ -28,7 +28,7 @@ import pytest
 
 import pathmc
 from pathmc.idata import posterior as _posterior
-from pathmc.simulate import DoResult, EstimandResult
+from _draw_fixtures import do_result_from_flat, estimand_result_from_flat
 
 
 def _n_posterior_samples(model) -> int:
@@ -157,7 +157,7 @@ class TestByTimeRaisesOnCrossSectional:
 
     def test_do_result_raises(self):
         rng = np.random.default_rng(0)
-        result = DoResult(
+        result = do_result_from_flat(
             values={"Y": rng.normal(size=100)},
             n_chains=1,
             n_draws=100,
@@ -167,7 +167,7 @@ class TestByTimeRaisesOnCrossSectional:
 
     def test_estimand_result_raises(self):
         rng = np.random.default_rng(0)
-        result = EstimandResult(
+        result = estimand_result_from_flat(
             values={"Y": rng.normal(size=100)},
             outcome="Y",
             treatment="X",
