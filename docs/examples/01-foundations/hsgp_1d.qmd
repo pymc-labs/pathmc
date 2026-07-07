@@ -1,0 +1,98 @@
+---
+title: "Nonparametric Smooths with HSGP"
+author:
+  - name: "PyMC Labs"
+description: "Fit a flexible 1-D nonparametric smooth with the hsgp() term — a Hilbert Space Gaussian Process approximation — and intervene on it with do()."
+tags: [Gaussian Process, HSGP, Nonparametric]
+jupyter: pathmc
+bibliography: ../../../docs/references.bib
+---
+
+Most pathmc terms are linear in their coefficients. Sometimes the relationship
+between a predictor and an outcome is smooth but *not* linear — a dose–response
+curve, a trend over a continuous index, a smooth confounder adjustment. The
+`hsgp()` term adds such a smooth via a **Hilbert Space Gaussian Process**
+approximation [@riutort2023practical], the same scalable construction exposed
+by [Bambi's `hsgp()`](https://bambinos.github.io/bambi/notebooks/hsgp_1d.html).
+
+An HSGP approximates a Gaussian process with a finite basis of Laplacian
+eigenfunctions, so it reduces to a linear model in a fixed basis matrix. That
+makes it fast, differentiable, and — because the basis is a deterministic
+function of the input `pm.Data` — fully compatible with `do()` interventions.
+
+## Simulated data
+
+We draw a smooth signal and add observation noise. The input is deliberately
+*not* centered on zero to exercise the internal centering of the basis.
+
+```{python}
+import numpy as np
+import pandas as pd
+
+import pathmc
+
+rng = np.random.default_rng(0)
+x = np.linspace(10.0, 20.0, 120)
+true = np.sin((x - 10.0) * 0.9)
+y = true + rng.normal(0.0, 0.2, size=x.size)
+df = pd.DataFrame({"x": x, "y": y})
+```
+
+## The model
+
+`hsgp(x, m=..., c=...)` is a standalone term: `m` sets the number of basis
+vectors and `c` the boundary-expansion factor. The smooth carries its own basis
+weights, so it takes no coefficient prefix.
+
+```{python}
+model = pathmc.model("y ~ hsgp(x, m=20, c=1.5)", data=df)
+model.equations()
+```
+
+The default priors expose the kernel amplitude (`eta_y_x`), lengthscale
+(`ell_y_x`), and standardized basis weights (`beta_hsgp_y_x`):
+
+```{python}
+model.priors()
+```
+
+## Fit and recover the smooth
+
+```{python}
+idata = model.fit(random_seed=0)
+f_mean = idata.posterior["f_y_x"].mean(("chain", "draw")).values
+np.corrcoef(f_mean - f_mean.mean(), true - true.mean())[0, 1]
+```
+
+The posterior-mean smooth tracks the true function closely.
+
+```{python}
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(8, 4))
+ax.scatter(x, y, s=12, alpha=0.5, label="observed")
+ax.plot(x, true, "k--", label="true smooth")
+ax.plot(x, f_mean + y.mean() - f_mean.mean(), "C1", lw=2, label="posterior mean")
+ax.set(xlabel="x", ylabel="y")
+ax.legend()
+plt.show()
+```
+
+## Intervening on the smooth
+
+Because the basis recomputes from the input data node, `do()` propagates through
+the smooth. Interventions should stay within the fitted support of `x`: when `c`
+is used the boundary is derived from the fitted data, so a grid wider than the
+training range would extrapolate beyond the basis.
+
+```{python}
+low = model.do(set={"x": 12.0}).mean("y")
+high = model.do(set={"x": 18.0}).mean("y")
+low, high
+```
+
+## Scope
+
+Phase 1 supports a single 1-D input on cross-sectional models. Multi-dimensional
+inputs, grouped (`by=`) GPs, and panel/scan models raise a clear error and are
+tracked as follow-ups.

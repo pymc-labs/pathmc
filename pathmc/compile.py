@@ -45,7 +45,7 @@ import pymc as pm
 
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
-from pathmc.parse import Regression, Spec, Term, TransformCall
+from pathmc.parse import HSGPCall, Regression, Spec, Term, TransformCall
 from pathmc.transforms import get_transform
 
 __all__: list[str] = []
@@ -77,12 +77,21 @@ class PredictorSlot:
     """
 
     name: str
-    coeff_type: Literal["free", "fixed"]
+    coeff_type: Literal["free", "fixed", "hsgp"]
     coeff_value: float | None = None
-    kind: Literal["intercept", "plain", "interaction", "transform", "lag"] = "plain"
+    kind: Literal["intercept", "plain", "interaction", "transform", "lag", "hsgp"] = (
+        "plain"
+    )
     lag_of: str | None = None
     interaction_parts: tuple[str, ...] | None = None
     transform: TransformCall | None = None
+    hsgp: HSGPCall | None = None
+    # NOTE: an ``hsgp`` slot carries its own basis weights and never draws a
+    # scalar coefficient from ``beta``.  Its ``coeff_type`` is the inert
+    # ``"hsgp"`` marker (not ``"free"``) so that any ``coeff_type``-based
+    # counting -- ``build_mu``'s ``free_idx`` and ``_compile_residual_block``'s
+    # ``has_free`` -- automatically excludes it.  Every consumer must
+    # short-circuit ``kind == "hsgp"`` before reading ``coeff_type``.
 
 
 @dataclass
@@ -129,7 +138,11 @@ def get_free_predictor_columns(reg: Regression) -> list[str]:
     cols: list[str] = []
     if reg.has_intercept:
         cols.append("Intercept")
-    cols.extend(t.variable for t in reg.terms if t.fixed_value is None)
+    # HSGP terms carry their own basis weights (not a scalar beta column), so
+    # they are excluded here to keep ``beta`` sized to the plain/free terms.
+    cols.extend(
+        t.variable for t in reg.terms if t.fixed_value is None and t.hsgp is None
+    )
     return cols
 
 
@@ -187,13 +200,27 @@ def build_mu_specs(spec: Spec) -> dict[str, MuSpec]:
             )
 
         for term in reg.terms:
+            # HSGP dispatch takes priority: it carries its own basis weights
+            # and uses the inert ``coeff_type="hsgp"`` marker so free/fixed
+            # coefficient bookkeeping skips it.
+            if term.hsgp is not None:
+                slots.append(
+                    PredictorSlot(
+                        name=term.variable,
+                        coeff_type="hsgp",
+                        kind="hsgp",
+                        hsgp=term.hsgp,
+                    )
+                )
+                continue
+
             coeff_type: Literal["free", "fixed"] = (
                 "fixed" if term.fixed_value is not None else "free"
             )
 
             if term.transform is not None:
                 kind: Literal[
-                    "intercept", "plain", "interaction", "transform", "lag"
+                    "intercept", "plain", "interaction", "transform", "lag", "hsgp"
                 ] = "transform"
             elif term.interaction_of is not None:
                 kind = "interaction"
@@ -364,6 +391,15 @@ def compile_to_pymc(
     _validate_residual_cov_families(spec, families)
     _warn_partial_pooling_intercept(spec, pooling)
 
+    if panel_info is not None and _spec_has_hsgp(spec):
+        raise NotImplementedError(
+            "HSGP terms are not supported in panel models yet (see follow-up). "
+            "Fit the HSGP smooth in a cross-sectional model, or remove the "
+            "hsgp() term."
+        )
+
+    _reject_hsgp_in_residual_blocks(spec)
+
     if panel_info is not None and _has_temporal_deps(spec, graph_info):
         _validate_scan_non_gaussian_intermediaries(spec, families, latent)
         return _compile_scan_panel(
@@ -392,6 +428,11 @@ def compile_to_pymc(
         free_cols = get_free_predictor_columns(reg)
         if free_cols:
             coords[f"{reg.lhs}_predictors"] = free_cols
+        for term in reg.terms:
+            if term.hsgp is not None:
+                coords[f"{reg.lhs}_{term.hsgp.variable}_hsgp"] = list(
+                    range(term.hsgp.m)
+                )
 
     if has_random_intercepts and panel_info is not None:
         coords["unit"] = panel_info.unit_labels
@@ -472,6 +513,8 @@ def compile_to_pymc(
                 transform_map,
                 transform_param_rvs,
                 panel_info,
+                lhs=var,
+                priors=priors,
             )
             mu = build_mu(mu_specs[var], resolver, beta, pt.zeros(len(data)))
 
@@ -536,6 +579,14 @@ def build_mu(
     free_idx = 0
 
     for slot in mu_spec.slots:
+        # HSGP is handled first, before any coefficient bookkeeping: the
+        # resolver returns the full ``phi @ (beta * sqrt_psd)`` smooth, and we
+        # must not advance ``free_idx`` (which is aligned with ``beta``, sized
+        # by ``get_free_predictor_columns`` and excludes HSGP slots).
+        if slot.kind == "hsgp":
+            mu = mu + resolver(slot)
+            continue
+
         if slot.coeff_type == "fixed":
             coef: Any = slot.coeff_value
         else:
@@ -559,12 +610,16 @@ def _make_cross_sectional_resolver(
     transform_map: dict[str, TransformCall],
     transform_param_rvs: dict[str, Any],
     panel_info: PanelInfo | None,
+    lhs: str | None = None,
+    priors: dict[str, Any] | None = None,
 ) -> Callable[[PredictorSlot], Any]:
     """Create a resolver for cross-sectional mu construction.
 
     Resolves tensors through ``pm.Data`` for exogenous inputs and
     upstream free RVs for endogenous inputs, enabling ``pm.do()``
-    propagation.
+    propagation.  ``lhs`` and ``priors`` are required to resolve HSGP
+    slots (which need the equation LHS to name RVs and the prior config
+    for hyperpriors); they may be omitted for HSGP-free equations.
     """
     import pytensor.tensor as pt
 
@@ -576,6 +631,15 @@ def _make_cross_sectional_resolver(
         return pt.as_tensor_variable(data[name].to_numpy().astype(float))
 
     def resolve(slot: PredictorSlot) -> Any:
+        if slot.kind == "hsgp":
+            assert slot.hsgp is not None
+            assert lhs is not None and priors is not None, (
+                "HSGP slot requires lhs and priors in the resolver."
+            )
+            from pathmc.hsgp import assemble_hsgp_term
+
+            x = _resolve_var(slot.name)[:, None]
+            return assemble_hsgp_term(slot.hsgp, x, lhs=lhs, priors=priors)
         if slot.kind == "transform":
             tc = transform_map[slot.name]
             return _apply_transform_chain(
@@ -625,6 +689,12 @@ def _make_scan_resolver(
         return pt.zeros(n_units)
 
     def resolve(slot: PredictorSlot) -> Any:
+        if slot.kind == "hsgp":
+            raise NotImplementedError(
+                "HSGP terms are not supported in panel/scan models yet "
+                "(see follow-up). Use a cross-sectional model or remove the "
+                "hsgp() term."
+            )
         if slot.kind == "transform":
             tc = transform_map[slot.name]
             inp_name = _get_adstock_input(tc)
@@ -817,6 +887,30 @@ def _compile_residual_block(
 
     structure = LKJResidual()
     structure.emit(block_sorted, mu_dict, data_dict, priors)
+
+
+def _spec_has_hsgp(spec: Spec) -> bool:
+    """Return True if any regression term is an HSGP smooth."""
+    return any(term.hsgp is not None for reg in spec.regressions for term in reg.terms)
+
+
+def _reject_hsgp_in_residual_blocks(spec: Spec) -> None:
+    """Raise if an HSGP term sits on a variable in a ``~~`` block.
+
+    The residual-block compiler sizes ``beta`` from ``{var}_predictors``,
+    which excludes HSGP basis weights, so an HSGP term on a block member
+    cannot be wired safely in Phase 1.
+    """
+    block_vars, _ = _identify_residual_blocks(spec)
+    if not block_vars:
+        return
+    for reg in spec.regressions:
+        if reg.lhs in block_vars and any(t.hsgp is not None for t in reg.terms):
+            raise NotImplementedError(
+                f"HSGP terms are not supported on '{reg.lhs}', which participates "
+                "in a ~~ residual-covariance block yet (see follow-up). Model the "
+                "smooth outside the covariance block."
+            )
 
 
 def _identify_residual_blocks(spec: Spec) -> tuple[set[str], list[set[str]]]:

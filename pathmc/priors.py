@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from pymc_extras.prior import Prior
 
-from pathmc.parse import Spec, TransformCall
+from pathmc.parse import HSGPCall, Spec, TransformCall
 
 PriorConfig = dict[str, Prior]
 """Mapping from parameter name to ``Prior`` specification."""
@@ -101,6 +101,8 @@ def default_priors(
                 _collect_transform_defaults(
                     term.transform, priors, seen_transform_params
                 )
+            if term.hsgp is not None:
+                _collect_hsgp_defaults(reg.lhs, term.hsgp, priors)
 
     return priors
 
@@ -189,6 +191,41 @@ def _collect_transform_defaults(
             seen.add(param_name)
             pspec = transform.param_specs[param_key]
             priors[param_name] = _default_prior_for_constraint(pspec.constraint)
+
+
+def _collect_hsgp_defaults(
+    lhs: str,
+    call: HSGPCall,
+    priors: PriorConfig,
+) -> None:
+    """Register default HSGP hyperpriors (ell, eta, beta_hsgp) for one term.
+
+    Keys are the flat, override-able RV names ``ell_{lhs}_{var}`` (lengthscale),
+    ``eta_{lhs}_{var}`` (amplitude), and ``beta_hsgp_{lhs}_{var}`` (standardized
+    basis weights, non-centered).  Deduplicated by RV name.
+
+    ``beta_hsgp`` is registered only in the non-centered parametrization.  In
+    centered mode ``assemble_hsgp_term`` builds ``beta`` directly with the
+    data-derived ``sqrt_psd`` scale and never reads a ``beta_hsgp`` prior, so
+    registering the key would advertise a tunable knob that has no effect and
+    silently swallow user overrides.  Leaving it unregistered means an override
+    on ``beta_hsgp`` in centered mode raises the usual "Unknown prior key"
+    instead of being a silent no-op; tune ``ell``/``eta`` in centered mode.
+    """
+    var = call.variable
+    ell_key = f"ell_{lhs}_{var}"
+    eta_key = f"eta_{lhs}_{var}"
+    beta_key = f"beta_hsgp_{lhs}_{var}"
+    weights_dim = f"{lhs}_{var}_hsgp"
+
+    if ell_key not in priors:
+        # Weakly-informative InverseGamma avoids the ell -> 0 degeneracy via
+        # its thin left tail; LogNormal is a documented alternative.
+        priors[ell_key] = Prior("InverseGamma", alpha=3, beta=1)
+    if eta_key not in priors:
+        priors[eta_key] = Prior("HalfNormal", sigma=1)
+    if not call.centered and beta_key not in priors:
+        priors[beta_key] = Prior("Normal", mu=0, sigma=1, dims=(weights_dim,))
 
 
 def _default_prior_for_constraint(constraint: str) -> Prior:

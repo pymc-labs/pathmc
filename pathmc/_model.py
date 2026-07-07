@@ -1729,6 +1729,12 @@ def simulate(
             "Use numpy-based simulation for models with correlated residuals."
         )
 
+    if any(t.hsgp is not None for reg in spec.regressions for t in reg.terms):
+        raise NotImplementedError(
+            "simulate() does not yet support hsgp() terms. Build the model with "
+            "model(), fit(), and use .do() for interventional draws instead."
+        )
+
     graph_info = build_graph(spec, latent=latent_set)
 
     nw_data = nw.from_native(data, eager_only=True)

@@ -45,6 +45,41 @@ class TransformCall:
 
 
 @dataclass
+class HSGPCall:
+    """Parsed ``hsgp(...)`` term (Phase 1: a single 1-D input).
+
+    A Hilbert Space Gaussian Process approximation, exposed as a DSL term
+    ``hsgp(x, m=..., c=...)`` analogous to Bambi's ``hsgp()``.  Unlike a
+    :class:`TransformCall`, the keyword values are compile-time *literals*
+    (``m=20``, ``c=1.5``), not random-variable names.
+
+    Parameters
+    ----------
+    variable : str
+        Name of the input column the smooth is a function of.
+    m : int
+        Number of Laplacian eigenfunction basis vectors. Compile-time literal.
+    c : float | None
+        Boundary-condition expansion factor. Exactly one of ``c`` or ``L``.
+    L : float | None
+        Explicit boundary as a user-facing scalar. Exactly one of ``c`` or
+        ``L``.  The compiler wraps it into the one-element sequence ``[L]``
+        that ``pm.gp.HSGP`` requires.
+    cov : str
+        Covariance kernel: ``"expquad"``, ``"matern52"``, or ``"matern32"``.
+    centered : bool
+        If ``True`` use the centered parametrization; otherwise non-centered.
+    """
+
+    variable: str
+    m: int
+    c: float | None = None
+    L: float | None = None
+    cov: str = "expquad"
+    centered: bool = False
+
+
+@dataclass
 class Term:
     """A single predictor term in a regression equation.
 
@@ -59,6 +94,7 @@ class Term:
     lag_of: str | None = None
     interaction_of: tuple[str, ...] | None = None
     fixed_value: float | None = None
+    hsgp: HSGPCall | None = None
 
 
 @dataclass
@@ -228,6 +264,15 @@ def _parse_regression(stmt: str) -> Regression:
             "Add at least one predictor variable."
         )
 
+    hsgp_vars = [t.hsgp.variable for t in terms if t.hsgp is not None]
+    duplicates = sorted({v for v in hsgp_vars if hsgp_vars.count(v) > 1})
+    if duplicates:
+        raise ParseError(
+            f"Two hsgp() terms on the same variable {duplicates} in equation "
+            f"'{lhs}' would collide. Use a single hsgp() per variable per "
+            "equation (multiple smooths of one variable are a follow-up)."
+        )
+
     return Regression(lhs=lhs, terms=terms, has_intercept=has_intercept)
 
 
@@ -255,6 +300,16 @@ def _parse_term(raw: str) -> Term:
                 label = label_str
 
     if "(" in raw:
+        func_name = raw[: raw.index("(")].strip()
+        if func_name == "hsgp":
+            if label is not None or fixed_value is not None:
+                raise ParseError(
+                    "hsgp(...) cannot take a coefficient prefix; the smooth "
+                    "carries its own basis weights. Remove the 'k*' or "
+                    "'label*' prefix."
+                )
+            call = _parse_hsgp_expr(raw)
+            return Term(variable=call.variable, hsgp=call)
         transform = _parse_transform_expr(raw)
         if transform.name == "lag":
             term = _make_lag_term(transform, raw, label)
@@ -369,6 +424,11 @@ def _parse_transform_expr(raw: str) -> TransformCall:
         )
 
     if "(" in input_raw:
+        if input_raw[: input_raw.index("(")].strip() == "hsgp":
+            raise ParseError(
+                "hsgp(...) cannot be nested inside a transform. "
+                "Apply hsgp() directly to a variable."
+            )
         input_expr: str | TransformCall = _parse_transform_expr(input_raw)
     else:
         input_expr = input_raw
@@ -393,6 +453,148 @@ def _parse_transform_expr(raw: str) -> TransformCall:
         params[key] = val
 
     return TransformCall(name=name, input_expr=input_expr, params=params)
+
+
+_HSGP_ALLOWED_KWARGS = frozenset({"m", "c", "L", "cov", "centered"})
+_HSGP_VALID_COV = frozenset({"expquad", "matern52", "matern32"})
+
+
+def _parse_hsgp_expr(raw: str) -> HSGPCall:
+    """Parse ``hsgp(x, m=..., c=..., cov=..., centered=...)`` into an HSGPCall.
+
+    Unlike transform parsing, keyword values are parsed as literals
+    (int / float / bool / bare string), not as random-variable names.
+
+    Raises
+    ------
+    ParseError
+        If ``m`` is missing, both/neither of ``c``/``L`` are given, an
+        unknown keyword is used, more than one positional input is given,
+        or a value cannot be coerced to its expected literal type.
+    """
+    raw = raw.strip()
+    paren_open = raw.index("(")
+    if raw[-1] != ")":
+        raise ParseError(
+            f"Malformed hsgp() term or combined with another operator: '{raw}'. "
+            "Use hsgp() as a standalone term applied directly to one variable, "
+            "e.g. 'y ~ hsgp(x, m=20, c=1.5)'."
+        )
+
+    inner = raw[paren_open + 1 : -1].strip()
+    args = _split_top_level_args(inner)
+    if not args or not args[0].strip():
+        raise ParseError(
+            "hsgp(...) requires an input variable as its first argument. "
+            "Example: hsgp(x, m=20, c=1.5)."
+        )
+
+    positional: list[str] = []
+    kwargs: dict[str, str] = {}
+    for arg in args:
+        key_part = arg.split("=", 1)[0]
+        is_kwarg = "=" in arg and "(" not in key_part
+        if is_kwarg:
+            key, _, val = arg.partition("=")
+            key = key.strip()
+            val = val.strip()
+            if not key or not val:
+                raise ParseError(f"Malformed keyword argument in hsgp(...): '{arg}'.")
+            if key in kwargs:
+                raise ParseError(f"Duplicate keyword '{key}' in hsgp(...).")
+            kwargs[key] = val
+        else:
+            if kwargs:
+                raise ParseError(
+                    f"Positional argument '{arg.strip()}' after a keyword "
+                    f"argument in hsgp(...): '{raw}'."
+                )
+            positional.append(arg.strip())
+
+    if len(positional) > 1:
+        joined = ", ".join(positional)
+        raise ParseError(
+            f"Multi-dimensional hsgp({joined}) is not supported yet "
+            "(see follow-up). Use a single input variable."
+        )
+    # A keyword-only call (e.g. ``hsgp(m=20, c=1.5)``) leaves ``positional``
+    # empty; the args[0]-non-empty guard above does not catch it, since the
+    # first arg is a kwarg. Reject explicitly so the user gets a ParseError
+    # instead of a raw IndexError from ``positional[0]``.
+    if not positional:
+        raise ParseError(
+            "hsgp(...) requires an input variable as its first argument. "
+            "Example: hsgp(x, m=20, c=1.5)."
+        )
+    variable = positional[0]
+    if not re.match(r"^[A-Za-z_]\w*$", variable):
+        raise ParseError(
+            f"hsgp(...) input must be a plain variable name, got '{variable}'."
+        )
+
+    unknown = sorted(set(kwargs) - _HSGP_ALLOWED_KWARGS)
+    if unknown:
+        raise ParseError(
+            f"hsgp(...) does not support {unknown} in Phase 1. "
+            "Supported: m, c, L, cov, centered."
+        )
+
+    if "m" not in kwargs:
+        raise ParseError(
+            "hsgp(...) requires m=<int> (number of basis vectors). "
+            "Example: hsgp(x, m=20, c=1.5)."
+        )
+    try:
+        m = int(kwargs["m"])
+    except ValueError:
+        raise ParseError(
+            f"hsgp(...) m must be an integer, got '{kwargs['m']}'."
+        ) from None
+    if m < 1:
+        raise ParseError(f"hsgp(...) m must be >= 1, got {m}.")
+
+    has_c = "c" in kwargs
+    has_l = "L" in kwargs
+    if has_c == has_l:
+        raise ParseError("hsgp(...) needs exactly one of c=<float> or L=<float>.")
+
+    c: float | None = None
+    boundary_l: float | None = None
+    if has_c:
+        try:
+            c = float(kwargs["c"])
+        except ValueError:
+            raise ParseError(
+                f"hsgp(...) c must be a number, got '{kwargs['c']}'."
+            ) from None
+    if has_l:
+        try:
+            boundary_l = float(kwargs["L"])
+        except ValueError:
+            raise ParseError(
+                f"hsgp(...) L must be a number, got '{kwargs['L']}'."
+            ) from None
+
+    cov = kwargs.get("cov", "expquad").strip().strip("'\"").lower()
+    if cov not in _HSGP_VALID_COV:
+        raise ParseError(
+            f"hsgp(...) cov must be one of {sorted(_HSGP_VALID_COV)}, got '{cov}'."
+        )
+
+    centered_raw = kwargs.get("centered", "false").strip().strip("'\"").lower()
+    if centered_raw not in ("true", "false"):
+        raise ParseError(
+            f"hsgp(...) centered must be true or false, got '{kwargs['centered']}'."
+        )
+
+    return HSGPCall(
+        variable=variable,
+        m=m,
+        c=c,
+        L=boundary_l,
+        cov=cov,
+        centered=centered_raw == "true",
+    )
 
 
 def _split_top_level_args(s: str) -> list[str]:
