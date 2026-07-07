@@ -22,6 +22,8 @@ import pathmc
 
 def test_top_level_public_api_is_explicit() -> None:
     assert pathmc.__all__ == [
+        "TBFPC",
+        "BuildModelFromDAG",
         "DoResult",
         "EffectResult",
         "EstimandResult",
@@ -32,10 +34,13 @@ def test_top_level_public_api_is_explicit() -> None:
         "PlaceboRefutationResult",
         "Prior",
         "SensitivityResult",
+        "TestResult",
         "Transform",
         "__version__",
+        "dag_to_spec",
         "model",
         "register_transform",
+        "same_markov_equivalence_class",
         "simulate",
     ]
 
@@ -43,6 +48,9 @@ def test_top_level_public_api_is_explicit() -> None:
 def test_public_submodule_exports_are_intentional() -> None:
     expected = {
         "pathmc.compile": [],
+        "pathmc.cpdag": ["same_markov_equivalence_class"],
+        "pathmc.dag": ["BuildModelFromDAG", "dag_to_spec"],
+        "pathmc.discovery": ["TBFPC", "TestResult"],
         "pathmc.effects": ["EffectResult"],
         "pathmc.exceptions": ["CycleError", "DuplicateEquationError", "ParseError"],
         "pathmc.falsify": ["FalsificationResult", "falsify_graph"],
