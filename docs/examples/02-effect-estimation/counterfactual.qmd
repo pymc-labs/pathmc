@@ -276,6 +276,12 @@ print(f"  94% HDI:         {cf_result.hdi('Y', prob=0.94)}")
 
 The API returns a `DoResult` with the same `.mean()`, `.hdi()`, and contrast interface as `model.do()`.
 
+::: {.callout-note}
+This release supports fully observed, cross-sectional Gaussian linear SEMs. Panel models, latent variables, non-Gaussian families, and transform or lag terms are not yet supported.
+:::
+
+Counterfactual contrasts are valid only between counterfactuals computed from identical evidence; do not contrast a counterfactual with a population-level `do()` result.
+
 ::: {.callout-warning}
 ## This is not `pm.observe` + `pm.do`
 

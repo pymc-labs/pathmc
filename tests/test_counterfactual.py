@@ -154,6 +154,16 @@ class TestCounterfactual:
         )
         assert abs(result.mean("Y") - JOE_Y) < 1e-10
 
+    def test_same_evidence_counterfactual_contrast(self, encouragement_model):
+        evidence = {"X": JOE_X, "H": JOE_H, "Y": JOE_Y}
+        counterfactual = encouragement_model.counterfactual(
+            evidence=evidence,
+            do={"H": H_NEW},
+        )
+        factual = encouragement_model.counterfactual(evidence=evidence, do={"H": JOE_H})
+        contrast = counterfactual - factual
+        assert abs(contrast.mean("Y") - TRUE_C) < 1e-10
+
     def test_warns_on_extrapolation(self, encouragement_model):
         with pytest.warns(UserWarning, match="outside the observed data range"):
             encouragement_model.counterfactual(
@@ -192,6 +202,34 @@ class TestCounterfactual:
         model.fit(draws=20, tune=20, chains=2, random_seed=0)
         with pytest.raises(ValueError, match="Gaussian"):
             model.counterfactual(evidence={"X": 0.5, "Y": 1.0}, do={"Y": 0.0})
+
+    def test_transform_model_raises(self, mock_pymc_sample_module):
+        rng = np.random.default_rng(0)
+        X = rng.uniform(0, 1, size=100)
+        Y = X + rng.normal(size=100)
+        model = pathmc.model(
+            "Y ~ adstock(X, decay=theta)",
+            data=pd.DataFrame({"X": X, "Y": Y}),
+        )
+        model.fit(draws=20, tune=20, chains=2, random_seed=0)
+        with pytest.raises(NotImplementedError, match="transform"):
+            model.counterfactual(evidence={"X": 0.5, "Y": 1.0}, do={"X": 0.5})
+
+    def test_lagged_panel_model_raises(self, mock_pymc_sample_module):
+        data = pd.DataFrame({
+            "region": ["A", "A", "B", "B"],
+            "week": [1, 2, 1, 2],
+            "X": [0.5, 1.0, 0.5, 1.0],
+            "Y": [1.0, 1.5, 1.0, 1.5],
+        })
+        model = pathmc.model(
+            "Y ~ lag(X)",
+            data=data,
+            panel={"unit": "region", "time": "week"},
+        )
+        model.fit(draws=20, tune=20, chains=2, random_seed=0)
+        with pytest.raises(NotImplementedError, match="panel models"):
+            model.counterfactual(evidence={"X": 0.5, "Y": 1.0}, do={"X": 0.0})
 
     def test_interaction_uses_factual_and_counterfactual_values(
         self, mock_pymc_sample_module
