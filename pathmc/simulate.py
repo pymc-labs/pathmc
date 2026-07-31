@@ -89,61 +89,93 @@ def _stack_sample_time(da: xr.DataArray) -> np.ndarray:
     return stacked.transpose("time", "sample").values
 
 
-def _chain_draw_coords(n_chains: int, n_draws: int) -> dict[str, np.ndarray]:
-    """Integer ``chain`` / ``draw`` coordinate labels."""
-    return {"chain": np.arange(n_chains), "draw": np.arange(n_draws)}
+def _obs_dims(da: xr.DataArray) -> list[str]:
+    """Observation dims of a PyMC output: everything except chain / draw."""
+    return [str(d) for d in da.dims if d not in ("chain", "draw")]
 
 
-def _da_chain_draw(
-    arr: np.ndarray,
-    n_chains: int,
-    n_draws: int,
+def _chain_draw_ones(post: xr.Dataset) -> xr.DataArray:
+    """A ``(chain, draw)`` array of ones carrying the posterior's coords.
+
+    Multiplying by a value yields a labelled constant aligned with the
+    propagated draws, so interventions and exogenous fills slot into the
+    output Dataset without any manual coordinate bookkeeping.
+    """
+    return xr.ones_like(post["chain"] * post["draw"], dtype=float)
+
+
+def _spread_over_time(
+    ones: xr.DataArray, value: float | np.ndarray, time_index: np.ndarray
 ) -> xr.DataArray:
-    """Wrap a ``(chain, draw)`` array with labelled coords."""
-    arr = np.asarray(arr).reshape(n_chains, n_draws)
-    return xr.DataArray(
-        arr,
-        dims=("chain", "draw"),
-        coords=_chain_draw_coords(n_chains, n_draws),
+    """Broadcast a scalar or per-time intervention to ``(time, chain, draw)``."""
+    per_time = xr.DataArray(
+        np.broadcast_to(value, len(time_index)),
+        dims="time",
+        coords={"time": np.asarray(time_index)},
+    )
+    return (ones * per_time).transpose("time", "chain", "draw")
+
+
+def _panel_unit_mean(da: xr.DataArray, time_index: np.ndarray) -> xr.DataArray:
+    """Average over units, returning labelled ``(time, chain, draw)`` draws.
+
+    Scan-compiled panel outputs carry ``(time, unit)`` observation dims in
+    that order; units are averaged within each draw, leaving per-time draws.
+    """
+    time_dim, *unit_dims = _obs_dims(da)
+    if unit_dims:
+        da = da.mean(unit_dims)
+    if time_dim != "time":
+        da = da.rename({time_dim: "time"})
+    return da.transpose("time", "chain", "draw").assign_coords(
+        time=np.asarray(time_index)
     )
 
 
-def _da_chain_draw_unit(
-    arr: np.ndarray,
-    n_chains: int,
-    n_draws: int,
-) -> xr.DataArray:
-    """Wrap a ``(chain, draw, unit)`` array with labelled coords."""
-    arr = np.asarray(arr)
-    n_units = arr.shape[-1]
-    arr = arr.reshape(n_chains, n_draws, n_units)
-    return xr.DataArray(
-        arr,
-        dims=("chain", "draw", "unit"),
-        coords={
-            **_chain_draw_coords(n_chains, n_draws),
-            "unit": np.arange(n_units),
-        },
-    )
+def _fill_missing_posterior_rvs(
+    posterior_ds: xr.Dataset,
+    do_model: pm.Model,
+    n_obs: int,
+) -> xr.Dataset:
+    """Add zero-filled dummy RVs missing from the posterior Dataset."""
+    missing = [rv.name for rv in do_model.free_RVs if rv.name not in posterior_ds]
+    if not missing:
+        return posterior_ds
+    n_chains = posterior_ds.sizes["chain"]
+    n_draws = posterior_ds.sizes["draw"]
+    fill_vars: dict[str, xr.DataArray] = {}
+    for name in missing:
+        rv = do_model[name]
+        var_shape = tuple(s for s in rv.type.shape if s is not None) or (n_obs,)
+        dummy = np.zeros((n_chains, n_draws, *var_shape), dtype=rv.dtype)
+        dims = ["chain", "draw"] + [f"{name}_dim_{i}" for i in range(len(var_shape))]
+        fill_vars[name] = xr.DataArray(dummy, dims=dims)
+    return posterior_ds.assign(fill_vars)
 
 
-def _da_time_chain_draw(
-    arr: np.ndarray,
-    n_times: int,
-    n_chains: int,
-    n_draws: int,
-    time_index: np.ndarray,
-) -> xr.DataArray:
-    """Wrap a ``(time, chain, draw)`` array with labelled coords."""
-    arr = np.asarray(arr).reshape(n_times, n_chains, n_draws)
-    return xr.DataArray(
-        arr,
-        dims=("time", "chain", "draw"),
-        coords={
-            "time": np.asarray(time_index),
-            **_chain_draw_coords(n_chains, n_draws),
-        },
-    )
+def _predictive_source(
+    ppc: Any,
+    extra_det: xr.Dataset | None,
+    var: str,
+) -> xr.DataArray | None:
+    """Return labelled predictive draws for *var*, if present."""
+    if var in ppc.posterior_predictive:
+        return ppc.posterior_predictive[var]
+    if f"mu_{var}" in ppc.posterior_predictive:
+        return ppc.posterior_predictive[f"mu_{var}"]
+    if extra_det is not None and f"mu_{var}" in extra_det:
+        return extra_det[f"mu_{var}"]
+    return None
+
+
+def _sample_count(da: xr.DataArray) -> int:
+    """Posterior sample count matching :func:`_stack_sample` flattening."""
+    if "time" in da.dims:
+        da = da.mean(dim="time")
+    n = da.sizes["chain"] * da.sizes["draw"]
+    if "unit" in da.dims:
+        n *= da.sizes["unit"]
+    return n
 
 
 def _has_by_time(ds: xr.Dataset) -> bool:
@@ -290,7 +322,7 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         if not self._ds.data_vars:
             return "DoResult(empty)"
         vars_list = [str(v) for v in self._ds.data_vars]
-        n_samples = len(self._draw(vars_list[0]))
+        n_samples = _sample_count(self._ds[vars_list[0]])
         n_vars = len(vars_list)
         return f"DoResult({n_samples} draws, {n_vars} variables)"
 
@@ -298,7 +330,7 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         if not self._ds.data_vars:
             return ReprSpec(title="DoResult (empty)", rows=[])
         vars_list = [str(v) for v in self._ds.data_vars]
-        n_samples = len(self._draw(vars_list[0]))
+        n_samples = _sample_count(self._ds[vars_list[0]])
         n_vars = len(vars_list)
         rows = []
         for var in vars_list:
@@ -536,7 +568,7 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
         mean = float(np.mean(draws))
         lo, hi = compute_hdi(draws)
         p_gt_0 = float(np.mean(draws > 0))
-        n_samples = len(draws)
+        n_samples = _sample_count(self._ds[self._default_var])
         label = hdi_label()
         return ReprSpec(
             title=f"{self._estimand} of {self._treatment} on {self._default_var}",
@@ -551,15 +583,17 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
 
 
 def _apply_inverse_link(mu_vals: Any, family: str) -> Any:
-    """Map linear-predictor values back to the response scale."""
+    """Map linear-predictor values back to the response scale.
+
+    Accepts either an :class:`xarray.DataArray` (the ``kind="mean"`` draw
+    pipeline) or a PyTensor expression (graph rewriting); ``exp`` / ``expit``
+    dispatch on the input type so both stay symbolic-or-labelled end to end.
+    """
+    exp = np.exp if isinstance(mu_vals, xr.DataArray) else pt.exp
     if family == "bernoulli":
-        if isinstance(mu_vals, np.ndarray):
-            return 1.0 / (1.0 + np.exp(-mu_vals))
-        return 1.0 / (1.0 + pt.exp(-mu_vals))
+        return 1.0 / (1.0 + exp(-mu_vals))
     if family in ("poisson", "negbinomial"):
-        if isinstance(mu_vals, np.ndarray):
-            return np.exp(mu_vals)
-        return pt.exp(mu_vals)
+        return exp(mu_vals)
     return mu_vals
 
 
@@ -607,6 +641,18 @@ def _exogenous_fill(values: np.ndarray) -> float:
     if arr.size == 0 or np.all(np.isnan(arr)):
         return float("nan")
     return float(np.nanmean(arr))
+
+
+def _exog_value(
+    var: str, data: nw.DataFrame, subgroup_indices: np.ndarray | None
+) -> float:
+    """Empirical fill for an exogenous variable, restricted to a subgroup."""
+    if var not in data.columns:
+        return 0.0
+    col = data[var].to_numpy()
+    if subgroup_indices is not None:
+        col = col[subgroup_indices]
+    return _exogenous_fill(col)
 
 
 def run_do_pymc(
@@ -721,22 +767,7 @@ def run_do_pymc(
                         expr_replacements[do_model[mu_name]] = response_expr
 
         posterior_ds = posterior(idata)
-        missing_rv_names = [
-            rv.name for rv in do_model.free_RVs if rv.name not in posterior_ds
-        ]
-        if missing_rv_names:
-            n_chains = posterior_ds.sizes["chain"]
-            n_draws = posterior_ds.sizes["draw"]
-            dummy_vars: dict[str, xr.DataArray] = {}
-            for name in missing_rv_names:
-                rv = do_model[name]
-                var_shape = tuple(s for s in rv.type.shape if s is not None) or (N,)
-                dummy = np.zeros((n_chains, n_draws, *var_shape), dtype=rv.dtype)
-                dims = ["chain", "draw"] + [
-                    f"{name}_dim_{i}" for i in range(len(var_shape))
-                ]
-                dummy_vars[name] = xr.DataArray(dummy, dims=dims)
-            posterior_ds = posterior_ds.assign(dummy_vars)
+        posterior_ds = _fill_missing_posterior_rvs(posterior_ds, do_model, N)
 
         det = pm.compute_deterministics(
             posterior_ds,
@@ -745,36 +776,21 @@ def run_do_pymc(
             progressbar=False,
         )
 
-        post = posterior(idata)
-        n_chains = post.sizes["chain"]
-        n_draws = post.sizes["draw"]
+        ones = _chain_draw_ones(posterior(idata))
         data_vars: dict[str, xr.DataArray] = {}
         for var in graph_info.topological_order:
             if var in set:
-                data_vars[var] = _da_chain_draw(
-                    np.full((n_chains, n_draws), set[var]), n_chains, n_draws
-                )
+                data_vars[var] = ones * float(np.mean(set[var]))
             elif var in graph_info.exogenous:
-                if var in data.columns:
-                    col = data[var].to_numpy()
-                    if subgroup_indices is not None:
-                        col = col[subgroup_indices]
-                    fill = _exogenous_fill(col)
-                else:
-                    fill = 0.0
-                data_vars[var] = _da_chain_draw(
-                    np.full((n_chains, n_draws), fill), n_chains, n_draws
-                )
+                data_vars[var] = ones * _exog_value(var, data, subgroup_indices)
             else:
-                mu_raw = det[mean_det_names[var]].to_numpy()
-                if subgroup_indices is not None and mu_raw.ndim >= 3:
-                    mu_raw = mu_raw[:, :, subgroup_indices]
-                # Map to the response scale per unit, then average over units
-                # within each posterior draw (g-computation standardization).
-                resp = _apply_inverse_link(mu_raw, families.get(var, ""))
-                if resp.ndim >= 3:
-                    resp = resp.mean(axis=-1)
-                data_vars[var] = _da_chain_draw(resp, n_chains, n_draws)
+                mu = _apply_inverse_link(
+                    det[mean_det_names[var]], families.get(var, "")
+                )
+                if subgroup_indices is not None:
+                    mu = mu.isel({_obs_dims(mu)[0]: subgroup_indices})
+                # Average over observation rows: g-computation standardization.
+                data_vars[var] = mu.mean(_obs_dims(mu))
 
         return DoResult(ds=xr.Dataset(data_vars))
 
@@ -792,23 +808,7 @@ def run_do_pymc(
         if var not in set and (var in latent or var in block_vars)
     ]
     if extra_det_names:
-        posterior_ds = posterior(idata)
-        missing_rv_names = [
-            rv.name for rv in do_model.free_RVs if rv.name not in posterior_ds
-        ]
-        if missing_rv_names:
-            n_chains = posterior_ds.sizes["chain"]
-            n_draws = posterior_ds.sizes["draw"]
-            fill_vars: dict[str, xr.DataArray] = {}
-            for name in missing_rv_names:
-                rv = do_model[name]
-                var_shape = tuple(s for s in rv.type.shape if s is not None) or (N,)
-                dummy = np.zeros((n_chains, n_draws, *var_shape), dtype=rv.dtype)
-                dims = ["chain", "draw"] + [
-                    f"{name}_dim_{i}" for i in range(len(var_shape))
-                ]
-                fill_vars[name] = xr.DataArray(dummy, dims=dims)
-            posterior_ds = posterior_ds.assign(fill_vars)
+        posterior_ds = _fill_missing_posterior_rvs(posterior(idata), do_model, N)
 
         extra_det = pm.compute_deterministics(
             posterior_ds,
@@ -819,50 +819,20 @@ def run_do_pymc(
     else:
         extra_det = None
 
-    post = posterior(idata)
-    n_chains = post.sizes["chain"]
-    n_draws = post.sizes["draw"]
+    ones = _chain_draw_ones(posterior(idata))
     predictive_vars: dict[str, xr.DataArray] = {}
     for var in graph_info.topological_order:
         if var in set:
-            predictive_vars[var] = _da_chain_draw(
-                np.full((n_chains, n_draws), set[var]), n_chains, n_draws
-            )
+            predictive_vars[var] = ones * float(np.mean(set[var]))
         elif var in graph_info.exogenous:
-            if var in data.columns:
-                col = data[var].to_numpy()
-                if subgroup_indices is not None:
-                    col = col[subgroup_indices]
-                fill = _exogenous_fill(col)
-            else:
-                fill = 0.0
-            predictive_vars[var] = _da_chain_draw(
-                np.full((n_chains, n_draws), fill), n_chains, n_draws
-            )
-        elif var in ppc.posterior_predictive:
-            raw = ppc.posterior_predictive[var].to_numpy()
-            if subgroup_indices is not None and raw.ndim >= 3:
-                raw = raw[:, :, subgroup_indices]
-            if raw.ndim >= 3:
-                predictive_vars[var] = _da_chain_draw_unit(raw, n_chains, n_draws)
-            else:
-                predictive_vars[var] = _da_chain_draw(raw, n_chains, n_draws)
-        elif f"mu_{var}" in ppc.posterior_predictive:
-            raw = ppc.posterior_predictive[f"mu_{var}"].to_numpy()
-            if subgroup_indices is not None and raw.ndim >= 3:
-                raw = raw[:, :, subgroup_indices]
-            if raw.ndim >= 3:
-                predictive_vars[var] = _da_chain_draw_unit(raw, n_chains, n_draws)
-            else:
-                predictive_vars[var] = _da_chain_draw(raw, n_chains, n_draws)
-        elif extra_det is not None and f"mu_{var}" in extra_det:
-            raw = extra_det[f"mu_{var}"].to_numpy()
-            if subgroup_indices is not None and raw.ndim >= 3:
-                raw = raw[:, :, subgroup_indices]
-            if raw.ndim >= 3:
-                predictive_vars[var] = _da_chain_draw_unit(raw, n_chains, n_draws)
-            else:
-                predictive_vars[var] = _da_chain_draw(raw, n_chains, n_draws)
+            predictive_vars[var] = ones * _exog_value(var, data, subgroup_indices)
+        elif (src := _predictive_source(ppc, extra_det, var)) is not None:
+            if subgroup_indices is not None:
+                src = src.isel({_obs_dims(src)[0]: subgroup_indices})
+            # Each row is its own draw: keep them on a ``unit`` axis that
+            # ``draws()`` later flattens into the sample dimension.
+            obs = _obs_dims(src)
+            predictive_vars[var] = src.rename({obs[0]: "unit"}) if obs else src
 
     return DoResult(ds=xr.Dataset(predictive_vars))
 
@@ -892,7 +862,7 @@ def run_do_panel_unified(
     idata : xarray.DataTree
         Posterior samples.
     panel_info : PanelInfo
-        Panel metadata.
+        Panel metadata (reserved for future time-label wiring).
     scan_info : PanelScanInfo
         Scan compilation metadata (sort indices, dimensions).
     set : dict[str, float | np.ndarray] | None
@@ -907,6 +877,7 @@ def run_do_panel_unified(
         set = {}
     if families is None:
         families = {}
+    del panel_info  # reserved for future time-label wiring from panel metadata
 
     n_times = scan_info.n_times
     n_units = scan_info.n_units
@@ -946,9 +917,7 @@ def run_do_panel_unified(
             progressbar=False,
         )
 
-        post = posterior(idata)
-        n_chains = post.sizes["chain"]
-        n_draws = post.sizes["draw"]
+        ones = _chain_draw_ones(posterior(idata))
         time_idx = (
             np.array(scan_info.time_values)
             if scan_info.time_values
@@ -958,34 +927,12 @@ def run_do_panel_unified(
 
         for var in graph_info.topological_order:
             if var in set:
-                val = set[var]
-                if isinstance(val, np.ndarray):
-                    by_time = np.broadcast_to(
-                        val[:, None], (n_times, n_chains * n_draws)
-                    )
-                    data_vars[var] = _da_time_chain_draw(
-                        by_time, n_times, n_chains, n_draws, time_idx
-                    )
-                else:
-                    data_vars[var] = _da_time_chain_draw(
-                        np.full((n_times, n_chains, n_draws), val),
-                        n_times,
-                        n_chains,
-                        n_draws,
-                        time_idx,
-                    )
+                data_vars[var] = _spread_over_time(ones, set[var], time_idx)
             elif var in graph_info.exogenous:
-                data_vars[var] = _da_chain_draw(
-                    np.zeros((n_chains, n_draws)), n_chains, n_draws
-                )
+                data_vars[var] = ones * 0.0
             elif var in graph_info.endogenous:
                 det_key = var if var in stochastic_latent else f"mu_{var}"
-                mu_raw = det[det_key].to_numpy()
-                mu_4d = mu_raw.reshape(n_chains, n_draws, n_times, n_units)
-                by_time_3d = mu_4d.mean(axis=3).transpose(2, 0, 1)
-                data_vars[var] = _da_time_chain_draw(
-                    by_time_3d, n_times, n_chains, n_draws, time_idx
-                )
+                data_vars[var] = _panel_unit_mean(det[det_key], time_idx)
 
         return DoResult(ds=xr.Dataset(data_vars))
 
@@ -1015,9 +962,7 @@ def run_do_panel_unified(
     else:
         latent_det = None
 
-    post = posterior(idata)
-    n_chains = post.sizes["chain"]
-    n_draws = post.sizes["draw"]
+    ones = _chain_draw_ones(posterior(idata))
     time_idx = (
         np.array(scan_info.time_values) if scan_info.time_values else np.arange(n_times)
     )
@@ -1025,40 +970,16 @@ def run_do_panel_unified(
 
     for var in graph_info.topological_order:
         if var in set:
-            val = set[var]
-            scalar = float(np.mean(val)) if isinstance(val, np.ndarray) else val
-            if isinstance(val, np.ndarray):
-                by_time = np.broadcast_to(val[:, None], (n_times, n_chains * n_draws))
-                predictive_vars[var] = _da_time_chain_draw(
-                    by_time, n_times, n_chains, n_draws, time_idx
-                )
-            else:
-                predictive_vars[var] = _da_time_chain_draw(
-                    np.full((n_times, n_chains, n_draws), scalar),
-                    n_times,
-                    n_chains,
-                    n_draws,
-                    time_idx,
-                )
+            predictive_vars[var] = _spread_over_time(ones, set[var], time_idx)
         elif var in graph_info.exogenous:
-            predictive_vars[var] = _da_chain_draw(
-                np.zeros((n_chains, n_draws)), n_chains, n_draws
-            )
+            predictive_vars[var] = ones * 0.0
         elif var in ppc.posterior_predictive:
-            raw = ppc.posterior_predictive[var].to_numpy()
-            flat = raw.reshape(n_chains, n_draws, n_times, n_units)
-            by_time_3d = flat.mean(axis=3).transpose(2, 0, 1)
-            predictive_vars[var] = _da_time_chain_draw(
-                by_time_3d, n_times, n_chains, n_draws, time_idx
+            predictive_vars[var] = _panel_unit_mean(
+                ppc.posterior_predictive[var], time_idx
             )
         elif latent_det is not None:
             det_key = var if var in stochastic_latent else f"mu_{var}"
             if det_key in latent_det:
-                mu_raw = latent_det[det_key].to_numpy()
-                mu_4d = mu_raw.reshape(n_chains, n_draws, n_times, n_units)
-                by_time_3d = mu_4d.mean(axis=3).transpose(2, 0, 1)
-                predictive_vars[var] = _da_time_chain_draw(
-                    by_time_3d, n_times, n_chains, n_draws, time_idx
-                )
+                predictive_vars[var] = _panel_unit_mean(latent_det[det_key], time_idx)
 
     return DoResult(ds=xr.Dataset(predictive_vars))
