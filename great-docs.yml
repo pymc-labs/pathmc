@@ -93,6 +93,13 @@ reference:
     desc: Whole-graph validation via a permutation-based test.
     contents:
       - falsify.falsify_graph
+  - title: Causal discovery
+    desc: Learn candidate structure from data and turn a DAG into a model.
+    contents:
+      - discovery.TBFPC
+      - cpdag.same_markov_equivalence_class
+      - dag.dag_to_spec
+      - dag.BuildModelFromDAG
   - title: Custom transforms
     desc: Extend the model DSL with domain-specific transformations.
     contents:
@@ -109,6 +116,7 @@ reference:
       - sensitivity.SensitivityResult
       - falsify.FalsificationResult
       - refute.PlaceboRefutationResult
+      - discovery.TestResult
 
 # Site appearance ------------------------------------------------------------
 logo:

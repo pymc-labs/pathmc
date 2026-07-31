@@ -31,6 +31,9 @@ if not (_Version("6.0") <= _pymc_ver < _Version("7")):
         f"pip install 'pymc>=6.0,<7'"
     )
 
+from pathmc.cpdag import same_markov_equivalence_class  # noqa: E402
+from pathmc.dag import BuildModelFromDAG, dag_to_spec  # noqa: E402
+from pathmc.discovery import TBFPC, TestResult  # noqa: E402
 from pathmc.effects import EffectResult  # noqa: E402
 from pathmc.falsify import FalsificationResult  # noqa: E402
 from pathmc.identify import ImplicationTestResult  # noqa: E402
@@ -45,6 +48,8 @@ from pathmc.transforms import ParamSpec, Transform, register_transform  # noqa: 
 from pymc_extras.prior import Prior  # noqa: E402
 
 __all__ = [
+    "TBFPC",
+    "BuildModelFromDAG",
     "DoResult",
     "EffectResult",
     "EstimandResult",
@@ -55,9 +60,12 @@ __all__ = [
     "PlaceboRefutationResult",
     "Prior",
     "SensitivityResult",
+    "TestResult",
     "Transform",
     "__version__",
+    "dag_to_spec",
     "model",
     "register_transform",
+    "same_markov_equivalence_class",
     "simulate",
 ]
