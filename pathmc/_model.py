@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import sys
 import warnings
+from collections.abc import Mapping
 from typing import Any, Literal
 
 import arviz as az
@@ -69,6 +70,43 @@ from pathmc.simulate import (
 )
 
 __all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
+
+
+def _warn_extrapolation(
+    data: nw.DataFrame, interventions: Mapping[str, float | np.ndarray]
+) -> None:
+    """Warn when an intervention is outside its observed data range."""
+    for var, val in interventions.items():
+        if var not in data.columns:
+            continue
+        col_min = data[var].min()
+        col_max = data[var].max()
+        if col_min is None or col_max is None:
+            continue
+        lo = float(col_min)
+        hi = float(col_max)
+        try:
+            values = np.asarray(val, dtype=float)
+        except (TypeError, ValueError):
+            continue
+        if values.ndim != 0:
+            if values.size == 0:
+                continue
+            val_lo, val_hi = float(values.min()), float(values.max())
+            out_of_range = val_lo < lo or val_hi > hi
+            val_desc = f"[{val_lo:.2f}, {val_hi:.2f}]"
+        else:
+            value = float(values)
+            out_of_range = value < lo or value > hi
+            val_desc = f"{value:.2f}"
+        if out_of_range:
+            warnings.warn(
+                f"Intervention value {val_desc} for '{var}' is outside "
+                f"the observed data range [{lo:.2f}, {hi:.2f}]. Results are "
+                "extrapolations and should be interpreted with caution.",
+                UserWarning,
+                stacklevel=3,
+            )
 
 
 class PathModel:
@@ -1100,31 +1138,7 @@ class PathModel:
         assert self._gen_model is not None
 
         if set:
-            for var, val in set.items():
-                if var not in self._data.columns:
-                    continue
-                col_min = self._data[var].min()
-                col_max = self._data[var].max()
-                if col_min is None or col_max is None:
-                    continue
-                lo = float(col_min)
-                hi = float(col_max)
-                if isinstance(val, np.ndarray):
-                    val_lo, val_hi = float(val.min()), float(val.max())
-                    out_of_range = val_lo < lo or val_hi > hi
-                    val_desc = f"[{val_lo:.2f}, {val_hi:.2f}]"
-                else:
-                    out_of_range = val < lo or val > hi
-                    val_desc = f"{val:.2f}"
-                if out_of_range:
-                    warnings.warn(
-                        f"Intervention value {val_desc} for '{var}' is outside "
-                        f"the observed data range [{lo:.2f}, {hi:.2f}]. "
-                        f"Results are extrapolations and should be interpreted "
-                        f"with caution.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
+            _warn_extrapolation(self._data, set)
 
         if simulate_over == "time":
             if self._panel_info is None:
@@ -1168,6 +1182,7 @@ class PathModel:
         self,
         evidence: dict[str, float],
         do: dict[str, float],
+        allow_partial_evidence: bool = False,
     ) -> DoResult:
         """Compute unit-level counterfactual outcomes.
 
@@ -1184,6 +1199,11 @@ class PathModel:
             abduction step to recover their exogenous (U) terms.
         do : dict[str, float]
             Intervention values (same format as ``do(set=...)``).
+        allow_partial_evidence : bool
+            If ``True``, missing evidence is assigned its population mean
+            (U = 0) with a warning. By default, all model variables must be
+            supplied so a counterfactual cannot silently mix individual and
+            population information.
 
         Returns
         -------
@@ -1206,6 +1226,15 @@ class PathModel:
             raise NotImplementedError(
                 "counterfactual() is not yet supported for panel models."
             )
+        if self._graph_info.latent:
+            latent = ", ".join(f"'{var}'" for var in sorted(self._graph_info.latent))
+            raise NotImplementedError(
+                "counterfactual() is not yet supported for models with latent "
+                f"variables ({latent}). Abduction requires observed values for "
+                "every structural variable."
+            )
+        assert self._data is not None
+        _warn_extrapolation(self._data, do)
         return run_counterfactual(
             spec=self._spec,
             graph_info=self._graph_info,
@@ -1213,6 +1242,7 @@ class PathModel:
             evidence=evidence,
             do=do,
             families=self._families,
+            allow_partial_evidence=allow_partial_evidence,
         )
 
     def ate(

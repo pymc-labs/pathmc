@@ -45,6 +45,8 @@ def encouragement_model(mock_pymc_sample_module):
     model = pathmc.model("H ~ X\nY ~ X + H", data=df)
     model.fit(draws=50, tune=50, chains=2, random_seed=42)
 
+    # Pin draws to the data-generating coefficients: these gate tests verify
+    # abduction/prediction arithmetic, not posterior-recovery accuracy.
     post = model._idata["posterior"].dataset.copy(deep=True)
     post["beta_H"].loc[{"H_predictors": "Intercept"}] = 0.0
     post["beta_H"].loc[{"H_predictors": "X"}] = TRUE_A
@@ -116,12 +118,12 @@ class TestCounterfactual:
                 do={"H": 2.0},
             )
 
-    def test_do_on_exogenous_raises(self, encouragement_model):
-        with pytest.raises(ValueError, match="not endogenous"):
-            encouragement_model.counterfactual(
-                evidence={"X": 0.5, "H": 1.0, "Y": 1.5},
-                do={"X": 1.0},
-            )
+    def test_do_on_exogenous_variable(self, encouragement_model):
+        result = encouragement_model.counterfactual(
+            evidence={"X": JOE_X, "H": JOE_H, "Y": JOE_Y},
+            do={"X": 1.5},
+        )
+        assert abs(result.mean("Y") - 2.4) < 1e-10
 
     def test_empty_do_raises(self, encouragement_model):
         with pytest.raises(ValueError, match="do must contain"):
@@ -130,12 +132,43 @@ class TestCounterfactual:
                 do={},
             )
 
-    def test_partial_evidence_warns(self, encouragement_model):
-        with pytest.warns(UserWarning, match="ancestors"):
+    def test_partial_evidence_raises_by_default(self, encouragement_model):
+        with pytest.raises(ValueError, match="must include every model variable"):
             encouragement_model.counterfactual(
                 evidence={"H": JOE_H, "Y": JOE_Y},
                 do={"H": H_NEW},
             )
+
+    def test_partial_evidence_warns_when_explicit(self, encouragement_model):
+        with pytest.warns(UserWarning, match="does not include"):
+            encouragement_model.counterfactual(
+                evidence={"H": JOE_H, "Y": JOE_Y},
+                do={"H": H_NEW},
+                allow_partial_evidence=True,
+            )
+
+    def test_identity_when_do_matches_observed_value(self, encouragement_model):
+        result = encouragement_model.counterfactual(
+            evidence={"X": JOE_X, "H": JOE_H, "Y": JOE_Y},
+            do={"H": JOE_H},
+        )
+        assert abs(result.mean("Y") - JOE_Y) < 1e-10
+
+    def test_warns_on_extrapolation(self, encouragement_model):
+        with pytest.warns(UserWarning, match="outside the observed data range"):
+            encouragement_model.counterfactual(
+                evidence={"X": JOE_X, "H": JOE_H, "Y": JOE_Y},
+                do={"H": 500.0},
+            )
+
+    def test_counterfactual_cannot_contrast_population_do(self, encouragement_model):
+        counterfactual = encouragement_model.counterfactual(
+            evidence={"X": JOE_X, "H": JOE_H, "Y": JOE_Y},
+            do={"H": H_NEW},
+        )
+        population = encouragement_model.do(set={"H": H_NEW})
+        with pytest.raises(ValueError, match="counterfactual result with a do"):
+            counterfactual - population
 
     def test_requires_fit(self):
         rng = np.random.default_rng(0)
@@ -159,3 +192,42 @@ class TestCounterfactual:
         model.fit(draws=20, tune=20, chains=2, random_seed=0)
         with pytest.raises(ValueError, match="Gaussian"):
             model.counterfactual(evidence={"X": 0.5, "Y": 1.0}, do={"Y": 0.0})
+
+    def test_interaction_uses_factual_and_counterfactual_values(
+        self, mock_pymc_sample_module
+    ):
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=100)
+        Z = rng.normal(size=100)
+        Y = X + 0.5 * Z + 0.8 * X * Z + rng.normal(size=100)
+        model = pathmc.model(
+            "Y ~ X + Z + X:Z", data=pd.DataFrame({"X": X, "Z": Z, "Y": Y})
+        )
+        model.fit(draws=20, tune=20, chains=2, random_seed=0)
+
+        post = model._idata["posterior"].dataset.copy(deep=True)
+        post["beta_Y"].loc[{"Y_predictors": "Intercept"}] = 0.0
+        post["beta_Y"].loc[{"Y_predictors": "X"}] = 1.0
+        post["beta_Y"].loc[{"Y_predictors": "Z"}] = 0.5
+        post["beta_Y"].loc[{"Y_predictors": "X:Z"}] = 0.8
+        model._idata["posterior"].dataset = post
+
+        result = model.counterfactual(
+            evidence={"X": 0.5, "Z": 2.0, "Y": 2.3},
+            do={"X": 1.0},
+        )
+        assert abs(result.mean("Y") - 3.6) < 1e-10
+
+    def test_latent_model_raises(self, mock_pymc_sample_module):
+        rng = np.random.default_rng(0)
+        n = 100
+        X = rng.normal(size=n)
+        Y = 0.8 * X + rng.normal(size=n)
+        model = pathmc.model(
+            "M ~ X\nY ~ M",
+            data=pd.DataFrame({"X": X, "Y": Y}),
+            latent=["M"],
+        )
+        model.fit(draws=20, tune=20, chains=2, random_seed=0)
+        with pytest.raises(NotImplementedError, match="latent variables"):
+            model.counterfactual(evidence={"X": 0.5, "Y": 1.0}, do={"M": 0.4})

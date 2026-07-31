@@ -29,7 +29,6 @@ import warnings
 from collections.abc import Mapping
 from typing import Any
 
-import networkx as nx
 import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
@@ -39,7 +38,7 @@ import xarray as xr
 from pytensor.graph.replace import graph_replace
 from pytensor.graph.traversal import ancestors
 
-from pathmc.compile import MuSpec, PredictorSlot, build_mu_specs
+from pathmc.compile import MuSpec, PredictorSlot, build_mu, build_mu_specs
 from pathmc.graph import GraphInfo
 from pathmc.parse import Spec
 from pathmc.idata import DEFAULT_HDI_PROB
@@ -253,10 +252,23 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
     ds : xr.Dataset
         Labelled posterior draws with dims ``("chain", "draw")`` and,
         optionally, ``"unit"`` or ``"time"``.
+    scenario : str
+        Result origin. Internal metadata prevents contrasts between
+        population-level and unit-level counterfactual simulations.
+    evidence : Mapping[str, float] | None
+        Individual evidence associated with a counterfactual result.
     """
 
-    def __init__(self, *, ds: xr.Dataset) -> None:
+    def __init__(
+        self,
+        *,
+        ds: xr.Dataset,
+        scenario: str = "do",
+        evidence: Mapping[str, float] | None = None,
+    ) -> None:
         self._ds = ds
+        self._scenario = scenario
+        self._evidence = dict(evidence) if evidence is not None else None
 
     def draws(self, var: str) -> np.ndarray:
         """Return raw posterior draws for *var* under this intervention.
@@ -319,8 +331,22 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
 
     def __sub__(self, other: DoResult) -> DoResult:
         """Element-wise contrast between two DoResults."""
+        if self._scenario != other._scenario:
+            raise ValueError(
+                "Cannot contrast a counterfactual result with a do() result. "
+                "Compare two do() scenarios or two counterfactual scenarios instead."
+            )
+        if self._scenario == "counterfactual" and self._evidence != other._evidence:
+            raise ValueError(
+                "Counterfactual contrasts require identical evidence for the "
+                "same individual."
+            )
         common = [str(v) for v in self._ds.data_vars if v in other._ds.data_vars]
-        return DoResult(ds=self._ds[common] - other._ds[common])
+        return DoResult(
+            ds=self._ds[common] - other._ds[common],
+            scenario=self._scenario,
+            evidence=self._evidence,
+        )
 
     def _repr_compact(self) -> str:
         if not self._ds.data_vars:
@@ -643,7 +669,12 @@ def _slot_column_value(
         assert slot.interaction_parts is not None
         product = np.asarray(1.0, dtype=float)
         for part in slot.interaction_parts:
-            val = values.get(part, 0.0)
+            if "(" in part:
+                raise NotImplementedError(
+                    "counterfactual() does not yet support transformed or lagged "
+                    f"interaction terms ('{slot.name}')."
+                )
+            val = values[part]
             product = product * np.asarray(val, dtype=float)
         if product.ndim == 0:
             return float(product)
@@ -654,10 +685,15 @@ def _slot_column_value(
             f"('{slot.name}'). Use a cross-sectional model without transforms "
             f"or lags."
         )
-    val = values.get(slot.name, 0.0)
-    if isinstance(val, np.ndarray):
-        return val.astype(float)
-    return float(val)
+    if slot.kind == "plain":
+        val = values[slot.name]
+        if isinstance(val, np.ndarray):
+            return val.astype(float)
+        return float(val)
+    raise NotImplementedError(
+        f"counterfactual() does not support predictor kind '{slot.kind}'. "
+        "Use a model with supported linear predictor terms."
+    )
 
 
 def _linear_predictor_draws(
@@ -668,20 +704,42 @@ def _linear_predictor_draws(
     """Posterior draws of the linear predictor for one equation."""
     post = posterior(idata)
     n_draws = post.sizes["chain"] * post.sizes["draw"]
-    lp = np.zeros(n_draws, dtype=float)
-    beta_name = f"beta_{mu_spec.lhs}"
-    coord_name = f"{mu_spec.lhs}_predictors"
-    beta = post[beta_name]
+    beta: np.ndarray | None = None
+    if any(slot.coeff_type == "free" for slot in mu_spec.slots):
+        coord_name = f"{mu_spec.lhs}_predictors"
+        beta = (
+            post[f"beta_{mu_spec.lhs}"]
+            .transpose(coord_name, "chain", "draw")
+            .values.reshape(-1, n_draws)
+        )
+    return np.asarray(
+        build_mu(
+            mu_spec,
+            lambda slot: _slot_column_value(slot, values),
+            beta,
+            np.zeros(n_draws, dtype=float),
+        )
+    )
 
-    for slot in mu_spec.slots:
-        col_val = _slot_column_value(slot, values)
-        if slot.coeff_type == "fixed":
-            assert slot.coeff_value is not None
-            lp += slot.coeff_value * col_val
-        else:
-            coef = beta.sel({coord_name: slot.name}).values.ravel()
-            lp += coef * col_val
-    return lp
+
+def _validate_counterfactual_values(
+    values: Mapping[str, float], name: str
+) -> dict[str, float]:
+    """Return finite scalar counterfactual inputs with descriptive errors."""
+    result: dict[str, float] = {}
+    for var, value in values.items():
+        if not isinstance(var, str):
+            raise ValueError(f"{name} keys must be variable names, not {var!r}.")
+        array = np.asarray(value)
+        if array.ndim != 0 or isinstance(value, (bool, np.bool_)):
+            raise ValueError(
+                f"{name} value for '{var}' must be one finite scalar, not {value!r}."
+            )
+        numeric = float(array)
+        if not np.isfinite(numeric):
+            raise ValueError(f"{name} value for '{var}' must be finite, not {value!r}.")
+        result[var] = numeric
+    return result
 
 
 def run_counterfactual(
@@ -691,6 +749,7 @@ def run_counterfactual(
     evidence: dict[str, float],
     do: dict[str, float],
     families: dict[str, str] | None = None,
+    allow_partial_evidence: bool = False,
 ) -> DoResult:
     """Three-step counterfactual using posterior draws.
 
@@ -699,6 +758,8 @@ def run_counterfactual(
     """
     if families is None:
         families = {}
+    evidence = _validate_counterfactual_values(evidence, "evidence")
+    do = _validate_counterfactual_values(do, "do")
     if not do:
         raise ValueError(
             "do must contain at least one intervention. "
@@ -711,6 +772,13 @@ def run_counterfactual(
         sorted_unknown = ", ".join(f"'{v}'" for v in sorted(unknown_evidence))
         raise ValueError(
             f"Unknown variable(s) in evidence: {sorted_unknown}. "
+            f"Available variables: {sorted(model_vars)}."
+        )
+    unknown_do = set(do) - model_vars
+    if unknown_do:
+        sorted_unknown = ", ".join(f"'{v}'" for v in sorted(unknown_do))
+        raise ValueError(
+            f"Unknown variable(s) in do: {sorted_unknown}. "
             f"Available variables: {sorted(model_vars)}."
         )
 
@@ -727,43 +795,52 @@ def run_counterfactual(
             f"not yet available for those distributions."
         )
 
-    for var in do:
-        if var not in graph_info.endogenous:
-            raise ValueError(
-                f"Cannot intervene on '{var}': it is not endogenous "
-                f"(no structural equation). Only endogenous variables can "
-                f"appear in do=."
-            )
-
-    dag = graph_info.contemporaneous_dag
-    for target in do:
-        ancestors = nx.ancestors(dag, target)
-        missing = (ancestors | {target}) - set(evidence.keys())
-        if missing:
-            missing_str = ", ".join(f"'{v}'" for v in sorted(missing))
-            warnings.warn(
-                f"evidence does not include {missing_str}, which are ancestors "
-                f"of the intervention target '{target}'. Missing variables are "
-                f"treated as population means (U = 0), mixing individual and "
-                f"population information.",
-                UserWarning,
-                stacklevel=3,
-            )
-
     mu_specs = build_mu_specs(spec)
+    unsupported_slots = {
+        slot.kind
+        for mu_spec in mu_specs.values()
+        for slot in mu_spec.slots
+        if slot.kind in ("lag", "transform")
+    }
+    if unsupported_slots:
+        kinds = ", ".join(sorted(unsupported_slots))
+        raise NotImplementedError(
+            f"counterfactual() does not yet support {kinds} predictor terms. "
+            "Use a cross-sectional model without transforms or lags."
+        )
+
+    missing_evidence = model_vars - set(evidence)
+    if missing_evidence and not allow_partial_evidence:
+        missing_str = ", ".join(f"'{v}'" for v in sorted(missing_evidence))
+        raise ValueError(
+            f"evidence must include every model variable; missing {missing_str}. "
+            "Pass allow_partial_evidence=True to use population means (U = 0) "
+            "for missing variables."
+        )
+    if missing_evidence:
+        missing_str = ", ".join(f"'{v}'" for v in sorted(missing_evidence))
+        warnings.warn(
+            f"evidence does not include {missing_str}. Missing variables are "
+            "treated as population means (U = 0), mixing individual and "
+            "population information for every counterfactual outcome.",
+            UserWarning,
+            stacklevel=3,
+        )
+
     post = posterior(idata)
     n_chains = post.sizes["chain"]
     n_draws_per_chain = post.sizes["draw"]
     n_draws = n_chains * n_draws_per_chain
 
     factual_values: dict[str, float | np.ndarray] = {
-        var: evidence.get(var, 0.0) for var in graph_info.topological_order
+        var: evidence[var] if var in evidence else 0.0
+        for var in graph_info.topological_order
     }
 
     u_values: dict[str, np.ndarray] = {}
     for var in graph_info.topological_order:
         if var in graph_info.exogenous:
-            u_values[var] = np.full(n_draws, evidence.get(var, 0.0))
+            u_values[var] = np.full(n_draws, factual_values[var])
             continue
         if var not in evidence:
             u_values[var] = np.zeros(n_draws)
@@ -780,7 +857,7 @@ def run_counterfactual(
             predicted[var] = np.full(n_draws, do[var])
             continue
         if var in graph_info.exogenous:
-            predicted[var] = np.full(n_draws, evidence.get(var, 0.0))
+            predicted[var] = np.full(n_draws, factual_values[var])
             continue
         pred_inputs: dict[str, float | np.ndarray] = {
             parent: predicted[parent]
@@ -799,7 +876,11 @@ def run_counterfactual(
             arr_2d, dims=("chain", "draw"), coords=ones.coords
         )
 
-    return DoResult(ds=xr.Dataset(data_vars))
+    return DoResult(
+        ds=xr.Dataset(data_vars),
+        scenario="counterfactual",
+        evidence=evidence,
+    )
 
 
 def _exogenous_fill(values: np.ndarray) -> float:
