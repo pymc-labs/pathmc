@@ -26,8 +26,10 @@ handles temporal propagation natively.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Mapping
 from typing import Any
 
+import networkx as nx
 import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
@@ -37,7 +39,9 @@ import xarray as xr
 from pytensor.graph.replace import graph_replace
 from pytensor.graph.traversal import ancestors
 
+from pathmc.compile import MuSpec, PredictorSlot, build_mu_specs
 from pathmc.graph import GraphInfo
+from pathmc.parse import Spec
 from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.idata import hdi as compute_hdi
 from pathmc.idata import hdi_label
@@ -626,6 +630,172 @@ def _float_descendants_of(source_var: Any, exprs: list[Any]) -> list[Any]:
                 descendants.append(node_var)
                 seen.add(node_var)
     return descendants
+
+
+def _slot_column_value(
+    slot: PredictorSlot,
+    values: Mapping[str, float | np.ndarray],
+) -> float | np.ndarray:
+    """Evaluate one design-matrix column from a value mapping."""
+    if slot.kind == "intercept":
+        return 1.0
+    if slot.kind == "interaction":
+        assert slot.interaction_parts is not None
+        product = np.asarray(1.0, dtype=float)
+        for part in slot.interaction_parts:
+            val = values.get(part, 0.0)
+            product = product * np.asarray(val, dtype=float)
+        if product.ndim == 0:
+            return float(product)
+        return product
+    if slot.kind in ("lag", "transform"):
+        raise NotImplementedError(
+            f"counterfactual() does not yet support {slot.kind} terms "
+            f"('{slot.name}'). Use a cross-sectional model without transforms "
+            f"or lags."
+        )
+    val = values.get(slot.name, 0.0)
+    if isinstance(val, np.ndarray):
+        return val.astype(float)
+    return float(val)
+
+
+def _linear_predictor_draws(
+    mu_spec: MuSpec,
+    idata: xr.DataTree,
+    values: Mapping[str, float | np.ndarray],
+) -> np.ndarray:
+    """Posterior draws of the linear predictor for one equation."""
+    post = posterior(idata)
+    n_draws = post.sizes["chain"] * post.sizes["draw"]
+    lp = np.zeros(n_draws, dtype=float)
+    beta_name = f"beta_{mu_spec.lhs}"
+    coord_name = f"{mu_spec.lhs}_predictors"
+    beta = post[beta_name]
+
+    for slot in mu_spec.slots:
+        col_val = _slot_column_value(slot, values)
+        if slot.coeff_type == "fixed":
+            assert slot.coeff_value is not None
+            lp += slot.coeff_value * col_val
+        else:
+            coef = beta.sel({coord_name: slot.name}).values.ravel()
+            lp += coef * col_val
+    return lp
+
+
+def run_counterfactual(
+    spec: Spec,
+    graph_info: GraphInfo,
+    idata: xr.DataTree,
+    evidence: dict[str, float],
+    do: dict[str, float],
+    families: dict[str, str] | None = None,
+) -> DoResult:
+    """Three-step counterfactual using posterior draws.
+
+    Implements Pearl's abduction → action → prediction procedure for
+    linear Gaussian structural models.
+    """
+    if families is None:
+        families = {}
+    if not do:
+        raise ValueError(
+            "do must contain at least one intervention. "
+            "Pass do={'var': value} for the counterfactual scenario."
+        )
+
+    model_vars = set(graph_info.topological_order)
+    unknown_evidence = set(evidence) - model_vars
+    if unknown_evidence:
+        sorted_unknown = ", ".join(f"'{v}'" for v in sorted(unknown_evidence))
+        raise ValueError(
+            f"Unknown variable(s) in evidence: {sorted_unknown}. "
+            f"Available variables: {sorted(model_vars)}."
+        )
+
+    non_gaussian = sorted(
+        var
+        for var in graph_info.endogenous
+        if families.get(var, "gaussian") not in ("gaussian", "")
+    )
+    if non_gaussian:
+        vars_str = ", ".join(f"'{v}'" for v in non_gaussian)
+        raise ValueError(
+            f"counterfactual() currently supports Gaussian models only; "
+            f"{vars_str} use non-Gaussian families. Algebraic abduction is "
+            f"not yet available for those distributions."
+        )
+
+    for var in do:
+        if var not in graph_info.endogenous:
+            raise ValueError(
+                f"Cannot intervene on '{var}': it is not endogenous "
+                f"(no structural equation). Only endogenous variables can "
+                f"appear in do=."
+            )
+
+    dag = graph_info.contemporaneous_dag
+    for target in do:
+        ancestors = nx.ancestors(dag, target)
+        missing = (ancestors | {target}) - set(evidence.keys())
+        if missing:
+            missing_str = ", ".join(f"'{v}'" for v in sorted(missing))
+            warnings.warn(
+                f"evidence does not include {missing_str}, which are ancestors "
+                f"of the intervention target '{target}'. Missing variables are "
+                f"treated as population means (U = 0), mixing individual and "
+                f"population information.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+    mu_specs = build_mu_specs(spec)
+    post = posterior(idata)
+    n_chains = post.sizes["chain"]
+    n_draws_per_chain = post.sizes["draw"]
+    n_draws = n_chains * n_draws_per_chain
+
+    factual_values: dict[str, float | np.ndarray] = {
+        var: evidence.get(var, 0.0) for var in graph_info.topological_order
+    }
+
+    u_values: dict[str, np.ndarray] = {}
+    for var in graph_info.topological_order:
+        if var in graph_info.exogenous:
+            u_values[var] = np.full(n_draws, evidence.get(var, 0.0))
+            continue
+        if var not in evidence:
+            u_values[var] = np.zeros(n_draws)
+            continue
+        if var not in mu_specs:
+            u_values[var] = np.zeros(n_draws)
+            continue
+        lp = _linear_predictor_draws(mu_specs[var], idata, factual_values)
+        u_values[var] = evidence[var] - lp
+
+    predicted: dict[str, np.ndarray] = {}
+    for var in graph_info.topological_order:
+        if var in do:
+            predicted[var] = np.full(n_draws, do[var])
+            continue
+        if var in graph_info.exogenous:
+            predicted[var] = np.full(n_draws, evidence.get(var, 0.0))
+            continue
+        pred_inputs: dict[str, float | np.ndarray] = {
+            parent: predicted[parent]
+            for parent in graph_info.topological_order
+            if parent in predicted
+        }
+        lp = _linear_predictor_draws(mu_specs[var], idata, pred_inputs)
+        predicted[var] = lp + u_values[var]
+
+    data_vars: dict[str, xr.DataArray] = {}
+    for var in graph_info.topological_order:
+        arr = predicted.get(var, u_values.get(var, np.zeros(n_draws)))
+        data_vars[var] = _da_chain_draw(arr, n_chains, n_draws_per_chain)
+
+    return DoResult(ds=xr.Dataset(data_vars))
 
 
 def _exogenous_fill(values: np.ndarray) -> float:

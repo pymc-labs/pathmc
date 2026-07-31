@@ -63,6 +63,7 @@ from pathmc.sensitivity import SensitivityResult, compute_sensitivity
 from pathmc.simulate import (
     DoResult,
     EstimandResult,
+    run_counterfactual,
     run_do_panel_unified,
     run_do_pymc,
 )
@@ -1162,6 +1163,57 @@ class PathModel:
             # Non-scan panel models fall through to the cross-sectional path.
 
         return self._run_do(set, kind)
+
+    def counterfactual(
+        self,
+        evidence: dict[str, float],
+        do: dict[str, float],
+    ) -> DoResult:
+        """Compute unit-level counterfactual outcomes.
+
+        Implements Pearl's three-step procedure (abduction → action →
+        prediction) using posterior draws. Unlike :meth:`do`, which answers
+        population-level questions with exogenous terms at their means,
+        counterfactuals infer individual-specific exogenous values from
+        *evidence* before simulating the intervention in *do*.
+
+        Parameters
+        ----------
+        evidence : dict[str, float]
+            Observed values for a specific individual. Used in the
+            abduction step to recover their exogenous (U) terms.
+        do : dict[str, float]
+            Intervention values (same format as ``do(set=...)``).
+
+        Returns
+        -------
+        DoResult
+            Posterior over counterfactual outcomes with ``.mean(var)``,
+            ``.hdi(var)``, and contrast arithmetic.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.fit()``.
+        ValueError
+            If *evidence* or *do* keys are invalid, or the model uses
+            non-Gaussian families.
+        NotImplementedError
+            If the model is a panel model.
+        """
+        idata = self._require_fitted("counterfactual")
+        if self._panel_info is not None:
+            raise NotImplementedError(
+                "counterfactual() is not yet supported for panel models."
+            )
+        return run_counterfactual(
+            spec=self._spec,
+            graph_info=self._graph_info,
+            idata=idata,
+            evidence=evidence,
+            do=do,
+            families=self._families,
+        )
 
     def ate(
         self,
