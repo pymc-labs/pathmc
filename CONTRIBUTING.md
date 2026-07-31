@@ -13,9 +13,9 @@ make setup
 make test-fast
 ```
 
-Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, and build targets. The targets are thin aliases over the underlying `uv` commands (for example `make setup` runs `uv sync --all-extras` plus the hook install, and `make test-fast` runs `uv run pytest -x -v -m "not slow"`), so you can read the `Makefile` to see the exact command behind each alias.
+Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, and build targets. The targets are thin aliases over the underlying `uv` commands (for example `make setup` runs `uv sync --all-extras` plus the hook install, and `make test-fast` runs `uv run --extra dev python -m pytest -x -v -m "not slow"`), so you can read the `Makefile` to see the exact command behind each alias.
 
-`make setup` runs `uv sync --all-extras`, which reads `pyproject.toml` and `uv.lock`, then creates a project virtual environment at `.venv/` containing the correct Python (per `.python-version`), pathmc installed in editable mode, and every dependency from the `dev`, `docs`, and `samplers` extras. It then installs the pre-commit hooks with `uv run prek install -f`. You do not need to `source .venv/bin/activate` or otherwise activate the environment by hand: the `Makefile` targets prefix commands with `uv run`, which runs them inside `.venv/` (syncing first if anything is stale). If you need a command without a target, prefix it with `uv run` yourself (for example `uv run pytest` or `uv run python -c "import pathmc"`).
+`make setup` runs `uv sync --all-extras`, which reads `pyproject.toml` and `uv.lock`, then creates a project virtual environment at `.venv/` containing the correct Python (per `.python-version`), pathmc installed in editable mode, and every dependency from the `dev`, `docs`, and `samplers` extras. It then installs the pre-commit hooks with `uv run prek install -f`. You do not need to `source .venv/bin/activate` or otherwise activate the environment by hand: the `Makefile` targets prefix commands with `uv run`, which runs them inside `.venv/` (syncing first if anything is stale). If you need a targeted test command without a Make target, use `uv run --extra dev python -m pytest`; for other commands, prefix them with `uv run` yourself (for example `uv run python -c "import pathmc"`).
 
 ## Opening issues
 
@@ -82,7 +82,7 @@ make test
 Run a targeted milestone or module test while iterating:
 
 ```bash
-uv run pytest tests/test_parse.py -x -v
+uv run --extra dev python -m pytest tests/test_parse.py -x -v
 ```
 
 Check formatting, linting, and types before opening a pull request:
