@@ -791,9 +791,13 @@ def run_counterfactual(
         predicted[var] = lp + u_values[var]
 
     data_vars: dict[str, xr.DataArray] = {}
+    ones = _chain_draw_ones(post)
     for var in graph_info.topological_order:
         arr = predicted.get(var, u_values.get(var, np.zeros(n_draws)))
-        data_vars[var] = _da_chain_draw(arr, n_chains, n_draws_per_chain)
+        arr_2d = np.asarray(arr, dtype=float).reshape(n_chains, n_draws_per_chain)
+        data_vars[var] = xr.DataArray(
+            arr_2d, dims=("chain", "draw"), coords=ones.coords
+        )
 
     return DoResult(ds=xr.Dataset(data_vars))
 
