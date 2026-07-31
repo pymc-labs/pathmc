@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import sys
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Literal
 
 import arviz as az
@@ -68,6 +70,31 @@ from pathmc.simulate import (
 )
 
 __all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
+
+#: pm.Data flag on scan-compiled panel models. 1 makes the scan carry the
+#: observed previous value of a lagged endogenous variable, 0 makes it carry
+#: the model's own simulated value.
+_OBSERVED_CARRY_FLAG = "_use_observed_carry"
+
+
+@contextmanager
+def _observed_carry(pymc_model: pm.Model, enabled: bool) -> Iterator[None]:
+    """Temporarily set the observed-carry flag, restoring the old value.
+
+    A no-op on models without the flag (anything but a scan-compiled panel
+    model with a lagged endogenous term).
+    """
+    if _OBSERVED_CARRY_FLAG not in pymc_model.named_vars:
+        yield
+        return
+
+    flag = pymc_model[_OBSERVED_CARRY_FLAG]
+    previous = flag.get_value()
+    flag.set_value(np.array(int(enabled), dtype="int8"))
+    try:
+        yield
+    finally:
+        flag.set_value(previous)
 
 
 class PathModel:
@@ -231,9 +258,9 @@ class PathModel:
 
         if observations:
             self._pymc_model = pm.observe(self._gen_model, observations)
-            if "_use_observed_carry" in self._pymc_model.named_vars:
+            if _OBSERVED_CARRY_FLAG in self._pymc_model.named_vars:
                 with self._pymc_model:
-                    pm.set_data({"_use_observed_carry": np.array(1, dtype="int8")})
+                    pm.set_data({_OBSERVED_CARRY_FLAG: np.array(1, dtype="int8")})
         else:
             self._pymc_model = self._gen_model
         self._idata = None
@@ -569,7 +596,7 @@ class PathModel:
                 )
         return self._idata
 
-    def predict(self, **kwargs: Any) -> xr.DataTree:
+    def predict(self, *, one_step_ahead: bool = True, **kwargs: Any) -> xr.DataTree:
         """Run posterior predictive sampling.
 
         Wraps ``pm.sample_posterior_predictive()`` and extends the
@@ -577,6 +604,18 @@ class PathModel:
 
         Parameters
         ----------
+        one_step_ahead : bool
+            Only meaningful for panel models with a lagged endogenous
+            term such as ``y ~ lag(y)``. When ``True`` (default) each
+            time step conditions on the *observed* previous value, so
+            the predictions are one-step-ahead forecasts — the posterior
+            predictive distribution that matches the likelihood the
+            model was fitted with, and the right choice for a posterior
+            predictive check. When ``False`` the recursion is free-running:
+            step *t* conditions on the model's own simulated value at
+            *t-1*, giving a multi-step trajectory whose uncertainty
+            compounds over time. Ignored for models without a lagged
+            endogenous term, where the two are identical.
         **kwargs
             Passed directly to ``pm.sample_posterior_predictive()``.
             Pass ``extend_inferencedata=False`` to leave the stored
@@ -599,7 +638,7 @@ class PathModel:
         idata = self._require_fitted("predict")
         assert self._pymc_model is not None
         kwargs.setdefault("extend_inferencedata", True)
-        with self._pymc_model:
+        with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
             pp = pm.sample_posterior_predictive(idata, **kwargs)
         if not kwargs["extend_inferencedata"]:
             return pp

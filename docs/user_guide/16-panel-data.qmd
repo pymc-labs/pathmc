@@ -83,6 +83,23 @@ model = pathmc.model(
 )
 ```
 
+## Posterior predictive checks with a lagged outcome
+
+When the outcome depends on its own past — `sales ~ lag(sales)` — there are two different things `predict()` could mean, so it takes a flag.
+
+By default (`one_step_ahead=True`) each time step conditions on the *observed* previous value of the outcome, matching the likelihood the model was fitted with. This is the posterior predictive distribution you want for a model check: residuals are one-step-ahead errors, and comparing them against the observed series is a fair test.
+
+Passing `one_step_ahead=False` lets the recursion run free: step *t* conditions on the model's own simulated value at *t−1*. Uncertainty compounds over the series, which is the honest picture of multi-step forecast error but a misleading basis for a fit diagnostic.
+
+```python
+ppc = model.predict()  # one-step-ahead, for model checking
+traj = model.predict(one_step_ahead=False)  # free-running trajectories
+```
+
+::: {.callout-note}
+The flag only matters for panel models with a lagged endogenous term. Everywhere else the two are identical and the argument is ignored. `do()` is unaffected — interventional simulation always runs the free-running recursion.
+:::
+
 ## Time-forward simulation
 
 When a model includes temporal state — adstock transforms or lagged variables — the `do()` operator must walk through time step by step to correctly re-compute the temporal dynamics under the intervention.
