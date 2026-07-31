@@ -20,6 +20,7 @@ labeled coefficients (label*variable), and intercept suppression (0 +).
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -459,6 +460,24 @@ _HSGP_ALLOWED_KWARGS = frozenset({"m", "c", "L", "cov", "centered"})
 _HSGP_VALID_COV = frozenset({"expquad", "matern52", "matern32"})
 
 
+def _validate_hsgp_boundary(name: str, value: float) -> None:
+    """Reject non-finite or non-positive HSGP boundary values.
+
+    Both ``c`` (boundary as a proportion of the input half-range) and ``L``
+    (absolute boundary) scale the Laplacian eigenvalues as ``(pi * j / (2 * L))``.
+    A zero, negative, or non-finite boundary divides by zero or propagates
+    ``nan`` into the basis, so the model compiles but every draw of the smooth
+    is non-finite. Catch it at the parser boundary instead.
+    """
+    if not math.isfinite(value):
+        raise ParseError(f"hsgp(...) {name} must be a finite number, got {value}.")
+    if value <= 0:
+        raise ParseError(
+            f"hsgp(...) {name} must be > 0, got {value}. {name} scales the HSGP "
+            "boundary; a non-positive value produces a non-finite basis."
+        )
+
+
 def _parse_hsgp_expr(raw: str) -> HSGPCall:
     """Parse ``hsgp(x, m=..., c=..., cov=..., centered=...)`` into an HSGPCall.
 
@@ -567,6 +586,7 @@ def _parse_hsgp_expr(raw: str) -> HSGPCall:
             raise ParseError(
                 f"hsgp(...) c must be a number, got '{kwargs['c']}'."
             ) from None
+        _validate_hsgp_boundary("c", c)
     if has_l:
         try:
             boundary_l = float(kwargs["L"])
@@ -574,6 +594,7 @@ def _parse_hsgp_expr(raw: str) -> HSGPCall:
             raise ParseError(
                 f"hsgp(...) L must be a number, got '{kwargs['L']}'."
             ) from None
+        _validate_hsgp_boundary("L", boundary_l)
 
     cov = kwargs.get("cov", "expquad").strip().strip("'\"").lower()
     if cov not in _HSGP_VALID_COV:

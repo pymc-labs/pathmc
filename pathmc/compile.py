@@ -399,6 +399,7 @@ def compile_to_pymc(
         )
 
     _reject_hsgp_in_residual_blocks(spec)
+    _reject_endogenous_hsgp_inputs(spec)
 
     if panel_info is not None and _has_temporal_deps(spec, graph_info):
         _validate_scan_non_gaussian_intermediaries(spec, families, latent)
@@ -911,6 +912,29 @@ def _reject_hsgp_in_residual_blocks(spec: Spec) -> None:
                 "in a ~~ residual-covariance block yet (see follow-up). Model the "
                 "smooth outside the covariance block."
             )
+
+
+def _reject_endogenous_hsgp_inputs(spec: Spec) -> None:
+    """Raise if an HSGP smooth is applied to an endogenous variable.
+
+    ``pm.gp.HSGP.prior_linearized`` calls ``.eval()`` on the input to freeze
+    the centering midpoint and the boundary ``L``.  When the input is an
+    upstream random variable that ``.eval()`` is a draw from the prior, so the
+    basis -- and therefore the fitted smooth -- depends on compilation-time
+    RNG rather than on the data.  Phase 1 only supports exogenous inputs.
+    """
+    endogenous = {reg.lhs for reg in spec.regressions}
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.hsgp is not None and term.hsgp.variable in endogenous:
+                raise NotImplementedError(
+                    f"hsgp() input '{term.hsgp.variable}' in the '{reg.lhs}' "
+                    "equation is endogenous (it is the outcome of another "
+                    "regression). The HSGP basis is built by evaluating its "
+                    "input, so an endogenous input would freeze the basis at a "
+                    "random prior draw and make the fit non-reproducible. "
+                    "Phase 1 supports exogenous hsgp() inputs only."
+                )
 
 
 def _identify_residual_blocks(spec: Spec) -> tuple[set[str], list[set[str]]]:

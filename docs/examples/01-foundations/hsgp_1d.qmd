@@ -64,15 +64,27 @@ f_mean = idata.posterior["f_y_x"].mean(("chain", "draw")).values
 np.corrcoef(f_mean - f_mean.mean(), true - true.mean())[0, 1]
 ```
 
-The posterior-mean smooth tracks the true function closely.
+The posterior-mean smooth tracks the true function closely. To show that
+honestly we plot the posterior of `mu_y` — the full linear predictor, which
+already carries the intercept — as a mean line with a 94% highest-density
+interval, rather than recentering `f_y_x` by hand.
 
 ```{python}
+# | label: fig-hsgp-recovery
+# | fig-cap: "Posterior mean of mu_y with its 94% HDI, against the true smooth. The band covers the true curve across the fitted range of x, and widens at the boundaries where the basis is least constrained by data."
+# | code-fold: true
+import arviz as az
 import matplotlib.pyplot as plt
 
+mu = idata.posterior["mu_y"]
+mu_mean = mu.mean(("chain", "draw")).values
+hdi = az.hdi(mu, prob=0.94).values
+
 fig, ax = plt.subplots(figsize=(8, 4))
-ax.scatter(x, y, s=12, alpha=0.5, label="observed")
-ax.plot(x, true, "k--", label="true smooth")
-ax.plot(x, f_mean + y.mean() - f_mean.mean(), "C1", lw=2, label="posterior mean")
+ax.scatter(x, y, s=12, alpha=0.5, color="C0", label="observed")
+ax.fill_between(x, hdi[:, 0], hdi[:, 1], color="C1", alpha=0.3, label="94% HDI")
+ax.plot(x, mu_mean, "C1", lw=2, label="posterior mean")
+ax.plot(x, true, "k--", lw=1.5, label="true smooth")
 ax.set(xlabel="x", ylabel="y")
 ax.legend()
 plt.show()
@@ -93,6 +105,13 @@ low, high
 
 ## Scope
 
-Phase 1 supports a single 1-D input on cross-sectional models. Multi-dimensional
-inputs, grouped (`by=`) GPs, and panel/scan models raise a clear error and are
-tracked as follow-ups.
+Phase 1 supports a single 1-D **exogenous** input on cross-sectional models.
+Multi-dimensional inputs, grouped (`by=`) GPs, and panel/scan models raise a
+clear error and are tracked as follow-ups.
+
+The input must be exogenous because the basis is built by evaluating it: PyMC
+derives the centering midpoint and the boundary from the input's realized
+values. Smoothing an endogenous variable (one that is itself the outcome of
+another equation) would freeze the basis at a random prior draw, so `pathmc`
+rejects it rather than fitting a model whose result depends on compilation-time
+RNG.

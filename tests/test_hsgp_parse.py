@@ -82,6 +82,39 @@ def test_guardrails_raise_parse_error(spec_string):
         parse_spec(spec_string)
 
 
+@pytest.mark.parametrize(
+    "spec_string",
+    [
+        "y ~ hsgp(x, m=8, c=0)",
+        "y ~ hsgp(x, m=8, c=-1)",
+        "y ~ hsgp(x, m=8, c=-0.5)",
+        "y ~ hsgp(x, m=8, L=0)",
+        "y ~ hsgp(x, m=8, L=-1)",
+        "y ~ hsgp(x, m=8, L=-3.0)",
+    ],
+)
+def test_non_positive_boundary_rejected(spec_string):
+    """``c``/``L`` <= 0 divides by zero in the eigenvalues; reject at parse time."""
+    with pytest.raises(ParseError, match="must be > 0"):
+        parse_spec(spec_string)
+
+
+@pytest.mark.parametrize(
+    "spec_string",
+    [
+        "y ~ hsgp(x, m=8, c=nan)",
+        "y ~ hsgp(x, m=8, c=inf)",
+        "y ~ hsgp(x, m=8, c=-inf)",
+        "y ~ hsgp(x, m=8, L=nan)",
+        "y ~ hsgp(x, m=8, L=inf)",
+    ],
+)
+def test_non_finite_boundary_rejected(spec_string):
+    """``nan``/``inf`` coerce cleanly through ``float()`` but poison the basis."""
+    with pytest.raises(ParseError, match="must be a finite number"):
+        parse_spec(spec_string)
+
+
 def test_duplicate_lhs_var_hsgp_rejected():
     with pytest.raises(ParseError, match="same variable"):
         parse_spec("y ~ hsgp(x, m=20, c=1.5) + hsgp(x, m=30, c=2.0)")

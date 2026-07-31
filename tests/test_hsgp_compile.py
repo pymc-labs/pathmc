@@ -117,6 +117,21 @@ def test_hsgp_in_residual_block_raises(cross_sectional_df):
         )._compile()
 
 
+def test_endogenous_hsgp_input_raises(cross_sectional_df):
+    """``prior_linearized`` evaluates its input to fix the centering midpoint and
+    boundary, so an endogenous input freezes the basis at a random prior draw."""
+    with pytest.raises(NotImplementedError, match="endogenous"):
+        pathmc.model(
+            "z ~ x\ny ~ hsgp(z, m=8, c=1.5)", data=cross_sectional_df
+        )._compile()
+
+
+def test_exogenous_hsgp_input_alongside_other_equations_allowed(cross_sectional_df):
+    """The endogeneity guard must not fire when the hsgp() input is exogenous."""
+    model = pathmc.model("z ~ x\ny ~ hsgp(x, m=8, c=1.5) + z", data=cross_sectional_df)
+    assert "f_y_x" in _gen_model(model).named_vars
+
+
 def test_simulate_with_hsgp_raises(cross_sectional_df):
     with pytest.raises(NotImplementedError, match="hsgp"):
         pathmc.simulate("y ~ hsgp(x, m=8, c=1.5)", data=cross_sectional_df, params={})
