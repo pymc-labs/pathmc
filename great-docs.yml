@@ -93,6 +93,13 @@ reference:
     desc: Whole-graph validation via a permutation-based test.
     contents:
       - falsify.falsify_graph
+  - title: Causal discovery
+    desc: Learn candidate structure from data and turn a DAG into a model.
+    contents:
+      - discovery.TBFPC
+      - cpdag.same_markov_equivalence_class
+      - dag.dag_to_spec
+      - dag.BuildModelFromDAG
   - title: Custom transforms
     desc: Extend the model DSL with domain-specific transformations.
     contents:
@@ -109,6 +116,7 @@ reference:
       - sensitivity.SensitivityResult
       - falsify.FalsificationResult
       - refute.PlaceboRefutationResult
+      - discovery.TestResult
 
 # Site appearance ------------------------------------------------------------
 logo:
@@ -158,8 +166,7 @@ seo:
   canonical:
     base_url: https://pathmc.pymc-labs.com/
 
-# Citations use docs/references.bib via per-page frontmatter until Great Docs
-# forwards project-level bibliography (posit-dev/great-docs#214; migrate in #266).
+# Project-level bibliography is forwarded to all rendered pages.
 bibliography: docs/references.bib
 
 # Jupyter kernel for executable code cells. Register it from the uv-managed

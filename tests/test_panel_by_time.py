@@ -152,6 +152,36 @@ class TestDoResultByTime:
         assert abs(by_time.mean() - draws.mean()) < 1e-9
 
 
+class TestTimeVaryingIntervention:
+    """Array-valued ``set`` interventions vary per time step.
+
+    Guards the ``(n_times,)`` intervention path: the intervened variable's
+    per-time draws must equal the supplied array exactly at every step, and
+    the downstream outcome must still produce finite per-time draws.
+    """
+
+    @pytest.mark.slow
+    def test_per_time_intervention_values_track_array(self, panel_lag_model):
+        ramp = np.linspace(6.0, 14.0, 15)
+        result = panel_lag_model.do(
+            set={"spend": ramp}, simulate_over="time", kind="mean"
+        )
+        by_time = result.by_time("spend")
+        n_samples = _n_posterior_samples(panel_lag_model)
+        assert by_time.shape == (15, n_samples)
+        np.testing.assert_allclose(by_time.mean(axis=1), ramp)
+
+    @pytest.mark.slow
+    def test_outcome_responds_to_time_varying_intervention(self, panel_lag_model):
+        ramp = np.linspace(6.0, 14.0, 15)
+        result = panel_lag_model.do(
+            set={"spend": ramp}, simulate_over="time", kind="mean"
+        )
+        sales = result.by_time("sales")
+        assert sales.shape[0] == 15
+        assert np.all(np.isfinite(sales))
+
+
 class TestByTimeRaisesOnCrossSectional:
     """by_time() raises when per-time data is unavailable."""
 
