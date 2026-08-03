@@ -13,9 +13,9 @@ make setup
 make test-fast
 ```
 
-Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, and build targets. The targets are thin aliases over the underlying `uv` commands (for example `make setup` runs `uv sync --all-extras` plus the hook install, and `make test-fast` runs `uv run --extra dev python -m pytest -x -v -m "not slow"`), so you can read the `Makefile` to see the exact command behind each alias.
+Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, and build targets. The targets are thin aliases over the underlying `uv` commands (for example `make setup` runs `uv sync --all-extras` plus the hook install, and `make test-fast` runs `uv run pytest -x -v -m "not slow"`), so you can read the `Makefile` to see the exact command behind each alias.
 
-`make setup` runs `uv sync --all-extras`, which reads `pyproject.toml` and `uv.lock`, then creates a project virtual environment at `.venv/` containing the correct Python (per `.python-version`), pathmc installed in editable mode, and every dependency from the `dev`, `docs`, and `samplers` extras. It then installs the pre-commit hooks with `uv run prek install -f`. You do not need to `source .venv/bin/activate` or otherwise activate the environment by hand: the `Makefile` targets prefix commands with `uv run`, which runs them inside `.venv/` (syncing first if anything is stale). If you need a targeted test command without a Make target, use `uv run --extra dev python -m pytest`; for other commands, prefix them with `uv run` yourself (for example `uv run python -c "import pathmc"`).
+`make setup` runs `uv sync --all-extras`, which reads `pyproject.toml` and `uv.lock`, then creates a project virtual environment at `.venv/` containing the correct Python (per `.python-version`), pathmc installed in editable mode, the default `dev` dependency group, and every dependency from the `docs` and `samplers` extras. It then installs the pre-commit hooks with `uv run prek install -f`. You do not need to `source .venv/bin/activate` or otherwise activate the environment by hand: the `Makefile` targets prefix commands with `uv run`, which runs them inside `.venv/` (syncing first if anything is stale). If you need a command without a target, prefix it with `uv run` yourself (for example `uv run pytest` or `uv run python -c "import pathmc"`).
 
 ## Opening issues
 
@@ -63,7 +63,7 @@ Update an existing environment after pulling changes that touch dependencies:
 uv sync --all-extras
 ```
 
-Dependencies and their version constraints are declared in `pyproject.toml` under `[project].dependencies` (the runtime stack, including the `pymc>=6.0,<7` and matching `pytensor>=3.0,<4` pins) and `[project.optional-dependencies]` (the `dev`, `docs`, and `samplers` extras). Edit those lists to add or bump a dependency. The `uv.lock` lockfile then pins exact resolved versions for reproducible contributor environments; `uv sync` updates it automatically after `pyproject.toml` changes, and the updated lockfile should be committed alongside the metadata edit.
+Dependencies and their version constraints are declared in `pyproject.toml` under `[project].dependencies` (the runtime stack, including the `pymc>=6.0,<7` and matching `pytensor>=3.0,<4` pins), `[dependency-groups]` (the `dev` tools), and `[project.optional-dependencies]` (the `docs` and `samplers` extras). Edit those lists to add or bump a dependency. The `uv.lock` lockfile then pins exact resolved versions for reproducible contributor environments; `uv sync` updates it automatically after `pyproject.toml` changes, and the updated lockfile should be committed alongside the metadata edit.
 
 Run fast tests only, excluding slow MCMC sampling tests:
 
@@ -82,7 +82,7 @@ make test
 Run a targeted milestone or module test while iterating:
 
 ```bash
-uv run --extra dev python -m pytest tests/test_parse.py -x -v
+uv run pytest tests/test_parse.py -x -v
 ```
 
 Check formatting, linting, and types before opening a pull request:

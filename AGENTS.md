@@ -7,7 +7,7 @@ Remember, when running into bugs or complex issues, it is not impossible we are 
 ## Workflow
 
 1. Make your changes. Do not modify test files — if a test seems wrong, flag it for human review. Exceptions are for adding new tests or removing obsolete ones, but never for changing the expected behavior of existing tests.
-2. Run the relevant gate tests, e.g. `uv run --extra dev python -m pytest tests/test_<module>.py -x -v`. `make test-fast` skips MCMC sampling; `make test` runs everything.
+2. Run the relevant gate tests, e.g. `uv run pytest tests/test_<module>.py -x -v`. `make test-fast` skips MCMC sampling; `make test` runs everything.
 3. Run `make lint` before considering work done or committing. It runs `prek run --all-files` (ruff, ruff-format, mypy, YAML/TOML, license checks).
 
 ## Scratch space (`.scratch/`)
@@ -47,7 +47,7 @@ pathmc/
 
 ## Environment
 
-A [uv](https://docs.astral.sh/uv/)-managed virtualenv at `.venv/`, pinned by `uv.lock` and `.python-version`. Create or update it with `make setup`, which also installs the `prek` git hooks (a fast pre-commit runner) so the lint checks run automatically on `git commit`. Run everything through `uv run` (for tests, use `uv run --extra dev python -m pytest`; for scripts, use `uv run python -c "..."`) — never the system or conda Python.
+A [uv](https://docs.astral.sh/uv/)-managed virtualenv at `.venv/`, pinned by `uv.lock` and `.python-version`. Create or update it with `make setup`, which also installs the `prek` git hooks (a fast pre-commit runner) so the lint checks run automatically on `git commit`. Run everything through `uv run` (e.g. `uv run pytest`, `uv run python -c "..."`) — never the system or conda Python.
 
 This package targets **PyMC ≥ 6.0, ArviZ ≥ 1.1, PyTensor ≥ 3.0, and NumPy ≥ 2.0** — all recent majors with breaking API changes from earlier versions. Do not assume pre-6 PyMC or pre-1.0 ArviZ APIs; verify against the installed versions (`uv run python -c "import pymc, arviz; print(pymc.__version__, arviz.__version__)"`) or the current upstream docs when unsure.
 

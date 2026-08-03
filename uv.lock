@@ -2322,6 +2322,16 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+docs = [
+    { name = "great-docs" },
+]
+samplers = [
+    { name = "jax" },
+    { name = "numpyro" },
+    { name = "nutpie" },
+]
+
+[package.dev-dependencies]
 dev = [
     { name = "build" },
     { name = "ipykernel" },
@@ -2332,25 +2342,14 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
-docs = [
-    { name = "great-docs" },
-]
-samplers = [
-    { name = "jax" },
-    { name = "numpyro" },
-    { name = "nutpie" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "arviz", specifier = ">=1.1,<2" },
-    { name = "build", marker = "extra == 'dev'" },
     { name = "graphviz" },
     { name = "great-docs", marker = "extra == 'docs'", specifier = ">=0.16.0" },
-    { name = "ipykernel", marker = "extra == 'dev'" },
     { name = "jax", marker = "extra == 'samplers'" },
     { name = "matplotlib", specifier = ">=3.9,<3.11" },
-    { name = "mypy", marker = "extra == 'dev'" },
     { name = "narwhals", specifier = ">=1.20,<3" },
     { name = "networkx" },
     { name = "numpy", specifier = ">=2.0" },
@@ -2359,16 +2358,23 @@ requires-dist = [
     { name = "packaging" },
     { name = "pandas" },
     { name = "patsy" },
-    { name = "polars", marker = "extra == 'dev'" },
-    { name = "prek", marker = "extra == 'dev'" },
     { name = "pymc", specifier = ">=6.0,<7" },
     { name = "pymc-extras", specifier = ">=0.12" },
     { name = "pytensor", specifier = ">=3.0,<4" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "ruff", marker = "extra == 'dev'" },
 ]
-provides-extras = ["dev", "docs", "samplers"]
+provides-extras = ["docs", "samplers"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "build" },
+    { name = "ipykernel" },
+    { name = "mypy" },
+    { name = "polars" },
+    { name = "prek" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
 
 [[package]]
 name = "pathspec"
