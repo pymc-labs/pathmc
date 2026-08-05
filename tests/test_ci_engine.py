@@ -49,6 +49,12 @@ NAN_CASE_EXPECTED = (0.24943756765617675, 0.0004081110120031142, 198)
 RTOL = 1e-9
 
 
+def _approx(value, rel=RTOL):
+    """Purely relative comparison: pytest.approx's default abs=1e-12 would
+    otherwise accept *any* value when pinning p-values of magnitude ~1e-34."""
+    return pytest.approx(value, rel=rel, abs=0.0)
+
+
 def _make_frame() -> pd.DataFrame:
     """Five correlated columns; Z1 opens a non-causal X–Y path given M."""
     rng = np.random.default_rng(42)
@@ -91,15 +97,15 @@ class TestIdentifyCharacterization:
     def test_pinned_values(self, data, x, y, z, expected):
         r, p, n = _partial_correlation_test(data, x, y, list(z))
         exp_r, exp_p, exp_n = expected
-        assert r == pytest.approx(exp_r, rel=RTOL)
-        assert p == pytest.approx(exp_p, rel=RTOL)
+        assert r == _approx(exp_r)
+        assert p == _approx(exp_p)
         assert n == exp_n
 
     def test_nan_rows_dropped(self, data_with_nans):
         r, p, n = _partial_correlation_test(data_with_nans, "X", "Y", ["M"])
         exp_r, exp_p, exp_n = NAN_CASE_EXPECTED
-        assert r == pytest.approx(exp_r, rel=RTOL)
-        assert p == pytest.approx(exp_p, rel=RTOL)
+        assert r == _approx(exp_r)
+        assert p == _approx(exp_p)
         assert n == exp_n
 
 
@@ -109,12 +115,12 @@ class TestFalsifyCharacterization:
     def test_pinned_values(self, data):
         tester = _PartialCorrelationTester(data, ["X", "M", "Y", "Z1", "Z2"])
         for (x, y, z), (_, exp_p, _) in WELL_CONDITIONED_CASES.items():
-            assert tester.p_value(x, y, z) == pytest.approx(exp_p, rel=RTOL)
+            assert tester.p_value(x, y, z) == _approx(exp_p)
 
     def test_nan_rows_dropped(self, data_with_nans):
         tester = _PartialCorrelationTester(data_with_nans, ["X", "M", "Y"])
         _, exp_p, _ = NAN_CASE_EXPECTED
-        assert tester.p_value("X", "Y", ("M",)) == pytest.approx(exp_p, rel=RTOL)
+        assert tester.p_value("X", "Y", ("M",)) == _approx(exp_p)
 
 
 class TestImplementationParity:
@@ -129,12 +135,12 @@ class TestImplementationParity:
         for x, y, z in WELL_CONDITIONED_CASES:
             _, p_identify, _ = _partial_correlation_test(data, x, y, list(z))
             p_falsify = tester.p_value(x, y, z)
-            assert p_identify == pytest.approx(p_falsify, rel=1e-12)
+            assert p_identify == _approx(p_falsify, rel=1e-12)
 
     def test_p_values_agree_with_nans(self, data_with_nans):
         _, p_identify, _ = _partial_correlation_test(data_with_nans, "X", "Y", ["M"])
         tester = _PartialCorrelationTester(data_with_nans, ["X", "M", "Y"])
-        assert p_identify == pytest.approx(tester.p_value("X", "Y", ("M",)), rel=1e-12)
+        assert p_identify == _approx(tester.p_value("X", "Y", ("M",)), rel=1e-12)
 
 
 class TestImplicationsEndToEndCharacterization:
@@ -165,8 +171,8 @@ class TestImplicationsEndToEndCharacterization:
         row = result.results.iloc[0]
         exp_r, exp_p, exp_n = WELL_CONDITIONED_CASES[("X", "Y", ("M",))]
         assert (row["x"], row["y"], row["conditioning_set"]) == ("X", "Y", "M")
-        assert row["partial_corr"] == pytest.approx(exp_r, rel=RTOL)
-        assert row["p_value"] == pytest.approx(exp_p, rel=RTOL)
+        assert row["partial_corr"] == _approx(exp_r)
+        assert row["p_value"] == _approx(exp_p)
         assert row["n_obs"] == exp_n
         assert bool(row["significant"]) is True
 
@@ -193,8 +199,8 @@ class TestCoreWellConditioned:
         result = partial_correlation_ci(frame[x].to_numpy(), frame[y].to_numpy(), z_mat)
         exp_r, exp_p, exp_n = expected
         assert result.skip_reason is None
-        assert result.r == pytest.approx(exp_r, rel=RTOL)
-        assert result.p == pytest.approx(exp_p, rel=RTOL)
+        assert result.r == _approx(exp_r)
+        assert result.p == _approx(exp_p)
         assert result.n == exp_n
         assert result.df == exp_n - len(z) - 2
 
@@ -212,8 +218,8 @@ class TestCoreWellConditioned:
         z[10, 0] = np.nan
         result = partial_correlation_ci(x, y, z)
         exp_r, exp_p, exp_n = NAN_CASE_EXPECTED
-        assert result.r == pytest.approx(exp_r, rel=RTOL)
-        assert result.p == pytest.approx(exp_p, rel=RTOL)
+        assert result.r == _approx(exp_r)
+        assert result.p == _approx(exp_p)
         assert result.n == exp_n
 
 
@@ -226,7 +232,7 @@ class TestCoreRankAwareDf:
         const = partial_correlation_ci(x, y, np.ones((len(x), 1)))
         assert const.skip_reason is None
         assert const.df == marginal.df
-        assert const.p == pytest.approx(marginal.p, rel=1e-9)
+        assert const.p == _approx(marginal.p)
 
     def test_duplicate_conditioner_idempotent(self, frame):
         x, y = frame["X"].to_numpy(), frame["Y"].to_numpy()
@@ -234,7 +240,7 @@ class TestCoreRankAwareDf:
         single = partial_correlation_ci(x, y, z)
         doubled = partial_correlation_ci(x, y, np.column_stack([z, z]))
         assert doubled.df == single.df
-        assert doubled.p == pytest.approx(single.p, rel=1e-9)
+        assert doubled.p == _approx(single.p)
 
     def test_collinear_conditioner_counts_once(self, frame):
         x, y = frame["X"].to_numpy(), frame["Y"].to_numpy()
@@ -243,7 +249,7 @@ class TestCoreRankAwareDf:
         single = partial_correlation_ci(x, y, z1)
         result = partial_correlation_ci(x, y, collinear)
         assert result.df == single.df
-        assert result.p == pytest.approx(single.p, rel=1e-9)
+        assert result.p == _approx(single.p)
 
     def test_rank_deficient_z_keeps_small_sample_viable(self):
         # n=5 with three identical conditioners: a nominal-k rule (n < k + 3)
@@ -321,3 +327,66 @@ class TestCIResultContract:
         assert isinstance(result, CIResult)
         with pytest.raises(dataclasses.FrozenInstanceError):
             result.p = 0.5
+
+
+# ---------------------------------------------------------------------------
+# identify._partial_correlation_test delegates to the shared core
+# ---------------------------------------------------------------------------
+
+
+class TestIdentifyDelegation:
+    """The identify adapter inherits the core's guarantees (#276)."""
+
+    def test_constant_conditioner_equals_marginal(self, frame):
+        # The #276 reproducer: conditioning on a constant must be
+        # equivalent to the marginal test.
+        df = frame.copy()
+        df["C"] = 1.0
+        data = nw.from_native(df, eager_only=True)
+        r_m, p_m, _ = _partial_correlation_test(data, "X", "Y", [])
+        r_c, p_c, _ = _partial_correlation_test(data, "X", "Y", ["C"])
+        assert r_c == _approx(r_m)
+        assert p_c == _approx(p_m)
+
+    def test_rank_deficient_small_sample_returns_result(self):
+        # n=5 with three identical conditioners: the nominal-k refusal
+        # (n < k + 3) is gone; effective rank leaves df = 2.
+        rng = np.random.default_rng(7)
+        base = rng.normal(size=5)
+        df = pd.DataFrame({
+            "X": rng.normal(size=5),
+            "Y": rng.normal(size=5),
+            "Z1": base,
+            "Z2": base,
+            "Z3": base,
+        })
+        data = nw.from_native(df, eager_only=True)
+        r, p, n = _partial_correlation_test(data, "X", "Y", ["Z1", "Z2", "Z3"])
+        assert not np.isnan(p)
+        assert 0.0 <= p <= 1.0
+        assert n == 5
+
+    def test_perfect_correlation_p_zero_without_warnings(self):
+        rng = np.random.default_rng(8)
+        x = rng.normal(size=50)
+        df = pd.DataFrame({"X": x, "Y": x.copy(), "Z": rng.normal(size=50)})
+        data = nw.from_native(df, eager_only=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            r, p, _ = _partial_correlation_test(data, "X", "Y", ["Z"])
+        assert p == 0.0
+        assert r == pytest.approx(1.0)
+
+    def test_degenerate_input_returns_nan_without_warnings(self):
+        rng = np.random.default_rng(9)
+        df = pd.DataFrame({
+            "X": np.zeros(50),
+            "Y": rng.normal(size=50),
+            "Z": rng.normal(size=50),
+        })
+        data = nw.from_native(df, eager_only=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            r, p, n = _partial_correlation_test(data, "X", "Y", ["Z"])
+        assert np.isnan(r) and np.isnan(p)
+        assert n == 50
