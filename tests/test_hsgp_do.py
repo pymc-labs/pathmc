@@ -45,6 +45,38 @@ def test_do_recomputes_basis():
 
 
 @pytest.mark.slow
+def test_do_outside_basis_boundary_raises():
+    """Past [mid - L, mid + L] the sinusoidal basis aliases, so do() must raise
+    rather than return a plausible-but-meaningless number."""
+    rng = np.random.default_rng(0)
+    x = np.linspace(0.0, 6.0, 60)
+    y = np.sin(x) + rng.normal(0, 0.2, size=x.size)
+    df = pd.DataFrame({"x": x, "y": y})
+    model, _ = _fit("y ~ hsgp(x, m=15, c=1.5)", df)
+
+    # mid = 3, half-range = 3, L = 4.5 -> valid region [-1.5, 7.5].
+    with pytest.raises(ValueError, match="HSGP basis boundary"):
+        model.do(set={"x": 1000.0})
+    with pytest.raises(ValueError, match="HSGP basis boundary"):
+        model.do(set={"x": np.array([1.0, 100.0])})
+
+
+@pytest.mark.slow
+def test_do_between_data_range_and_boundary_warns_only():
+    """Outside the data range but inside the basis boundary is an extrapolation,
+    not garbage: the generic warning fires and the intervention succeeds."""
+    rng = np.random.default_rng(0)
+    x = np.linspace(0.0, 6.0, 60)
+    y = np.sin(x) + rng.normal(0, 0.2, size=x.size)
+    df = pd.DataFrame({"x": x, "y": y})
+    model, _ = _fit("y ~ hsgp(x, m=15, c=1.5)", df)
+
+    with pytest.warns(UserWarning, match="outside the observed data range"):
+        result = model.do(set={"x": 7.0})
+    assert np.isfinite(float(result.mean("y")))
+
+
+@pytest.mark.slow
 def test_recovers_known_smooth():
     """Posterior-mean smooth correlates with the true function (>0.9)."""
     rng = np.random.default_rng(1)

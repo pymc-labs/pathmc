@@ -16,11 +16,17 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pymc as pm
 import pytensor
 import pytest
 
-from pathmc.hsgp import assemble_hsgp_term, hsgp_basis, make_cov_func
+from pathmc.hsgp import (
+    assemble_hsgp_term,
+    hsgp_basis,
+    hsgp_intervention_bounds,
+    make_cov_func,
+)
 from pathmc.parse import HSGPCall
 from pathmc.priors import default_priors
 from pathmc.parse import parse_spec
@@ -100,6 +106,39 @@ def test_assemble_hsgp_term_noncentered_creates_rvs():
     assert f.name == "f_y_x"
     f_val = pytensor.function([], f)()
     assert f_val.shape == (n,)
+
+
+def test_hsgp_intervention_bounds_from_c():
+    spec = parse_spec("y ~ hsgp(x, m=8, c=1.5)")
+    df = pd.DataFrame({"x": np.linspace(0.0, 10.0, 50), "y": 0.0})
+    bounds = hsgp_intervention_bounds(spec, df)
+    # mid = 5, half-range = 5, L = c * half-range = 7.5.
+    assert bounds["x"] == pytest.approx((-2.5, 12.5))
+
+
+def test_hsgp_intervention_bounds_from_explicit_L():
+    spec = parse_spec("y ~ hsgp(x, m=8, L=6.0)")
+    df = pd.DataFrame({"x": np.linspace(10.0, 20.0, 50), "y": 0.0})
+    bounds = hsgp_intervention_bounds(spec, df)
+    # mid = 15, L = 6 as given.
+    assert bounds["x"] == pytest.approx((9.0, 21.0))
+
+
+def test_hsgp_intervention_bounds_matches_pymc_frozen_boundary():
+    """The recomputed bounds must equal the midpoint/L that ``prior_linearized``
+    freezes into the graph, so the guard tracks the real basis support."""
+    spec = parse_spec("y ~ hsgp(x, m=8, c=1.5)")
+    x = np.linspace(0.03, 9.97, 60)
+    df = pd.DataFrame({"x": x, "y": 0.0})
+    bounds = hsgp_intervention_bounds(spec, df)
+
+    with pm.Model():
+        cov_func = make_cov_func("expquad", eta=1.0, ell=1.0)
+        gp = pm.gp.HSGP(m=[8], c=1.5, cov_func=cov_func)
+        gp.prior_linearized(x[:, None])
+    mid = float(np.asarray(gp._X_center).squeeze())
+    length = float(np.asarray(gp.L.eval()).squeeze())
+    assert bounds["x"] == pytest.approx((mid - length, mid + length))
 
 
 def test_assemble_hsgp_term_centered_uses_sqrt_psd_scale():

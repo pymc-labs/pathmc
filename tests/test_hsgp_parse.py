@@ -75,11 +75,27 @@ def test_centered_true_variant():
         "y ~ hsgp(x, m=8, c=1.5, cov=rbf)",  # unknown kernel
         "y ~ hsgp(x, m=1.5, c=1.5)",  # non-integer m
         "y ~ hsgp(m=8, c=1.5)",  # keyword-only, no positional input variable
+        "y ~ z:hsgp(x, m=8, c=1.5)",  # interaction on the left of hsgp()
+        "y ~ HSGP(x, m=8, c=1.5)",  # capitalized spelling
+        "y ~ Hsgp(x, m=8, c=1.5)",  # capitalized spelling
     ],
 )
 def test_guardrails_raise_parse_error(spec_string):
     with pytest.raises(ParseError):
         parse_spec(spec_string)
+
+
+def test_interaction_prefix_error_names_hsgp():
+    """'z:hsgp(...)' must not surface as ``Unknown transform 'z:hsgp'``."""
+    with pytest.raises(ParseError, match="interaction"):
+        parse_spec("y ~ z:hsgp(x, m=8, c=1.5)")
+
+
+@pytest.mark.parametrize("name", ["HSGP", "Hsgp"])
+def test_capitalized_hsgp_suggests_lowercase(name):
+    """A capitalization slip must point at hsgp(), not at the transform registry."""
+    with pytest.raises(ParseError, match=r"Did you mean hsgp\("):
+        parse_spec(f"y ~ {name}(x, m=8, c=1.5)")
 
 
 @pytest.mark.parametrize(

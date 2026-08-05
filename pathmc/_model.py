@@ -1131,13 +1131,39 @@ class PathModel:
         RuntimeError
             If called before ``.fit()``.
         ValueError
-            If ``simulate_over="time"`` without panel.
+            If ``simulate_over="time"`` without panel, or if an intervention
+            on an ``hsgp()`` input falls outside the basis boundary
+            ``[mid - L, mid + L]`` frozen from the fitted data (beyond it
+            the basis aliases instead of extrapolating).
         """
         idata = self._require_fitted("do")
         assert self._data is not None
         assert self._gen_model is not None
 
         if set:
+            from pathmc.hsgp import hsgp_intervention_bounds
+
+            hsgp_bounds = hsgp_intervention_bounds(self._spec, self._data)
+            for var, val in set.items():
+                if var not in hsgp_bounds:
+                    continue
+                lo, hi = hsgp_bounds[var]
+                if isinstance(val, np.ndarray):
+                    outside = float(val.min()) < lo or float(val.max()) > hi
+                    val_desc = f"[{float(val.min()):.2f}, {float(val.max()):.2f}]"
+                else:
+                    outside = val < lo or val > hi
+                    val_desc = f"{val:.2f}"
+                if outside:
+                    raise ValueError(
+                        f"Intervention value {val_desc} for '{var}' is outside "
+                        f"the HSGP basis boundary [{lo:.2f}, {hi:.2f}] frozen "
+                        f"from the fitted data. Beyond this boundary the basis "
+                        f"eigenfunctions alias, so the result would be "
+                        f"meaningless rather than an extrapolation. Refit with "
+                        f"a larger c or an explicit L to widen the valid "
+                        f"region."
+                    )
             for var, val in set.items():
                 if var not in self._data.columns:
                     continue

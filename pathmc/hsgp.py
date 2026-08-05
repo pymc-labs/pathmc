@@ -22,19 +22,21 @@ The design follows PyMC's linearized HSGP recipe
 (:meth:`pymc.gp.HSGP.prior_linearized`): ``f = phi @ (beta * sqrt_psd)``
 for the non-centered parametrization.  ``prior_linearized`` centers the input
 internally (from ``L``/``c``) and derives the boundary at build time, so the
-basis recomputes under ``pm.do()`` as long as the intervention stays within
-the fitted support.
+basis recomputes under ``pm.do()`` only within the frozen boundary
+``[mid - L, mid + L]``; beyond it the sinusoidal eigenfunctions alias.
+:func:`hsgp_intervention_bounds` recomputes that boundary so ``do()`` can
+reject out-of-support interventions.
 """
 
 from __future__ import annotations
 
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 import numpy as np
 import pymc as pm
 from pytensor.tensor.variable import TensorVariable
 
-from pathmc.parse import HSGPCall
+from pathmc.parse import HSGPCall, Spec
 from pathmc.priors import PriorConfig
 
 __all__: list[str] = []
@@ -117,6 +119,57 @@ def hsgp_basis(
     gp = pm.gp.HSGP(m=[call.m], L=boundary, c=call.c, cov_func=cov_func)
     phi, sqrt_psd = gp.prior_linearized(x)
     return phi, sqrt_psd, gp.n_basis_vectors
+
+
+def hsgp_intervention_bounds(spec: Spec, data: Any) -> dict[str, tuple[float, float]]:
+    """Return the valid intervention interval per HSGP input variable.
+
+    Mirrors how ``pm.gp.HSGP.prior_linearized`` freezes the basis support at
+    build time (``pymc.gp.hsgp_approx``, pinned to ``pymc >= 6, < 7``): the
+    midpoint is ``(max(x) + min(x)) / 2`` and the boundary is ``L`` when given
+    explicitly, else ``c * (max(x) - min(x)) / 2``.  Outside
+    ``[mid - L, mid + L]`` the sinusoidal eigenfunctions alias, so any value
+    there produces a finite but meaningless smooth.
+
+    Parameters
+    ----------
+    spec : Spec
+        Parsed model spec whose regression terms may carry ``HSGPCall``s.
+    data : DataFrame
+        The exact frame the model was compiled against (columns expose
+        ``.min()`` / ``.max()``; pandas and narwhals frames both qualify).
+
+    Returns
+    -------
+    dict
+        ``{variable: (lower, upper)}``.  A variable smoothed by several
+        terms gets the intersection of their intervals, since a value must
+        lie inside every basis support to be valid for all of them.
+    """
+    bounds: dict[str, tuple[float, float]] = {}
+    for reg in spec.regressions:
+        for term in reg.terms:
+            call = term.hsgp
+            if call is None or call.variable not in data.columns:
+                continue
+            col_min = data[call.variable].min()
+            col_max = data[call.variable].max()
+            if col_min is None or col_max is None:
+                continue
+            mid = (float(col_max) + float(col_min)) / 2.0
+            half = (float(col_max) - float(col_min)) / 2.0
+            if call.L is not None:
+                length = float(call.L)
+            else:
+                # The parser enforces exactly one of c/L.
+                assert call.c is not None
+                length = call.c * half
+            lo, hi = mid - length, mid + length
+            if call.variable in bounds:
+                prev_lo, prev_hi = bounds[call.variable]
+                lo, hi = max(lo, prev_lo), min(hi, prev_hi)
+            bounds[call.variable] = (lo, hi)
+    return bounds
 
 
 def assemble_hsgp_term(

@@ -311,6 +311,19 @@ def _parse_term(raw: str) -> Term:
                 )
             call = _parse_hsgp_expr(raw)
             return Term(variable=call.variable, hsgp=call)
+        # Misspelled/misplaced hsgp would otherwise fall through to the
+        # transform registry and fail late with "Unknown transform 'z:hsgp'".
+        if any(part.strip().lower() == "hsgp" for part in func_name.split(":")):
+            if ":" in func_name:
+                raise ParseError(
+                    f"hsgp() cannot appear inside a ':' interaction: '{raw}'. "
+                    "Use hsgp() as a standalone term applied directly to one "
+                    "variable, e.g. 'y ~ hsgp(x, m=20, c=1.5)'."
+                )
+            raise ParseError(
+                f"Unknown function '{func_name}'. Did you mean hsgp(...)? "
+                "The hsgp() term is lowercase."
+            )
         transform = _parse_transform_expr(raw)
         if transform.name == "lag":
             term = _make_lag_term(transform, raw, label)
