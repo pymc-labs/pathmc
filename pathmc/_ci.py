@@ -25,10 +25,13 @@ named skip instead of a NaN or a runtime warning.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from scipy import stats
+
+if TYPE_CHECKING:
+    import narwhals.stable.v1 as nw
 
 CISkipReason = Literal[
     "insufficient_observations",
@@ -135,3 +138,63 @@ def partial_correlation_ci(
     t_stat = r * np.sqrt(df) / np.sqrt(1.0 - r * r)
     p = float(2.0 * stats.t.sf(np.abs(t_stat), df))
     return CIResult(r=r, p=p, n=n, df=df, skip_reason=None)
+
+
+class _PartialCorrelationTester:
+    """Memoized partial-correlation conditional independence tester.
+
+    Holds a numeric matrix extracted once from the data and caches each
+    ``X ⊥⊥ Y | Z`` p-value. Independence is symmetric in ``X`` and ``Y``,
+    so the cache key normalizes their order, mirroring dowhy's
+    ``_PValuesMemory`` and avoiding recomputation across the many
+    permuted graphs that re-test the same triples.
+    """
+
+    def __init__(self, data: nw.DataFrame, variables: list[str]) -> None:
+        columns = set(data.columns)
+        numeric: list[str] = []
+        arrays: list[np.ndarray] = []
+        for var in variables:
+            if var not in columns:
+                continue
+            try:
+                col = data.select(var).to_numpy().astype(float).ravel()
+            except (ValueError, TypeError):
+                # Non-numeric (string/categorical) columns cannot enter a
+                # partial-correlation test; treat them as unavailable so the
+                # affected triples are skipped, exactly like a missing column.
+                continue
+            numeric.append(var)
+            arrays.append(col)
+        if arrays:
+            matrix = np.column_stack(arrays)
+        else:
+            matrix = np.empty((0, 0), dtype=float)
+        self._matrix = matrix
+        self._col_idx = {name: i for i, name in enumerate(numeric)}
+        self._cache: dict[tuple[frozenset[str], frozenset[str]], float | None] = {}
+
+    def p_value(self, x: str, y: str, z_vars: tuple[str, ...]) -> float | None:
+        """Return the CI test p-value, or ``None`` if it cannot be run.
+
+        ``None`` signals a skipped test: a required variable has no data
+        column, there are too few complete observations, or the test is
+        otherwise degenerate (see :class:`CIResult`).
+        """
+        key = (frozenset((x, y)), frozenset(z_vars))
+        if key in self._cache:
+            return self._cache[key]
+        result = self._compute(x, y, z_vars)
+        self._cache[key] = result
+        return result
+
+    def _compute(self, x: str, y: str, z_vars: tuple[str, ...]) -> float | None:
+        needed = [x, y, *z_vars]
+        if any(v not in self._col_idx for v in needed):
+            return None
+        cols = [self._col_idx[v] for v in needed]
+        arr = self._matrix[:, cols]
+        result = partial_correlation_ci(arr[:, 0], arr[:, 1], arr[:, 2:])
+        if result.skip_reason is not None:
+            return None
+        return result.p
