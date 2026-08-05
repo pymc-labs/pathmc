@@ -45,10 +45,12 @@ The default priors expose the kernel amplitude (`eta_y_x`), lengthscale (`ell_y_
 model.priors()
 ```
 
+The lengthscale prior is in **raw input units**: the default `InverseGamma(3, 1)` has mean 0.5, so an input spanning a wide range pulls against it and can produce divergences — standardize the input, override `ell_y_x`, or raise `target_accept` as we do below. A range-scaled default is tracked in [issue #375](https://github.com/pymc-labs/pathmc/issues/375).
+
 ## Fit and recover the smooth
 
 ```{python}
-idata = model.fit(random_seed=0)
+idata = model.fit(random_seed=0, target_accept=0.99)
 f_mean = idata.posterior["f_y_x"].mean(("chain", "draw")).values
 np.corrcoef(f_mean - f_mean.mean(), true - true.mean())[0, 1]
 ```
@@ -78,7 +80,7 @@ plt.show()
 
 ## Intervening on the smooth
 
-Because the basis recomputes from the input data node, `do()` propagates through the smooth. Interventions should stay within the fitted support of `x`: when `c` is used the boundary is derived from the fitted data, so a grid wider than the training range would extrapolate beyond the basis.
+Because the basis recomputes from the input data node, `do()` propagates through the smooth. Interventions must stay within the basis boundary `[mid − L, mid + L]` frozen from the fitted data — with `c > 1` this is wider than the data range, so moderate extrapolation is fine. Beyond the boundary the sinusoidal eigenfunctions alias rather than extrapolate, so `do()` raises a `ValueError` there instead of returning a plausible-looking but meaningless number.
 
 ```{python}
 low = model.do(set={"x": 12.0}).mean("y")
