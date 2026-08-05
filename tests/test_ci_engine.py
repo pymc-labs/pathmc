@@ -20,12 +20,16 @@ engine unification can demonstrate "no behavior change for well-conditioned
 inputs" against a recorded baseline rather than by algebra alone.
 """
 
+import dataclasses
+import warnings
+
 import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
 import pytest
 
 import pathmc
+from pathmc._ci import CIResult, partial_correlation_ci
 from pathmc.falsify import _PartialCorrelationTester
 from pathmc.identify import _partial_correlation_test
 
@@ -165,3 +169,155 @@ class TestImplicationsEndToEndCharacterization:
         assert row["p_value"] == pytest.approx(exp_p, rel=RTOL)
         assert row["n_obs"] == exp_n
         assert bool(row["significant"]) is True
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for the shared core: pathmc._ci.partial_correlation_ci
+# ---------------------------------------------------------------------------
+
+
+def _cols(frame, names):
+    return frame[list(names)].to_numpy(dtype=float)
+
+
+class TestCoreWellConditioned:
+    """The core reproduces the characterization pins on the same inputs."""
+
+    @pytest.mark.parametrize(
+        "x,y,z,expected",
+        [(x, y, z, exp) for (x, y, z), exp in WELL_CONDITIONED_CASES.items()],
+        ids=["marginal", "one-conditioner", "two-conditioners", "independent-pair"],
+    )
+    def test_matches_pins(self, frame, x, y, z, expected):
+        z_mat = _cols(frame, z) if z else None
+        result = partial_correlation_ci(frame[x].to_numpy(), frame[y].to_numpy(), z_mat)
+        exp_r, exp_p, exp_n = expected
+        assert result.skip_reason is None
+        assert result.r == pytest.approx(exp_r, rel=RTOL)
+        assert result.p == pytest.approx(exp_p, rel=RTOL)
+        assert result.n == exp_n
+        assert result.df == exp_n - len(z) - 2
+
+    def test_zero_column_z_is_marginal(self, frame):
+        x, y = frame["X"].to_numpy(), frame["Y"].to_numpy()
+        empty_z = np.empty((len(x), 0))
+        assert partial_correlation_ci(x, y, empty_z) == partial_correlation_ci(x, y)
+
+    def test_nan_rows_dropped(self, frame):
+        x = frame["X"].to_numpy().copy()
+        y = frame["Y"].to_numpy().copy()
+        z = _cols(frame, ["M"]).copy()
+        x[3] = np.nan
+        y[10] = np.nan
+        z[10, 0] = np.nan
+        result = partial_correlation_ci(x, y, z)
+        exp_r, exp_p, exp_n = NAN_CASE_EXPECTED
+        assert result.r == pytest.approx(exp_r, rel=RTOL)
+        assert result.p == pytest.approx(exp_p, rel=RTOL)
+        assert result.n == exp_n
+
+
+class TestCoreRankAwareDf:
+    """Degrees of freedom follow the effective rank of [1, Z] (#276)."""
+
+    def test_constant_conditioner_equals_marginal(self, frame):
+        x, y = frame["X"].to_numpy(), frame["Y"].to_numpy()
+        marginal = partial_correlation_ci(x, y)
+        const = partial_correlation_ci(x, y, np.ones((len(x), 1)))
+        assert const.skip_reason is None
+        assert const.df == marginal.df
+        assert const.p == pytest.approx(marginal.p, rel=1e-9)
+
+    def test_duplicate_conditioner_idempotent(self, frame):
+        x, y = frame["X"].to_numpy(), frame["Y"].to_numpy()
+        z = _cols(frame, ["M"])
+        single = partial_correlation_ci(x, y, z)
+        doubled = partial_correlation_ci(x, y, np.column_stack([z, z]))
+        assert doubled.df == single.df
+        assert doubled.p == pytest.approx(single.p, rel=1e-9)
+
+    def test_collinear_conditioner_counts_once(self, frame):
+        x, y = frame["X"].to_numpy(), frame["Y"].to_numpy()
+        z1 = _cols(frame, ["M"])
+        collinear = np.column_stack([z1, 2.0 * z1 - 1.0])
+        single = partial_correlation_ci(x, y, z1)
+        result = partial_correlation_ci(x, y, collinear)
+        assert result.df == single.df
+        assert result.p == pytest.approx(single.p, rel=1e-9)
+
+    def test_rank_deficient_z_keeps_small_sample_viable(self):
+        # n=5 with three identical conditioners: a nominal-k rule (n < k + 3)
+        # would refuse; effective rank 2 leaves df = 2.
+        rng = np.random.default_rng(7)
+        x, y = rng.normal(size=5), rng.normal(size=5)
+        z = np.repeat(rng.normal(size=5)[:, None], 3, axis=1)
+        result = partial_correlation_ci(x, y, z)
+        assert result.skip_reason is None
+        assert result.df == 2
+        assert 0.0 <= result.p <= 1.0
+
+
+class TestCoreSkips:
+    """Every degenerate input maps to a named skip, never NaN or a warning."""
+
+    def test_insufficient_observations(self):
+        result = partial_correlation_ci(np.array([1.0, 2.0]), np.array([2.0, 1.0]))
+        assert result.skip_reason == "insufficient_observations"
+        assert result.n == 2
+        assert result.r is None and result.p is None and result.df is None
+
+    def test_all_rows_nan(self):
+        x = np.array([np.nan, np.nan, np.nan])
+        result = partial_correlation_ci(x, np.ones(3))
+        assert result.skip_reason == "insufficient_observations"
+        assert result.n == 0
+
+    def test_zero_variance_marginal(self):
+        rng = np.random.default_rng(0)
+        result = partial_correlation_ci(np.ones(50), rng.normal(size=50))
+        assert result.skip_reason == "zero_variance"
+
+    def test_nonpositive_df(self):
+        rng = np.random.default_rng(1)
+        x, y = rng.normal(size=3), rng.normal(size=3)
+        z = rng.normal(size=(3, 2))
+        result = partial_correlation_ci(x, y, z)
+        assert result.skip_reason == "nonpositive_df"
+
+    def test_zero_residual_variance(self):
+        # All-zero x gives an exactly-zero lstsq solution and exactly-zero
+        # residuals; the guard is exact (matching the historical falsify
+        # behavior), so float-noise residuals do not trigger it.
+        rng = np.random.default_rng(2)
+        z = rng.normal(size=(50, 1))
+        result = partial_correlation_ci(np.zeros(50), rng.normal(size=50), z)
+        assert result.skip_reason == "zero_residual_variance"
+
+    def test_no_warnings_on_degenerate_input(self):
+        rng = np.random.default_rng(3)
+        z = rng.normal(size=(50, 1))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            partial_correlation_ci(np.zeros(50), rng.normal(size=50), z)
+            partial_correlation_ci(np.ones(50), rng.normal(size=50))
+
+
+class TestCorePerfectCorrelation:
+    """|r| >= 1 is maximal evidence of dependence: p = 0, not a skip."""
+
+    def test_perfect_residual_correlation(self):
+        rng = np.random.default_rng(4)
+        x = rng.normal(size=50)
+        z = rng.normal(size=(50, 1))
+        result = partial_correlation_ci(x, x.copy(), z)
+        assert result.skip_reason is None
+        assert result.p == 0.0
+        assert result.r == pytest.approx(1.0)
+
+
+class TestCIResultContract:
+    def test_frozen(self, frame):
+        result = partial_correlation_ci(frame["X"].to_numpy(), frame["Y"].to_numpy())
+        assert isinstance(result, CIResult)
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            result.p = 0.5
