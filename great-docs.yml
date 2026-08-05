@@ -74,6 +74,9 @@ tags:
     Latent Variables: eye-off
     Media Mix Modeling: megaphone
     Hierarchical Effects: layers
+    Gaussian Process: waves
+    HSGP: spline
+    Nonparametric: trending-up
 
 # API Reference --------------------------------------------------------------
 # Public surface only: top-level constructors, PathModel methods, result/display

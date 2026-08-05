@@ -4,26 +4,18 @@ author:
   - name: "PyMC Labs"
 description: "Fit a flexible 1-D nonparametric smooth with the hsgp() term — a Hilbert Space Gaussian Process approximation — and intervene on it with do()."
 tags: [Gaussian Process, HSGP, Nonparametric]
+image: thumbnails/hsgp_1d.png
 jupyter: pathmc
 bibliography: ../../../docs/references.bib
 ---
 
-Most pathmc terms are linear in their coefficients. Sometimes the relationship
-between a predictor and an outcome is smooth but *not* linear — a dose–response
-curve, a trend over a continuous index, a smooth confounder adjustment. The
-`hsgp()` term adds such a smooth via a **Hilbert Space Gaussian Process**
-approximation [@riutort2023practical], the same scalable construction exposed
-by [Bambi's `hsgp()`](https://bambinos.github.io/bambi/notebooks/hsgp_1d.html).
+Most pathmc terms are linear in their coefficients. Sometimes the relationship between a predictor and an outcome is smooth but *not* linear — a dose–response curve, a trend over a continuous index, a smooth confounder adjustment. The `hsgp()` term adds such a smooth via a **Hilbert Space Gaussian Process** approximation [@riutort2023practical], the same scalable construction exposed by [Bambi's `hsgp()`](https://bambinos.github.io/bambi/notebooks/hsgp_1d.html).
 
-An HSGP approximates a Gaussian process with a finite basis of Laplacian
-eigenfunctions, so it reduces to a linear model in a fixed basis matrix. That
-makes it fast, differentiable, and — because the basis is a deterministic
-function of the input `pm.Data` — fully compatible with `do()` interventions.
+An HSGP approximates a Gaussian process with a finite basis of Laplacian eigenfunctions, so it reduces to a linear model in a fixed basis matrix. That makes it fast, differentiable, and — because the basis is a deterministic function of the input `pm.Data` — fully compatible with `do()` interventions.
 
 ## Simulated data
 
-We draw a smooth signal and add observation noise. The input is deliberately
-*not* centered on zero to exercise the internal centering of the basis.
+We draw a smooth signal and add observation noise. The input is deliberately *not* centered on zero to exercise the internal centering of the basis.
 
 ```{python}
 import numpy as np
@@ -40,17 +32,14 @@ df = pd.DataFrame({"x": x, "y": y})
 
 ## The model
 
-`hsgp(x, m=..., c=...)` is a standalone term: `m` sets the number of basis
-vectors and `c` the boundary-expansion factor. The smooth carries its own basis
-weights, so it takes no coefficient prefix.
+`hsgp(x, m=..., c=...)` is a standalone term: `m` sets the number of basis vectors and `c` the boundary-expansion factor. The smooth carries its own basis weights, so it takes no coefficient prefix.
 
 ```{python}
 model = pathmc.model("y ~ hsgp(x, m=20, c=1.5)", data=df)
 model.equations()
 ```
 
-The default priors expose the kernel amplitude (`eta_y_x`), lengthscale
-(`ell_y_x`), and standardized basis weights (`beta_hsgp_y_x`):
+The default priors expose the kernel amplitude (`eta_y_x`), lengthscale (`ell_y_x`), and standardized basis weights (`beta_hsgp_y_x`):
 
 ```{python}
 model.priors()
@@ -64,10 +53,7 @@ f_mean = idata.posterior["f_y_x"].mean(("chain", "draw")).values
 np.corrcoef(f_mean - f_mean.mean(), true - true.mean())[0, 1]
 ```
 
-The posterior-mean smooth tracks the true function closely. To show that
-honestly we plot the posterior of `mu_y` — the full linear predictor, which
-already carries the intercept — as a mean line with a 94% highest-density
-interval, rather than recentering `f_y_x` by hand.
+The posterior-mean smooth tracks the true function closely. To show that honestly we plot the posterior of `mu_y` — the full linear predictor, which already carries the intercept — as a mean line with a 94% highest-density interval, rather than recentering `f_y_x` by hand.
 
 ```{python}
 # | label: fig-hsgp-recovery
@@ -92,10 +78,7 @@ plt.show()
 
 ## Intervening on the smooth
 
-Because the basis recomputes from the input data node, `do()` propagates through
-the smooth. Interventions should stay within the fitted support of `x`: when `c`
-is used the boundary is derived from the fitted data, so a grid wider than the
-training range would extrapolate beyond the basis.
+Because the basis recomputes from the input data node, `do()` propagates through the smooth. Interventions should stay within the fitted support of `x`: when `c` is used the boundary is derived from the fitted data, so a grid wider than the training range would extrapolate beyond the basis.
 
 ```{python}
 low = model.do(set={"x": 12.0}).mean("y")
@@ -105,13 +88,6 @@ low, high
 
 ## Scope
 
-Phase 1 supports a single 1-D **exogenous** input on cross-sectional models.
-Multi-dimensional inputs, grouped (`by=`) GPs, and panel/scan models raise a
-clear error and are tracked as follow-ups.
+Phase 1 supports a single 1-D **exogenous** input on cross-sectional models. Multi-dimensional inputs, grouped (`by=`) GPs, and panel/scan models raise a clear error and are tracked as follow-ups.
 
-The input must be exogenous because the basis is built by evaluating it: PyMC
-derives the centering midpoint and the boundary from the input's realized
-values. Smoothing an endogenous variable (one that is itself the outcome of
-another equation) would freeze the basis at a random prior draw, so `pathmc`
-rejects it rather than fitting a model whose result depends on compilation-time
-RNG.
+The input must be exogenous because the basis is built by evaluating it: PyMC derives the centering midpoint and the boundary from the input's realized values. Smoothing an endogenous variable (one that is itself the outcome of another equation) would freeze the basis at a random prior draw, so `pathmc` rejects it rather than fitting a model whose result depends on compilation-time RNG.
