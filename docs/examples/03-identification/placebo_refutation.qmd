@@ -12,7 +12,9 @@ Your model fits, the ATE is comfortably away from zero, and the DAG survived fal
 
 The placebo test answers it by breaking the thing you claim to measure. Permute the treatment column and the treatment can no longer cause the outcome: whatever structural link existed is severed by the shuffle. Re-fit on that sabotaged data and a sound pipeline must come back empty-handed. If it still reports an effect, the number it gave you on the real data was partly an artifact of the machinery, not evidence from the world.
 
-This is the Bayesian upgrade of DoWhy's `placebo_treatment_refuter`. Because every re-fit yields a full posterior rather than a point estimate, pathmc pools the per-permutation summaries through a hierarchical normal-normal model, which separates two things a point estimate confounds: the *systematic* placebo bias $\mu_\text{null}$ (should straddle zero) and the *structural volatility* $\tau_\text{het}$ (how much the estimate wobbles between shuffles). The real effect is then calibrated against the resulting null.
+This page assumes you have read [Treatment Effects with Non-Linear Models](/examples/effect-estimation/ate_estimation.qmd), which covers `ate()` and g-computation, and ideally [Causal Identification](/examples/identification/causal_identification.qmd) for the backdoor/confounding setup used below. You need to be comfortable with what an ATE *is* before it makes sense to ask whether yours is real.
+
+This is the Bayesian upgrade of DoWhy's `placebo_treatment_refuter` [@sharma2020dowhy]. Because every re-fit yields a full posterior rather than a point estimate, pathmc pools the per-permutation summaries through a hierarchical normal-normal model — think of it as **meta-analysing the placebo re-fits**, treating each shuffle as one study. That pooling separates two things a point estimate confounds: the *systematic* placebo bias $\mu_\text{null}$ (should straddle zero) and the *structural volatility* $\tau_\text{het}$ (how much the estimate wobbles between shuffles). The real effect is then calibrated against the resulting null. The calibration model follows @bugaev_placebo_calibration.
 
 ## Setup
 
@@ -75,7 +77,7 @@ print(f"True effect: {true_effect}")
 ate
 ```
 
-The ATE is recovered and its credible interval excludes zero. Now let's find out whether that is because of the data or because of the pipeline.
+That is a **reality check worth pausing on**: we simulated the data, so we know the answer is 0.5, and the model came back with 0.464 and a credible interval excluding zero. The workflow recovers what it should on data we control, which is the precondition for trusting it anywhere else. Now let's find out whether that number is there because of the data or because of the pipeline.
 
 ## Running the placebo test
 
@@ -98,7 +100,7 @@ The same result in DoWhy's vocabulary, for anyone migrating from it:
 print(refutation.summary())
 ```
 
-`Estimated effect` is the real ATE; `New effect` is the pooled placebo effect — DoWhy's point estimate, here upgraded with a credible interval. A sound pipeline keeps `New effect` at zero while `Estimated effect` stays where it was.
+`Estimated effect` is the real ATE; `New effect` is the pooled placebo effect — DoWhy's point estimate, here upgraded with a credible interval. A sound pipeline keeps `New effect` at zero while `Estimated effect` stays where it was. DoWhy's own [placebo treatment refuter](https://www.pywhy.org/dowhy/main/user_guide/refuting_causal_estimates/refuting_effect_estimates/placebo_treatment.html) documents the point-estimate version of this table.
 
 ## Reading the two verdicts
 
@@ -112,6 +114,14 @@ print(f"effect_survives: {refutation.effect_survives}")
 **`passes_placebo`** asks *is the pipeline honest?* It is `True` when the 94% HDI of the placebo bias $\mu_\text{null}$ contains zero — the pipeline attributes no systematic effect to a treatment whose link to the outcome no longer exists. This is a property of the machinery and has nothing to do with your real effect being large or small.
 
 **`effect_survives`** asks *is the real effect bigger than the noise the machinery generates?* It is `True` when the calibrated tail probability `p_tail` falls below `significance_level` (default 0.05). The real ATE is compared against the null *predictive* distribution — the spread you would expect from a fresh placebo shuffle — not against zero.
+
+::: {.callout-important}
+## Two things `p_tail` is not
+
+**It is not a preregistered one-sided test.** `p_tail` is directional, and the side is chosen *post hoc* from the sign of the observed effect relative to the null center. If you are arriving from frequentist refutation, do not read it as a hypothesis test with a side fixed in advance; read it as "how far into the tail of the placebo null does this effect sit, in the direction it happens to point".
+
+**It compares a distribution against a point.** The null enters as its full predictive distribution, but the real effect enters as its posterior *mean* (`observed_ate`), faithful to the source calibration model. A wide-but-large ATE therefore survives on its mean alone, so inspect `observed_ate_hdi` next to the verdict rather than treating `effect_survives` as a statement about the whole posterior.
+:::
 
 ```{python}
 lo, hi = refutation.mu_null_hdi
@@ -198,7 +208,7 @@ Doubling the folds roughly halves the width of the placebo-bias interval. That m
 - **A `False` verdict is trustworthy at four folds.** A wide interval that *still* excludes zero means the bias is real and large.
 - **A `True` verdict is not.** With few folds the inflated interval straddles zero almost automatically, so a genuinely biased pipeline can be waved through. Use eight or more folds before treating a PASS as evidence of soundness.
 
-Four folds is a screening tool: cheap, and adequate to catch gross problems. Eight or more is what you want before publishing a clean bill of health.
+Four folds is a screening tool: cheap, and adequate to catch gross problems. Eight or more is what you want before publishing a clean bill of health. This is the same small-study problem that Bayesian meta-analysis has studied for years — with only a handful of studies, the heterogeneity parameter is driven by its prior rather than the data, which is exactly why weakly informative scales for it are chosen so carefully [@rover2021weakly].
 
 ## When the pipeline fails the test
 
