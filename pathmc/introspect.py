@@ -61,6 +61,38 @@ _GREEK_PATTERN = re.compile(
 )
 
 
+def _latex_index(name: str) -> str:
+    r"""Render a name as the contents of a subscript group.
+
+    Underscore-separated tokens become comma-separated indices, so
+    ``hsgp_y_x`` -> ``hsgp,y,x``. A verbatim underscore inside a subscript
+    group is a TeX double-subscript error (``\beta_{hsgp_y_x}``): KaTeX
+    aborts the enclosing ``aligned`` block and renders the raw source.
+    """
+    return name.replace("_", ",")
+
+
+def _latex_escape(text: str) -> str:
+    r"""Escape underscores in literal text placed inside a TeX group.
+
+    An unescaped ``_`` is a subscript operator in math mode and an outright
+    parse error in ``\text{}``; either way KaTeX gives up on the enclosing
+    block. ``\_`` renders the character itself in both modes.
+    """
+    return text.replace("_", r"\_")
+
+
+def _latex_symbol(name: str) -> str:
+    r"""Render a variable name as an upright math symbol.
+
+    Underscores are escaped rather than turned into indices — the name is
+    shown as written, not as a multi-index. ``\mathrm{y_t_1}`` is the same
+    double-subscript error as in :func:`_latex_index`, so the escape is
+    required, not cosmetic.
+    """
+    return rf"\mathrm{{{_latex_escape(name)}}}"
+
+
 def _latexify_name(name: str) -> str:
     """Convert a parameter name to LaTeX, recognising Greek prefixes.
 
@@ -76,11 +108,11 @@ def _latexify_name(name: str) -> str:
         base = _GREEK[m.group(1)]
         suffix = m.group(2)
         if suffix:
-            return rf"{base}_{{{suffix.replace('_', ',')}}}"
+            return rf"{base}_{{{_latex_index(suffix)}}}"
         return base
     if "_" in name:
         head, tail = name.split("_", 1)
-        return rf"{head}_{{{tail.replace('_', ',')}}}"
+        return rf"{head}_{{{_latex_index(tail)}}}"
     return name
 
 
@@ -191,11 +223,11 @@ def _latexify_prior(prior_str: str) -> str:
     """
     m = re.match(r"(\w+)\((.+)\)$", prior_str)
     if not m:
-        return rf"\text{{{prior_str}}}"
+        return rf"\text{{{_latex_escape(prior_str)}}}"
     dist_name = m.group(1)
     args = m.group(2)
-    args_latex = r",\, ".join(a.strip() for a in args.split(","))
-    return rf"\text{{{dist_name}}}({args_latex})"
+    args_latex = r",\, ".join(_latex_escape(a.strip()) for a in args.split(","))
+    return rf"\text{{{_latex_escape(dist_name)}}}({args_latex})"
 
 
 def build_dag_viz(
@@ -315,7 +347,7 @@ def build_equations(
         latex_terms: list[str] = []
         if reg.has_intercept:
             terms.append("1")
-            latex_terms.append(rf"\beta_{{0,\,{reg.lhs}}}")
+            latex_terms.append(rf"\beta_{{0,\,{_latex_index(reg.lhs)}}}")
         for t in reg.terms:
             terms.append(_format_term(t))
             latex_terms.append(_format_term_latex(t))
@@ -373,19 +405,20 @@ _MULTILINE_THRESHOLD = 4
 
 def _likelihood_latex(lhs: str, family: str) -> str:
     """Build the distributional likelihood line in LaTeX."""
-    lhs_latex = rf"\mathrm{{{lhs}}}"
-    mu = rf"\mu_{{{lhs}}}"
-    sigma = rf"\sigma_{{{lhs}}}"
+    lhs_latex = _latex_symbol(lhs)
+    idx = _latex_index(lhs)
+    mu = rf"\mu_{{{idx}}}"
+    sigma = rf"\sigma_{{{idx}}}"
 
     if family == "bernoulli":
         return rf"{lhs_latex} &\sim \text{{Bernoulli}}(\text{{logit}}^{{-1}}({mu}))"
     if family == "poisson":
         return rf"{lhs_latex} &\sim \text{{Poisson}}(\exp({mu}))"
     if family == "negbinomial":
-        alpha = rf"\alpha_{{\text{{disp}},\,{lhs}}}"
+        alpha = rf"\alpha_{{\text{{disp}},\,{idx}}}"
         return rf"{lhs_latex} &\sim \text{{NegBinomial}}(\exp({mu}),\, {alpha})"
     if family == "studentt":
-        nu = rf"\nu_{{{lhs}}}"
+        nu = rf"\nu_{{{idx}}}"
         return rf"{lhs_latex} &\sim \text{{StudentT}}({nu},\, {mu},\, {sigma})"
     return rf"{lhs_latex} &\sim \text{{Normal}}({mu},\, {sigma})"
 
@@ -419,7 +452,7 @@ def _build_equation_latex(
     Deterministic equations produce a single :math:`\equiv` line.
     Long linear predictors are split across multiple lines.
     """
-    lhs_latex = rf"\mathrm{{{lhs}}}"
+    lhs_latex = _latex_symbol(lhs)
 
     if deterministic:
         if len(latex_terms) < _MULTILINE_THRESHOLD:
@@ -434,7 +467,7 @@ def _build_equation_latex(
                 result.append(rf"&\quad + {term}")
         return result
 
-    mu_lhs = rf"\mu_{{{lhs}}}"
+    mu_lhs = rf"\mu_{{{_latex_index(lhs)}}}"
 
     if len(latex_terms) < _MULTILINE_THRESHOLD:
         rhs = " + ".join(latex_terms)
@@ -464,14 +497,14 @@ def _format_term_latex(t: Term) -> str:
         prefix = ""
 
     if t.hsgp is not None:
-        return rf"f_{{\mathrm{{hsgp}}}}(\mathrm{{{t.hsgp.variable}}})"
+        return rf"f_{{\mathrm{{hsgp}}}}({_latex_symbol(t.hsgp.variable)})"
     if t.transform is not None:
         return f"{prefix}{_format_transform_latex(t.transform)}"
     if t.interaction_of is not None:
-        parts = [rf"\mathrm{{{v}}}" for v in t.interaction_of]
+        parts = [_latex_symbol(v) for v in t.interaction_of]
         expr = r" \times ".join(parts)
         return f"{prefix}{expr}"
-    var_expr = rf"\mathrm{{{t.variable}}}"
+    var_expr = _latex_symbol(t.variable)
     return f"{prefix}{var_expr}" if prefix else var_expr
 
 
@@ -491,10 +524,10 @@ def _format_transform_latex(tc: TransformCall) -> str:
     if isinstance(tc.input_expr, TransformCall):
         input_str = _format_transform_latex(tc.input_expr)
     else:
-        input_str = rf"\mathrm{{{tc.input_expr}}}"
+        input_str = _latex_symbol(tc.input_expr)
     param_strs = [rf"{_latexify_name(v)}" for v in tc.params.values()]
     all_args = [input_str] + param_strs
-    name_latex = rf"\operatorname{{{tc.name}}}"
+    name_latex = rf"\operatorname{{{_latex_escape(tc.name)}}}"
     joined = r",\, ".join(all_args)
     return rf"{name_latex}({joined})"
 
