@@ -660,6 +660,11 @@ class PathModel:
             ``test_implications()`` to check whether the DAG's structural
             assumptions are consistent with observed data.
 
+            A ``~~`` residual covariance block is a declaration of an
+            unobserved common cause of its members, so it is expanded
+            into a latent confounder node before the criterion is
+            applied: no adjustment set can block it.
+
         Parameters
         ----------
         treatment : str
@@ -685,6 +690,11 @@ class PathModel:
             missing edges, or other forms of misspecification. Use
             ``test_implications()`` to check whether the DAG's structural
             assumptions are consistent with observed data.
+
+            A ``~~`` residual covariance block is a declaration of an
+            unobserved common cause of its members, so it is expanded
+            into a latent confounder node before the criterion is
+            applied: no adjustment set can block it.
 
         Parameters
         ----------
