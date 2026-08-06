@@ -37,6 +37,9 @@ The instrument only identifies the effect for the units whose treatment status i
 It says nothing about *never-takers* (who never receive a push) or *always-takers* (who would receive it regardless).
 The IV estimand is therefore the **Local** Average Treatment Effect: the average effect among compliers.
 Under one-sided non-compliance — as here, where no one in the control arm can receive the push — there are no always-takers, and the LATE is the effect of treatment on the treated compliers.
+
+This only bites when the effect is *heterogeneous*: if compliers respond differently from never-takers, the LATE and the population ATE are different quantities.
+The simulation below is built that way on purpose, so you can watch the IV estimate land on the LATE and miss the ATE.
 :::
 
 ## The causal structure
@@ -84,9 +87,8 @@ FIG_HEIGHT = 4
 COLOR_IV = "#2171b5"
 COLOR_NAIVE = "#e6550d"
 COLOR_TRUE = "#000000"
+COLOR_ATE = "#969696"
 COLOR_WALD = "#31a354"
-
-TRUE_LATE = 0.6  # known causal effect of receiving the push, in $ of in-app purchase
 
 rng = np.random.default_rng(42)
 n = 2_000
@@ -100,13 +102,20 @@ engagement = rng.normal(size=n)
 # Non-compliance: only assigned customers can receive the push, and more
 # engaged customers are more likely to actually receive it. No one in the
 # control arm receives a push (one-sided non-compliance).
-deliver_prob = push_assigned * expit(0.4 + 1.3 * engagement)
+compliance_propensity = expit(0.4 + 1.3 * engagement)
+deliver_prob = push_assigned * compliance_propensity
 push_delivered = rng.binomial(1, deliver_prob)
+
+# Heterogeneous treatment effect: the push is worth a lot to engaged customers
+# and close to nothing to disengaged ones. The same engagement drives
+# compliance, so compliers are not a random sample of the population and the
+# LATE will differ from the ATE.
+effect = 2.5 * expit(2.0 * engagement)
 
 # Outcome: purchases rise with the push (the causal effect we want) and with
 # engagement (the confounder we never observe).
 in_app_purchase = (
-    5.0 + TRUE_LATE * push_delivered + 1.0 * engagement + rng.normal(scale=0.5, size=n)
+    5.0 + effect * push_delivered + 1.0 * engagement + rng.normal(scale=0.5, size=n)
 )
 
 df = pd.DataFrame({
@@ -117,6 +126,28 @@ df = pd.DataFrame({
 print(f"Customers: {len(df)}")
 df.head()
 ```
+
+Because the effect is heterogeneous and compliance is driven by the same
+unobserved engagement, the population average effect and the complier average
+effect are *different numbers*.
+The instrument can only speak to the second one.
+We know both here because we simulated them.
+
+```{python}
+# Compliers: customers who receive the push because they were assigned it.
+# Compliance is stochastic, so we weight each customer by their probability
+# of complying rather than labelling them individually.
+TRUE_ATE = effect.mean()
+TRUE_LATE = np.average(effect, weights=compliance_propensity)
+
+print(f"True ATE  (whole population): {TRUE_ATE:.3f}")
+print(f"True LATE (compliers only):   {TRUE_LATE:.3f}")
+```
+
+The LATE is the larger of the two: compliers are the engaged customers, and the
+push is worth more to them.
+An estimator that recovers the LATE is *not* recovering the ATE, and no amount
+of data closes that gap. It is a different estimand, not a less precise one.
 
 ```{python}
 compliance = (
@@ -141,13 +172,14 @@ def ols_slope(y, x):
 
 naive = ols_slope(df["in_app_purchase"].values, df["push_delivered"].values)
 print(f"Naive OLS (purchase ~ delivered): {naive:.2f}")
-print(f"True effect:                      {TRUE_LATE:.2f}")
+print(f"True LATE:                        {TRUE_LATE:.2f}")
+print(f"True ATE:                         {TRUE_ATE:.2f}")
 ```
 
 ::: {.callout-warning}
 ## The endogeneity trap
 
-The naive estimate is roughly **double** the truth.
+The naive estimate sits well **above** both the LATE and the ATE.
 The reason: the customers who actually *receive* the push are the engaged ones, and they would have purchased more regardless.
 The coefficient soaks up both the genuine effect of the push *and* the engagement gap between receivers and non-receivers.
 Adjustment cannot fix this — engagement is unobserved.
@@ -165,7 +197,7 @@ wald = reduced_form / first_stage
 
 print(f"First stage  (delivered ~ assigned): {first_stage:.3f}")
 print(f"Reduced form (purchase  ~ assigned): {reduced_form:.3f}")
-print(f"Wald LATE = reduced form / first stage: {wald:.2f}  (true = {TRUE_LATE})")
+print(f"Wald LATE = reduced form / first stage: {wald:.2f}  (true = {TRUE_LATE:.2f})")
 ```
 
 The intuition: assignment is randomized, so the reduced form is an unbiased estimate of assignment's *total* effect on purchases.
@@ -195,6 +227,17 @@ Read the spec as the IV assumptions written down:
 - `in_app_purchase ~ push_delivered` — the **structural equation**: notice `push_assigned` is *omitted* here. That omission **is** the exclusion restriction.
 - `push_delivered ~~ in_app_purchase` — the **endogeneity**: the unobserved confounder, declared as a correlation between the two equations' residuals.
 
+::: {.callout-important}
+## The treatment equation here is a linear probability model
+
+`push_delivered` is binary, but the `~~` operator is Gaussian-only: a residual covariance between two equations is defined through a joint `MvNormal`, so pathmc raises if you give a block member a `bernoulli` family.
+The first stage above is therefore a *linear probability model*, not a logistic one.
+
+For a binary instrument and a binary treatment this is less alarming than it looks: both regressions are saturated, so the fitted conditional means are exactly the cell means and the point estimate is unbiased.
+What the Gaussian assumption does cost you is the error structure — the residuals of a binary outcome are heteroskedastic and non-normal, so the 94% HDI below is a quasi-posterior interval rather than one with a coverage guarantee.
+We check it against a bootstrap of the Wald estimator further down.
+:::
+
 ```{python}
 model.equations()
 ```
@@ -219,8 +262,19 @@ pm.model_to_graphviz(model.pymc_model)
 idata = model.fit(draws=500, tune=500, chains=4, random_seed=42)
 ```
 
+The spec labels the two structural coefficients `b_first` and `b_late`, so `effects_summary()` reports exactly those two terms.
+(`summary()` would work too, but the residual block emits a `mu_` deterministic per observation, so it returns a four-thousand-row table.)
+
 ```{python}
-model.summary()
+model.effects_summary()
+```
+
+```{python}
+az.summary(
+    idata,
+    var_names=["beta_push_delivered", "beta_in_app_purchase"],
+    kind="diagnostics",
+)
 ```
 
 ## Did we recover the effect?
@@ -237,14 +291,23 @@ print(
     f"IV posterior LATE: mean = {late_draws.mean():.2f}, "
     f"94% HDI = [{hdi[0]:.2f}, {hdi[1]:.2f}]"
 )
-print(f"True LATE:         {TRUE_LATE}")
-print(f"Naive OLS:         {naive:.2f}  (outside the HDI)")
+print(f"True LATE:         {TRUE_LATE:.2f}")
+print(f"True ATE:          {TRUE_ATE:.2f}")
+print(f"Naive OLS:         {naive:.2f}")
 print(f"Wald estimate:     {wald:.2f}")
+```
+
+The posterior sits on the LATE, not the ATE.
+That is the estimand doing its job, not an error: the instrument only moves treatment for compliers, and compliers here are the engaged customers for whom the push is worth more.
+
+```{python}
+print(f"True LATE inside the 94% HDI? {bool(hdi[0] <= TRUE_LATE <= hdi[1])}")
+print(f"True ATE  inside the 94% HDI? {bool(hdi[0] <= TRUE_ATE <= hdi[1])}")
 ```
 
 ```{python}
 # | label: fig-recovery
-# | fig-cap: "Posterior of the LATE from the pathmc IV model. The posterior brackets the true effect (black) and the frequentist Wald estimate (green), while the naive OLS estimate (orange) sits far outside the credible interval — confounding inflated it by roughly a factor of two."
+# | fig-cap: "Posterior of the LATE from the pathmc IV model. The posterior brackets the true LATE (black) and the frequentist Wald estimate (green). The naive OLS estimate (orange) sits far outside the credible interval, inflated by confounding. The population ATE (grey) also sits outside it — the instrument identifies the complier effect, and here compliers respond more strongly than the average customer."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -252,7 +315,10 @@ x_kde, y_kde, _ = az.kde(late_draws)
 ax.plot(x_kde, y_kde, color=COLOR_IV, lw=2, label="IV posterior (pathmc)")
 ax.fill_between(x_kde, y_kde, alpha=0.3, color=COLOR_IV)
 ax.axvline(
-    TRUE_LATE, color=COLOR_TRUE, ls="--", lw=1.5, label=f"True LATE ({TRUE_LATE})"
+    TRUE_LATE, color=COLOR_TRUE, ls="--", lw=1.5, label=f"True LATE ({TRUE_LATE:.2f})"
+)
+ax.axvline(
+    TRUE_ATE, color=COLOR_ATE, ls=":", lw=1.5, label=f"True ATE ({TRUE_ATE:.2f})"
 )
 ax.axvline(wald, color=COLOR_WALD, ls="--", lw=1.5, label=f"Wald ({wald:.2f})")
 ax.axvline(naive, color=COLOR_NAIVE, ls="--", lw=1.5, label=f"Naive OLS ({naive:.2f})")
@@ -263,7 +329,30 @@ plt.tight_layout()
 plt.show()
 ```
 
-The IV model recovers the true effect; the naive regression does not.
+The IV model recovers the LATE; the naive regression recovers neither estimand.
+
+### Is the interval trustworthy?
+
+The callout above flagged that the treatment equation is a linear probability model, so the residuals are heteroskedastic and the HDI carries no formal coverage guarantee.
+A distribution-free check is cheap: bootstrap the Wald estimator and compare its 94% interval to the posterior HDI.
+
+```{python}
+rng_boot = np.random.default_rng(0)
+boot = np.empty(1_000)
+z_all = df["push_assigned"].values
+t_all = df["push_delivered"].values
+y_all = df["in_app_purchase"].values
+for i in range(boot.size):
+    idx = rng_boot.integers(0, len(df), len(df))
+    boot[i] = ols_slope(y_all[idx], z_all[idx]) / ols_slope(t_all[idx], z_all[idx])
+
+lo, high = np.percentile(boot, [3, 97])
+print(f"Bootstrap Wald 94% interval: [{lo:.2f}, {high:.2f}]")
+print(f"Posterior 94% HDI:           [{hdi[0]:.2f}, {hdi[1]:.2f}]")
+```
+
+The two intervals agree closely, so on this design the Gaussian working likelihood is not distorting the uncertainty in any practically important way.
+That is a property of *this* data, not a theorem: with a rarer treatment, a weaker first stage, or a continuous outcome with strong heteroskedasticity, the two can come apart, and the bootstrap is the one to trust.
 
 ## Reading the endogeneity
 
@@ -305,13 +394,33 @@ The IV model has separated this confounding channel from the causal one.
 ## Counterfactual: turn the push on for everyone
 
 Because the structural equation is generative, interventions propagate through the model.
-`model.do(set={"push_delivered": 1.0})` versus `set={"push_delivered": 0.0}`, differenced, gives the average causal effect of delivering the push to everyone.
-For this linear structural model that contrast is exactly the `push_delivered` coefficient plotted above — the IV recovers it, and `do()` simply re-expresses it as a counterfactual quantity, with the residual-correlation block carried along generatively so confounding is not reintroduced.
+Differencing two `do()` calls gives the counterfactual contrast between delivering the push to everyone and to no one.
+
+```{python}
+r1 = model.do(set={"push_delivered": 1.0}, kind="mean")
+r0 = model.do(set={"push_delivered": 0.0}, kind="mean")
+contrast = (r1.mean("in_app_purchase") - r0.mean("in_app_purchase")).values.flatten()
+
+print(f"do(1) - do(0):          mean = {contrast.mean():.3f}")
+print(f"b_late posterior:       mean = {late_draws.mean():.3f}")
+print(f"Max absolute difference:       {np.abs(contrast - late_draws).max():.2e}")
+```
+
+The two agree to numerical precision, and that is worth understanding rather than just observing.
+Inside a `~~` block, a downstream equation is wired to the *mean* of its upstream block member, so `mu_in_app_purchase` is `b_late * mu_push_delivered`.
+Intervening replaces that mean, and the residual covariance is marginalized out, so under `kind="mean"` the contrast reduces exactly to the structural coefficient.
+
+The confounding has not been smuggled back in: it lives in the residual covariance, which the intervention does not touch.
+Switch to `kind="predictive"` and the LKJ block is sampled rather than marginalized, so the correlated errors widen the predictive spread — but they still do not move the contrast, because they enter both arms identically.
+
+Note what this contrast is *not*: it is a population-wide counterfactual computed from a coefficient the instrument only identifies for compliers.
+Reporting it as the effect of a push rollout to everyone extrapolates the complier effect to never-takers, which the data cannot support.
 
 ## A note on identification
 
-pathmc's `is_identifiable` reasons via the **backdoor criterion** today: it looks for an adjustment set that blocks confounding.
-With an *unobserved* confounder there is no such set, so backdoor identification fails — even though the effect is perfectly identified through the instrument.
+pathmc's `is_identifiable` reasons via the **backdoor criterion**: it looks for an adjustment set that blocks confounding.
+A `~~` block is a declaration that the two equations share an unobserved common cause, so pathmc expands it into a latent confounder node before applying the criterion.
+No adjustment set can block a path through a variable you never measured, so backdoor identification fails — even though the effect is perfectly identified through the instrument.
 
 ```{python}
 print(
@@ -326,7 +435,7 @@ pathmc will estimate the model you write; it will not invent the confounding edg
 
 ## Summary
 
-- **Non-compliance creates endogeneity.** When who-gets-treated is not random, regressing the outcome on treatment-received conflates the treatment effect with whatever drives compliance. Here, naive OLS overstated the effect by roughly 2×.
+- **Non-compliance creates endogeneity.** When who-gets-treated is not random, regressing the outcome on treatment-received conflates the treatment effect with whatever drives compliance. Here, naive OLS overstated the effect substantially.
 - **An instrument identifies the effect.** Random assignment is relevant (it moves delivery), excluded (it affects purchases only through delivery), and exogenous (independent of engagement). That makes it a valid instrument, and the slice of treatment variation it drives identifies the LATE.
 - **pathmc fits IV with zero API change.** Writing the first stage, the structural equation (instrument omitted), and a `~~` residual correlation compiles to the Bayesian limited-information IV model. The structural coefficient recovers the LATE; the residual correlation quantifies the confounding.
 - **The estimand is local.** IV speaks to compliers — the units whose treatment the instrument actually changes — not the whole population.
