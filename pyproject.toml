@@ -53,12 +53,12 @@ Documentation = "https://pathmc.pymc-labs.com/"
 Issues = "https://github.com/pymc-labs/pathmc/issues"
 Contributing = "https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["build", "ipykernel", "mypy", "polars", "prek", "pytest", "pytest-cov", "ruff"]
+
+[project.optional-dependencies]
 docs = [
-    # 0.11.0 is the first release with both `freeze` and the `skill` CLI
-    # (posit-dev/great-docs#158 and #164).
-    "great-docs>=0.11.0",
+    "great-docs>=0.16.0",
 ]
 samplers = ["nutpie", "numpyro", "jax"]
 

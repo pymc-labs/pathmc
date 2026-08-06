@@ -84,3 +84,28 @@ def test_mean_do_propagates_poisson_mediator_on_response_scale() -> None:
     assert np.isclose(r1.mean("M"), 3.0)
     assert np.isclose(r0.mean("Y"), 2.0)
     assert np.isclose(r1.mean("Y"), 6.0)
+
+
+def test_mean_do_averages_interaction_rows_within_each_draw() -> None:
+    """Interaction heterogeneity must not be mistaken for posterior uncertainty."""
+    data = pd.DataFrame({
+        "T": np.array([0.0, 1.0, 0.0, 1.0]),
+        "X": np.arange(4, dtype=float),
+        "Y": np.zeros(4),
+    })
+    model = pathmc.model("Y ~ T + X + T:X", data=data)
+    model._idata = az.from_dict(
+        {
+            "posterior": {
+                "beta_Y": np.array([[[1.0, 2.0, 3.0, 4.0], [2.0, 4.0, 6.0, 8.0]]]),
+                "sigma_Y": np.ones((1, 2)),
+            }
+        },
+        coords={"Y_predictors": ["Intercept", "T", "X", "T:X"]},
+        dims={"beta_Y": ["Y_predictors"]},
+    )
+
+    result = model.do(set={"T": 1.0}, kind="mean")
+
+    assert result.dataset["Y"].dims == ("chain", "draw")
+    np.testing.assert_allclose(result.draws("Y"), [13.5, 27.0])

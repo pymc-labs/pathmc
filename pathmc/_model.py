@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import sys
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Literal
 
 import arviz as az
@@ -68,6 +70,31 @@ from pathmc.simulate import (
 )
 
 __all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
+
+#: pm.Data flag on scan-compiled panel models. 1 makes the scan carry the
+#: observed previous value of a lagged endogenous variable, 0 makes it carry
+#: the model's own simulated value.
+_OBSERVED_CARRY_FLAG = "_use_observed_carry"
+
+
+@contextmanager
+def _observed_carry(pymc_model: pm.Model, enabled: bool) -> Iterator[None]:
+    """Temporarily set the observed-carry flag, restoring the old value.
+
+    A no-op on models without the flag (anything but a scan-compiled panel
+    model with a lagged endogenous term).
+    """
+    if _OBSERVED_CARRY_FLAG not in pymc_model.named_vars:
+        yield
+        return
+
+    flag = pymc_model[_OBSERVED_CARRY_FLAG]
+    previous = flag.get_value()
+    flag.set_value(np.array(int(enabled), dtype="int8"))
+    try:
+        yield
+    finally:
+        flag.set_value(previous)
 
 
 class PathModel:
@@ -231,9 +258,9 @@ class PathModel:
 
         if observations:
             self._pymc_model = pm.observe(self._gen_model, observations)
-            if "_use_observed_carry" in self._pymc_model.named_vars:
+            if _OBSERVED_CARRY_FLAG in self._pymc_model.named_vars:
                 with self._pymc_model:
-                    pm.set_data({"_use_observed_carry": np.array(1, dtype="int8")})
+                    pm.set_data({_OBSERVED_CARRY_FLAG: np.array(1, dtype="int8")})
         else:
             self._pymc_model = self._gen_model
         self._idata = None
@@ -569,7 +596,7 @@ class PathModel:
                 )
         return self._idata
 
-    def predict(self, **kwargs: Any) -> xr.DataTree:
+    def predict(self, *, one_step_ahead: bool = True, **kwargs: Any) -> xr.DataTree:
         """Run posterior predictive sampling.
 
         Wraps ``pm.sample_posterior_predictive()`` and extends the
@@ -577,6 +604,18 @@ class PathModel:
 
         Parameters
         ----------
+        one_step_ahead : bool
+            Only meaningful for panel models with a lagged endogenous
+            term such as ``y ~ lag(y)``. When ``True`` (default) each
+            time step conditions on the *observed* previous value, so
+            the predictions are one-step-ahead forecasts — the posterior
+            predictive distribution that matches the likelihood the
+            model was fitted with, and the right choice for a posterior
+            predictive check. When ``False`` the recursion is free-running:
+            step *t* conditions on the model's own simulated value at
+            *t-1*, giving a multi-step trajectory whose uncertainty
+            compounds over time. Ignored for models without a lagged
+            endogenous term, where the two are identical.
         **kwargs
             Passed directly to ``pm.sample_posterior_predictive()``.
             Pass ``extend_inferencedata=False`` to leave the stored
@@ -599,7 +638,7 @@ class PathModel:
         idata = self._require_fitted("predict")
         assert self._pymc_model is not None
         kwargs.setdefault("extend_inferencedata", True)
-        with self._pymc_model:
+        with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
             pp = pm.sample_posterior_predictive(idata, **kwargs)
         if not kwargs["extend_inferencedata"]:
             return pp
@@ -1092,13 +1131,39 @@ class PathModel:
         RuntimeError
             If called before ``.fit()``.
         ValueError
-            If ``simulate_over="time"`` without panel.
+            If ``simulate_over="time"`` without panel, or if an intervention
+            on an ``hsgp()`` input falls outside the basis boundary
+            ``[mid - L, mid + L]`` frozen from the fitted data (beyond it
+            the basis aliases instead of extrapolating).
         """
         idata = self._require_fitted("do")
         assert self._data is not None
         assert self._gen_model is not None
 
         if set:
+            from pathmc.hsgp import hsgp_intervention_bounds
+
+            hsgp_bounds = hsgp_intervention_bounds(self._spec, self._data)
+            for var, val in set.items():
+                if var not in hsgp_bounds:
+                    continue
+                lo, hi = hsgp_bounds[var]
+                if isinstance(val, np.ndarray):
+                    outside = float(val.min()) < lo or float(val.max()) > hi
+                    val_desc = f"[{float(val.min()):.2f}, {float(val.max()):.2f}]"
+                else:
+                    outside = val < lo or val > hi
+                    val_desc = f"{val:.2f}"
+                if outside:
+                    raise ValueError(
+                        f"Intervention value {val_desc} for '{var}' is outside "
+                        f"the HSGP basis boundary [{lo:.2f}, {hi:.2f}] frozen "
+                        f"from the fitted data. Beyond this boundary the basis "
+                        f"eigenfunctions alias, so the result would be "
+                        f"meaningless rather than an extrapolation. Refit with "
+                        f"a larger c or an explicit L to widen the valid "
+                        f"region."
+                    )
             for var, val in set.items():
                 if var not in self._data.columns:
                     continue
@@ -1461,7 +1526,7 @@ class PathModel:
             raise ValueError(f"n_grid must be >= 2, got {n_grid}.")
 
         ate_result = self.ate(outcome, treatment, values=values, **do_kwargs)
-        ate_draws = ate_result._draw(outcome)
+        ate_draws = ate_result.draws(outcome)
 
         return compute_sensitivity(
             observed_ate_draws=ate_draws,
@@ -1503,7 +1568,7 @@ class PathModel:
         self._require_data("prob")
         result = self.do(set=set, kind=kind, **do_kwargs)
         namespace: dict[str, Any] = {
-            str(var): result._draw(str(var)) for var in result.dataset.data_vars
+            str(var): result.draws(str(var)) for var in result.dataset.data_vars
         }
         namespace["np"] = np
         namespace["__builtins__"] = {}
@@ -1727,6 +1792,12 @@ def simulate(
         raise NotImplementedError(
             "simulate() does not yet support residual covariances (~~). "
             "Use numpy-based simulation for models with correlated residuals."
+        )
+
+    if any(t.hsgp is not None for reg in spec.regressions for t in reg.terms):
+        raise NotImplementedError(
+            "simulate() does not yet support hsgp() terms. Build the model with "
+            "model(), fit(), and use .do() for interventional draws instead."
         )
 
     graph_info = build_graph(spec, latent=latent_set)
