@@ -179,3 +179,47 @@ class TestTemporalEdgesIdentification:
         g = _graph("sales ~ spend + lag(sales)")
         warnings = collider_warnings(g, {"lag(sales)"}, "spend", "sales")
         assert len(warnings) == 0
+
+
+class TestResidualCovarianceIdentification:
+    """``~~`` declares unobserved confounding, so the backdoor
+    criterion must not report the effect as identifiable (#344)."""
+
+    IV_SPEC = "T ~ Z\nY ~ T\nT ~~ Y"
+
+    def test_residual_block_blocks_identification(self):
+        g = _graph(self.IV_SPEC)
+        assert not is_identifiable(g, "T", "Y")
+
+    def test_residual_block_has_no_adjustment_set(self):
+        g = _graph(self.IV_SPEC)
+        assert adjustment_sets(g, "T", "Y") == []
+
+    def test_without_residual_block_effect_is_identified(self):
+        """Same DAG minus the ~~ edge: nothing to adjust for, so the
+        empty set is valid and the effect is identifiable."""
+        g = _graph("T ~ Z\nY ~ T")
+        assert is_identifiable(g, "T", "Y")
+
+    def test_synthetic_confounder_not_offered_for_adjustment(self):
+        """The latent node is never a candidate adjustment variable."""
+        g = _graph("T ~ Z\nY ~ T + W\nT ~~ Y")
+        for s in adjustment_sets(g, "T", "Y"):
+            assert not any(v.startswith("_u_resid_") for v in s)
+
+    def test_unrelated_residual_block_does_not_break_identification(self):
+        """A ~~ block between two variables that are not the treatment
+        and outcome must leave the T -> Y effect identifiable."""
+        g = _graph("M1 ~ X\nM2 ~ X\nY ~ T\nM1 ~~ M2")
+        assert is_identifiable(g, "T", "Y")
+
+    def test_model_method_reports_not_identifiable(self):
+        rng = np.random.default_rng(0)
+        n = 50
+        df = pd.DataFrame({
+            "Z": rng.normal(size=n),
+            "T": rng.normal(size=n),
+            "Y": rng.normal(size=n),
+        })
+        model = pathmc.model(self.IV_SPEC, data=df)
+        assert not model.is_identifiable("T", "Y")

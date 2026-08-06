@@ -50,6 +50,48 @@ def _require_nodes(dag: nx.DiGraph, **named: str) -> None:
             )
 
 
+def _with_residual_confounders(
+    graph_info: GraphInfo,
+) -> tuple[nx.DiGraph, set[str]]:
+    """Return the contemporaneous DAG with ``~~`` blocks made explicit.
+
+    A residual covariance block (``X ~~ Y``) declares that the two
+    equations share an *unobserved* common cause. The DAG stored in
+    :class:`~pathmc.graph.GraphInfo` has no node for that cause, so
+    graphical criteria that only read directed edges are blind to it and
+    will happily report an effect as identifiable when the user has
+    explicitly declared endogeneity.
+
+    This is the standard latent projection: each residual block gets one
+    synthetic latent node with an edge to every block member. Because the
+    node is latent it can never enter an adjustment set, so the backdoor
+    path it opens is unblockable, which is the correct answer.
+
+    Returns
+    -------
+    tuple[nx.DiGraph, set[str]]
+        The augmented DAG and the latent set including the synthetic
+        confounders.
+    """
+    dag = graph_info.contemporaneous_dag
+    latent = set(graph_info.latent)
+
+    if not graph_info.residual_blocks:
+        return dag, latent
+
+    dag = dag.copy()
+    for i, block in enumerate(graph_info.residual_blocks):
+        if len(block) < 2:
+            continue
+        u = f"_u_resid_{i}"
+        dag.add_node(u)
+        latent.add(u)
+        for var in sorted(block):
+            dag.add_edge(u, var)
+
+    return dag, latent
+
+
 def adjustment_sets(
     graph_info: GraphInfo,
     treatment: str,
@@ -71,6 +113,11 @@ def adjustment_sets(
         ``test_implications()`` to check whether the DAG's structural
         assumptions are consistent with observed data.
 
+        A ``~~`` residual covariance block is a declaration of an
+        unobserved common cause of its members, so it is expanded into
+        a latent confounder node before the criterion is applied: no
+        adjustment set can block the backdoor path it opens.
+
     Parameters
     ----------
     graph_info : GraphInfo
@@ -87,10 +134,11 @@ def adjustment_sets(
         alphabetically. Empty list if no valid set exists or if
         the effect is already identified without adjustment.
     """
-    dag = graph_info.contemporaneous_dag
-    latent = graph_info.latent
+    _require_nodes(
+        graph_info.contemporaneous_dag, treatment=treatment, outcome=outcome
+    )
 
-    _require_nodes(dag, treatment=treatment, outcome=outcome)
+    dag, latent = _with_residual_confounders(graph_info)
 
     descendants = nx.descendants(dag, treatment)
     candidates = set(dag.nodes) - {treatment, outcome} - descendants - latent
@@ -126,6 +174,11 @@ def is_identifiable(
         edges, or other forms of misspecification. Use
         ``test_implications()`` to check whether the DAG's structural
         assumptions are consistent with observed data.
+
+        A ``~~`` residual covariance block is a declaration of an
+        unobserved common cause of its members, so it is expanded into
+        a latent confounder node before the criterion is applied: no
+        adjustment set can block the backdoor path it opens.
 
     Parameters
     ----------
@@ -192,9 +245,14 @@ def frontdoor_identifiable(
         ``(identifiable, message)`` where *message* explains the result
         or describes which condition fails.
     """
-    dag = graph_info.contemporaneous_dag
+    _require_nodes(
+        graph_info.contemporaneous_dag,
+        treatment=treatment,
+        mediator=mediator,
+        outcome=outcome,
+    )
 
-    _require_nodes(dag, treatment=treatment, mediator=mediator, outcome=outcome)
+    dag, _ = _with_residual_confounders(graph_info)
 
     if treatment == mediator or mediator == outcome or treatment == outcome:
         raise ValueError(
