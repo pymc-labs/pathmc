@@ -399,11 +399,11 @@ Differencing two `do()` calls gives the counterfactual contrast between deliveri
 ```{python}
 r1 = model.do(set={"push_delivered": 1.0}, kind="mean")
 r0 = model.do(set={"push_delivered": 0.0}, kind="mean")
-contrast = (r1.mean("in_app_purchase") - r0.mean("in_app_purchase")).values.flatten()
+contrast = (r1 - r0).draws("in_app_purchase")
 
-print(f"do(1) - do(0):          mean = {contrast.mean():.3f}")
-print(f"b_late posterior:       mean = {late_draws.mean():.3f}")
-print(f"Max absolute difference:       {np.abs(contrast - late_draws).max():.2e}")
+print(f"do(1) - do(0):    mean = {contrast.mean():.3f}")
+print(f"b_late posterior: mean = {late_draws.mean():.3f}")
+print(f"Max absolute difference between the two: {np.abs(contrast - late_draws).max():.2e}")
 ```
 
 The two agree to numerical precision, and that is worth understanding rather than just observing.
