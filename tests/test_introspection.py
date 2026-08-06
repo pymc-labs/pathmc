@@ -17,11 +17,23 @@ These methods should work BEFORE sampling — they describe model
 structure, not posterior results. All tests are fast.
 """
 
+import re
+
+import numpy as np
+import pandas as pd
 import pymc as pm
+import pytest
 
 import pathmc
+from pathmc.introspect import _latexify_name
 
 from conftest import MEDIATION_SPEC, PARALLEL_MEDIATORS_SPEC
+
+# Two bare underscores inside one subscript group (e.g. \beta_{hsgp_y_x}) are
+# a TeX double-subscript error: MathJax aborts the whole aligned block and
+# dumps raw source. Generated names should carry no bare underscore at all —
+# suffix tokens become comma-separated indices — so assert the stricter form.
+_DOUBLE_SUBSCRIPT = re.compile(r"_\{[^{}]*_[^{}]*\}")
 
 
 class TestGraph:
@@ -87,3 +99,44 @@ class TestPyMCModelAccess:
     def test_pymc_model_accessible(self, mediation_data):
         model = pathmc.model(MEDIATION_SPEC, data=mediation_data)
         assert isinstance(model.pymc_model, pm.Model)
+
+
+class TestLatexifyName:
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("sigma", r"\sigma"),
+            ("theta_tv", r"\theta_{tv}"),
+            ("b_tv", "b_{tv}"),
+            ("eta_y_x", r"\eta_{y,x}"),
+            ("ell_y_x", r"\ell_{y,x}"),
+            ("beta_hsgp_y_x", r"\beta_{hsgp,y,x}"),
+            ("mu_slope_sales_tv", r"\mu_{slope,sales,tv}"),
+            ("slope_demand_price", "slope_{demand,price}"),
+        ],
+    )
+    def test_latexify_name(self, name, expected):
+        assert _latexify_name(name) == expected
+
+    @pytest.mark.parametrize(
+        "name", ["beta_hsgp_y_x", "mu_slope_sales_tv", "sigma_slope_demand_price"]
+    )
+    def test_no_double_subscript(self, name):
+        assert not _DOUBLE_SUBSCRIPT.search(_latexify_name(name))
+
+
+class TestLatexRendering:
+    @pytest.fixture
+    def hsgp_model(self):
+        rng = np.random.default_rng(0)
+        x = np.linspace(0, 1, 50)
+        df = pd.DataFrame({"x": x, "y": np.sin(2 * np.pi * x) + rng.normal(0, 0.1, 50)})
+        return pathmc.model("y ~ hsgp(x, m=20, c=1.5)", data=df)
+
+    def test_hsgp_equations_latex_is_valid(self, hsgp_model):
+        latex = hsgp_model.equations()._repr_latex_()
+        assert not _DOUBLE_SUBSCRIPT.search(latex), latex
+
+    def test_hsgp_priors_latex_is_valid(self, hsgp_model):
+        latex = hsgp_model.priors()._repr_latex_()
+        assert not _DOUBLE_SUBSCRIPT.search(latex), latex

@@ -33,6 +33,7 @@ _GREEK = {
     "beta": r"\beta",
     "gamma": r"\gamma",
     "delta": r"\delta",
+    "ell": r"\ell",
     "epsilon": r"\epsilon",
     "zeta": r"\zeta",
     "eta": r"\eta",
@@ -64,18 +65,22 @@ def _latexify_name(name: str) -> str:
     """Convert a parameter name to LaTeX, recognising Greek prefixes.
 
     Examples: ``theta_tv`` -> ``\\theta_{tv}``, ``b_tv`` -> ``b_{tv}``,
-    ``sigma`` -> ``\\sigma``.
+    ``sigma`` -> ``\\sigma``, ``beta_hsgp_y_x`` -> ``\\beta_{hsgp,y,x}``.
+
+    Underscore-separated suffix tokens become comma-separated indices: a
+    verbatim underscore inside the subscript is a TeX double-subscript
+    error that makes MathJax render the whole block as raw source.
     """
     m = _GREEK_PATTERN.match(name)
     if m:
         base = _GREEK[m.group(1)]
         suffix = m.group(2)
         if suffix:
-            return rf"{base}_{{{suffix}}}"
+            return rf"{base}_{{{suffix.replace('_', ',')}}}"
         return base
     if "_" in name:
         head, tail = name.split("_", 1)
-        return rf"{head}_{{{tail}}}"
+        return rf"{head}_{{{tail.replace('_', ',')}}}"
     return name
 
 
