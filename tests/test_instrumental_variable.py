@@ -122,9 +122,7 @@ def test_naive_estimate_falls_outside_the_iv_interval(iv_data, fitted_iv):
 @pytest.mark.slow
 def test_first_stage_recovers_instrument_relevance(fitted_iv):
     """Relevance is the one IV condition that *is* testable from data."""
-    g_post = (
-        fitted_iv._idata.posterior["beta_T"].sel(T_predictors="Z").values.flatten()
-    )
+    g_post = fitted_iv._idata.posterior["beta_T"].sel(T_predictors="Z").values.flatten()
     assert abs(g_post.mean() - 0.8) < 0.15, (
         f"first stage should recover 0.8, got {g_post.mean():.3f}"
     )

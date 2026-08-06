@@ -403,7 +403,9 @@ contrast = (r1 - r0).draws("in_app_purchase")
 
 print(f"do(1) - do(0):    mean = {contrast.mean():.3f}")
 print(f"b_late posterior: mean = {late_draws.mean():.3f}")
-print(f"Max absolute difference between the two: {np.abs(contrast - late_draws).max():.2e}")
+print(
+    f"Max absolute difference between the two: {np.abs(contrast - late_draws).max():.2e}"
+)
 ```
 
 The two agree to numerical precision, and that is worth understanding rather than just observing.
