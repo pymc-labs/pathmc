@@ -148,7 +148,7 @@ def test_iv_model_converged(fitted_iv):
     import arviz as az
 
     idata = fitted_iv._idata
-    summary = az.summary(idata, var_names=["beta_T", "beta_Y"])
+    summary = az.summary(idata, var_names=["beta_T", "beta_Y"], round_to="none")
     assert summary["r_hat"].max() < 1.05, (
         f"max r_hat {summary['r_hat'].max():.3f} indicates non-convergence"
     )
