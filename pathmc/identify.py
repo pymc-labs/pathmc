@@ -134,9 +134,7 @@ def adjustment_sets(
         alphabetically. Empty list if no valid set exists or if
         the effect is already identified without adjustment.
     """
-    _require_nodes(
-        graph_info.contemporaneous_dag, treatment=treatment, outcome=outcome
-    )
+    _require_nodes(graph_info.contemporaneous_dag, treatment=treatment, outcome=outcome)
 
     dag, latent = _with_residual_confounders(graph_info)
 
