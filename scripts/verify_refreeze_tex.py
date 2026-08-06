@@ -1,3 +1,16 @@
+#   Copyright 2025 - 2026 The PyMC Labs Developers
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
 """Check that the freeze rewrite agrees with the real escaper.
 
 ``scripts/refreeze_tex.py`` transforms cached TeX textually, which makes it a
@@ -39,8 +52,8 @@ _SPECS: list[tuple[str, dict]] = [
     ("birth_weight ~ tv_spend + sales_q_1", {}),
     ("y_t_1 ~ x_i_j + z", {}),
     ("sales ~ logistic_saturation(tv_spend, lam=lam_tv)", {}),
-    ("sales ~ geometric_adstock(tv_spend, alpha=alpha_tv)", {}),
-    ("y ~ hsgp(x)", {}),
+    ("sales ~ adstock(tv_spend, decay=decay_tv)", {}),
+    ("y ~ hsgp(x, m=20, c=1.5)", {}),
     ("outcome_obs ~ treat_flag * region_id", {}),
     ("M_obs ~ X_raw", {}),
     ("awareness_survey ~ search_traffic + display_spend", {}),
@@ -57,12 +70,10 @@ def _emit() -> dict[str, str]:
             key = f"{spec}|{family}"
             try:
                 model = pathmc.model(spec, families={lhs: family}, **kwargs)
-                out[key] = "\n".join(
-                    (
-                        model.equations()._repr_latex_(),
-                        model.priors()._repr_latex_(),
-                    )
-                )
+                out[key] = "\n".join((
+                    model.equations()._repr_latex_(),
+                    model.priors()._repr_latex_(),
+                ))
             except Exception as exc:  # noqa: BLE001 - recorded, not raised
                 out[key] = f"__ERROR__ {type(exc).__name__}: {exc}"
     return out
