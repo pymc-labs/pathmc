@@ -66,6 +66,7 @@ tags:
     Mediation: route
     Moderation: sliders-horizontal
     Sensitivity Analysis: activity
+    Refutation: shield-check
     Panel Data: table
     Difference-in-Differences: git-compare
     Simulation: dices
@@ -74,6 +75,9 @@ tags:
     Latent Variables: eye-off
     Media Mix Modeling: megaphone
     Hierarchical Effects: layers
+    Gaussian Process: waves
+    HSGP: spline
+    Nonparametric: trending-up
 
 # API Reference --------------------------------------------------------------
 # Public surface only: top-level constructors, PathModel methods, result/display
@@ -169,8 +173,7 @@ seo:
 # Project-level bibliography is forwarded to all rendered pages.
 bibliography: docs/references.bib
 
-# Jupyter kernel for executable code cells. Register it from the uv-managed
-# venv with: uv run python -m ipykernel install --user --name pathmc
+# Jupyter kernel for executable code cells. Registered via `make jupyter-kernel`.
 jupyter: pathmc
 
 # Render code-cell figures as 2x PNGs and display them at their logical size.

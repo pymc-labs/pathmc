@@ -54,8 +54,8 @@ import narwhals.stable.v1 as nw
 import networkx as nx
 import numpy as np
 import pandas as pd
-from scipy import stats
 
+from pathmc._ci import _PartialCorrelationTester
 from pathmc.graph import GraphInfo
 from pathmc.reprs import ResultReprMixin
 
@@ -366,103 +366,6 @@ class FalsificationResult(ResultReprMixin):
         )
         ax.legend(loc="best", fontsize="small")
         return fig
-
-
-class _PartialCorrelationTester:
-    """Memoized partial-correlation conditional independence tester.
-
-    Holds a numeric matrix extracted once from the data and caches each
-    ``X ⊥⊥ Y | Z`` p-value. Independence is symmetric in ``X`` and ``Y``,
-    so the cache key normalizes their order, mirroring dowhy's
-    ``_PValuesMemory`` and avoiding recomputation across the many
-    permuted graphs that re-test the same triples.
-    """
-
-    def __init__(self, data: nw.DataFrame, variables: list[str]) -> None:
-        columns = set(data.columns)
-        numeric: list[str] = []
-        arrays: list[np.ndarray] = []
-        for var in variables:
-            if var not in columns:
-                continue
-            try:
-                col = data.select(var).to_numpy().astype(float).ravel()
-            except (ValueError, TypeError):
-                # Non-numeric (string/categorical) columns cannot enter a
-                # partial-correlation test; treat them as unavailable so the
-                # affected triples are skipped, exactly like a missing column.
-                continue
-            numeric.append(var)
-            arrays.append(col)
-        if arrays:
-            matrix = np.column_stack(arrays)
-        else:
-            matrix = np.empty((0, 0), dtype=float)
-        self._matrix = matrix
-        self._col_idx = {name: i for i, name in enumerate(numeric)}
-        self._cache: dict[tuple[frozenset[str], frozenset[str]], float | None] = {}
-
-    def p_value(self, x: str, y: str, z_vars: tuple[str, ...]) -> float | None:
-        """Return the CI test p-value, or ``None`` if it cannot be run.
-
-        ``None`` signals a skipped test: a required variable has no data
-        column, or there are too few complete observations.
-        """
-        key = (frozenset((x, y)), frozenset(z_vars))
-        if key in self._cache:
-            return self._cache[key]
-        result = self._compute(x, y, z_vars)
-        self._cache[key] = result
-        return result
-
-    def _compute(self, x: str, y: str, z_vars: tuple[str, ...]) -> float | None:
-        needed = [x, y, *z_vars]
-        if any(v not in self._col_idx for v in needed):
-            return None
-
-        cols = [self._col_idx[v] for v in needed]
-        arr = self._matrix[:, cols]
-        arr = arr[~np.isnan(arr).any(axis=1)]
-        n = arr.shape[0]
-        k = len(z_vars)
-        if n < 3:
-            return None
-
-        x_vals = arr[:, 0]
-        y_vals = arr[:, 1]
-
-        if k == 0:
-            if np.std(x_vals) == 0.0 or np.std(y_vals) == 0.0:
-                return None
-            r, p = stats.pearsonr(x_vals, y_vals)
-            return float(p)
-
-        z_with_intercept = np.column_stack([np.ones(n), arr[:, 2:]])
-        # Effective rank handles constant or collinear conditioning columns:
-        # a constant conditioner collapses into the intercept, so the test
-        # reduces to the marginal one and the degrees of freedom must reflect
-        # the true number of independent predictors, not len(z_vars).
-        rank = int(np.linalg.matrix_rank(z_with_intercept))
-        df = n - rank - 1
-        if df <= 0:
-            return None
-
-        beta_x, _, _, _ = np.linalg.lstsq(z_with_intercept, x_vals, rcond=None)
-        resid_x = x_vals - z_with_intercept @ beta_x
-        beta_y, _, _, _ = np.linalg.lstsq(z_with_intercept, y_vals, rcond=None)
-        resid_y = y_vals - z_with_intercept @ beta_y
-
-        if np.std(resid_x) == 0.0 or np.std(resid_y) == 0.0:
-            return None
-
-        r = float(np.corrcoef(resid_x, resid_y)[0, 1])
-        if np.isnan(r):
-            return None
-        if r * r >= 1.0:
-            return 0.0
-
-        t_stat = r * np.sqrt(df) / np.sqrt(1.0 - r * r)
-        return float(2.0 * stats.t.sf(np.abs(t_stat), df))
 
 
 def _parental_triples(

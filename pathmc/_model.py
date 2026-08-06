@@ -98,6 +98,37 @@ def _observed_carry(pymc_model: pm.Model, enabled: bool) -> Iterator[None]:
         flag.set_value(previous)
 
 
+def _reject_hsgp_out_of_bounds(
+    spec: Spec,
+    data: nw.DataFrame,
+    interventions: Mapping[str, float | np.ndarray],
+) -> None:
+    """Raise when an intervention falls outside an HSGP basis boundary."""
+    from pathmc.hsgp import hsgp_intervention_bounds
+
+    hsgp_bounds = hsgp_intervention_bounds(spec, data)
+    for var, val in interventions.items():
+        if var not in hsgp_bounds:
+            continue
+        lo, hi = hsgp_bounds[var]
+        if isinstance(val, np.ndarray):
+            outside = float(val.min()) < lo or float(val.max()) > hi
+            val_desc = f"[{float(val.min()):.2f}, {float(val.max()):.2f}]"
+        else:
+            outside = val < lo or val > hi
+            val_desc = f"{val:.2f}"
+        if outside:
+            raise ValueError(
+                f"Intervention value {val_desc} for '{var}' is outside "
+                f"the HSGP basis boundary [{lo:.2f}, {hi:.2f}] frozen "
+                f"from the fitted data. Beyond this boundary the basis "
+                f"eigenfunctions alias, so the result would be "
+                f"meaningless rather than an extrapolation. Refit with "
+                f"a larger c or an explicit L to widen the valid "
+                f"region."
+            )
+
+
 def _warn_extrapolation(
     data: nw.DataFrame, interventions: Mapping[str, float | np.ndarray]
 ) -> None:
@@ -1169,13 +1200,17 @@ class PathModel:
         RuntimeError
             If called before ``.fit()``.
         ValueError
-            If ``simulate_over="time"`` without panel.
+            If ``simulate_over="time"`` without panel, or if an intervention
+            on an ``hsgp()`` input falls outside the basis boundary
+            ``[mid - L, mid + L]`` frozen from the fitted data (beyond it
+            the basis aliases instead of extrapolating).
         """
         idata = self._require_fitted("do")
         assert self._data is not None
         assert self._gen_model is not None
 
         if set:
+            _reject_hsgp_out_of_bounds(self._spec, self._data, set)
             _warn_extrapolation(self._data, set)
 
         if simulate_over == "time":
@@ -1254,8 +1289,9 @@ class PathModel:
         RuntimeError
             If called before ``.fit()``.
         ValueError
-            If *evidence* or *do* keys are invalid, or the model uses
-            non-Gaussian families.
+            If *evidence* or *do* keys are invalid, an intervention on an
+            ``hsgp()`` input falls outside the basis boundary frozen from
+            the fitted data, or the model uses non-Gaussian families.
         NotImplementedError
             If the model is a panel model.
         """
@@ -1272,6 +1308,7 @@ class PathModel:
                 "every structural variable."
             )
         assert self._data is not None
+        _reject_hsgp_out_of_bounds(self._spec, self._data, do)
         _warn_extrapolation(self._data, do)
         return run_counterfactual(
             spec=self._spec,
@@ -1847,6 +1884,12 @@ def simulate(
         raise NotImplementedError(
             "simulate() does not yet support residual covariances (~~). "
             "Use numpy-based simulation for models with correlated residuals."
+        )
+
+    if any(t.hsgp is not None for reg in spec.regressions for t in reg.terms):
+        raise NotImplementedError(
+            "simulate() does not yet support hsgp() terms. Build the model with "
+            "model(), fit(), and use .do() for interventional draws instead."
         )
 
     graph_info = build_graph(spec, latent=latent_set)

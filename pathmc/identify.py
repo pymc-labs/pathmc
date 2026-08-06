@@ -27,8 +27,8 @@ import narwhals.stable.v1 as nw
 import networkx as nx
 import numpy as np
 import pandas as pd
-from scipy import stats
 
+from pathmc._ci import partial_correlation_ci
 from pathmc.graph import GraphInfo
 from pathmc.reprs import ResultReprMixin
 
@@ -582,42 +582,23 @@ def _partial_correlation_test(
 ) -> tuple[float, float, int]:
     """Test conditional independence via partial correlation.
 
-    Rows with any missing value (null or float NaN) in the involved
-    columns are dropped. Returns (partial_r, p_value, n_obs). If there
-    are insufficient observations for the test, returns (nan, nan, n_obs).
+    Thin adapter over :func:`pathmc._ci.partial_correlation_ci`, which
+    drops rows with any missing value (null or float NaN) in the involved
+    columns and uses rank-aware degrees of freedom. Returns
+    (partial_r, p_value, n_obs); tests the engine cannot run (too few
+    complete observations, zero variance, non-positive degrees of
+    freedom) surface as (nan, nan, n_obs).
     """
     cols = [x, y, *z_vars]
-    # Filter in numpy space: nulls become NaN on conversion, so a single
-    # isnan mask handles both pandas NaN and polars null/NaN semantics.
+    # Convert in numpy space: nulls become NaN on conversion, so the
+    # engine's isnan mask handles both pandas NaN and polars null/NaN
+    # semantics.
     arr = data.select(cols).to_numpy().astype(float)
-    arr = arr[~np.isnan(arr).any(axis=1)]
-    n = arr.shape[0]
-    k = len(z_vars)
-
-    if n < k + 3:
-        return np.nan, np.nan, n
-
-    x_vals = arr[:, 0]
-    y_vals = arr[:, 1]
-
-    if not z_vars:
-        r, p = stats.pearsonr(x_vals, y_vals)
-        return float(r), float(p), n
-
-    z_mat = arr[:, 2:]
-    z_with_intercept = np.column_stack([np.ones(n), z_mat])
-
-    beta_x, _, _, _ = np.linalg.lstsq(z_with_intercept, x_vals, rcond=None)
-    resid_x = x_vals - z_with_intercept @ beta_x
-
-    beta_y, _, _, _ = np.linalg.lstsq(z_with_intercept, y_vals, rcond=None)
-    resid_y = y_vals - z_with_intercept @ beta_y
-
-    r = np.corrcoef(resid_x, resid_y)[0, 1]
-    df = n - k - 2
-    t_stat = r * np.sqrt(df) / np.sqrt(1.0 - r**2)
-    p = 2.0 * stats.t.sf(np.abs(t_stat), df)
-    return float(r), float(p), n
+    result = partial_correlation_ci(arr[:, 0], arr[:, 1], arr[:, 2:])
+    if result.skip_reason is not None:
+        return np.nan, np.nan, result.n
+    assert result.r is not None and result.p is not None  # narrowing
+    return result.r, result.p, result.n
 
 
 def _blocks_all_backdoor_paths(
