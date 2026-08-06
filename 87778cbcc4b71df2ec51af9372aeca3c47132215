@@ -1,0 +1,23 @@
+docs/user_guide/16-panel-data.qmd
+  s_4a47b769d56a74::t_9b37c34ab6fc48 86-102
+pathmc/_model.py
+  s_4a47b769d56a74::t_b4a99223d36b43 20-21,74-98,261,263,599,607-618,641
+tests/test_panel_predict_carry.py
+  s_4a47b769d56a74::t_b76a31db3709b7 1-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "87778cbcc4b71df2ec51af9372aeca3c47132215",
+  "prompts": {},
+  "sessions": {
+    "s_4a47b769d56a74": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c20cd57e-ceb5-475e-98c1-114a0bcff13c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
