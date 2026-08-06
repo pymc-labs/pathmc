@@ -1,0 +1,23 @@
+scripts/verify_refreeze_tex.py
+  s_ce353280caa6ea::t_c9be6a3891ce48 73-76
+  s_ce353280caa6ea::t_e999e922291b01 1-13
+  s_ce353280caa6ea::t_3c44833e6cb76e 55-56
+scripts/refreeze_tex.py
+  s_ce353280caa6ea::t_e999e922291b01 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "4c5f8755fc6d83027d2088a5fb400e02ca94310b",
+  "prompts": {},
+  "sessions": {
+    "s_ce353280caa6ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2f1d74dd-008a-4871-b78f-3b0a30f3ce0b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
