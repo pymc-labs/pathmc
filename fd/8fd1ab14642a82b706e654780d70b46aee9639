@@ -1,0 +1,19 @@
+docs/examples/05-applied-models/instrumental_variables.qmd
+  s_849d83c6e3bff9::t_4c9aaa0983650d 402,404-406
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "fd8fd1ab14642a82b706e654780d70b46aee9639",
+  "prompts": {},
+  "sessions": {
+    "s_849d83c6e3bff9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a44b13f2-9994-4693-82c0-b8ac07586a07",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
