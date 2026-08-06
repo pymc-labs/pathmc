@@ -1,0 +1,328 @@
+---
+title: "Placebo Refutation"
+author:
+  - name: "Carlos Trujillo"
+description: "Swap the treatment for a permuted copy and re-fit: a sound pipeline must report no effect. When it reports one anyway, the estimate was never yours to keep."
+tags: [Causal Inference, Refutation]
+image: thumbnails/placebo_refutation.png
+jupyter: pathmc
+---
+
+Your model fits, the ATE is comfortably away from zero, and the DAG survived falsification. One question remains: does the *pipeline itself* — spec, priors, likelihood, sampler, and estimand all together — manufacture effects out of nothing?
+
+The placebo test answers it by breaking the thing you claim to measure. Permute the treatment column and the treatment can no longer cause the outcome: whatever structural link existed is severed by the shuffle. Re-fit on that sabotaged data and a sound pipeline must come back empty-handed. If it still reports an effect, the number it gave you on the real data was partly an artifact of the machinery, not evidence from the world.
+
+This is the Bayesian upgrade of DoWhy's `placebo_treatment_refuter`. Because every re-fit yields a full posterior rather than a point estimate, pathmc pools the per-permutation summaries through a hierarchical normal-normal model, which separates two things a point estimate confounds: the *systematic* placebo bias $\mu_\text{null}$ (should straddle zero) and the *structural volatility* $\tau_\text{het}$ (how much the estimate wobbles between shuffles). The real effect is then calibrated against the resulting null.
+
+## Setup
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import pathmc
+from pathmc import Prior
+
+FIG_WIDTH = 8
+FIG_HEIGHT = 4
+
+# Each permutation is a full MCMC re-fit, so keep the per-fit cost modest.
+FIT = {"draws": 500, "tune": 500, "chains": 2}
+REFIT = {"draws": 500, "tune": 500, "chains": 2}
+```
+
+## An estimate worth stress-testing
+
+A treatment `X`, an outcome `Y`, and an observed confounder `Z` that drives both. The true causal effect of `X` on `Y` is 0.5, and adjusting for `Z` identifies it.
+
+```{dot}
+//| label: fig-dag
+//| fig-cap: "Z confounds the X–Y relationship. Adjusting for Z identifies the causal effect of X on Y."
+//| fig-width: 3
+digraph {
+  rankdir=LR
+  Z -> X
+  Z -> Y
+  X -> Y
+}
+```
+
+```{python}
+def make_data(true_effect, n, noise, seed):
+    """Confounded X -> Y data with an observed confounder Z."""
+    rng = np.random.default_rng(seed)
+    Z = rng.normal(size=n)
+    X = 0.6 * Z + rng.normal(scale=0.5, size=n)
+    Y = true_effect * X + 0.8 * Z + rng.normal(scale=noise, size=n)
+    return pd.DataFrame({"X": X, "Y": Y, "Z": Z})
+
+
+true_effect = 0.5
+df = make_data(true_effect, n=500, noise=0.5, seed=42)
+
+spec = """
+X ~ a*Z
+Y ~ b*X + c*Z
+"""
+
+model = pathmc.model(spec, data=df)
+model.fit(random_seed=42, **FIT)
+```
+
+```{python}
+ate = model.ate("Y", "X")
+print(f"True effect: {true_effect}")
+ate
+```
+
+The ATE is recovered and its credible interval excludes zero. Now let's find out whether that is because of the data or because of the pipeline.
+
+## Running the placebo test
+
+`refute_placebo()` needs the outcome and the treatment to permute. Every permutation triggers a full re-fit, so `sample_kwargs` is forwarded to each one, and `random_seed` makes the whole thing reproducible.
+
+```{python}
+refutation = model.refute_placebo(
+    "Y",
+    "X",
+    n_permutations=4,
+    sample_kwargs=REFIT,
+    random_seed=101,
+)
+refutation
+```
+
+The same result in DoWhy's vocabulary, for anyone migrating from it:
+
+```{python}
+print(refutation.summary())
+```
+
+`Estimated effect` is the real ATE; `New effect` is the pooled placebo effect — DoWhy's point estimate, here upgraded with a credible interval. A sound pipeline keeps `New effect` at zero while `Estimated effect` stays where it was.
+
+## Reading the two verdicts
+
+The result carries two independent verdicts. They answer different questions and can disagree, which is the whole point of keeping them apart.
+
+```{python}
+print(f"passes_placebo:  {refutation.passes_placebo}")
+print(f"effect_survives: {refutation.effect_survives}")
+```
+
+**`passes_placebo`** asks *is the pipeline honest?* It is `True` when the 94% HDI of the placebo bias $\mu_\text{null}$ contains zero — the pipeline attributes no systematic effect to a treatment whose link to the outcome no longer exists. This is a property of the machinery and has nothing to do with your real effect being large or small.
+
+**`effect_survives`** asks *is the real effect bigger than the noise the machinery generates?* It is `True` when the calibrated tail probability `p_tail` falls below `significance_level` (default 0.05). The real ATE is compared against the null *predictive* distribution — the spread you would expect from a fresh placebo shuffle — not against zero.
+
+```{python}
+lo, hi = refutation.mu_null_hdi
+print(
+    f"mu_null (placebo bias)     : {refutation.mu_null:+.4f}  HDI [{lo:+.4f}, {hi:+.4f}]"
+)
+print(f"tau_het (volatility)       : {refutation.tau_het:.4f}")
+print(
+    f"null predictive mean / sd  : {refutation.null_mean:+.4f} / {refutation.null_sd:.4f}"
+)
+print(
+    f"calibration                : z_cal = {refutation.z_cal:+.3f}, p_tail = {refutation.p_tail:.4f}"
+)
+print(f"placebo fold means         : {np.round(refutation.fold_means, 4)}")
+```
+
+The fold means scatter on both sides of zero — the signature of a pipeline finding nothing in noise. Their sign pattern is worth a glance every time: *all* folds landing on the same side is the tell-tale of systematic bias, which is exactly the failure mode we manufacture below.
+
+::: {.callout-note}
+## Why `z_cal` has a two-part denominator
+
+`z_cal` divides the gap between the real ATE and the null center by `sigma_pred` = $\sqrt{\text{null\_sd}^2 + \overline{s_j^2}}$. The first term is the null predictive spread (between-fold structural volatility plus uncertainty in $\mu_\text{null}$); the second is the average *within*-fold posterior variance. Ignoring the second term would treat each placebo re-fit as if it were estimated without error and overstate the evidence.
+:::
+
+## Both views of the same result
+
+`plot()` defaults to `kind="comparison"`: the real effect and the pooled placebo effect side by side, each with its 94% HDI, against a zero reference. This is the visual analogue of DoWhy's "Estimated effect vs New effect".
+
+```{python}
+# | label: fig-comparison
+# | fig-cap: "Observed vs. placebo effect. The placebo row sits on zero while the observed row stands well clear of it — the pattern a sound pipeline should produce."
+# | code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+refutation.plot(ax=ax, kind="comparison")
+plt.tight_layout()
+plt.show()
+```
+
+`kind="null"` shows the full placebo null-predictive distribution with the observed ATE marked. Use it when you want to see the *shape* of the null the effect is being judged against, rather than a summary interval.
+
+```{python}
+# | label: fig-null
+# | fig-cap: "The placebo null-predictive distribution with the observed ATE marked. The observed effect is far outside the range of effects the pipeline produces from permuted treatments."
+# | code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+refutation.plot(ax=ax, kind="null")
+plt.tight_layout()
+plt.show()
+```
+
+Read them together: `"comparison"` is the one to put in a report, `"null"` is the one to check when a verdict surprises you — a null that is bimodal, skewed, or absurdly wide is telling you something the interval alone hides.
+
+## How many permutations?
+
+Cost scales linearly: `n_permutations=8` means eight full MCMC re-fits. Precision, though, does not scale with the effect you might expect, because $\tau_\text{het}$ is a *variance component* estimated from a handful of points. With four folds it is largely prior-dominated, and that prior width propagates straight into the $\mu_\text{null}$ HDI.
+
+```{python}
+refutation_8 = model.refute_placebo(
+    "Y",
+    "X",
+    n_permutations=8,
+    sample_kwargs=REFIT,
+    random_seed=101,
+)
+
+rows = []
+for r in (refutation, refutation_8):
+    lo, hi = r.mu_null_hdi
+    rows.append({
+        "folds": r.n_permutations,
+        "mu_null": round(r.mu_null, 4),
+        "HDI width": round(hi - lo, 4),
+        "tau_het": round(r.tau_het, 4),
+        "p_tail": round(r.p_tail, 4),
+        "passes": r.passes_placebo,
+    })
+pd.DataFrame(rows).set_index("folds")
+```
+
+Doubling the folds roughly halves the width of the placebo-bias interval. That matters in both directions:
+
+- **A `False` verdict is trustworthy at four folds.** A wide interval that *still* excludes zero means the bias is real and large.
+- **A `True` verdict is not.** With few folds the inflated interval straddles zero almost automatically, so a genuinely biased pipeline can be waved through. Use eight or more folds before treating a PASS as evidence of soundness.
+
+Four folds is a screening tool: cheap, and adequate to catch gross problems. Eight or more is what you want before publishing a clean bill of health.
+
+## When the pipeline fails the test
+
+Permuting the treatment destroys its association with everything, so any coefficient estimated purely from that association collapses to zero. To *manufacture* an effect from noise you need something that pushes the estimate off zero regardless of the data — and an over-constrained prior does exactly that.
+
+Sign-constrained coefficients are the everyday version of this mistake. Media-mix practitioners routinely impose "spend cannot hurt sales" as a non-negative prior. The constraint is defensible as domain knowledge, but it is not free: a coefficient that *cannot* be negative cannot average to zero either. Under permutation its posterior piles up just above zero, and the pipeline reports a small positive effect for a treatment it should be blind to.
+
+```{python}
+model_pos = pathmc.model(
+    spec,
+    data=df,
+    priors={"beta_Y": Prior("HalfNormal", sigma=10)},
+)
+model_pos.fit(random_seed=42, **FIT)
+
+refutation_pos = model_pos.refute_placebo(
+    "Y",
+    "X",
+    n_permutations=8,
+    sample_kwargs=REFIT,
+    random_seed=101,
+)
+refutation_pos
+```
+
+```{python}
+print(f"fold means: {np.round(refutation_pos.fold_means, 4)}")
+print(f"all folds positive: {bool(np.all(refutation_pos.fold_means > 0))}")
+```
+
+Every fold is positive and the $\mu_\text{null}$ HDI clears zero, so `passes_placebo` is `False`. The scatter that made the sound pipeline's null straddle zero is gone — the constraint rectified it.
+
+Note that `effect_survives` is still `True`. The bias is real but tiny next to a 0.5 effect, so the substantive conclusion holds. This is the case for reading the verdict *together with the magnitude*:
+
+```{python}
+print(f"placebo bias  : {refutation_pos.mu_null:+.4f}")
+print(f"observed ATE  : {refutation_pos.observed_ate:+.4f}")
+print(
+    f"bias as % ATE : {100 * refutation_pos.mu_null / refutation_pos.observed_ate:.1f}%"
+)
+```
+
+::: {.callout-note}
+## `passes_placebo` has no ROPE
+
+The verdict is a pure interval rule: zero is either inside the HDI or it is not. A negligible bias that happens to be estimated *very precisely* will fail, as it does here. There is no region of practical equivalence, so always pair the verdict with the ratio above. A bias worth 5% of your effect is a footnote; one worth 100% is the headline.
+:::
+
+### The same flaw, with the effect it eats
+
+The bias above was harmless because the real effect was large. Shrink the effect until it is the same size as the artifact, and the picture changes completely — a weak true effect (0.05), a smaller sample, and noisier data, with the same non-negative prior:
+
+```{python}
+df_weak = make_data(true_effect=0.05, n=200, noise=1.0, seed=7)
+
+model_weak = pathmc.model(
+    spec,
+    data=df_weak,
+    priors={"beta_Y": Prior("HalfNormal", sigma=10)},
+)
+model_weak.fit(random_seed=42, **FIT)
+model_weak.ate("Y", "X")
+```
+
+Taken at face value that ATE is positive and looks like a finding. The placebo test disagrees:
+
+```{python}
+refutation_weak = model_weak.refute_placebo(
+    "Y",
+    "X",
+    n_permutations=8,
+    sample_kwargs=REFIT,
+    random_seed=101,
+)
+refutation_weak
+```
+
+```{python}
+print(f"placebo bias mu_null : {refutation_weak.mu_null:+.4f}")
+print(f"observed ATE         : {refutation_weak.observed_ate:+.4f}")
+print(
+    f"z_cal / p_tail       : {refutation_weak.z_cal:+.3f} / {refutation_weak.p_tail:.4f}"
+)
+```
+
+Both verdicts now point the same way. `passes_placebo` is `False` — the pipeline invents an effect from permuted treatments — and `effect_survives` is `False` too, because the observed ATE is *no larger than* what the pipeline produces from noise. `z_cal` even comes out negative: the real estimate sits slightly *below* the placebo null's center. The apparent finding is the prior talking, not the data.
+
+::: {.callout-warning}
+## What to do with a failed placebo test
+
+`passes_placebo = False` indicts the pipeline, not the dataset. In rough order of how often it is the culprit:
+
+1. **Over-constrained or off-zero priors.** Sign constraints and tight informative priors cannot average to zero. Refit with a symmetric prior and see whether the effect holds.
+2. **A bounded or heavily skewed outcome.** The hierarchical null puts a Gaussian likelihood on the per-fold ATE summaries. For a probability difference near 0 or 1, that is a normal approximation and $\mu_\text{null}$ can drift off zero by construction.
+3. **An endogenous treatment.** Permuting a regressed variable severs *all* of its structural links, not just the one to the outcome, so the null describes "treatment decoupled from everything" — a harsher baseline than you may have intended.
+4. **Non-convergence in the folds.** Each fold is a real MCMC run and can diverge. Inspect `fold_sds` for an outlier fold that is dominating the pooled null.
+:::
+
+## Where this sits in the refute suite
+
+The placebo test is one of three complementary checks, and each can pass while another fails:
+
+| Check | Question | Fails when |
+|---|---|---|
+| [`falsify()`](/examples/identification/dag_falsification.qmd) | Is the DAG consistent with the data? | The graph breaks its conditional-independence promises |
+| [`sensitivity()`](/examples/identification/sensitivity.qmd) | Could an unmeasured confounder overturn this? | A plausibly weak confounder reaches the tipping point |
+| `refute_placebo()` | Does the pipeline invent effects? | A permuted treatment still gets a systematic effect |
+
+A model can hold a defensible DAG and a robust tipping point while its priors quietly generate effects from noise. Run all three.
+
+## Summary
+
+- The **placebo test** severs the treatment-outcome link by permuting the treatment column and re-fitting. A sound pipeline must then report no effect.
+- The per-permutation posteriors are pooled hierarchically into a **systematic bias** $\mu_\text{null}$ (should straddle zero) and a **structural volatility** $\tau_\text{het}$ (the between-shuffle wobble), rather than being collapsed to one point estimate.
+- **`passes_placebo`** judges the machinery: does $\mu_\text{null}$'s HDI contain zero? **`effect_survives`** judges the effect: is `p_tail` below the significance level when the real ATE is calibrated against the null predictive distribution? They are independent, and both matter.
+- Use **`kind="comparison"`** to report the result and **`kind="null"`** to inspect the null's shape when a verdict surprises you.
+- **Four folds screen; eight or more certify.** $\tau_\text{het}$ is a variance component from a handful of points, so a FAIL is informative at four folds while a PASS is not.
+- **Sign-constrained priors are the classic way to fail.** A coefficient that cannot go negative cannot average to zero under permutation.
+- The verdict carries **no region of practical equivalence**, so read it next to the bias-to-effect ratio: the same flaw is a footnote against a large effect and fatal against a weak one.
+
+::: {.callout-note}
+## Reflection
+
+- Which priors in your own model are constrained by sign or centered away from zero? What would the placebo bias be if the treatment carried no information at all?
+- Your effect passes at four folds. What would you need to see before reporting that as evidence the pipeline is unbiased?
+- Suppose `passes_placebo` fails with a bias worth 3% of your estimated effect. Do you report the effect, the failure, or both — and what would change your mind?
+:::
