@@ -1,0 +1,19 @@
+tests/test_instrumental_variable.py
+  s_1d2b06ae9c125e::t_96fc59da7a0175 151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "6ac0eeb413e5a7cfee9d1d0dd8d262aac37d198b",
+  "prompts": {},
+  "sessions": {
+    "s_1d2b06ae9c125e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7970c4a1-0118-442b-9eba-c54d102bd44b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
