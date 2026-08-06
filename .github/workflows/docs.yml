@@ -28,17 +28,11 @@ jobs:
         # `make setup`), so CI resolves the exact versions used in local dev.
         run: uv sync --all-extras
 
-      - name: Register `pathmc` Jupyter kernel
-        # `.qmd` files (and great-docs.yml) declare `jupyter: pathmc`, so the
-        # CI runner needs a kernelspec under that name pointing at the same
-        # Python interpreter the package was installed into above.
-        run: uv run python -m ipykernel install --user --name pathmc
-
       - name: Set up Quarto
         uses: quarto-dev/quarto-actions/setup@v2
 
       - name: Build docs
-        run: uv run great-docs build
+        run: make docs
 
       - name: Verify agent-context files were generated
         # great-docs builds llms.txt / llms-full.txt / skill.md at build step 3,

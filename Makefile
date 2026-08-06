@@ -4,6 +4,7 @@
 
 PACKAGE_NAME = pathmc
 BUILD_CHECK_DIR = .build-check
+VENV_JUPYTER := $(CURDIR)/.venv/share/jupyter
 REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' ! -name '00-welcome.qmd' | sort)
 
 #################################################################################
@@ -19,7 +20,7 @@ setup: ## Set up the complete development environment (uv)
 	@echo "Development environment ready!"
 
 jupyter-kernel: ## Register the pathmc Jupyter kernel for Quarto execution
-	uv run python -m ipykernel install --user --name pathmc
+	uv run python -m ipykernel install --sys-prefix --name pathmc --display-name pathmc
 
 lint: ## Run prek hooks, applying fixes
 	uv run prek run --all-files
@@ -36,11 +37,11 @@ test: ## Run all tests with coverage, including slow integration tests
 	uv run pytest -x -v --cov=pathmc --cov-report=term-missing
 
 docs: jupyter-kernel ## Build the documentation site
-	uv run great-docs build
+	JUPYTER_PATH=$(VENV_JUPYTER) uv run great-docs build
 
 refreeze-docs: jupyter-kernel ## Re-execute all doc notebooks and refresh the committed _freeze/ cache
-	uv run great-docs freeze --clean $(REFREEZE_QMD_PAGES)
-	uv run great-docs build
+	JUPYTER_PATH=$(VENV_JUPYTER) uv run great-docs freeze --clean $(REFREEZE_QMD_PAGES)
+	JUPYTER_PATH=$(VENV_JUPYTER) uv run great-docs build
 	cp -r great-docs/_freeze/index _freeze/
 	@echo "Freeze cache refreshed. Commit with: git add _freeze/"
 
