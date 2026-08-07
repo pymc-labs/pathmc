@@ -79,6 +79,9 @@ def _forced_generative_carry(model: pm.Model) -> Iterator[None]:
     ``pathmc._model._observed_carry`` does for ``predict()``, removes that
     dependency. A no-op on models without the flag (anything but a
     scan-compiled panel model with a lagged endogenous term).
+
+    The cross-sectional call sites retain this guard defensively; current
+    scan-compiled models are dispatched to ``run_do_panel_unified`` instead.
     """
     if _OBSERVED_CARRY_FLAG not in model.named_vars:
         yield
