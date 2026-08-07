@@ -1,5 +1,6 @@
 # pathmc
 
+<!-- PyPI resolves README images from absolute raw.githubusercontent.com URLs below at view time; do not move or rename docs/assets/logo_*.png or contributors.svg without updating README. -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pymc-labs/pathmc/main/docs/assets/logo_dark.png">
