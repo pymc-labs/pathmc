@@ -180,3 +180,29 @@ class TestMalformedPanelShape:
         df = pd.DataFrame({"unit": [], "time": [], "X": [], "Y": []})
         with pytest.raises(ValueError):
             build_panel_info(_nw(df), {"unit": "unit", "time": "time"})
+
+    def test_null_unit_identifier_raises_actionable_error(self):
+        df = _balanced_panel(n_units=3, n_times=5)
+        df.loc[0, "unit"] = None
+        with pytest.raises(ValueError, match="unit.*null"):
+            build_panel_info(_nw(df), {"unit": "unit", "time": "time"})
+
+    def test_nan_time_identifier_raises_actionable_error(self):
+        df = _balanced_panel(n_units=3, n_times=5)
+        df.loc[0, "time"] = np.nan
+        with pytest.raises(ValueError, match="time.*null"):
+            build_panel_info(_nw(df), {"unit": "unit", "time": "time"})
+
+    def test_null_unit_identifier_rejected_on_row_wise_path_too(self):
+        # Non-temporal panel models skip the rectangularity checks, but
+        # null identifiers are nonsensical there as well and must still
+        # raise (rather than the raw TypeError from sorting mixed types).
+        df = _balanced_panel(n_units=3, n_times=5)
+        df.loc[0, "unit"] = None
+        with pytest.raises(ValueError, match="null"):
+            pathmc.model(
+                "Y ~ 0 + X",
+                data=df,
+                panel={"unit": "unit", "time": "time"},
+                pooling="partial",
+            )

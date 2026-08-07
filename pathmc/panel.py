@@ -77,6 +77,27 @@ def _require_column(df: nw.DataFrame, col: str, label: str) -> None:
         )
 
 
+def _reject_null_identifiers(df: nw.DataFrame, col: str, label: str) -> None:
+    """Raise ``ValueError`` if *col* contains any null/NaN values.
+
+    Null unit or time identifiers break every downstream assumption: they
+    cannot be sorted alongside non-null labels (``TypeError`` from Python's
+    comparison operators), cannot be meaningfully grouped into a panel row
+    count, and cannot be reshaped into a rectangular grid. Reject them here
+    with an actionable message rather than letting a ``TypeError`` (or a
+    silently wrong panel) surface later.
+    """
+    null_mask = df[col].is_null()
+    n_null = int(null_mask.sum())
+    if n_null == 0:
+        return
+    raise ValueError(
+        f"{label} '{col}' contains {n_null} null/NaN value(s). Every row "
+        "must have a valid unit and time identifier; drop or fill rows "
+        f"with missing '{col}' values before building a panel model."
+    )
+
+
 def _validate_panel_shape(
     df: nw.DataFrame,
     unit_col: str,
@@ -139,7 +160,9 @@ def _validate_panel_shape(
             f"Panel data is unbalanced: {n_rows} row(s) do not divide "
             f"evenly across {n_units} unit(s) in '{unit_col}'. Every unit "
             "must have the same number of time observations. Found row "
-            f"counts per unit: {dict(sorted(Counter(units).items(), key=lambda kv: str(kv[0])))}."
+            f"counts per unit: {dict(sorted(Counter(units).items(), key=lambda kv: str(
+                        kv[0]
+                    )))}."
         )
     n_times = n_rows // n_units
 
@@ -215,13 +238,15 @@ def build_panel_info(
     Raises
     ------
     ValueError
-        If the unit column is empty, or -- when *require_rectangular* is
-        True -- if the panel is unbalanced, ragged, has duplicate
-        ``(unit, time)`` rows, or units do not share an identical set of
-        timepoints.
+        If the unit or time column contains null/NaN values, if the unit
+        column is empty, or -- when *require_rectangular* is True -- if the
+        panel is unbalanced, ragged, has duplicate ``(unit, time)`` rows, or
+        units do not share an identical set of timepoints.
     """
     unit_col = panel["unit"]
     time_col = panel["time"]
+    _reject_null_identifiers(df, unit_col, "Panel unit column")
+    _reject_null_identifiers(df, time_col, "Panel time column")
     unit_labels = sorted(df[unit_col].unique().to_list())
     _validate_panel_shape(
         df,
