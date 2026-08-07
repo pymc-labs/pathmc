@@ -186,12 +186,21 @@ class Adstock(Transform):
     match a reference model's configuration, e.g.
     ``register_transform(Adstock(l_max=8, normalize=True))``.
 
-    Note that :meth:`step`, used inside ``pytensor.scan`` for panel
-    interventions with temporal dependencies, implements the *unbounded*
-    recursion ``y_t = x_t + decay * y_{t-1}`` — the ``l_max -> inf`` limit
-    of the truncated kernel above. For ``decay`` close to 1 with a small
-    ``l_max`` the two paths can disagree; increase ``l_max`` to tighten
-    the approximation.
+    Panel models with temporal dependencies (``lag()`` or another
+    ``adstock()`` in the same equation, or any ``adstock()`` combined
+    with panel data — see ``_has_temporal_deps`` in ``pathmc.compile``)
+    are compiled with ``pytensor.scan`` and go through :meth:`step`
+    instead of the vectorized kernel. :meth:`step` only implements the
+    *unbounded, unnormalized* recursion ``y_t = x_t + decay * y_{t-1}``
+    (the ``l_max -> inf``, ``normalize=False`` limit of the truncated
+    kernel above), so it cannot honour a non-default ``l_max`` or
+    ``normalize=True`` without silently disagreeing with the vectorized
+    path. Rather than silently ignoring those options on scan-compiled
+    models, :meth:`step` raises ``NotImplementedError`` for any
+    non-default configuration. Use the default ``Adstock()`` for panel
+    models with temporal dependencies; non-default configurations are
+    only supported for cross-sectional models and panel models without
+    temporal dependencies, which use the vectorized kernel.
     """
 
     name = "adstock"
@@ -199,19 +208,40 @@ class Adstock(Transform):
         "decay": ParamSpec(constraint="unit_interval", default_prior="Beta(2, 2)"),
     }
 
-    def __init__(self, l_max: int = 12, normalize: bool = False) -> None:
+    #: Configuration the scan recursion in :meth:`step` actually implements.
+    #: The guard there compares against these, so changing a default cannot
+    #: silently widen what scan-compiled models accept.
+    DEFAULT_L_MAX = 12
+    DEFAULT_NORMALIZE = False
+
+    def __init__(
+        self, l_max: int = DEFAULT_L_MAX, normalize: bool = DEFAULT_NORMALIZE
+    ) -> None:
         """Create a geometric-adstock transform.
 
         Parameters
         ----------
         l_max : int
             Number of lags (including lag 0) included in the truncated
-            carryover sum. Matches ``pymc_marketing``'s ``l_max``.
+            carryover sum. Matches ``pymc_marketing``'s ``l_max``. Must be
+            an integer ``>= 1``.
         normalize : bool
             If ``True``, divide by the sum of the lag weights so they sum
             to 1. Matches ``pymc_marketing``'s ``normalize``.
+
+        Raises
+        ------
+        ValueError
+            If ``l_max`` is not an integer ``>= 1``, or ``normalize`` is
+            not a ``bool``.
         """
-        self.l_max = l_max
+        if isinstance(l_max, bool) or not isinstance(l_max, (int, np.integer)):
+            raise ValueError(f"l_max must be an int >= 1, got {l_max!r}.")
+        if l_max < 1:
+            raise ValueError(f"l_max must be >= 1, got {l_max!r}.")
+        if not isinstance(normalize, bool):
+            raise ValueError(f"normalize must be a bool, got {normalize!r}.")
+        self.l_max = int(l_max)
         self.normalize = normalize
 
     def apply_pymc(
@@ -261,7 +291,34 @@ class Adstock(Transform):
         return True
 
     def step(self, x_t: Any, state: Any, params: dict[str, Any]) -> tuple[Any, Any]:
-        """Single time-step geometric adstock: ``y_t = x_t + decay * y_{t-1}``."""
+        """Single time-step geometric adstock: ``y_t = x_t + decay * y_{t-1}``.
+
+        Raises
+        ------
+        NotImplementedError
+            If this ``Adstock`` was configured with a non-default
+            ``l_max`` or ``normalize=True``. The scan recursion below is
+            unbounded and unnormalized and cannot honour those options
+            without disagreeing with the vectorized kernel used elsewhere
+            (see the class docstring); rather than silently ignore them,
+            scan-compiled models (panel models with temporal
+            dependencies, ``pm.do()``, and predictive sampling on them)
+            reject non-default configurations explicitly.
+        """
+        if self.l_max != self.DEFAULT_L_MAX or self.normalize != self.DEFAULT_NORMALIZE:
+            raise NotImplementedError(
+                f"Adstock(l_max={self.l_max}, normalize={self.normalize}) is "
+                f"not supported on scan-compiled panel models (models with "
+                f"temporal dependencies: adstock()/lag() combined with panel "
+                f"data). Adstock.step(), used by pytensor.scan for such "
+                f"models (including pm.do() and predictive sampling), only "
+                f"implements the unbounded, unnormalized recursion "
+                f"y_t = x_t + decay * y_{{t-1}} and would silently disagree "
+                f"with the vectorized kernel for non-default l_max/normalize. "
+                f"Use the default Adstock(l_max=12, normalize=False) for "
+                f"these models, or restructure the model so adstock() does "
+                f"not need scan compilation (e.g. no panel temporal deps)."
+            )
         decay = params["decay"]
         adstock_t = x_t + decay * state
         return adstock_t, adstock_t
