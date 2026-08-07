@@ -31,6 +31,47 @@ The repository ships five [Great Docs Agent Skills](https://posit-dev.github.io/
 
 pathmc itself ships a curated agent skill at `pathmc/skills/pathmc/SKILL.md`, bundled inside the wheel. Users (not contributors — agents working in this repo see the source file directly) can install it into their own projects with `great-docs skill install pathmc` and keep it fresh with `great-docs skill check --update`, which compares the installed copy's content hash against the installed pathmc package. The same file is also published on the docs site via the `skill` section of `great-docs.yml`.
 
+### AI code attribution with git-ai
+
+We want an honest, measurable picture of how much of pathmc is written by coding agents and how that changes over time. [git-ai](https://usegitai.com/docs/get-started) is an open-source git extension that records this at the line level: supported agents report exactly which lines they wrote as they write them, and on commit the attribution is stored in git notes under `refs/notes/ai`. Because the agents self-report, this is more reliable than trying to guess after the fact, and the data stays local to this repository — there is no account, no hosted service, and no cost.
+
+**Installing git-ai is optional.** It is not a project dependency, it is not part of the test or lint gates, and it will never block a pull request. If you do not install it, your commits simply carry no attribution notes and everything else works exactly as before. Nobody is being asked to install tooling as a condition of contributing. The attribution job is never a required check, and on pull requests from forks it is marked `continue-on-error`, so it cannot turn an outside contributor's pull request red even when it fails outright. On branches pushed directly to this repository it is deliberately allowed to fail visibly, so that maintainers notice when attribution stops being recorded.
+
+If you do want to opt in, install it once per machine (not per repository):
+
+```bash
+curl -fsSL https://usegitai.com/install.sh | bash
+```
+
+The install is machine-wide rather than per-repository, and it is worth knowing what it touches before you run it: the binary lands in `~/.git-ai/` (symlinked into `~/.local/bin`), `PATH` lines are appended to your shell rc files, `trace2.eventTarget` is set in your global git config so a small background daemon can observe commits, and hooks are installed for whichever supported agents and IDEs it detects (including a VS Code/Cursor extension). Restart any running agent sessions or IDEs afterwards so the hooks are picked up. Nothing else needs configuring, and `git-ai uninstall-hooks` reverses the hook side of it.
+
+**Core devs: check your allow-list.** If you scoped `allow_repositories` to a single repository during the `pymc-marketing` pilot, pathmc will be silently ignored until you add it. This is the most likely reason for a maintainer's attribution to go missing. Widen the glob to cover the org, or add the current repository's remotes directly:
+
+```bash
+git-ai config allow_repositories                                    # inspect the current list
+git-ai config --add allow_repositories 'https://github.com/pymc-labs/*'
+git-ai config --add allow_repositories .                            # or add this repo's remotes
+```
+
+Patterns are matched against the repository's remote URLs, and SSH and HTTPS forms are normalised, so `https://github.com/pymc-labs/*` also matches `git@github.com:pymc-labs/pathmc.git`. A repository is allowed if *any* of its remotes matches, so a fork clone that keeps an `upstream` remote pointing at `pymc-labs/pathmc` is covered by the org glob. Note the trade-off between the two commands above: the org glob also enrols every other pymc-labs repository you clone, now and in future, whereas `.` enrols only this one. Prefer `.` if you would rather opt in repository by repository.
+
+**Privacy.** Attribution notes record the agent name, model, session identifiers, token counts, and which lines were AI-written versus human-overridden. Prompt session contents are scanned, redacted, and stored outside git rather than in the notes. Two points on timing are worth being explicit about, because they are easy to miss: notes are synced to the remote by git-ai's own push hook, so they become public **the moment you push a branch**, not when your work is merged — and they stay published even if the pull request is later closed unmerged. Know what is recorded, and when, before you opt in.
+
+Notes do not arrive with a default clone. Fetch them explicitly from whichever remote points at `pymc-labs/pathmc` — that is `origin` if you cloned this repository directly, or `upstream` if you followed the fork workflow in [Local development steps](#local-development-steps):
+
+```bash
+git fetch origin 'refs/notes/*:refs/notes/*'     # direct clone
+git fetch upstream 'refs/notes/*:refs/notes/*'   # fork workflow
+git log --show-notes=ai
+git-ai stats <start>..<end>
+```
+
+A `.github/workflows/git-ai.yml` job keeps attribution intact across the rewrites GitHub performs server-side. It runs on every push to an open pull request and again when one is closed, but it only does work in the cases that would otherwise lose data — principally squash and rebase merges, which collapse or replace the commits the notes were attached to. Ordinary merge commits already preserve attribution and are skipped.
+
+Two limits on completeness are worth knowing before you read anything into the numbers. Attribution tracks adoption: while only some contributors have git-ai installed, the notes undercount AI authorship and overcount human authorship. And **history before this workflow landed was never consolidated** — every note predating it is still attached to an orphaned pre-squash commit, so `git log --show-notes=ai` and `git-ai stats` will show nothing for that period. That is expected, not a broken install. See the [git-ai docs](https://usegitai.com/docs/get-started) for anything beyond the above.
+
+One limitation to be aware of if you contribute from a fork: GitHub gives `pull_request` events from forks a read-only token, so the job can fetch your fork's notes but cannot push the consolidated result back. Attribution for fork pull requests therefore may not be recorded at all. Nothing about this blocks or slows the pull request; it only means the resulting numbers under-represent outside contributions.
+
 ## Contributing code via pull requests
 
 The preferred workflow is to fork the repository, clone your fork locally, and develop on a feature branch. Keep pull requests focused on one issue or behavior change, include tests and documentation when appropriate, and explain the user-facing reason for the change in the pull request description.
