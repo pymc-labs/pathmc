@@ -1,0 +1,20 @@
+tests/test_identification_oracle.py
+  s_e9653c35cf4dcc::t_121279edaaa2ff 130-131,144-147,186
+  s_e9653c35cf4dcc::t_1bc728f0f61945 49-51,148,180-185,214-216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "836d54fcac9128b09b0110e65368412fa22a6832",
+  "prompts": {},
+  "sessions": {
+    "s_e9653c35cf4dcc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "04ef85be-3cb7-497d-860e-04487ff38443",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}

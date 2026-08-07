@@ -1,0 +1,22 @@
+tests/test_adstock_parity.py
+  s_3906ef8704c226::t_3afecd803fd15a 1-156
+pathmc/transforms.py
+  s_3906ef8704c226::t_256c20a0d1a56c 39-41,45-51,66-67
+  s_3906ef8704c226::t_a6d3e74077d747 175,182-194,202-216,229-231,252-254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "d7ab64c150b90eb0c4d02c229427c94d931b9427",
+  "prompts": {},
+  "sessions": {
+    "s_3906ef8704c226": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c39ea586-2555-4b19-9c95-875cc7de9d87",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
