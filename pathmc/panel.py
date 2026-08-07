@@ -82,6 +82,8 @@ def _validate_panel_shape(
     unit_col: str,
     time_col: str,
     unit_labels: list[str],
+    *,
+    require_rectangular: bool = True,
 ) -> None:
     """Validate that panel rows form a complete, rectangular (unit x time) grid.
 
@@ -92,6 +94,13 @@ def _validate_panel_shape(
     with no error -- if the panel is unbalanced, has duplicate ``(unit,
     time)`` rows, or has missing unit/time combinations. This function
     fails loudly with a descriptive error instead.
+
+    The rectangularity requirement belongs to the scan path only. A panel
+    model with no temporal dependency (no ``lag()`` term, no ``adstock()``
+    transform) takes the row-wise compiler, which indexes rows by unit and
+    never reshapes, so it supports unbalanced panels, unequal timepoints and
+    repeated ``(unit, time)`` rows. Pass ``require_rectangular=False`` for
+    that path: only the empty-panel check then applies.
     """
     n_rows = df.shape[0]
     n_units = len(unit_labels)
@@ -101,6 +110,9 @@ def _validate_panel_shape(
             f"Panel unit column '{unit_col}' has no values; cannot build a "
             "panel model from empty data."
         )
+
+    if not require_rectangular:
+        return
 
     units = df[unit_col].to_list()
     times = df[time_col].to_list()
@@ -174,7 +186,12 @@ def _validate_panel_shape(
         )
 
 
-def build_panel_info(df: nw.DataFrame, panel: dict[str, str]) -> PanelInfo:
+def build_panel_info(
+    df: nw.DataFrame,
+    panel: dict[str, str],
+    *,
+    require_rectangular: bool = True,
+) -> PanelInfo:
     """Build panel metadata from data and panel specification.
 
     Parameters
@@ -183,6 +200,12 @@ def build_panel_info(df: nw.DataFrame, panel: dict[str, str]) -> PanelInfo:
         Panel data.
     panel : dict[str, str]
         Must contain ``"unit"`` and ``"time"`` keys.
+    require_rectangular : bool
+        Whether the data must form a dense ``(unit x time)`` grid. True for
+        models that compile to the temporal scan (any ``lag()`` term or
+        ``adstock()`` transform), which reshapes the rows. False for
+        non-temporal panel models, which take the row-wise compiler and
+        place no shape constraint beyond a non-empty unit column.
 
     Returns
     -------
@@ -192,11 +215,19 @@ def build_panel_info(df: nw.DataFrame, panel: dict[str, str]) -> PanelInfo:
     Raises
     ------
     ValueError
-        If the panel is unbalanced, ragged, has duplicate ``(unit, time)``
-        rows, or units do not share an identical set of timepoints.
+        If the unit column is empty, or -- when *require_rectangular* is
+        True -- if the panel is unbalanced, ragged, has duplicate
+        ``(unit, time)`` rows, or units do not share an identical set of
+        timepoints.
     """
     unit_col = panel["unit"]
     time_col = panel["time"]
     unit_labels = sorted(df[unit_col].unique().to_list())
-    _validate_panel_shape(df, unit_col, time_col, unit_labels)
+    _validate_panel_shape(
+        df,
+        unit_col,
+        time_col,
+        unit_labels,
+        require_rectangular=require_rectangular,
+    )
     return PanelInfo(unit=unit_col, time=time_col, unit_labels=unit_labels)

@@ -42,14 +42,12 @@ def _balanced_panel(n_units=3, n_times=5, seed=0):
     rows = []
     for u in units:
         for t in range(1, n_times + 1):
-            rows.append(
-                {
-                    "unit": u,
-                    "time": t,
-                    "X": rng.normal(),
-                    "Y": rng.normal(),
-                }
-            )
+            rows.append({
+                "unit": u,
+                "time": t,
+                "X": rng.normal(),
+                "Y": rng.normal(),
+            })
     return pd.DataFrame(rows)
 
 
@@ -73,9 +71,7 @@ class TestValidPanelShape:
 
     def test_unsorted_balanced_panel_is_still_valid(self):
         # Row order shouldn't matter -- only the (unit, time) grid does.
-        df = _balanced_panel().sample(frac=1.0, random_state=1).reset_index(
-            drop=True
-        )
+        df = _balanced_panel().sample(frac=1.0, random_state=1).reset_index(drop=True)
         info = build_panel_info(_nw(df), {"unit": "unit", "time": "time"})
         assert info.unit_labels == ["A", "B", "C"]
 
@@ -86,24 +82,56 @@ class TestMalformedPanelShape:
     def test_unbalanced_unit_missing_rows_raises(self):
         df = _balanced_panel(n_units=3, n_times=5)
         # Drop one row for unit "B" -> unbalanced.
-        df = df[~((df["unit"] == "B") & (df["time"] == 3))].reset_index(
-            drop=True
-        )
+        df = df[~((df["unit"] == "B") & (df["time"] == 3))].reset_index(drop=True)
         with pytest.raises(ValueError, match="unbalanced"):
             build_panel_info(_nw(df), {"unit": "unit", "time": "time"})
 
     def test_ragged_panel_via_model_raises(self):
+        """A ragged panel must be rejected on the reshape (scan) path.
+
+        The lag term forces the scan compiler, which is the path that
+        reshapes rows to a dense (n_times, n_units) grid.
+        """
         df = _balanced_panel(n_units=3, n_times=5)
-        df = df[~((df["unit"] == "B") & (df["time"] == 3))].reset_index(
-            drop=True
-        )
+        df = df[~((df["unit"] == "B") & (df["time"] == 3))].reset_index(drop=True)
         with pytest.raises(ValueError):
             pathmc.model(
-                "Y ~ 0 + X",
+                "Y ~ X + lag(Y)",
                 data=df,
                 panel={"unit": "unit", "time": "time"},
                 pooling="partial",
             )
+
+    def test_ragged_panel_accepted_by_row_wise_compiler(self):
+        """Non-temporal panel models place no rectangularity requirement.
+
+        ``Y ~ 0 + X`` has no lag() term and no adstock() transform, so it
+        takes the row-wise compiler (pathmc/compile.py), which indexes rows
+        by unit and never reshapes. Unequal observations per unit are fine
+        there, and the scan-path validation must not reject them.
+        """
+        df = _balanced_panel(n_units=3, n_times=5)
+        df = df[~((df["unit"] == "B") & (df["time"] == 3))].reset_index(drop=True)
+        model = pathmc.model(
+            "Y ~ 0 + X",
+            data=df,
+            panel={"unit": "unit", "time": "time"},
+            pooling="partial",
+        )
+        assert model._panel_info is not None
+        assert model._panel_info.unit_labels == ["A", "B", "C"]
+
+    def test_duplicate_unit_time_rows_accepted_by_row_wise_compiler(self):
+        """Repeated (unit, time) rows are only a problem for the reshape."""
+        df = _balanced_panel(n_units=3, n_times=5)
+        df = pd.concat([df, df.iloc[[0]]], ignore_index=True)
+        model = pathmc.model(
+            "Y ~ 0 + X",
+            data=df,
+            panel={"unit": "unit", "time": "time"},
+            pooling="partial",
+        )
+        assert model._panel_info is not None
 
     def test_duplicate_unit_time_row_raises(self):
         df = _balanced_panel(n_units=3, n_times=5)
@@ -117,13 +145,9 @@ class TestMalformedPanelShape:
         # total row count still divides evenly by n_units (masking the
         # naive `len(data) // n_units` check) but the panel is ragged.
         df = _balanced_panel(n_units=3, n_times=5)
-        extra = pd.DataFrame(
-            [{"unit": "A", "time": 6, "X": 0.1, "Y": 0.1}]
-        )
+        extra = pd.DataFrame([{"unit": "A", "time": 6, "X": 0.1, "Y": 0.1}])
         df = pd.concat([df, extra], ignore_index=True)
-        df = df[~((df["unit"] == "C") & (df["time"] == 5))].reset_index(
-            drop=True
-        )
+        df = df[~((df["unit"] == "C") & (df["time"] == 5))].reset_index(drop=True)
         # Total rows unchanged (still divides evenly by 3 units), but the
         # per-unit row counts / timepoints no longer match.
         with pytest.raises(ValueError):
@@ -138,6 +162,15 @@ class TestMalformedPanelShape:
             build_panel_info(_nw(df), {"unit": "unit", "time": "time"})
 
     def test_single_row_panel_with_multiple_units_is_valid_edge_case(self):
+        # n_units > 1, n_times = 1 -- degenerate but well-formed.
+        df = pd.DataFrame([
+            {"unit": "A", "time": 1, "X": 0.0, "Y": 0.0},
+            {"unit": "B", "time": 1, "X": 0.5, "Y": 0.5},
+        ])
+        info = build_panel_info(_nw(df), {"unit": "unit", "time": "time"})
+        assert info.unit_labels == ["A", "B"]
+
+    def test_single_unit_single_row_panel_is_valid_edge_case(self):
         # 1 unit, 1 time -- degenerate but well-formed.
         df = pd.DataFrame([{"unit": "A", "time": 1, "X": 0.0, "Y": 0.0}])
         info = build_panel_info(_nw(df), {"unit": "unit", "time": "time"})

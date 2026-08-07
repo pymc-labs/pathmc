@@ -30,7 +30,12 @@ import pymc as pm
 import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
-from pathmc.compile import build_design_matrix, compile_to_pymc, get_predictor_columns
+from pathmc.compile import (
+    _has_temporal_deps,
+    build_design_matrix,
+    compile_to_pymc,
+    get_predictor_columns,
+)
 from pathmc.effects import (
     EffectResult,
     _has_labeled_terms,
@@ -1770,7 +1775,14 @@ def model(
                 "panel= requires data. Provide data= alongside panel=, "
                 "or omit panel= for data-free DAG exploration."
             )
-        panel_info = build_panel_info(nw_data, panel)
+        # Only the scan compiler reshapes rows to a dense (n_times,
+        # n_units) grid, so only it needs a rectangular panel. Non-temporal
+        # panel models take the row-wise compiler and may be unbalanced.
+        panel_info = build_panel_info(
+            nw_data,
+            panel,
+            require_rectangular=_has_temporal_deps(spec, graph_info),
+        )
 
     path_model = PathModel(
         spec=spec,
