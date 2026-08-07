@@ -455,6 +455,7 @@ def compile_to_pymc(
 
     _reject_hsgp_in_residual_blocks(spec)
     _reject_endogenous_hsgp_inputs(spec)
+    _reject_nan_predictors(data, graph_info)
 
     if panel_info is not None and _has_temporal_deps(spec, graph_info):
         _validate_scan_non_gaussian_intermediaries(spec, families, latent)
@@ -990,6 +991,47 @@ def _reject_endogenous_hsgp_inputs(spec: Spec) -> None:
                     "random prior draw and make the fit non-reproducible. "
                     "Phase 1 supports exogenous hsgp() inputs only."
                 )
+
+
+def _reject_nan_predictors(data: nw.DataFrame, graph_info: GraphInfo) -> None:
+    """Raise if a purely-exogenous (predictor) column contains NaN/inf.
+
+    Outcome (endogenous, LHS) variables get first-class missing-data
+    support: ``_emit_free_rv``/``_compile_scan_panel`` wrap them in a
+    ``pm.Normal`` with a ``np.ma.masked_invalid`` observed array, so PyMC
+    marginalizes the missing positions correctly.
+
+    Predictors have no equivalent handling. A NaN predictor is fed
+    straight into a ``pm.Data`` node and from there into ``mu`` via plain
+    tensor arithmetic (row-wise) or a ``pytensor.scan`` sequence (panel).
+    Either way a NaN silently poisons every downstream ``mu`` it touches,
+    which usually surfaces much later as a non-finite logp / NUTS
+    divergence with no indication that a NaN predictor was the cause.
+    Reject it here, at compile time, with a message that names the
+    column instead.
+
+    Only checks ``graph_info.exogenous`` columns that are never the LHS of
+    a regression -- i.e. genuine predictors -- so a NaN in an endogenous
+    variable (which *does* have masked-likelihood support) is not
+    double-flagged here.
+    """
+    for var in sorted(graph_info.exogenous):
+        if var not in data.columns:
+            continue
+        vals = np.asarray(data[var].to_numpy(), dtype=float)
+        n_bad = int((~np.isfinite(vals)).sum())
+        if n_bad == 0:
+            continue
+        raise ValueError(
+            f"Predictor column '{var}' contains {n_bad} NaN/inf value(s). "
+            "Missing-data handling is only supported for outcome "
+            "(regression left-hand-side) variables, where it is modeled "
+            "via a masked likelihood. A NaN in a predictor would instead "
+            "propagate silently into every downstream 'mu' it feeds and "
+            "surface later as a non-finite logp with no indication of the "
+            f"cause. Impute or drop the missing '{var}' values before "
+            "fitting."
+        )
 
 
 def _identify_residual_blocks(spec: Spec) -> tuple[set[str], list[set[str]]]:
@@ -1636,8 +1678,23 @@ def _compile_scan_panel(
                 observed_panel = _reshape_to_panel(data_sorted, var, n_units, n_times)
             else:
                 observed_panel = np.full((n_times, n_units), np.nan, dtype="float64")
-            observed_carry_nodes[var] = pm.Data(
-                f"_obs_carry_{var}", observed_panel.astype("float64")
+            # Deliberately a plain ``pytensor.shared``, not ``pm.Data``: the
+            # scan step (``pt.switch(pt.isnan(obs_state), sampled, obs)``,
+            # below) depends on NaN passing through untouched to mark
+            # missing carry values that should fall back to the model's own
+            # simulated state. ``pm.Data`` auto-converts any NaN-containing
+            # array to a masked array and then unconditionally raises
+            # ``NotImplementedError`` on masked/NaN input -- it assumes NaN
+            # always means "trigger auto-imputation on an observed
+            # likelihood", which is not what this internal carry node does.
+            # That made *any* NaN in a variable used as its own lag (e.g.
+            # ``y ~ lag(y)``) crash model construction outright, even though
+            # the masked-likelihood path below is fully equipped to handle
+            # it. This node is never looked up by name or swapped via
+            # ``pm.set_data`` (unlike the exogenous ``pm.Data`` nodes), so a
+            # plain shared variable is a safe substitute.
+            observed_carry_nodes[var] = pytensor.shared(
+                observed_panel.astype("float64"), name=f"_obs_carry_{var}"
             )
 
         latent_innovation_nodes: dict[str, Any] = {}
