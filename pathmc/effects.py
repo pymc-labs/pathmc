@@ -19,6 +19,7 @@ Provides the logic behind ``PathModel.effects_summary()`` and
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import narwhals.stable.v1 as nw
@@ -284,6 +285,16 @@ def compute_path_effect(
 ) -> EffectResult:
     """Compute the effect along a specified causal path.
 
+    Each edge's contribution is the linear (main-effect) regression
+    coefficient of the source variable on the target; the path effect is
+    the product of these coefficients (Wright's tracing rule). This is
+    exact for linear-Gaussian structural models. If the target's
+    regression also contains an interaction term involving the source
+    variable (e.g. ``Y ~ b*M + g*M:X``), the interaction's contribution is
+    *not* included and the true marginal effect becomes state-dependent
+    (a function of the interacting variable's value); a ``UserWarning``
+    is raised in that case.
+
     Parameters
     ----------
     path : str
@@ -327,6 +338,27 @@ def compute_path_effect(
             raise ValueError(
                 f"No direct edge from '{source}' to '{target}' in the model. "
                 f"Check the path specification."
+            )
+
+        interaction_terms = [
+            t
+            for t in reg.terms
+            if t.interaction_of is not None and source in t.interaction_of
+        ]
+        if interaction_terms:
+            names = ", ".join(t.label or t.variable for t in interaction_terms)
+            warnings.warn(
+                f"Edge '{source} -> {target}' has interaction term(s) ({names}) "
+                f"involving '{source}' on the same regression. compute_path_effect() "
+                f"only multiplies the linear (main-effect) coefficient along each edge "
+                f"and does not account for interaction terms, so the product of "
+                f"edge coefficients along this path will not equal the true "
+                f"(state-dependent) marginal effect of the path's source variable "
+                f"unless the interacting variable(s) are held at zero. This also means "
+                f"a defined parameter such as 'total := direct + indirect' will silently "
+                f"omit the interaction's contribution.",
+                UserWarning,
+                stacklevel=2,
             )
 
         if matched_term.label is not None and matched_term.label in labeled_draws:
