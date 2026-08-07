@@ -35,10 +35,7 @@ user_guide: docs/user_guide
 # Custom Sections ------------------------------------------------------------
 sections:
   - title: Examples
-    # Symlink at repo root: examples -> docs/examples. Great Docs copies
-    # sections to great-docs/examples/, which must match the title slug
-    # ("examples") for Page Tags scanning. Source content stays under docs/.
-    dir: examples
+    dir: docs/examples
     index: true
     # index_columns is clamped to a max of 2 by great-docs; the grid is
     # responsive (auto-fill) and shows more columns on wide screens anyway.
