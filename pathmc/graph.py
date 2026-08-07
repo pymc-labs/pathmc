@@ -159,7 +159,7 @@ def build_graph(spec: Spec, latent: set[str] | None = None) -> GraphInfo:
     if unknown_vars:
         sorted_vars = ", ".join(f"'{v}'" for v in sorted(unknown_vars))
         raise ValueError(
-            f"Residual covariance (~~) references unknown variable(s) "
+            f"Unknown variable(s) in residual covariance (~~): "
             f"{sorted_vars}. Every ~~ endpoint must be a variable that "
             f"appears elsewhere in the model (as a regression LHS or RHS "
             f"term). Available variables: {sorted(dag.nodes)}"
