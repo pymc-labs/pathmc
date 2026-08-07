@@ -36,14 +36,19 @@ import pytensor.tensor as pt
 __all__ = ["ParamSpec", "Transform", "register_transform"]
 
 
-def _geometric_adstock(x: Any, *, alpha: Any, l_max: int) -> Any:
+def _geometric_adstock(
+    x: Any, *, alpha: Any, l_max: int, normalize: bool = False
+) -> Any:
     """Geometric adstock along the leading (time) axis.
 
     ``y[t] = sum_{i=0}^{l_max-1} alpha**i * x[t-i]``, with zero padding before
-    ``t = 0``. The carryover is truncated at ``l_max`` lags, matching the
-    convolution-based implementation in ``pymc_marketing.mmm.transformers``,
-    and is significantly faster than ``pytensor.scan`` with cleaner gradients
-    for NUTS sampling. Batch axes after the first (e.g. panel units) are
+    ``t = 0``. When ``normalize`` is ``True`` the result is divided by
+    ``sum_{i=0}^{l_max-1} alpha**i`` so the lag weights sum to 1. The
+    carryover is truncated at ``l_max`` lags, and both the truncation and the
+    ``normalize`` behaviour match
+    ``pymc_marketing.mmm.transformers.geometric_adstock``. This kernel is
+    significantly faster than ``pytensor.scan`` and has cleaner gradients for
+    NUTS sampling. Batch axes after the first (e.g. panel units) are
     broadcast over.
     """
     if l_max < 1:
@@ -58,6 +63,8 @@ def _geometric_adstock(x: Any, *, alpha: Any, l_max: int) -> Any:
         shifted = pt.zeros_like(x)
         shifted = pt.set_subtensor(shifted[i:], x[:-i])
         result = result + w[i] * shifted
+    if normalize:
+        result = result / pt.sum(w)
     return result
 
 
@@ -165,21 +172,47 @@ class Transform:
 
 
 class Adstock(Transform):
-    """Geometric adstock: ``y_t = x_t + decay * y_{t-1}``.
+    """Geometric adstock: ``y_t = sum_{i=0}^{l_max-1} decay**i * x_{t-i}``.
 
     Applied along the time axis within each panel unit.
     For cross-sectional data, applied along the row axis.
 
     The PyMC graph uses the vectorized :func:`_geometric_adstock`
     kernel, which is significantly faster than ``pytensor.scan`` and
-    produces cleaner gradients for NUTS sampling.
+    produces cleaner gradients for NUTS sampling. ``l_max`` and
+    ``normalize`` mirror the corresponding arguments of
+    ``pymc_marketing.mmm.transformers.geometric_adstock`` — pass them to
+    the constructor and re-register (see :func:`register_transform`) to
+    match a reference model's configuration, e.g.
+    ``register_transform(Adstock(l_max=8, normalize=True))``.
+
+    Note that :meth:`step`, used inside ``pytensor.scan`` for panel
+    interventions with temporal dependencies, implements the *unbounded*
+    recursion ``y_t = x_t + decay * y_{t-1}`` — the ``l_max -> inf`` limit
+    of the truncated kernel above. For ``decay`` close to 1 with a small
+    ``l_max`` the two paths can disagree; increase ``l_max`` to tighten
+    the approximation.
     """
 
     name = "adstock"
-    l_max: int = 12
     param_specs = {
         "decay": ParamSpec(constraint="unit_interval", default_prior="Beta(2, 2)"),
     }
+
+    def __init__(self, l_max: int = 12, normalize: bool = False) -> None:
+        """Create a geometric-adstock transform.
+
+        Parameters
+        ----------
+        l_max : int
+            Number of lags (including lag 0) included in the truncated
+            carryover sum. Matches ``pymc_marketing``'s ``l_max``.
+        normalize : bool
+            If ``True``, divide by the sum of the lag weights so they sum
+            to 1. Matches ``pymc_marketing``'s ``normalize``.
+        """
+        self.l_max = l_max
+        self.normalize = normalize
 
     def apply_pymc(
         self,
@@ -193,7 +226,9 @@ class Adstock(Transform):
 
         if panel_info is not None and data is not None:
             return self._apply_pymc_panel(x, decay, panel_info, data)
-        return _geometric_adstock(x, alpha=decay, l_max=self.l_max)
+        return _geometric_adstock(
+            x, alpha=decay, l_max=self.l_max, normalize=self.normalize
+        )
 
     def _apply_pymc_panel(self, x: Any, decay: Any, panel_info: Any, data: Any) -> Any:
         """Apply adstock per unit via matrix reshaping, not per-unit scans."""
@@ -214,7 +249,9 @@ class Adstock(Transform):
         x_sorted = x[sorted_idx]
         x_matrix = x_sorted.reshape((n_units, n_time)).T  # (time, units)
 
-        adstocked = _geometric_adstock(x_matrix, alpha=decay, l_max=self.l_max)
+        adstocked = _geometric_adstock(
+            x_matrix, alpha=decay, l_max=self.l_max, normalize=self.normalize
+        )
 
         result_flat = adstocked.T.flatten()  # back to unit-major order
         return result_flat[reverse_idx]
