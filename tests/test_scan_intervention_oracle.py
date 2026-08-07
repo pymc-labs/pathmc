@@ -122,9 +122,7 @@ class TestInterveneOnEndogenousLagBase:
         y_traj = np.array([10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
         y0 = _panel_df()["y"].to_numpy()[0]  # pre-sample carry, fixed at compile time
 
-        result = lag_base_model.do(
-            set={"y": y_traj}, simulate_over="time", kind=kind
-        )
+        result = lag_base_model.do(set={"y": y_traj}, simulate_over="time", kind=kind)
         z_got = np.asarray(result._ds["z"].values).reshape(N_TIMES)
         z_expected = _analytic_z(y_traj, y0)
 
@@ -133,9 +131,7 @@ class TestInterveneOnEndogenousLagBase:
     def test_intervened_var_reports_the_set_value(self, lag_base_model, kind):
         """The intervened var's own reported value is exactly what was set."""
         y_traj = np.array([10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
-        result = lag_base_model.do(
-            set={"y": y_traj}, simulate_over="time", kind=kind
-        )
+        result = lag_base_model.do(set={"y": y_traj}, simulate_over="time", kind=kind)
         y_got = np.asarray(result._ds["y"].values).reshape(N_TIMES)
         np.testing.assert_allclose(y_got, y_traj, atol=1e-8)
 
@@ -150,9 +146,7 @@ class TestInterveneOnEndogenousLagBase:
         y_traj[3:] = np.array([999.0, 999.0, 999.0])  # diverge from t=4 onward
         y0 = _panel_df()["y"].to_numpy()[0]
 
-        result = lag_base_model.do(
-            set={"y": y_traj}, simulate_over="time", kind=kind
-        )
+        result = lag_base_model.do(set={"y": y_traj}, simulate_over="time", kind=kind)
         z_got = np.asarray(result._ds["z"].values).reshape(N_TIMES)
         z_expected = _analytic_z(y_traj, y0)
 
@@ -202,9 +196,7 @@ class TestNoStateLeakageAcrossRepeatedCalls:
         natural_y = BETA_X * _panel_df()["x"].to_numpy()
         result_none = lag_base_model.do(set=None, simulate_over="time", kind=kind)
         z_none = np.asarray(result_none._ds["z"].values).reshape(N_TIMES)
-        np.testing.assert_allclose(
-            z_none, _analytic_z(natural_y, y0), atol=1e-8
-        )
+        np.testing.assert_allclose(z_none, _analytic_z(natural_y, y0), atol=1e-8)
 
     def test_generative_model_intervention_data_restored_to_nan(
         self, lag_base_model, kind
@@ -233,9 +225,7 @@ class TestPreInterventionCarryDoesNotLeakForward:
         y0 = _panel_df()["y"].to_numpy()[0]
         y_traj = np.array([10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
 
-        result = lag_base_model.do(
-            set={"y": y_traj}, simulate_over="time", kind=kind
-        )
+        result = lag_base_model.do(set={"y": y_traj}, simulate_over="time", kind=kind)
         z_got = np.asarray(result._ds["z"].values).reshape(N_TIMES)
         # z_1 = BETA_LAG * y0 (the pre-sample carry), *not* BETA_LAG * y_traj[0]
         assert abs(z_got[0] - BETA_LAG * y0) < 1e-8
@@ -247,9 +237,7 @@ class TestPreInterventionCarryDoesNotLeakForward:
         y0 = _panel_df()["y"].to_numpy()[0]
         y_traj = np.array([10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
 
-        result = lag_base_model.do(
-            set={"y": y_traj}, simulate_over="time", kind=kind
-        )
+        result = lag_base_model.do(set={"y": y_traj}, simulate_over="time", kind=kind)
         z_got = np.asarray(result._ds["z"].values).reshape(N_TIMES)
         # From t=2 onward, z must track the intervened trajectory, not keep
         # replaying the pre-intervention carry y0.
