@@ -1709,11 +1709,43 @@ def _compile_scan_panel(
                 f"carry_innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
 
+        # do()-intervention override channel, one per endogenous var (incl.
+        # latent), defaulting to all-NaN (no-op).  ``pm.do()`` graph surgery
+        # on the top-level free RV / Deterministic named ``var`` cannot sever
+        # the *internal* scan recursion: lag()/contemporaneous references
+        # inside ``step_fn`` are resolved from the Python-level ``new_endo`` /
+        # ``prev_endo`` dicts, which are built from this step's own structural
+        # computation and never re-read the outer ``var`` node. Without this
+        # channel, an intervention on an endogenous var is applied only
+        # cosmetically to the reported value at the intervened timestep and
+        # is invisible to every other equation and to future timesteps'
+        # lag() terms -- issue #327 item 2. Wiring a switchable sequence
+        # directly into ``step_fn`` (mirrors the exogenous pm.Data path,
+        # which already propagates correctly) fixes this: ``do()`` sets
+        # ``_do_intervene_{var}`` (see ``simulate._scan_do_intervention``)
+        # and every downstream consumer inside the scan -- same timestep or
+        # later -- sees the severed value.
+        # ``pm.Data`` rejects NaN-valued arrays outright (it treats them as a
+        # request for missing-data auto-imputation), so this NaN-sentinel
+        # override channel is registered as a plain shared variable instead
+        # -- ``pm.set_data`` only requires ``model[name]`` to resolve to a
+        # ``SharedVariable``, which does not require going through
+        # ``pm.Data()``.
+        do_intervene_nodes: dict[str, Any] = {}
+        for var in endo_keys:
+            shared = pytensor.shared(
+                np.full((n_times, n_units), np.nan, dtype="float64"),
+                name=f"_do_intervene_{var}",
+            )
+            scan_model.register_data_var(shared)
+            do_intervene_nodes[var] = shared
+
         sequences = (
             [exog_data_nodes[k] for k in exog_keys]
             + [observed_carry_nodes[k] for k in stochastic_carry_vars]
             + [latent_innovation_nodes[k] for k in stochastic_latent]
             + [carry_innovation_nodes[k] for k in stochastic_carry_vars]
+            + [do_intervene_nodes[k] for k in endo_keys]
         )
 
         def _init_carry(arr: np.ndarray) -> Any:
@@ -1771,6 +1803,7 @@ def _compile_scan_panel(
         n_exog_seq = len(exog_keys)
         n_obs_carry_seq = len(stochastic_carry_vars)
         n_latent_innov_seq = len(stochastic_latent)
+        n_carry_innov_seq = len(stochastic_carry_vars)
         n_endo = len(endo_keys)
         n_adstock = len(adstock_keys)
         n_exog_lag = len(exog_lag_bases)
@@ -1792,6 +1825,16 @@ def _compile_scan_panel(
             carry_innov_t = {
                 k: seq_args[n_exog_seq + n_obs_carry_seq + n_latent_innov_seq + i]
                 for i, k in enumerate(stochastic_carry_vars)
+            }
+            do_intervene_t = {
+                k: seq_args[
+                    n_exog_seq
+                    + n_obs_carry_seq
+                    + n_latent_innov_seq
+                    + n_carry_innov_seq
+                    + i
+                ]
+                for i, k in enumerate(endo_keys)
             }
             prev_endo = {k: carry_args[i] for i, k in enumerate(endo_keys)}
             prev_adstock_state = {
@@ -1863,6 +1906,17 @@ def _compile_scan_panel(
                     new_endo[var] = pt.exp(pt.clip(mu, -20, 20))
                 else:
                     new_endo[var] = mu
+
+                # Sever the structural equation for this timestep when a
+                # do()-intervention value is present (non-NaN). This must
+                # happen *inside* the scan, before any later var in this same
+                # timestep or the next timestep's carry resolves ``var``
+                # contemporaneously/via lag() -- see the do_intervene_nodes
+                # comment above for why graph surgery on the outer model
+                # cannot reach here.
+                new_endo[var] = pt.switch(
+                    pt.isnan(do_intervene_t[var]), new_endo[var], do_intervene_t[var]
+                )
 
             out = [new_endo[k] for k in endo_keys]
             out += [new_adstock[k] for k in adstock_keys]
