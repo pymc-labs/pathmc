@@ -35,6 +35,7 @@ from pathmc.compile import (
     build_design_matrix,
     compile_to_pymc,
     get_predictor_columns,
+    validate_panel_scan_shape,
 )
 from pathmc.effects import (
     EffectResult,
@@ -332,11 +333,20 @@ class PathModel:
 
         if observations:
             self._pymc_model = pm.observe(self._gen_model, observations)
-            if _OBSERVED_CARRY_FLAG in self._pymc_model.named_vars:
-                with self._pymc_model:
-                    pm.set_data({_OBSERVED_CARRY_FLAG: np.array(1, dtype="int8")})
         else:
             self._pymc_model = self._gen_model
+
+        # Enable the observed carry unconditionally, not only when
+        # ``observations`` is non-empty. A variable with any NaN is skipped
+        # above (its likelihood is already masked inside the compiled model),
+        # so a model whose every outcome carries a NaN -- exactly the
+        # ``y ~ lag(y)`` with missing outcomes case this branch exists to
+        # unlock -- would otherwise leave the flag at 0 and fit a
+        # free-running scan, silently using simulated instead of observed
+        # previous values for the timesteps that *are* observed.
+        if _OBSERVED_CARRY_FLAG in self._pymc_model.named_vars:
+            with self._pymc_model:
+                pm.set_data({_OBSERVED_CARRY_FLAG: np.array(1, dtype="int8")})
         self._idata = None
 
     @property
@@ -523,7 +533,12 @@ class PathModel:
         """
         self._require_data("sample_prior_predictive")
         assert self._gen_model is not None
-        with self._gen_model:
+        # Prior predictive is free-running by definition: the scan must carry
+        # its own simulated previous values, never the observed ones. The
+        # generative model can be the same object as the observation model
+        # (when every outcome was skipped as NaN), so force the flag rather
+        # than relying on it still being 0.
+        with self._gen_model, _observed_carry(self._gen_model, False):
             return pm.sample_prior_predictive(**kwargs)
 
     def summary(self) -> pd.DataFrame:
@@ -708,10 +723,21 @@ class PathModel:
         RuntimeError
             If the model was created without data, or called before
             ``.fit()``.
+        ValueError
+            For panel models with a temporal dependency (``lag()`` or
+            ``adstock()``), if ``pm.set_data()`` was used to swap in a
+            differently-shaped panel first. ``n_units``/``n_times`` are
+            baked into the scan graph at model-compile time, so
+            out-of-sample prediction on a new panel shape is not
+            supported here: build a new model with ``pathmc.model(...,
+            data=new_data, panel=...)`` on the new data instead.
         """
         idata = self._require_fitted("predict")
         assert self._pymc_model is not None
         kwargs.setdefault("extend_inferencedata", True)
+        scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        if scan_info is not None:
+            validate_panel_scan_shape(self._pymc_model, scan_info)
         with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
             pp = pm.sample_posterior_predictive(idata, **kwargs)
         if not kwargs["extend_inferencedata"]:

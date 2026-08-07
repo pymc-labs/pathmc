@@ -67,6 +67,61 @@ class PanelScanInfo:
     time_values: list = field(default_factory=list)
 
 
+def validate_panel_scan_shape(model: pm.Model, scan_info: "PanelScanInfo") -> None:
+    """Raise a clear error if *model*'s panel ``pm.Data`` no longer matches
+    the ``(n_times, n_units)`` shape baked in at compile time.
+
+    ``_compile_scan_panel`` hard-codes ``n_units``/``n_times`` into the RV
+    shapes and scan-carry initial values when the model is built. Swapping
+    in differently-shaped data via ``pm.set_data`` does not resize those --
+    ``pytensor.scan`` silently derives its step count from the *shortest*
+    sequence, so e.g. adding more timepoints to an exogenous predictor
+    while a carry/innovation RV keeps its original (shorter) length
+    silently truncates the extra rows instead of raising. This function
+    catches that mismatch before ``sample_posterior_predictive`` runs.
+
+    Every 2-D ``pm.Data`` node in a scan-compiled panel model (exogenous
+    predictors, lagged-exogenous carries, and observed-carry channels) has
+    exactly the compile-time shape ``(n_times, n_units)``, so comparing
+    against that is sufficient -- no per-variable bookkeeping is needed.
+
+    Parameters
+    ----------
+    model : pm.Model
+        The compiled (and possibly ``pm.set_data``-mutated) PyMC model.
+    scan_info : PanelScanInfo
+        The scan metadata recorded at compile time.
+
+    Raises
+    ------
+    ValueError
+        If any 2-D data node's shape no longer matches
+        ``(scan_info.n_times, scan_info.n_units)``.
+    """
+    expected = (scan_info.n_times, scan_info.n_units)
+    for name, var in model.named_vars.items():
+        if not hasattr(var, "get_value"):
+            continue
+        value = var.get_value()
+        if getattr(value, "ndim", None) != 2:
+            continue
+        if tuple(value.shape) != expected:
+            raise ValueError(
+                f"Data variable '{name}' has shape {tuple(value.shape)}, but "
+                "this model was compiled for a panel with "
+                f"{scan_info.n_times} time step(s) x {scan_info.n_units} "
+                f"unit(s) (expected shape {expected}). Out-of-sample "
+                "prediction on a differently-shaped panel is not supported "
+                "for temporal (lag()/adstock()) panel models: n_units and "
+                "n_times are baked into the scan graph at model-compile "
+                "time, so swapping in new data via pm.set_data() would "
+                "silently mis-reshape or truncate it rather than produce "
+                "correct predictions. Build a new model with "
+                "pathmc.model(..., data=new_data, panel=...) on the "
+                "differently-shaped panel instead."
+            )
+
+
 @dataclass(frozen=True)
 class PredictorSlot:
     """One slot in a linear predictor (one column of the design matrix).
@@ -401,6 +456,7 @@ def compile_to_pymc(
 
     _reject_hsgp_in_residual_blocks(spec)
     _reject_endogenous_hsgp_inputs(spec)
+    _reject_nan_predictors(data, graph_info)
 
     if panel_info is not None and _has_temporal_deps(spec, graph_info):
         _validate_scan_non_gaussian_intermediaries(spec, families, latent)
@@ -936,6 +992,47 @@ def _reject_endogenous_hsgp_inputs(spec: Spec) -> None:
                     "random prior draw and make the fit non-reproducible. "
                     "Phase 1 supports exogenous hsgp() inputs only."
                 )
+
+
+def _reject_nan_predictors(data: nw.DataFrame, graph_info: GraphInfo) -> None:
+    """Raise if a purely-exogenous (predictor) column contains NaN/inf.
+
+    Outcome (endogenous, LHS) variables get first-class missing-data
+    support: ``_emit_free_rv``/``_compile_scan_panel`` wrap them in a
+    ``pm.Normal`` with a ``np.ma.masked_invalid`` observed array, so PyMC
+    marginalizes the missing positions correctly.
+
+    Predictors have no equivalent handling. A NaN predictor is fed
+    straight into a ``pm.Data`` node and from there into ``mu`` via plain
+    tensor arithmetic (row-wise) or a ``pytensor.scan`` sequence (panel).
+    Either way a NaN silently poisons every downstream ``mu`` it touches,
+    which usually surfaces much later as a non-finite logp / NUTS
+    divergence with no indication that a NaN predictor was the cause.
+    Reject it here, at compile time, with a message that names the
+    column instead.
+
+    Only checks ``graph_info.exogenous`` columns that are never the LHS of
+    a regression -- i.e. genuine predictors -- so a NaN in an endogenous
+    variable (which *does* have masked-likelihood support) is not
+    double-flagged here.
+    """
+    for var in sorted(graph_info.exogenous):
+        if var not in data.columns:
+            continue
+        vals = np.asarray(data[var].to_numpy(), dtype=float)
+        n_bad = int((~np.isfinite(vals)).sum())
+        if n_bad == 0:
+            continue
+        raise ValueError(
+            f"Predictor column '{var}' contains {n_bad} NaN/inf value(s). "
+            "Missing-data handling is only supported for outcome "
+            "(regression left-hand-side) variables, where it is modeled "
+            "via a masked likelihood. A NaN in a predictor would instead "
+            "propagate silently into every downstream 'mu' it feeds and "
+            "surface later as a non-finite logp with no indication of the "
+            f"cause. Impute or drop the missing '{var}' values before "
+            "fitting."
+        )
 
 
 def _identify_residual_blocks(spec: Spec) -> tuple[set[str], list[set[str]]]:
@@ -1685,8 +1782,23 @@ def _compile_scan_panel(
                 observed_panel = _reshape_to_panel(data_sorted, var, n_units, n_times)
             else:
                 observed_panel = np.full((n_times, n_units), np.nan, dtype="float64")
-            observed_carry_nodes[var] = pm.Data(
-                f"_obs_carry_{var}", observed_panel.astype("float64")
+            # Deliberately a plain ``pytensor.shared``, not ``pm.Data``: the
+            # scan step (``pt.switch(pt.isnan(obs_state), sampled, obs)``,
+            # below) depends on NaN passing through untouched to mark
+            # missing carry values that should fall back to the model's own
+            # simulated state. ``pm.Data`` auto-converts any NaN-containing
+            # array to a masked array and then unconditionally raises
+            # ``NotImplementedError`` on masked/NaN input -- it assumes NaN
+            # always means "trigger auto-imputation on an observed
+            # likelihood", which is not what this internal carry node does.
+            # That made *any* NaN in a variable used as its own lag (e.g.
+            # ``y ~ lag(y)``) crash model construction outright, even though
+            # the masked-likelihood path below is fully equipped to handle
+            # it. This node is never looked up by name or swapped via
+            # ``pm.set_data`` (unlike the exogenous ``pm.Data`` nodes), so a
+            # plain shared variable is a safe substitute.
+            observed_carry_nodes[var] = pytensor.shared(
+                observed_panel.astype("float64"), name=f"_obs_carry_{var}"
             )
 
         latent_innovation_nodes: dict[str, Any] = {}
