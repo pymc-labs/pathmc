@@ -67,6 +67,61 @@ class PanelScanInfo:
     time_values: list = field(default_factory=list)
 
 
+def validate_panel_scan_shape(model: pm.Model, scan_info: "PanelScanInfo") -> None:
+    """Raise a clear error if *model*'s panel ``pm.Data`` no longer matches
+    the ``(n_times, n_units)`` shape baked in at compile time.
+
+    ``_compile_scan_panel`` hard-codes ``n_units``/``n_times`` into the RV
+    shapes and scan-carry initial values when the model is built. Swapping
+    in differently-shaped data via ``pm.set_data`` does not resize those --
+    ``pytensor.scan`` silently derives its step count from the *shortest*
+    sequence, so e.g. adding more timepoints to an exogenous predictor
+    while a carry/innovation RV keeps its original (shorter) length
+    silently truncates the extra rows instead of raising. This function
+    catches that mismatch before ``sample_posterior_predictive`` runs.
+
+    Every 2-D ``pm.Data`` node in a scan-compiled panel model (exogenous
+    predictors, lagged-exogenous carries, and observed-carry channels) has
+    exactly the compile-time shape ``(n_times, n_units)``, so comparing
+    against that is sufficient -- no per-variable bookkeeping is needed.
+
+    Parameters
+    ----------
+    model : pm.Model
+        The compiled (and possibly ``pm.set_data``-mutated) PyMC model.
+    scan_info : PanelScanInfo
+        The scan metadata recorded at compile time.
+
+    Raises
+    ------
+    ValueError
+        If any 2-D data node's shape no longer matches
+        ``(scan_info.n_times, scan_info.n_units)``.
+    """
+    expected = (scan_info.n_times, scan_info.n_units)
+    for name, var in model.named_vars.items():
+        if not hasattr(var, "get_value"):
+            continue
+        value = var.get_value()
+        if getattr(value, "ndim", None) != 2:
+            continue
+        if tuple(value.shape) != expected:
+            raise ValueError(
+                f"Data variable '{name}' has shape {tuple(value.shape)}, but "
+                "this model was compiled for a panel with "
+                f"{scan_info.n_times} time step(s) x {scan_info.n_units} "
+                f"unit(s) (expected shape {expected}). Out-of-sample "
+                "prediction on a differently-shaped panel is not supported "
+                "for temporal (lag()/adstock()) panel models: n_units and "
+                "n_times are baked into the scan graph at model-compile "
+                "time, so swapping in new data via pm.set_data() would "
+                "silently mis-reshape or truncate it rather than produce "
+                "correct predictions. Build a new model with "
+                "pathmc.model(..., data=new_data, panel=...) on the "
+                "differently-shaped panel instead."
+            )
+
+
 @dataclass(frozen=True)
 class PredictorSlot:
     """One slot in a linear predictor (one column of the design matrix).

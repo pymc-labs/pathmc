@@ -30,7 +30,12 @@ import pymc as pm
 import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
-from pathmc.compile import build_design_matrix, compile_to_pymc, get_predictor_columns
+from pathmc.compile import (
+    build_design_matrix,
+    compile_to_pymc,
+    get_predictor_columns,
+    validate_panel_scan_shape,
+)
 from pathmc.effects import (
     EffectResult,
     _has_labeled_terms,
@@ -703,10 +708,21 @@ class PathModel:
         RuntimeError
             If the model was created without data, or called before
             ``.fit()``.
+        ValueError
+            For panel models with a temporal dependency (``lag()`` or
+            ``adstock()``), if ``pm.set_data()`` was used to swap in a
+            differently-shaped panel first. ``n_units``/``n_times`` are
+            baked into the scan graph at model-compile time, so
+            out-of-sample prediction on a new panel shape is not
+            supported here: build a new model with ``pathmc.model(...,
+            data=new_data, panel=...)`` on the new data instead.
         """
         idata = self._require_fitted("predict")
         assert self._pymc_model is not None
         kwargs.setdefault("extend_inferencedata", True)
+        scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        if scan_info is not None:
+            validate_panel_scan_shape(self._pymc_model, scan_info)
         with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
             pp = pm.sample_posterior_predictive(idata, **kwargs)
         if not kwargs["extend_inferencedata"]:
