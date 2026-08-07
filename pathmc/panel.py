@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 import narwhals.stable.v1 as nw
@@ -76,6 +77,103 @@ def _require_column(df: nw.DataFrame, col: str, label: str) -> None:
         )
 
 
+def _validate_panel_shape(
+    df: nw.DataFrame,
+    unit_col: str,
+    time_col: str,
+    unit_labels: list[str],
+) -> None:
+    """Validate that panel rows form a complete, rectangular (unit x time) grid.
+
+    The scan-based panel compiler (``pathmc/compile.py``) assumes the data
+    can be losslessly reshaped to a dense ``(n_times, n_units)`` array via
+    ``n_times = len(data) // n_units`` after sorting by ``(unit, time)``.
+    That assumption silently breaks -- producing mis-aligned, garbage rows
+    with no error -- if the panel is unbalanced, has duplicate ``(unit,
+    time)`` rows, or has missing unit/time combinations. This function
+    fails loudly with a descriptive error instead.
+    """
+    n_rows = df.shape[0]
+    n_units = len(unit_labels)
+
+    if n_units == 0:
+        raise ValueError(
+            f"Panel unit column '{unit_col}' has no values; cannot build a "
+            "panel model from empty data."
+        )
+
+    units = df[unit_col].to_list()
+    times = df[time_col].to_list()
+
+    # 1. Duplicate (unit, time) rows: reshape cannot represent them.
+    pair_counts = Counter(zip(units, times))
+    duplicates = sorted(
+        (pair for pair, count in pair_counts.items() if count > 1),
+        key=lambda p: (str(p[0]), str(p[1])),
+    )
+    if duplicates:
+        shown = ", ".join(f"({u!r}, {t!r})" for u, t in duplicates[:5])
+        more = f" (+{len(duplicates) - 5} more)" if len(duplicates) > 5 else ""
+        raise ValueError(
+            "Panel data has duplicate (unit, time) rows, which cannot be "
+            f"reshaped into a rectangular panel: {shown}{more}. Each "
+            f"combination of '{unit_col}' and '{time_col}' must appear "
+            "exactly once."
+        )
+
+    # 2. Balanced panel: every unit must contribute the same row count.
+    if n_rows % n_units != 0:
+        raise ValueError(
+            f"Panel data is unbalanced: {n_rows} row(s) do not divide "
+            f"evenly across {n_units} unit(s) in '{unit_col}'. Every unit "
+            "must have the same number of time observations. Found row "
+            f"counts per unit: {dict(sorted(Counter(units).items(), key=lambda kv: str(kv[0])))}."
+        )
+    n_times = n_rows // n_units
+
+    unit_row_counts = Counter(units)
+    unbalanced_units = {
+        unit: count for unit, count in unit_row_counts.items() if count != n_times
+    }
+    if unbalanced_units:
+        raise ValueError(
+            f"Panel data is unbalanced: expected {n_times} observations per "
+            f"unit (based on {n_rows} total rows / {n_units} units), but "
+            f"the following units have a different count: {unbalanced_units}. "
+            "Ragged or missing panel rows are not supported; every unit "
+            "must be observed at every timepoint."
+        )
+
+    # 3. Every unit must be observed at exactly the same set of timepoints,
+    # in the same order once sorted -- otherwise column position within
+    # the reshaped (n_times, n_units) array would refer to different
+    # timepoints for different units.
+    expected_times = sorted(set(times))
+    if len(expected_times) != n_times:
+        raise ValueError(
+            f"Panel data is not rectangular: found {len(expected_times)} "
+            f"distinct value(s) of '{time_col}' but {n_times} observations "
+            "per unit. Every unit must be observed at exactly the same set "
+            "of timepoints."
+        )
+
+    times_by_unit: dict[object, list] = {}
+    for u, t in zip(units, times):
+        times_by_unit.setdefault(u, []).append(t)
+
+    mismatched = []
+    for unit, unit_times in times_by_unit.items():
+        if sorted(unit_times) != expected_times:
+            mismatched.append(unit)
+    if mismatched:
+        raise ValueError(
+            "Panel data is not rectangular: the following unit(s) are not "
+            f"observed at the same timepoints as the rest of the panel: "
+            f"{sorted(mismatched, key=str)}. Every unit must share an "
+            f"identical set of '{time_col}' values."
+        )
+
+
 def build_panel_info(df: nw.DataFrame, panel: dict[str, str]) -> PanelInfo:
     """Build panel metadata from data and panel specification.
 
@@ -90,8 +188,15 @@ def build_panel_info(df: nw.DataFrame, panel: dict[str, str]) -> PanelInfo:
     -------
     PanelInfo
         Panel metadata for use by compiler and simulator.
+
+    Raises
+    ------
+    ValueError
+        If the panel is unbalanced, ragged, has duplicate ``(unit, time)``
+        rows, or units do not share an identical set of timepoints.
     """
     unit_col = panel["unit"]
     time_col = panel["time"]
     unit_labels = sorted(df[unit_col].unique().to_list())
+    _validate_panel_shape(df, unit_col, time_col, unit_labels)
     return PanelInfo(unit=unit_col, time=time_col, unit_labels=unit_labels)
