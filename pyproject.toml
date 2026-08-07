@@ -43,7 +43,7 @@ dependencies = [
     "patsy",
     "pymc>=6.0,<7",
     "pymc-extras>=0.12",
-    "pytensor>=3.0,<4",
+    "pytensor>=3.1.1,<4",
 ]
 
 [project.urls]
