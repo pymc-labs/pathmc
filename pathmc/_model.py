@@ -1203,7 +1203,8 @@ class PathModel:
             If ``simulate_over="time"`` without panel, or if an intervention
             on an ``hsgp()`` input falls outside the basis boundary
             ``[mid - L, mid + L]`` frozen from the fitted data (beyond it
-            the basis aliases instead of extrapolating).
+            the basis aliases instead of extrapolating), or if a temporal
+            scan model is simulated without ``simulate_over="time"``.
         """
         idata = self._require_fitted("do")
         assert self._data is not None
@@ -1248,6 +1249,12 @@ class PathModel:
                     families=self._families,
                 )
             # Non-scan panel models fall through to the cross-sectional path.
+
+        if getattr(self._gen_model, "_pathmc_panel_scan", None) is not None:
+            raise ValueError(
+                "This model has temporal dependencies (lag() or adstock()). "
+                "Pass simulate_over='time' to do()."
+            )
 
         return self._run_do(set, kind)
 

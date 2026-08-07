@@ -87,6 +87,13 @@ class TestPanelDoAPI:
         with pytest.raises(ValueError, match="panel"):
             model.do(set={"X": 1.0}, simulate_over="time")
 
+    def test_scan_panel_requires_time_simulation(self, panel_lag_model):
+        """Temporal scan models require time-forward simulation."""
+        with pytest.raises(
+            ValueError, match=r"temporal dependencies.*simulate_over='time'"
+        ):
+            panel_lag_model.do(set={"spend": 10.0}, kind="mean")
+
 
 class TestTemporalPropagation:
     """Interventions propagate through time via lag structure."""
