@@ -46,7 +46,9 @@ from pathmc.graph import GraphInfo
 from pathmc.identify import adjustment_sets, is_identifiable
 
 
-def _graph_info(edges: list[tuple[str, str]], latent: set[str] | None = None) -> GraphInfo:
+def _graph_info(
+    edges: list[tuple[str, str]], latent: set[str] | None = None
+) -> GraphInfo:
     """Build a bare-bones GraphInfo directly from edges, bypassing the DSL.
 
     Useful for oracle DAGs (e.g. M-bias, unobserved confounders) that the
@@ -125,7 +127,8 @@ class TestMBiasOracle:
                 ("U2", "M"),
                 ("U2", "Y"),
                 ("X", "Y"),
-            ]
+            ],
+            latent={"U1", "U2"},
         )
 
     def test_empty_set_is_valid_and_minimal(self):
@@ -137,6 +140,11 @@ class TestMBiasOracle:
         g = self._dag()
         sets = adjustment_sets(g, "X", "Y")
         assert not any("M" in s for s in sets)
+
+    def test_latent_causes_are_never_candidates(self):
+        g = self._dag()
+        sets = adjustment_sets(g, "X", "Y")
+        assert all(not ({"U1", "U2"} & s) for s in sets)
 
     def test_still_identifiable(self):
         g = self._dag()
@@ -169,15 +177,13 @@ class TestMultipleConfoundersOracle:
     """Two confounders Z1, Z2 both needed; adjusting for only one fails."""
 
     def test_joint_adjustment_required(self):
-        g = _graph_info(
-            [
-                ("Z1", "X"),
-                ("Z1", "Y"),
-                ("Z2", "X"),
-                ("Z2", "Y"),
-                ("X", "Y"),
-            ]
-        )
+        g = _graph_info([
+            ("Z1", "X"),
+            ("Z1", "Y"),
+            ("Z2", "X"),
+            ("Z2", "Y"),
+            ("X", "Y"),
+        ])
         sets = adjustment_sets(g, "X", "Y")
         assert sets == [{"Z1", "Z2"}]
         # Partial adjustment (only one confounder) must not appear.
@@ -205,7 +211,9 @@ class TestDescendantExclusionOracle:
 # ---------------------------------------------------------------------------
 
 
-def _oracle_valid_sets(dag: nx.DiGraph, treatment: str, outcome: str) -> set[frozenset[str]]:
+def _oracle_valid_sets(
+    dag: nx.DiGraph, treatment: str, outcome: str
+) -> set[frozenset[str]]:
     """Ground-truth *all* valid (not just minimal) backdoor sets.
 
     Uses Pearl's theorem: Z satisfies the backdoor criterion relative to
