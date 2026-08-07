@@ -1,0 +1,26 @@
+pathmc/transforms.py
+  s_565852cf35245b::t_65c4d7d5974603 308
+  s_565852cf35245b::t_2ee36416fad734 294-307,309-321
+  s_565852cf35245b::t_38aa35230ea347 189-203,226-227,231-236,238-244
+  s_565852cf35245b::t_5139c0db63be53 211-219
+tests/test_adstock_parity.py
+  s_565852cf35245b::t_d165678ac1d1f2 32
+  s_565852cf35245b::t_0007b753021be0 36-37
+  s_565852cf35245b::t_0bdd2f8332a175 159-247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "59c505eae6df8c2b1e7f59412b22ff9ffc8c5149",
+  "prompts": {},
+  "sessions": {
+    "s_565852cf35245b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1cc5acc-bac9-48c3-a28c-828d65cac5c7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
