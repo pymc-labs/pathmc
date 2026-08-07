@@ -765,6 +765,12 @@ class PathModel:
             ``test_implications()`` to check whether the DAG's structural
             assumptions are consistent with observed data.
 
+            A ``~~`` residual covariance block is a declaration of an
+            unobserved common cause of its members, so it is expanded
+            into a latent confounder node before colliders are searched
+            for: a variable with only one declared parent can still
+            become a collider once that synthetic confounder is added.
+
         Parameters
         ----------
         adjustment_vars : set[str]
@@ -788,6 +794,11 @@ class PathModel:
         statement with the conditioning set derived from the basis set
         method (Shipley, 2000). Works before sampling — only the graph
         structure is needed.
+
+        A ``~~`` residual covariance block declares an unobserved common
+        cause of its members, so d-separation is checked with that
+        confounder made explicit: two variables joined only by a
+        declared ``~~`` edge are never reported as independent.
 
         Returns
         -------

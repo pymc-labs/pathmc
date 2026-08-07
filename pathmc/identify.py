@@ -80,16 +80,31 @@ def _with_residual_confounders(
         return dag, latent
 
     dag = dag.copy()
+    used_names = set(dag.nodes)
     for i, block in enumerate(graph_info.residual_blocks):
         if len(block) < 2:
             continue
-        u = f"_u_resid_{i}"
+        u = _fresh_latent_name(i, used_names)
+        used_names.add(u)
         dag.add_node(u)
         latent.add(u)
         for var in sorted(block):
             dag.add_edge(u, var)
 
     return dag, latent
+
+
+def _fresh_latent_name(index: int, used_names: set[str]) -> str:
+    """Return a synthetic latent name that collides with no real node.
+
+    Real variables are user-supplied and may themselves be named
+    ``_u_resid_<i>`` by coincidence; if that name is already taken, keep
+    appending an underscore until it is not.
+    """
+    name = f"_u_resid_{index}"
+    while name in used_names:
+        name += "_"
+    return name
 
 
 def adjustment_sets(
@@ -324,6 +339,12 @@ def collider_warnings(
         ``test_implications()`` to check whether the DAG's structural
         assumptions are consistent with observed data.
 
+        A ``~~`` residual covariance block is a declaration of an
+        unobserved common cause of its members, so it is expanded into
+        a latent confounder node before colliders are searched for: a
+        variable that only has one parent in the declared DAG can still
+        become a collider once the synthetic confounder is added.
+
     Parameters
     ----------
     graph_info : GraphInfo
@@ -340,8 +361,7 @@ def collider_warnings(
     list[str]
         Human-readable warning strings. Empty if no issues found.
     """
-    dag = graph_info.contemporaneous_dag
-    latent = graph_info.latent
+    dag, latent = _with_residual_confounders(graph_info)
     warnings_list: list[str] = []
 
     for var in adjustment_vars:
@@ -515,6 +535,15 @@ def implied_independences(
     the *basis set* approach (Shipley, 2000): one testable implication per
     missing edge.
 
+    A ``~~`` residual covariance block is a declaration of an unobserved
+    common cause of its members, so d-separation is checked on the DAG
+    with that confounder made explicit: two variables joined only by a
+    declared ``~~`` edge (directly, or through a chain of blocks) are
+    d-connected through the synthetic latent and are correctly never
+    reported as independent, even though neither the candidate pair nor
+    the conditioning set can include the latent itself (it has no
+    observed data column to test against).
+
     Parameters
     ----------
     graph_info : GraphInfo
@@ -526,6 +555,7 @@ def implied_independences(
         Implied independence statements, sorted by (x, y) alphabetically.
     """
     dag = graph_info.contemporaneous_dag
+    dag_aug, _ = _with_residual_confounders(graph_info)
     nodes = sorted(dag.nodes)
     result: list[ConditionalIndependence] = []
 
@@ -538,7 +568,7 @@ def implied_independences(
             parents_y = set(dag.predecessors(y))
             conditioning = (parents_x | parents_y) - {x, y}
 
-            if nx.is_d_separator(dag, {x}, {y}, conditioning):
+            if nx.is_d_separator(dag_aug, {x}, {y}, conditioning):
                 result.append(
                     ConditionalIndependence(
                         x=x,
