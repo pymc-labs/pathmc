@@ -60,6 +60,39 @@ _OBSERVED_CARRY_FLAG = "_use_observed_carry"
 
 
 @contextmanager
+def _scan_do_intervention(
+    model: pm.Model, updates: Mapping[str, np.ndarray]
+) -> Iterator[None]:
+    """Temporarily set the scan's per-var do()-intervention override Data.
+
+    ``updates`` maps ``_do_intervene_{var}`` node names (see
+    ``compile.py::_compile_scan_panel``) to the ``(n_times, n_units)``
+    intervention array. Restores the previous value (all-NaN in the common
+    case) on exit so a reused generative model is left clean for the next
+    call. A no-op when ``updates`` is empty or the model predates this
+    channel (cross-sectional / no endogenous intervention requested).
+    """
+    if not updates:
+        yield
+        return
+    # ``pm.set_data`` runs values through ``convert_observed_data``, which
+    # auto-converts NaN-containing arrays to a ``numpy.ma.MaskedArray`` (the
+    # observed-data missing-value convention) -- exactly the wrong thing for
+    # this NaN-as-sentinel channel, and unsupported by the numba backend
+    # ``compute_deterministics``/``sample_posterior_predictive`` may pick.
+    # Set the underlying shared variable directly instead.
+    shared_vars = {name: model[name] for name in updates}
+    previous = {name: var.get_value() for name, var in shared_vars.items()}
+    for name, var in shared_vars.items():
+        var.set_value(updates[name])
+    try:
+        yield
+    finally:
+        for name, var in shared_vars.items():
+            var.set_value(previous[name])
+
+
+@contextmanager
 def _forced_generative_carry(model: pm.Model) -> Iterator[None]:
     """Force the observed-carry flag off for the duration of the block.
 
@@ -1183,14 +1216,30 @@ def run_do_panel_unified(
     latent = graph_info.latent
 
     replacements: dict[str, Any] = {}
+    scan_intervene_updates: dict[str, np.ndarray] = {}
     for var, val in set.items():
         if isinstance(val, np.ndarray):
             mat = np.broadcast_to(val[:, None], (n_times, n_units)).copy()
         else:
             mat = np.full((n_times, n_units), val)
+        # Outer graph-surgery replacement, as before: needed so the
+        # intervened var is no longer a free RV that compute_deterministics /
+        # sample_posterior_predictive must bind from the posterior (the
+        # fitted idata never sampled it -- it is observed during fit()).
         key = f"mu_{var}" if var in latent else var
         target_dtype = gen_model[key].dtype
         replacements[key] = mat.astype(target_dtype)
+        if var in graph_info.endogenous:
+            # Endogenous vars (incl. latent) *also* participate in the
+            # scan's own temporal recursion: lag()/contemporaneous
+            # references inside step_fn resolve from that step's internal
+            # computation, never from the outer free RV / Deterministic
+            # named ``var`` -- so the graph-surgery replacement above cannot
+            # sever those edges. Set the dedicated override channel too, so
+            # every downstream consumer *inside* the scan sees the severed
+            # value (see the do_intervene_nodes comment in compile.py).
+            node_name = f"_do_intervene_{var}"
+            scan_intervene_updates[node_name] = mat.astype(gen_model[node_name].dtype)
 
     if kind == "mean":
         for var in graph_info.topological_order:
@@ -1201,8 +1250,6 @@ def run_do_panel_unified(
             v for v in latent if families.get(v, "gaussian") == "latent_normal"
         }
 
-        with _forced_generative_carry(gen_model):
-            do_model = pm.do(gen_model, replacements)
         det_names = []
         for var in graph_info.topological_order:
             if var in graph_info.endogenous:
@@ -1210,12 +1257,18 @@ def run_do_panel_unified(
                     det_names.append(var)
                 else:
                     det_names.append(f"mu_{var}")
-        det = pm.compute_deterministics(
-            posterior(idata),
-            model=do_model,
-            var_names=det_names,
-            progressbar=False,
-        )
+
+        with (
+            _forced_generative_carry(gen_model),
+            _scan_do_intervention(gen_model, scan_intervene_updates),
+        ):
+            do_model = pm.do(gen_model, replacements)
+            det = pm.compute_deterministics(
+                posterior(idata),
+                model=do_model,
+                var_names=det_names,
+                progressbar=False,
+            )
 
         ones = _chain_draw_ones(posterior(idata))
         time_idx = (
@@ -1237,15 +1290,6 @@ def run_do_panel_unified(
         return DoResult(ds=xr.Dataset(data_vars))
 
     # kind == "predictive"
-    with _forced_generative_carry(gen_model):
-        do_model = pm.do(gen_model, replacements)
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", message="Could not extract data from symbolic observation"
-        )
-        with do_model:
-            ppc = pm.sample_posterior_predictive(idata, progressbar=False)
-
     stochastic_latent = {
         v for v in latent if families.get(v, "gaussian") == "latent_normal"
     }
@@ -1253,15 +1297,28 @@ def run_do_panel_unified(
     for var in graph_info.topological_order:
         if var in latent and var not in set:
             latent_det_names.append(var if var in stochastic_latent else f"mu_{var}")
-    if latent_det_names:
-        latent_det = pm.compute_deterministics(
-            posterior(idata),
-            model=do_model,
-            var_names=latent_det_names,
-            progressbar=False,
-        )
-    else:
-        latent_det = None
+
+    with (
+        _forced_generative_carry(gen_model),
+        _scan_do_intervention(gen_model, scan_intervene_updates),
+    ):
+        do_model = pm.do(gen_model, replacements)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message="Could not extract data from symbolic observation"
+            )
+            with do_model:
+                ppc = pm.sample_posterior_predictive(idata, progressbar=False)
+
+        if latent_det_names:
+            latent_det = pm.compute_deterministics(
+                posterior(idata),
+                model=do_model,
+                var_names=latent_det_names,
+                progressbar=False,
+            )
+        else:
+            latent_det = None
 
     ones = _chain_draw_ones(posterior(idata))
     time_idx = (
