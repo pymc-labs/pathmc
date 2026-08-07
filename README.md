@@ -2,8 +2,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo_dark.png">
-    <img src="docs/assets/logo_light.png" alt="pathmc logo" width="75%">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pymc-labs/pathmc/main/docs/assets/logo_dark.png">
+    <img src="https://raw.githubusercontent.com/pymc-labs/pathmc/main/docs/assets/logo_light.png" alt="pathmc logo" width="75%">
   </picture>
 </p>
 
@@ -88,7 +88,7 @@ If you use pathmc in academic work, please cite the project using the metadata i
 ## Thanks to our contributors
 
 <a href="https://github.com/pymc-labs/pathmc/graphs/contributors">
-  <img src="docs/assets/contributors.svg" alt="pathmc contributors" />
+  <img src="https://raw.githubusercontent.com/pymc-labs/pathmc/main/docs/assets/contributors.svg" alt="pathmc contributors" />
 </a>
 
 The contributor image is regenerated weekly by a GitHub Actions workflow (`.github/workflows/contributors.yml`) that opens a PR when the contributor list changes.
