@@ -1,0 +1,18 @@
+_freeze/examples/identification/placebo_refutation/execute-results/html.json
+  h_d36ca8649a0e95 1-19
+docs/examples/03-identification/placebo_refutation.qmd
+  h_d36ca8649a0e95 1-328
+great-docs.yml
+  h_d36ca8649a0e95 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "49c6f9ceb26143f744394700b0722528fc0172d6",
+  "prompts": {},
+  "humans": {
+    "h_d36ca8649a0e95": {
+      "author": "Carlos Trujillo <carlangastr@gmail.com>"
+    }
+  }
+}
