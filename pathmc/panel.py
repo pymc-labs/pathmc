@@ -160,9 +160,9 @@ def _validate_panel_shape(
             f"Panel data is unbalanced: {n_rows} row(s) do not divide "
             f"evenly across {n_units} unit(s) in '{unit_col}'. Every unit "
             "must have the same number of time observations. Found row "
-            f"counts per unit: {dict(sorted(Counter(units).items(), key=lambda kv: str(
-                        kv[0]
-                    )))}."
+            f"counts per unit: {
+                dict(sorted(Counter(units).items(), key=lambda kv: str(kv[0])))
+            }."
         )
     n_times = n_rows // n_units
 
