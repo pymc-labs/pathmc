@@ -216,8 +216,25 @@ def pinned_parallel_model(mock_pymc_sample):
 
 class TestParallelMediatorsExactIdentity:
     def test_total_sums_all_paths_exactly(self, pinned_parallel_model):
+        model = pinned_parallel_model
+
+        direct = model.effect("T -> Y")
+        indirect1 = model.effect("T -> M1 -> Y")
+        indirect2 = model.effect("T -> M2 -> Y")
+
+        # Exercise compute_path_effect() itself for every path, not just the
+        # manually-defined expression: this would fail if path-effect
+        # multiplication dropped or miscomputed either mediator path.
+        assert direct.mean == pytest.approx(0.2, abs=1e-10)
+        assert indirect1.mean == pytest.approx(0.6 * 0.5, abs=1e-10)
+        assert indirect2.mean == pytest.approx(0.4 * 0.3, abs=1e-10)
+
+        path_total = direct.mean + indirect1.mean + indirect2.mean
+        assert path_total == pytest.approx(0.62, abs=1e-10)
+
         summary = pinned_parallel_model.effects_summary()
         assert summary.loc["total", "mean"] == pytest.approx(0.62, abs=1e-10)
+        assert summary.loc["total", "mean"] == pytest.approx(path_total, abs=1e-10)
 
     def test_total_matches_do_based_slope(self, pinned_parallel_model):
         model = pinned_parallel_model
@@ -310,3 +327,83 @@ class TestInteractionBreaksLinearChainRule:
         # interaction contribution 2*g*a*X = 0.8.
         assert slope_at_two == pytest.approx(1.5, abs=1e-2)
         assert abs(slope_at_two - path_total) > 0.5
+
+
+# ---------------------------------------------------------------------------
+# 6. The interaction warning must also reach callers who only ever touch
+#    ``effects_summary()`` / ``build_effects_summary()`` /
+#    ``evaluate_defined_params()`` and never call ``effect()`` directly --
+#    the reported 'total' can silently omit the interaction contribution
+#    through that path too.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def pinned_interaction_model_with_totals(mock_pymc_sample):
+    """Same DGP/spec as ``pinned_interaction_model`` but with defined params,
+    so ``effects_summary()`` alone exercises ``evaluate_defined_params()``.
+    """
+    rng = np.random.default_rng(3)
+    n = 200
+    X = rng.normal(size=n)
+    M = 0.5 * X + rng.normal(scale=0.05, size=n)
+    Y = 0.8 * M + 0.3 * X + 0.4 * M * X + rng.normal(scale=0.05, size=n)
+    df = pd.DataFrame({"X": X, "M": M, "Y": Y})
+
+    spec = "M ~ a*X\nY ~ b*M + g*M:X + c*X\nindirect := a*b\ntotal := c + a*b\n"
+    model = pathmc.model(spec, data=df)
+    model.fit(draws=25, tune=25, chains=2, random_seed=0)
+
+    posterior = model._idata.posterior.copy(deep=True)
+    posterior["beta_M"].loc[{"M_predictors": "Intercept"}] = 0.0
+    posterior["beta_M"].loc[{"M_predictors": "X"}] = 0.5
+    posterior["beta_Y"].loc[{"Y_predictors": "Intercept"}] = 0.0
+    posterior["beta_Y"].loc[{"Y_predictors": "M"}] = 0.8
+    posterior["beta_Y"].loc[{"Y_predictors": "M:X"}] = 0.4
+    posterior["beta_Y"].loc[{"Y_predictors": "X"}] = 0.3
+    posterior["sigma_M"] = posterior["sigma_M"] * 0 + 1e-6
+    posterior["sigma_Y"] = posterior["sigma_Y"] * 0 + 1e-6
+    model._idata["posterior"] = posterior
+    return model
+
+
+class TestInteractionWarningReachesSummaryPath:
+    def test_effects_summary_alone_warns_about_omitted_interaction(
+        self, pinned_interaction_model_with_totals
+    ):
+        """A caller who only ever calls effects_summary() -- never effect()
+        directly -- must still be warned that 'total' omits the M:X
+        interaction's contribution (issue raised in PR review).
+        """
+        model = pinned_interaction_model_with_totals
+        with pytest.warns(UserWarning, match="interaction term"):
+            summary = model.effects_summary()
+        # The warning doesn't change the reported number: it's still the
+        # incomplete constant path-sum, exact per TestExactChainRuleIdentity.
+        assert summary.loc["total", "mean"] == pytest.approx(0.7, abs=1e-10)
+
+    def test_evaluate_defined_params_warns_directly(
+        self, pinned_interaction_model_with_totals
+    ):
+        from pathmc.effects import evaluate_defined_params, extract_labeled_draws
+
+        model = pinned_interaction_model_with_totals
+        spec = model._spec
+        labeled_draws = extract_labeled_draws(spec, model._idata)
+        with pytest.warns(UserWarning, match="Defined parameter 'total"):
+            evaluate_defined_params(spec, labeled_draws)
+
+    def test_no_warning_for_non_interaction_model(self, pinned_mediation_model):
+        """A plain (no-interaction) model's effects_summary() must not warn --
+        the interaction check must not fire spuriously.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            pinned_mediation_model.effects_summary()
+            pinned_mediation_model.effect("X -> Y")
+            pinned_mediation_model.effect("X -> M -> Y")
+
+    def test_no_warning_for_non_interaction_parallel_model(self, pinned_parallel_model):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            pinned_parallel_model.effects_summary()
