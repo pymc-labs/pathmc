@@ -12,7 +12,7 @@ Your model fits, the ATE is comfortably away from zero, and the DAG survived fal
 
 The placebo test answers it by breaking the thing you claim to measure. Permute the treatment column and the treatment can no longer cause the outcome: whatever structural link existed is severed by the shuffle. Re-fit on that sabotaged data and a sound pipeline must come back empty-handed. If it still reports an effect, the number it gave you on the real data was partly an artifact of the machinery, not evidence from the world.
 
-This page assumes you have read [Treatment Effects with Non-Linear Models](/examples/effect-estimation/ate_estimation.qmd), which covers `ate()` and g-computation, and ideally [Causal Identification](/examples/identification/causal_identification.qmd) for the backdoor/confounding setup used below. You need to be comfortable with what an ATE *is* before it makes sense to ask whether yours is real.
+This page assumes you have read [Treatment Effects with Non-Linear Models](../effect-estimation/ate_estimation.qmd), which covers `ate()` and g-computation, and ideally [Causal Identification](causal_identification.qmd) for the backdoor/confounding setup used below. You need to be comfortable with what an ATE *is* before it makes sense to ask whether yours is real.
 
 This is the Bayesian upgrade of DoWhy's `placebo_treatment_refuter` [@sharma2020dowhy]. Because every re-fit yields a full posterior rather than a point estimate, pathmc pools the per-permutation summaries through a hierarchical normal-normal model — think of it as **meta-analysing the placebo re-fits**, treating each shuffle as one study. That pooling separates two things a point estimate confounds: the *systematic* placebo bias $\mu_\text{null}$ (should straddle zero) and the *structural volatility* $\tau_\text{het}$ (how much the estimate wobbles between shuffles). The real effect is then calibrated against the resulting null. The calibration model follows @bugaev_placebo_calibration.
 
@@ -313,8 +313,8 @@ The placebo test is one of three complementary checks, and each can pass while a
 
 | Check | Question | Fails when |
 |---|---|---|
-| [`falsify()`](/examples/identification/dag_falsification.qmd) | Is the DAG consistent with the data? | The graph breaks its conditional-independence promises |
-| [`sensitivity()`](/examples/identification/sensitivity.qmd) | Could an unmeasured confounder overturn this? | A plausibly weak confounder reaches the tipping point |
+| [`falsify()`](dag_falsification.qmd) | Is the DAG consistent with the data? | The graph breaks its conditional-independence promises |
+| [`sensitivity()`](sensitivity.qmd) | Could an unmeasured confounder overturn this? | A plausibly weak confounder reaches the tipping point |
 | `refute_placebo()` | Does the pipeline invent effects? | A permuted treatment still gets a systematic effect |
 
 A model can hold a defensible DAG and a robust tipping point while its priors quietly generate effects from noise. Run all three.

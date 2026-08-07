@@ -26,6 +26,8 @@ handles temporal propagation natively.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any
 
 import narwhals.stable.v1 as nw
@@ -37,7 +39,9 @@ import xarray as xr
 from pytensor.graph.replace import graph_replace
 from pytensor.graph.traversal import ancestors
 
+from pathmc.compile import MuSpec, PredictorSlot, build_mu, build_mu_specs
 from pathmc.graph import GraphInfo
+from pathmc.parse import Spec
 from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.idata import hdi as compute_hdi
 from pathmc.idata import hdi_label
@@ -46,6 +50,50 @@ from pathmc.panel import PanelInfo
 from pathmc.reprs import ReprSpec, ResultReprMixin
 
 __all__ = ["DoResult", "EstimandResult"]
+
+
+#: pm.Data flag on scan-compiled panel models. Mirrors
+#: ``pathmc._model._OBSERVED_CARRY_FLAG``; kept as a separate literal here
+#: (rather than importing from ``pathmc._model``) to avoid a circular import,
+#: since ``_model.py`` imports this module.
+_OBSERVED_CARRY_FLAG = "_use_observed_carry"
+
+
+@contextmanager
+def _forced_generative_carry(model: pm.Model) -> Iterator[None]:
+    """Force the observed-carry flag off for the duration of the block.
+
+    ``do()`` must always forward-simulate using the model's own propagated
+    values -- never conditioning on observed data, which is what
+    ``predict(one_step_ahead=True)`` is for. Interventional queries that
+    silently fell back to observed carries would mix "what actually
+    happened" into "what would happen under this intervention".
+
+    The flag defaults to 0 on a freshly compiled generative model and stays
+    there in the common case (``fit()``/``predict()`` operate on a separate
+    ``pm.observe()`` clone), but nothing previously *forced* it for ``do()``.
+    That made correctness depend on an implicit invariant rather than an
+    explicit one -- e.g. it silently breaks for models with no non-latent
+    observed vars, where the generative and observation models are the same
+    object. Forcing (and restoring) the flag here, exactly like
+    ``pathmc._model._observed_carry`` does for ``predict()``, removes that
+    dependency. A no-op on models without the flag (anything but a
+    scan-compiled panel model with a lagged endogenous term).
+
+    The cross-sectional call sites retain this guard defensively; current
+    scan-compiled models are dispatched to ``run_do_panel_unified`` instead.
+    """
+    if _OBSERVED_CARRY_FLAG not in model.named_vars:
+        yield
+        return
+
+    flag = model[_OBSERVED_CARRY_FLAG]
+    previous = flag.get_value()
+    flag.set_value(np.array(0, dtype="int8"))
+    try:
+        yield
+    finally:
+        flag.set_value(previous)
 
 
 # ---------------------------------------------------------------------------
@@ -249,10 +297,23 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
     ds : xr.Dataset
         Labelled posterior draws with dims ``("chain", "draw")`` and,
         optionally, ``"unit"`` or ``"time"``.
+    scenario : str
+        Result origin. Internal metadata prevents contrasts between
+        population-level and unit-level counterfactual simulations.
+    evidence : Mapping[str, float] | None
+        Individual evidence associated with a counterfactual result.
     """
 
-    def __init__(self, *, ds: xr.Dataset) -> None:
+    def __init__(
+        self,
+        *,
+        ds: xr.Dataset,
+        scenario: str = "do",
+        evidence: Mapping[str, float] | None = None,
+    ) -> None:
         self._ds = ds
+        self._scenario = scenario
+        self._evidence = dict(evidence) if evidence is not None else None
 
     def draws(self, var: str) -> np.ndarray:
         """Return raw posterior draws for *var* under this intervention.
@@ -315,8 +376,22 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
 
     def __sub__(self, other: DoResult) -> DoResult:
         """Element-wise contrast between two DoResults."""
+        if self._scenario != other._scenario:
+            raise ValueError(
+                "Cannot contrast a counterfactual result with a do() result. "
+                "Compare two do() scenarios or two counterfactual scenarios instead."
+            )
+        if self._scenario == "counterfactual" and self._evidence != other._evidence:
+            raise ValueError(
+                "Counterfactual contrasts require identical evidence for the "
+                "same individual."
+            )
         common = [str(v) for v in self._ds.data_vars if v in other._ds.data_vars]
-        return DoResult(ds=self._ds[common] - other._ds[common])
+        return DoResult(
+            ds=self._ds[common] - other._ds[common],
+            scenario=self._scenario,
+            evidence=self._evidence,
+        )
 
     def _repr_compact(self) -> str:
         if not self._ds.data_vars:
@@ -628,6 +703,231 @@ def _float_descendants_of(source_var: Any, exprs: list[Any]) -> list[Any]:
     return descendants
 
 
+def _slot_column_value(
+    slot: PredictorSlot,
+    values: Mapping[str, float | np.ndarray],
+) -> float | np.ndarray:
+    """Evaluate one design-matrix column from a value mapping."""
+    if slot.kind == "intercept":
+        return 1.0
+    if slot.kind == "interaction":
+        assert slot.interaction_parts is not None
+        product = np.asarray(1.0, dtype=float)
+        for part in slot.interaction_parts:
+            if "(" in part:
+                raise NotImplementedError(
+                    "counterfactual() does not yet support transformed or lagged "
+                    f"interaction terms ('{slot.name}')."
+                )
+            val = values[part]
+            product = product * np.asarray(val, dtype=float)
+        if product.ndim == 0:
+            return float(product)
+        return product
+    if slot.kind in ("lag", "transform"):
+        raise NotImplementedError(
+            f"counterfactual() does not yet support {slot.kind} terms "
+            f"('{slot.name}'). Use a cross-sectional model without transforms "
+            f"or lags."
+        )
+    if slot.kind == "plain":
+        val = values[slot.name]
+        if isinstance(val, np.ndarray):
+            return val.astype(float)
+        return float(val)
+    raise NotImplementedError(
+        f"counterfactual() does not support predictor kind '{slot.kind}'. "
+        "Use a model with supported linear predictor terms."
+    )
+
+
+def _linear_predictor_draws(
+    mu_spec: MuSpec,
+    idata: xr.DataTree,
+    values: Mapping[str, float | np.ndarray],
+) -> np.ndarray:
+    """Posterior draws of the linear predictor for one equation."""
+    post = posterior(idata)
+    n_draws = post.sizes["chain"] * post.sizes["draw"]
+    beta: np.ndarray | None = None
+    if any(slot.coeff_type == "free" for slot in mu_spec.slots):
+        coord_name = f"{mu_spec.lhs}_predictors"
+        beta = (
+            post[f"beta_{mu_spec.lhs}"]
+            .transpose(coord_name, "chain", "draw")
+            .values.reshape(-1, n_draws)
+        )
+    return np.asarray(
+        build_mu(
+            mu_spec,
+            lambda slot: _slot_column_value(slot, values),
+            beta,
+            np.zeros(n_draws, dtype=float),
+        )
+    )
+
+
+def _validate_counterfactual_values(
+    values: Mapping[str, float], name: str
+) -> dict[str, float]:
+    """Return finite scalar counterfactual inputs with descriptive errors."""
+    result: dict[str, float] = {}
+    for var, value in values.items():
+        if not isinstance(var, str):
+            raise ValueError(f"{name} keys must be variable names, not {var!r}.")
+        array = np.asarray(value)
+        if array.ndim != 0 or isinstance(value, (bool, np.bool_)):
+            raise ValueError(
+                f"{name} value for '{var}' must be one finite scalar, not {value!r}."
+            )
+        numeric = float(array)
+        if not np.isfinite(numeric):
+            raise ValueError(f"{name} value for '{var}' must be finite, not {value!r}.")
+        result[var] = numeric
+    return result
+
+
+def run_counterfactual(
+    spec: Spec,
+    graph_info: GraphInfo,
+    idata: xr.DataTree,
+    evidence: dict[str, float],
+    do: dict[str, float],
+    families: dict[str, str] | None = None,
+    allow_partial_evidence: bool = False,
+) -> DoResult:
+    """Three-step counterfactual using posterior draws.
+
+    Implements Pearl's abduction → action → prediction procedure for
+    linear Gaussian structural models.
+    """
+    if families is None:
+        families = {}
+    evidence = _validate_counterfactual_values(evidence, "evidence")
+    do = _validate_counterfactual_values(do, "do")
+    if not do:
+        raise ValueError(
+            "do must contain at least one intervention. "
+            "Pass do={'var': value} for the counterfactual scenario."
+        )
+
+    model_vars = set(graph_info.topological_order)
+    unknown_evidence = set(evidence) - model_vars
+    if unknown_evidence:
+        sorted_unknown = ", ".join(f"'{v}'" for v in sorted(unknown_evidence))
+        raise ValueError(
+            f"Unknown variable(s) in evidence: {sorted_unknown}. "
+            f"Available variables: {sorted(model_vars)}."
+        )
+    unknown_do = set(do) - model_vars
+    if unknown_do:
+        sorted_unknown = ", ".join(f"'{v}'" for v in sorted(unknown_do))
+        raise ValueError(
+            f"Unknown variable(s) in do: {sorted_unknown}. "
+            f"Available variables: {sorted(model_vars)}."
+        )
+
+    non_gaussian = sorted(
+        var
+        for var in graph_info.endogenous
+        if families.get(var, "gaussian") not in ("gaussian", "")
+    )
+    if non_gaussian:
+        vars_str = ", ".join(f"'{v}'" for v in non_gaussian)
+        raise ValueError(
+            f"counterfactual() currently supports Gaussian models only; "
+            f"{vars_str} use non-Gaussian families. Algebraic abduction is "
+            f"not yet available for those distributions."
+        )
+
+    mu_specs = build_mu_specs(spec)
+    unsupported_slots = {
+        slot.kind
+        for mu_spec in mu_specs.values()
+        for slot in mu_spec.slots
+        if slot.kind in ("lag", "transform")
+    }
+    if unsupported_slots:
+        kinds = ", ".join(sorted(unsupported_slots))
+        raise NotImplementedError(
+            f"counterfactual() does not yet support {kinds} predictor terms. "
+            "Use a cross-sectional model without transforms or lags."
+        )
+
+    missing_evidence = model_vars - set(evidence)
+    if missing_evidence and not allow_partial_evidence:
+        missing_str = ", ".join(f"'{v}'" for v in sorted(missing_evidence))
+        raise ValueError(
+            f"evidence must include every model variable; missing {missing_str}. "
+            "Pass allow_partial_evidence=True to use population means (U = 0) "
+            "for missing variables."
+        )
+    if missing_evidence:
+        missing_str = ", ".join(f"'{v}'" for v in sorted(missing_evidence))
+        warnings.warn(
+            f"evidence does not include {missing_str}. Missing variables are "
+            "treated as population means (U = 0), mixing individual and "
+            "population information for every counterfactual outcome.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+    post = posterior(idata)
+    n_chains = post.sizes["chain"]
+    n_draws_per_chain = post.sizes["draw"]
+    n_draws = n_chains * n_draws_per_chain
+
+    factual_values: dict[str, float | np.ndarray] = {
+        var: evidence[var] if var in evidence else 0.0
+        for var in graph_info.topological_order
+    }
+
+    u_values: dict[str, np.ndarray] = {}
+    for var in graph_info.topological_order:
+        if var in graph_info.exogenous:
+            u_values[var] = np.full(n_draws, factual_values[var])
+            continue
+        if var not in evidence:
+            u_values[var] = np.zeros(n_draws)
+            continue
+        if var not in mu_specs:
+            u_values[var] = np.zeros(n_draws)
+            continue
+        lp = _linear_predictor_draws(mu_specs[var], idata, factual_values)
+        u_values[var] = evidence[var] - lp
+
+    predicted: dict[str, np.ndarray] = {}
+    for var in graph_info.topological_order:
+        if var in do:
+            predicted[var] = np.full(n_draws, do[var])
+            continue
+        if var in graph_info.exogenous:
+            predicted[var] = np.full(n_draws, factual_values[var])
+            continue
+        pred_inputs: dict[str, float | np.ndarray] = {
+            parent: predicted[parent]
+            for parent in graph_info.topological_order
+            if parent in predicted
+        }
+        lp = _linear_predictor_draws(mu_specs[var], idata, pred_inputs)
+        predicted[var] = lp + u_values[var]
+
+    data_vars: dict[str, xr.DataArray] = {}
+    ones = _chain_draw_ones(post)
+    for var in graph_info.topological_order:
+        arr = predicted.get(var, u_values.get(var, np.zeros(n_draws)))
+        arr_2d = np.asarray(arr, dtype=float).reshape(n_chains, n_draws_per_chain)
+        data_vars[var] = xr.DataArray(
+            arr_2d, dims=("chain", "draw"), coords=ones.coords
+        )
+
+    return DoResult(
+        ds=xr.Dataset(data_vars),
+        scenario="counterfactual",
+        evidence=evidence,
+    )
+
+
 def _exogenous_fill(values: np.ndarray) -> float:
     """Mean used to fill an exogenous variable for empirical integration.
 
@@ -733,7 +1033,8 @@ def run_do_pymc(
         replacements[key] = arr.astype(target_dtype)
 
     if kind == "mean":
-        do_model = pm.do(gen_model, replacements)
+        with _forced_generative_carry(gen_model):
+            do_model = pm.do(gen_model, replacements)
 
         mean_det_names: dict[str, str] = {}
         expr_replacements: dict[Any, Any] = {}
@@ -794,7 +1095,8 @@ def run_do_pymc(
 
         return DoResult(ds=xr.Dataset(data_vars))
 
-    do_model = pm.do(gen_model, replacements)
+    with _forced_generative_carry(gen_model):
+        do_model = pm.do(gen_model, replacements)
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", message="Could not extract data from symbolic observation"
@@ -902,7 +1204,8 @@ def run_do_panel_unified(
             v for v in latent if families.get(v, "gaussian") == "latent_normal"
         }
 
-        do_model = pm.do(gen_model, replacements)
+        with _forced_generative_carry(gen_model):
+            do_model = pm.do(gen_model, replacements)
         det_names = []
         for var in graph_info.topological_order:
             if var in graph_info.endogenous:
@@ -937,7 +1240,8 @@ def run_do_panel_unified(
         return DoResult(ds=xr.Dataset(data_vars))
 
     # kind == "predictive"
-    do_model = pm.do(gen_model, replacements)
+    with _forced_generative_carry(gen_model):
+        do_model = pm.do(gen_model, replacements)
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", message="Could not extract data from symbolic observation"
