@@ -13,6 +13,8 @@
 #   limitations under the License.
 """Gate tests for M16: Time-forward do(simulate_over='time')."""
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -89,10 +91,42 @@ class TestPanelDoAPI:
 
     def test_scan_panel_requires_time_simulation(self, panel_lag_model):
         """Temporal scan models require time-forward simulation."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(
+                ValueError, match=r"temporal dependencies.*simulate_over='time'"
+            ):
+                panel_lag_model.do(set={"spend": 100.0}, kind="mean")
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda model: model.ate("sales", "spend"),
+            lambda model: model.prob("sales > 0", set={"spend": 10.0}),
+        ],
+        ids=["ate", "prob"],
+    )
+    def test_scan_panel_wrappers_require_time_simulation(self, panel_lag_model, call):
+        """Wrappers expose the same actionable temporal-simulation error."""
         with pytest.raises(
-            ValueError, match=r"temporal dependencies.*simulate_over='time'"
+            ValueError,
+            match=r"temporal dependencies.*simulate_over='time'.*ate.*prob",
         ):
-            panel_lag_model.do(set={"spend": 10.0}, kind="mean")
+            call(panel_lag_model)
+
+    def test_non_scan_panel_uses_cross_sectional_do(
+        self, panel_lag_data, mock_pymc_sample
+    ):
+        """A panel without temporal dependencies retains flat-row simulation."""
+        model = pathmc.model(
+            "sales ~ spend",
+            data=panel_lag_data,
+            panel={"unit": "region", "time": "week"},
+            pooling="partial",
+        )
+        model.fit(draws=5, tune=5, chains=1, cores=1, random_seed=42)
+
+        assert np.isfinite(model.do(set={"spend": 10.0}).mean("sales"))
 
 
 class TestTemporalPropagation:

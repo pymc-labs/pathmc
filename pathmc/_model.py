@@ -1186,8 +1186,9 @@ class PathModel:
             ``"mean"`` for deterministic propagation via mu Deterministics,
             ``"predictive"`` to include residual noise.
         simulate_over : str | None
-            ``"time"`` to activate time-forward panel simulation.
-            Requires the model to have been fitted with ``panel=``.
+            ``"time"`` to activate time-forward panel simulation. Required
+            for models with ``lag()`` or ``adstock()``, which also require
+            the model to have been fitted with ``panel=``.
 
         Returns
         -------
@@ -1210,6 +1211,15 @@ class PathModel:
         assert self._data is not None
         assert self._gen_model is not None
 
+        scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        if scan_info is not None and simulate_over != "time":
+            raise ValueError(
+                "This model has temporal dependencies (lag() or adstock()), so "
+                "interventions must be simulated forward in time. Pass "
+                "simulate_over='time' directly to do(), or as a keyword to "
+                "ate(), cate(), prob(), or sensitivity()."
+            )
+
         if set:
             _reject_hsgp_out_of_bounds(self._spec, self._data, set)
             _warn_extrapolation(self._data, set)
@@ -1221,7 +1231,6 @@ class PathModel:
                     "Pass panel={...} to model()."
                 )
 
-            scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
             n_times = (
                 scan_info.n_times
                 if scan_info is not None
@@ -1249,12 +1258,6 @@ class PathModel:
                     families=self._families,
                 )
             # Non-scan panel models fall through to the cross-sectional path.
-
-        if getattr(self._gen_model, "_pathmc_panel_scan", None) is not None:
-            raise ValueError(
-                "This model has temporal dependencies (lag() or adstock()). "
-                "Pass simulate_over='time' to do()."
-            )
 
         return self._run_do(set, kind)
 
