@@ -301,6 +301,9 @@ def _reject_top_level_minus(raw: str) -> None:
             if i == 0 and star_pos is not None and i < star_pos:
                 # Leading '-' of a fixed-value coefficient, e.g. "-1*x".
                 continue
+            if i > 0 and raw[i - 1] in {"e", "E"}:
+                # Exponent sign in a float literal, e.g. "1e-5*x".
+                continue
             raise ParseError(
                 f"Unsupported '-' in term '{raw}'. pathmc's formula DSL is "
                 "additive only (terms are joined with '+'); it does not "

@@ -214,6 +214,24 @@ class TestInterceptRemoval:
         assert term.variable == "x"
         assert term.fixed_value == -1.0
 
+    @pytest.mark.parametrize(
+        "spec_string, expected",
+        [
+            ("y ~ 1e-5*x", 1e-5),
+            ("y ~ 1E-5*x", 1e-5),
+        ],
+    )
+    def test_scientific_notation_fixed_coefficient_still_allowed(
+        self, spec_string, expected
+    ):
+        """Scientific-notation fixed coefficients must not be mistaken for
+        R-style subtraction (the '-' is part of the exponent, not a term
+        operator)."""
+        spec = parse_spec(spec_string)
+        term = spec.regressions[0].terms[0]
+        assert term.variable == "x"
+        assert term.fixed_value == expected
+
     def test_negative_transform_param_still_allowed(self):
         """A '-' inside transform parentheses (a negative kwarg value) is
         unrelated to formula subtraction and must not be rejected."""
