@@ -333,11 +333,20 @@ class PathModel:
 
         if observations:
             self._pymc_model = pm.observe(self._gen_model, observations)
-            if _OBSERVED_CARRY_FLAG in self._pymc_model.named_vars:
-                with self._pymc_model:
-                    pm.set_data({_OBSERVED_CARRY_FLAG: np.array(1, dtype="int8")})
         else:
             self._pymc_model = self._gen_model
+
+        # Enable the observed carry unconditionally, not only when
+        # ``observations`` is non-empty. A variable with any NaN is skipped
+        # above (its likelihood is already masked inside the compiled model),
+        # so a model whose every outcome carries a NaN -- exactly the
+        # ``y ~ lag(y)`` with missing outcomes case this branch exists to
+        # unlock -- would otherwise leave the flag at 0 and fit a
+        # free-running scan, silently using simulated instead of observed
+        # previous values for the timesteps that *are* observed.
+        if _OBSERVED_CARRY_FLAG in self._pymc_model.named_vars:
+            with self._pymc_model:
+                pm.set_data({_OBSERVED_CARRY_FLAG: np.array(1, dtype="int8")})
         self._idata = None
 
     @property
@@ -524,7 +533,12 @@ class PathModel:
         """
         self._require_data("sample_prior_predictive")
         assert self._gen_model is not None
-        with self._gen_model:
+        # Prior predictive is free-running by definition: the scan must carry
+        # its own simulated previous values, never the observed ones. The
+        # generative model can be the same object as the observation model
+        # (when every outcome was skipped as NaN), so force the flag rather
+        # than relying on it still being 0.
+        with self._gen_model, _observed_carry(self._gen_model, False):
             return pm.sample_prior_predictive(**kwargs)
 
     def summary(self) -> pd.DataFrame:

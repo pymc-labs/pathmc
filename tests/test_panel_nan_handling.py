@@ -49,8 +49,11 @@ array and the ``_obs_carry_`` array: a NaN placed at one specific
 ``(time_idx, unit_idx)`` cell after reshaping, nowhere else.
 """
 
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
+import pymc as pm
 import pytensor
 import pytest
 
@@ -216,8 +219,6 @@ class TestSelfLagNaNOutcomeBuildsAndSamples:
         assert model._gen_model is not None
 
     def test_prior_predictive_is_finite(self):
-        import pymc as pm
-
         df = _balanced_panel(["A", "B", "C"], n_times=5, nan_at=("B", 2))
         model = pathmc.model(
             "y ~ lag(y) + x", data=df, panel={"unit": "unit", "time": "time"}
@@ -226,3 +227,40 @@ class TestSelfLagNaNOutcomeBuildsAndSamples:
             prior = pm.sample_prior_predictive(draws=3, random_seed=0)
         y_missing = prior.prior["y_unobserved"].to_numpy()
         assert np.isfinite(y_missing).all()
+
+    def test_observed_carry_enabled_when_every_outcome_has_a_nan(self):
+        """The observed-carry flag must be on even when no variable survives
+        into ``pm.observe`` because each one carries a NaN.
+
+        Otherwise the AR likelihood free-runs on simulated previous values
+        for the timesteps that *are* observed -- the fit is wrong, silently.
+        """
+        df = _balanced_panel(["A", "B", "C"], n_times=5, nan_at=("B", 2))
+        model = pathmc.model(
+            "y ~ lag(y) + x", data=df, panel={"unit": "unit", "time": "time"}
+        )
+        flag = model.pymc_model["_use_observed_carry"]
+        assert int(flag.get_value()) == 1
+
+    def test_prior_predictive_stays_free_running(self):
+        """Prior predictive must carry simulated values regardless of the
+        flag the observation model left set."""
+        df = _balanced_panel(["A", "B", "C"], n_times=5, nan_at=("B", 2))
+        model = pathmc.model(
+            "y ~ lag(y) + x", data=df, panel={"unit": "unit", "time": "time"}
+        )
+        flag = model._gen_model["_use_observed_carry"]
+        observed_during_call = {}
+
+        real_sample = pm.sample_prior_predictive
+
+        def spy(*args, **kwargs):
+            observed_during_call["flag"] = int(flag.get_value())
+            return real_sample(*args, **kwargs)
+
+        with patch.object(pm, "sample_prior_predictive", spy):
+            model.sample_prior_predictive(draws=2, random_seed=0)
+
+        assert observed_during_call["flag"] == 0
+        # ...and the flag is restored afterwards.
+        assert int(flag.get_value()) == 1
