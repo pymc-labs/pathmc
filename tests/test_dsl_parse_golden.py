@@ -197,6 +197,16 @@ class TestInterceptRemoval:
             "y ~ x + z - 1",
             "y ~ -1",
             "y ~ -x",
+            # Variable names ending in 'e' must not be mistaken for the
+            # mantissa of a float literal and skip the guard.
+            "y ~ response-1",
+            "y ~ income-1",
+            "y ~ x + rate-1",
+            "y ~ RATE-1",
+            # An 'e' terminating an identifier, not a numeric mantissa.
+            "y ~ x2e-1",
+            # 'e' with no digits after the sign is not an exponent either.
+            "y ~ 1e-x",
         ],
     )
     def test_r_style_subtraction_raises_clear_parse_error(self, spec_string):
@@ -219,6 +229,9 @@ class TestInterceptRemoval:
         [
             ("y ~ 1e-5*x", 1e-5),
             ("y ~ 1E-5*x", 1e-5),
+            ("y ~ 2.5e-3*x", 2.5e-3),
+            ("y ~ .5e-3*x", 0.5e-3),
+            ("y ~ -1e-5*x", -1e-5),
         ],
     )
     def test_scientific_notation_fixed_coefficient_still_allowed(

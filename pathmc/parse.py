@@ -277,6 +277,28 @@ def _parse_regression(stmt: str) -> Regression:
     return Regression(lhs=lhs, terms=terms, has_intercept=has_intercept)
 
 
+#: A float mantissa immediately followed by its exponent marker, anchored so
+#: the digits start a fresh token: ``1e``, ``2.5E``, ``.5e`` all match, but the
+#: trailing ``2e`` of an identifier such as ``x2e`` does not.
+_FLOAT_EXPONENT_RE = re.compile(r"(?:^|[^0-9A-Za-z_.])(?:\d+\.?\d*|\.\d+)[eE]$")
+
+
+def _is_float_exponent_sign(raw: str, i: int) -> bool:
+    """Is ``raw[i]`` (a ``-``) the exponent sign of a float literal?
+
+    Checking only that the preceding character is ``e``/``E`` is not enough:
+    an identifier ending in ``e`` (``response-1``, ``income-1``, ``rate-1``)
+    would then slip past the R-style-subtraction guard and become a single
+    garbage variable name that only fails later, at data binding. The ``e``
+    must terminate an actual numeric mantissa and be followed by digits.
+    """
+    if i == 0 or raw[i - 1] not in {"e", "E"}:
+        return False
+    if not _FLOAT_EXPONENT_RE.search(raw[:i]):
+        return False
+    return i + 1 < len(raw) and raw[i + 1].isdigit()
+
+
 def _reject_top_level_minus(raw: str) -> None:
     """Reject R/patsy-style subtraction such as ``x - 1`` or ``-x``.
 
@@ -301,7 +323,7 @@ def _reject_top_level_minus(raw: str) -> None:
             if i == 0 and star_pos is not None and i < star_pos:
                 # Leading '-' of a fixed-value coefficient, e.g. "-1*x".
                 continue
-            if i > 0 and raw[i - 1] in {"e", "E"}:
+            if _is_float_exponent_sign(raw, i):
                 # Exponent sign in a float literal, e.g. "1e-5*x".
                 continue
             raise ParseError(
