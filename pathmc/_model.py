@@ -30,7 +30,12 @@ import pymc as pm
 import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
-from pathmc.compile import build_design_matrix, compile_to_pymc, get_predictor_columns
+from pathmc.compile import (
+    _has_temporal_deps,
+    build_design_matrix,
+    compile_to_pymc,
+    get_predictor_columns,
+)
 from pathmc.effects import (
     EffectResult,
     _has_labeled_terms,
@@ -1186,8 +1191,9 @@ class PathModel:
             ``"mean"`` for deterministic propagation via mu Deterministics,
             ``"predictive"`` to include residual noise.
         simulate_over : str | None
-            ``"time"`` to activate time-forward panel simulation.
-            Requires the model to have been fitted with ``panel=``.
+            ``"time"`` to activate time-forward panel simulation. Required
+            for models with ``lag()`` or ``adstock()``, which also require
+            the model to have been fitted with ``panel=``.
 
         Returns
         -------
@@ -1203,11 +1209,21 @@ class PathModel:
             If ``simulate_over="time"`` without panel, or if an intervention
             on an ``hsgp()`` input falls outside the basis boundary
             ``[mid - L, mid + L]`` frozen from the fitted data (beyond it
-            the basis aliases instead of extrapolating).
+            the basis aliases instead of extrapolating), or if a temporal
+            scan model is simulated without ``simulate_over="time"``.
         """
         idata = self._require_fitted("do")
         assert self._data is not None
         assert self._gen_model is not None
+
+        scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        if scan_info is not None and simulate_over != "time":
+            raise ValueError(
+                "This model has temporal dependencies (lag() or adstock()), so "
+                "interventions must be simulated forward in time. Pass "
+                "simulate_over='time' directly to do(), or as a keyword to "
+                "ate(), cate(), prob(), or sensitivity()."
+            )
 
         if set:
             _reject_hsgp_out_of_bounds(self._spec, self._data, set)
@@ -1220,7 +1236,6 @@ class PathModel:
                     "Pass panel={...} to model()."
                 )
 
-            scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
             n_times = (
                 scan_info.n_times
                 if scan_info is not None
@@ -1770,7 +1785,14 @@ def model(
                 "panel= requires data. Provide data= alongside panel=, "
                 "or omit panel= for data-free DAG exploration."
             )
-        panel_info = build_panel_info(nw_data, panel)
+        # Only the scan compiler reshapes rows to a dense (n_times,
+        # n_units) grid, so only it needs a rectangular panel. Non-temporal
+        # panel models take the row-wise compiler and may be unbalanced.
+        panel_info = build_panel_info(
+            nw_data,
+            panel,
+            require_rectangular=_has_temporal_deps(spec, graph_info),
+        )
 
     path_model = PathModel(
         spec=spec,

@@ -63,7 +63,6 @@ JUPYTER_PATH=$PWD/.venv/share/jupyter uv run great-docs freeze docs/examples/01-
 git add _freeze/
 ```
 
-The repo-root symlink `examples -> docs/examples` is required by Great Docs Page Tags — do not delete it.
 
 ## Style
 
