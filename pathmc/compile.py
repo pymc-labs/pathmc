@@ -389,6 +389,7 @@ def compile_to_pymc(
         graph_info = build_graph(spec, latent=latent)
 
     _validate_residual_cov_families(spec, families)
+    _validate_latent_families(spec, families, latent)
     _warn_partial_pooling_intercept(spec, pooling)
 
     if panel_info is not None and _spec_has_hsgp(spec):
@@ -1112,6 +1113,39 @@ def _validate_residual_cov_families(spec: Spec, families: dict[str, str]) -> Non
                 )
 
 
+def _validate_latent_families(
+    spec: Spec, families: dict[str, str], latent: set[str]
+) -> None:
+    """Raise if a latent variable is assigned a discrete family.
+
+    Latent (unobserved) nodes only support two compilation modes:
+    deterministic pass-through of the linear predictor ``mu`` (the
+    default), or a stochastic Gaussian innovation via
+    ``family="latent_normal"``. Any other family label
+    (``"bernoulli"``, ``"poisson"``, ``"negbinomial"``) is silently
+    ignored by the compiler -- the latent node still gets the raw,
+    unbounded ``mu`` with no link function applied, which is not the
+    Bernoulli probability / count rate a caller setting that family
+    would reasonably expect. Reject the combination outright rather
+    than silently compiling something else.
+    """
+    discrete_families = {"bernoulli", "poisson", "negbinomial"}
+    for var in sorted(latent):
+        family = families.get(var, "gaussian")
+        if family in discrete_families:
+            raise ValueError(
+                f"Latent variable '{var}' has family '{family}', but latent "
+                "nodes only support the deterministic default (any "
+                "non-discrete family, treated as a pass-through of the "
+                "linear predictor) or family='latent_normal' (a stochastic "
+                "Gaussian innovation). Discrete families are not "
+                "implemented for latent nodes: the compiler would silently "
+                "use the raw, unbounded linear predictor instead of a "
+                f"probability or rate. Remove '{var}' from `latent`, or "
+                "drop the family override."
+            )
+
+
 def _render_term_for_formula(term: Term) -> str:
     """Reconstruct the original term string from a parsed Term.
 
@@ -1300,6 +1334,75 @@ def _validate_scan_non_gaussian_intermediaries(
     )
 
 
+# Bound applied to the linear predictor ``mu`` before exponentiating it into
+# a Poisson/NegativeBinomial rate inside the temporal scan (see
+# ``_compile_scan_panel``'s step function). Unlike the outer, non-scan
+# compiler -- where each timestep's rate is a single ``pm.Deterministic``
+# evaluated once -- the scan recomputes ``exp(mu)`` at every timestep and
+# feeds the result back into the recursion (adstock carries, lagged
+# endogenous predictors, ...). A transient blow-up in one step can compound
+# through later steps and produce ``inf``/``nan`` that poisons the whole
+# scan's logp, so the clip is a numerical-stability guard, not a modeling
+# choice. ``exp(20) ~= 4.85e8`` and ``exp(-20) ~= 2.06e-9``: for realistic
+# count/rate data (school enrollments, ad impressions, clicks, ...) this
+# range comfortably contains the true rate, so the guard is inert. It only
+# bites -- and silently truncates the true rate, biasing downstream effects
+# toward zero -- when a variable's rate genuinely approaches or exceeds
+# ~4.85e8 per period, or when unstable dynamics push ``mu`` there
+# spuriously. ``_warn_high_rate_clip_risk`` below checks observed data
+# against this bound at compile time and warns rather than staying silent.
+_SCAN_MU_CLIP_BOUND = 20.0
+
+
+def _warn_high_rate_clip_risk(
+    data: nw.DataFrame,
+    families: dict[str, str],
+    endogenous_order: list[str],
+) -> None:
+    """Warn if observed counts approach the scan's internal ``mu`` clip bound.
+
+    The scan step function clips ``mu`` to
+    ``[-_SCAN_MU_CLIP_BOUND, _SCAN_MU_CLIP_BOUND]`` before exponentiating it
+    into a Poisson/NegativeBinomial rate (see the constant's docstring
+    above). That clip is invisible from the outside -- the model still
+    samples and the posterior still looks plausible -- so this check flags
+    the one observable symptom: an observed count already implying a
+    log-rate near the bound.
+    """
+    import warnings
+
+    discrete_rate_families = {"poisson", "negbinomial"}
+    margin = 2.0  # warn once within e^2 (~7x) of the clip bound
+    for var in endogenous_order:
+        if families.get(var, "gaussian") not in discrete_rate_families:
+            continue
+        if var not in data.columns:
+            continue
+        col = np.asarray(data[var].to_numpy(), dtype=float)
+        col = col[np.isfinite(col)]
+        if col.size == 0:
+            continue
+        max_val = float(np.max(col))
+        if max_val <= 0:
+            continue
+        implied_mu = np.log(max_val)
+        if implied_mu > _SCAN_MU_CLIP_BOUND - margin:
+            warnings.warn(
+                f"Observed values of '{var}' include {max_val:g}, implying a "
+                f"log-rate of ~{implied_mu:.1f} -- close to (or past) the "
+                f"internal clip bound of {_SCAN_MU_CLIP_BOUND:g} applied to "
+                f"the linear predictor before exponentiating it into a rate "
+                f"inside the temporal scan. Rates beyond "
+                f"exp({_SCAN_MU_CLIP_BOUND:g}) ~= "
+                f"{np.exp(_SCAN_MU_CLIP_BOUND):.3g} are silently truncated, "
+                f"which biases predictions and effects for '{var}' downward. "
+                "Consider rescaling this outcome (e.g. to smaller units) if "
+                "the model shows poor fit for high-rate observations.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+
 def _get_adstock_input(tc: TransformCall) -> str:
     """Return the leaf input variable name of a (possibly nested) transform chain."""
     current = tc
@@ -1400,6 +1503,7 @@ def _compile_scan_panel(
     endogenous_order = [
         v for v in graph_info.topological_order if v in graph_info.endogenous
     ]
+    _warn_high_rate_clip_risk(data, families, endogenous_order)
 
     # --- sort data ---
     unit_col = panel_info.unit
@@ -1800,7 +1904,11 @@ def _compile_scan_panel(
                 elif family == "bernoulli":
                     new_endo[var] = 1.0 / (1.0 + pt.exp(-mu))
                 elif family in ("poisson", "negbinomial"):
-                    new_endo[var] = pt.exp(pt.clip(mu, -20, 20))
+                    # See ``_SCAN_MU_CLIP_BOUND`` above for why this clip
+                    # exists and when it can bias results.
+                    new_endo[var] = pt.exp(
+                        pt.clip(mu, -_SCAN_MU_CLIP_BOUND, _SCAN_MU_CLIP_BOUND)
+                    )
                 else:
                     new_endo[var] = mu
 
