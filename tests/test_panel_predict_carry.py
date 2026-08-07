@@ -18,13 +18,20 @@ AR likelihood). ``predict()`` must set the flag it wants explicitly and put
 it back afterwards, so the choice never leaks between calls.
 """
 
+import sys
+
 import numpy as np
 import pandas as pd
 import pymc as pm
 import pytest
 
 import pathmc
+import pathmc.simulate
 from pathmc._model import _OBSERVED_CARRY_FLAG
+
+# ``pathmc.simulate`` the attribute is the public ``simulate()`` function, so
+# reach the module object explicitly for monkeypatching.
+simulate_module = sys.modules["pathmc.simulate"]
 
 
 @pytest.fixture(scope="module")
@@ -100,7 +107,10 @@ class TestFlagLifecycle:
         gen_model = fitted_ar_panel._gen_model
         assert int(gen_model[_OBSERVED_CARRY_FLAG].get_value()) == 0
 
-    def test_do_forces_generative_carry_even_if_leaked(self, fitted_ar_panel):
+    @pytest.mark.parametrize("kind", ["mean", "predictive"])
+    def test_do_forces_generative_carry_even_if_leaked(
+        self, fitted_ar_panel, monkeypatch, kind
+    ):
         """``do()`` must not inherit a leaked observed-carry flag (#327).
 
         Regression test: ``do()``/``run_do_panel_unified()`` used to call
@@ -113,25 +123,68 @@ class TestFlagLifecycle:
         query would silently condition on observed data instead of
         forward-simulating under the intervention. ``do()`` must force the
         flag off regardless of the generative model's ambient state.
+
+        Parameterized over both ``kind`` branches, which are separate code
+        paths in ``run_do_panel_unified``. The cross-sectional
+        ``run_do_pymc`` call sites cannot be reached with a flagged model:
+        the flag only exists on scan-compiled panel models, and those raise
+        a shape error on the cross-sectional path (pre-existing on ``main``,
+        see #394), so the guard there is defensive.
         """
         gen_model = fitted_ar_panel._gen_model
         flag = gen_model[_OBSERVED_CARRY_FLAG]
 
-        baseline = fitted_ar_panel.do(
-            set={"x": 0.0}, kind="mean", simulate_over="time"
-        )
+        kwargs = {"set": {"x": 0.0}, "kind": kind, "simulate_over": "time"}
+
+        seen = []
+        original_do = simulate_module.pm.do
+
+        def _spy(*args, **kwargs_):
+            seen.append(int(flag.get_value()))
+            return original_do(*args, **kwargs_)
+
+        monkeypatch.setattr(simulate_module.pm, "do", _spy)
+
+        baseline = fitted_ar_panel.do(**kwargs)
+
+        flag.set_value(np.array(1, dtype="int8"))
+        leaked = fitted_ar_panel.do(**kwargs)
+        # Assert restoration *before* any cleanup, so a context manager that
+        # fails to put the previous value back cannot pass this test.
+        assert int(flag.get_value()) == 1
+        flag.set_value(np.array(0, dtype="int8"))
+
+        # Graph surgery always saw a generative (0) carry flag, including
+        # the call made while the ambient flag was leaked at 1.
+        assert seen == [0, 0]
+
+        if kind == "mean":
+            # Deterministic branch: the leaked flag must not perturb values.
+            # (The predictive branch draws fresh residual noise per call and
+            # takes no seed, so it is covered by the spy assertion above.)
+            np.testing.assert_allclose(
+                leaked.dataset["y"].values,
+                baseline.dataset["y"].values,
+                rtol=1e-10,
+            )
+
+    def test_flag_restored_when_do_raises(self, fitted_ar_panel, monkeypatch):
+        """The flag is restored on the exception path, not just on success."""
+        gen_model = fitted_ar_panel._gen_model
+        flag = gen_model[_OBSERVED_CARRY_FLAG]
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(simulate_module.pm, "do", _boom)
 
         flag.set_value(np.array(1, dtype="int8"))
         try:
-            leaked = fitted_ar_panel.do(
-                set={"x": 0.0}, kind="mean", simulate_over="time"
-            )
+            with pytest.raises(RuntimeError, match="boom"):
+                fitted_ar_panel.do(set={"x": 0.0}, kind="mean", simulate_over="time")
+            assert int(flag.get_value()) == 1
         finally:
             flag.set_value(np.array(0, dtype="int8"))
-
-        np.testing.assert_allclose(
-            leaked.dataset["y"].values, baseline.dataset["y"].values, rtol=1e-10
-        )
 
     def test_fit_do_predict_reuse_cycle(self, fitted_ar_panel):
         """A fit -> do -> predict cycle must not cross-contaminate flags.
