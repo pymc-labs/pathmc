@@ -1,0 +1,26 @@
+pathmc/_model.py
+  s_25e3f57f1a6f57::t_22c198e02fd60b 33-38
+  s_25e3f57f1a6f57::t_ab5d8c251d30a0 711-718
+  s_25e3f57f1a6f57::t_b26a74a5d7a027 723-725
+tests/test_panel_oos_shape.py
+  s_25e3f57f1a6f57::t_473dc29bb18e70 1-81,83-135,137-181
+  s_25e3f57f1a6f57::t_542df8775d0825 82,136
+pathmc/compile.py
+  s_25e3f57f1a6f57::t_eb98972fec7687 70-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "89603ae8d1acd0a7a87dbfe61d51dbb0e6a2ab9e",
+  "prompts": {},
+  "sessions": {
+    "s_25e3f57f1a6f57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7863c246-1229-43d7-b311-cdd99a5cfe2f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
