@@ -100,6 +100,77 @@ class TestFlagLifecycle:
         gen_model = fitted_ar_panel._gen_model
         assert int(gen_model[_OBSERVED_CARRY_FLAG].get_value()) == 0
 
+    def test_do_forces_generative_carry_even_if_leaked(self, fitted_ar_panel):
+        """``do()`` must not inherit a leaked observed-carry flag (#327).
+
+        Regression test: ``do()``/``run_do_panel_unified()`` used to call
+        ``pm.sample_posterior_predictive``/``compute_deterministics``
+        without explicitly managing the flag on the generative model, so
+        correctness relied on the implicit invariant that the generative
+        model's flag is always 0. If anything ever leaves it at 1 (e.g. a
+        future code path, or a model where the observation and generative
+        models are literally the same object), an interventional ``do()``
+        query would silently condition on observed data instead of
+        forward-simulating under the intervention. ``do()`` must force the
+        flag off regardless of the generative model's ambient state.
+        """
+        gen_model = fitted_ar_panel._gen_model
+        flag = gen_model[_OBSERVED_CARRY_FLAG]
+
+        baseline = fitted_ar_panel.do(
+            set={"x": 0.0}, kind="mean", simulate_over="time"
+        )
+
+        flag.set_value(np.array(1, dtype="int8"))
+        try:
+            leaked = fitted_ar_panel.do(
+                set={"x": 0.0}, kind="mean", simulate_over="time"
+            )
+        finally:
+            flag.set_value(np.array(0, dtype="int8"))
+
+        np.testing.assert_allclose(
+            leaked.dataset["y"].values, baseline.dataset["y"].values, rtol=1e-10
+        )
+
+    def test_fit_do_predict_reuse_cycle(self, fitted_ar_panel):
+        """A fit -> do -> predict cycle must not cross-contaminate flags.
+
+        Regression test for #327 item 12: no test previously covered a
+        full reuse cycle. ``do()`` operates on ``_gen_model`` and
+        ``predict()`` operates on ``pymc_model``; calling one must not
+        change the other's behavior on a subsequent call.
+        """
+        gen_model = fitted_ar_panel._gen_model
+        obs_model = fitted_ar_panel.pymc_model
+
+        # Sanity: fit() leaves the observation model conditioning on
+        # observed carries, and the generative model purely generative.
+        assert int(obs_model[_OBSERVED_CARRY_FLAG].get_value()) == 1
+        assert int(gen_model[_OBSERVED_CARRY_FLAG].get_value()) == 0
+
+        fitted_ar_panel.do(set={"x": 0.0}, kind="mean", simulate_over="time")
+
+        # do() must not have disturbed either flag.
+        assert int(obs_model[_OBSERVED_CARRY_FLAG].get_value()) == 1
+        assert int(gen_model[_OBSERVED_CARRY_FLAG].get_value()) == 0
+
+        fitted_ar_panel.predict(
+            one_step_ahead=True, extend_inferencedata=False, progressbar=False
+        )
+
+        # predict() must restore the observation model's flag, and must
+        # never have touched the generative model's flag.
+        assert int(obs_model[_OBSERVED_CARRY_FLAG].get_value()) == 1
+        assert int(gen_model[_OBSERVED_CARRY_FLAG].get_value()) == 0
+
+        # do() again, after predict() -- must still be purely generative.
+        after_predict = fitted_ar_panel.do(
+            set={"x": 0.0}, kind="mean", simulate_over="time"
+        )
+        assert int(gen_model[_OBSERVED_CARRY_FLAG].get_value()) == 0
+        assert np.isfinite(after_predict.dataset["y"].values).all()
+
 
 @pytest.mark.slow
 class TestGenerativePredict:

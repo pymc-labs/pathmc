@@ -26,7 +26,8 @@ handles temporal propagation natively.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any
 
 import narwhals.stable.v1 as nw
@@ -49,6 +50,47 @@ from pathmc.panel import PanelInfo
 from pathmc.reprs import ReprSpec, ResultReprMixin
 
 __all__ = ["DoResult", "EstimandResult"]
+
+
+#: pm.Data flag on scan-compiled panel models. Mirrors
+#: ``pathmc._model._OBSERVED_CARRY_FLAG``; kept as a separate literal here
+#: (rather than importing from ``pathmc._model``) to avoid a circular import,
+#: since ``_model.py`` imports this module.
+_OBSERVED_CARRY_FLAG = "_use_observed_carry"
+
+
+@contextmanager
+def _forced_generative_carry(model: pm.Model) -> Iterator[None]:
+    """Force the observed-carry flag off for the duration of the block.
+
+    ``do()`` must always forward-simulate using the model's own propagated
+    values -- never conditioning on observed data, which is what
+    ``predict(one_step_ahead=True)`` is for. Interventional queries that
+    silently fell back to observed carries would mix "what actually
+    happened" into "what would happen under this intervention".
+
+    The flag defaults to 0 on a freshly compiled generative model and stays
+    there in the common case (``fit()``/``predict()`` operate on a separate
+    ``pm.observe()`` clone), but nothing previously *forced* it for ``do()``.
+    That made correctness depend on an implicit invariant rather than an
+    explicit one -- e.g. it silently breaks for models with no non-latent
+    observed vars, where the generative and observation models are the same
+    object. Forcing (and restoring) the flag here, exactly like
+    ``pathmc._model._observed_carry`` does for ``predict()``, removes that
+    dependency. A no-op on models without the flag (anything but a
+    scan-compiled panel model with a lagged endogenous term).
+    """
+    if _OBSERVED_CARRY_FLAG not in model.named_vars:
+        yield
+        return
+
+    flag = model[_OBSERVED_CARRY_FLAG]
+    previous = flag.get_value()
+    flag.set_value(np.array(0, dtype="int8"))
+    try:
+        yield
+    finally:
+        flag.set_value(previous)
 
 
 # ---------------------------------------------------------------------------
@@ -988,7 +1030,8 @@ def run_do_pymc(
         replacements[key] = arr.astype(target_dtype)
 
     if kind == "mean":
-        do_model = pm.do(gen_model, replacements)
+        with _forced_generative_carry(gen_model):
+            do_model = pm.do(gen_model, replacements)
 
         mean_det_names: dict[str, str] = {}
         expr_replacements: dict[Any, Any] = {}
@@ -1049,7 +1092,8 @@ def run_do_pymc(
 
         return DoResult(ds=xr.Dataset(data_vars))
 
-    do_model = pm.do(gen_model, replacements)
+    with _forced_generative_carry(gen_model):
+        do_model = pm.do(gen_model, replacements)
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", message="Could not extract data from symbolic observation"
@@ -1157,7 +1201,8 @@ def run_do_panel_unified(
             v for v in latent if families.get(v, "gaussian") == "latent_normal"
         }
 
-        do_model = pm.do(gen_model, replacements)
+        with _forced_generative_carry(gen_model):
+            do_model = pm.do(gen_model, replacements)
         det_names = []
         for var in graph_info.topological_order:
             if var in graph_info.endogenous:
@@ -1192,7 +1237,8 @@ def run_do_panel_unified(
         return DoResult(ds=xr.Dataset(data_vars))
 
     # kind == "predictive"
-    do_model = pm.do(gen_model, replacements)
+    with _forced_generative_carry(gen_model):
+        do_model = pm.do(gen_model, replacements)
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", message="Could not extract data from symbolic observation"
