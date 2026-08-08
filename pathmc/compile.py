@@ -51,6 +51,27 @@ from pathmc.transforms import get_transform
 __all__: list[str] = []
 
 
+def _user_stacklevel() -> int:
+    """Stacklevel to attribute a ``warnings.warn`` to the first non-pathmc frame.
+
+    A fixed ``stacklevel`` constant cannot be correct for every call site
+    because internal call-chain depth varies (e.g. warnings from
+    ``_compile_scan_panel`` vs ``compile_to_pymc``). Walking frames is
+    robust to refactors.
+    """
+    import sys
+
+    frame = sys._getframe(1)
+    level = 1
+    while frame.f_back is not None:
+        frame = frame.f_back
+        level += 1
+        module = frame.f_globals.get("__name__", "")
+        if module != "pathmc" and not module.startswith("pathmc."):
+            return level
+    return level
+
+
 @dataclass
 class PanelScanInfo:
     """Metadata stored on a scan-compiled panel model.
@@ -1323,7 +1344,7 @@ def _warn_partial_pooling_intercept(spec: Spec, pooling: str | dict | None) -> N
         f"The hierarchical mean mu_alpha will serve as the effective intercept.\n"
         f"{'=' * 78}\n",
         UserWarning,
-        stacklevel=4,
+        stacklevel=_user_stacklevel(),
     )
 
 
@@ -1494,7 +1515,7 @@ def _warn_high_rate_clip_risk(
                 "Consider rescaling this outcome (e.g. to smaller units) if "
                 "the model shows poor fit for high-rate observations.",
                 UserWarning,
-                stacklevel=4,
+                stacklevel=_user_stacklevel(),
             )
 
 

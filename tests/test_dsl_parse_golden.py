@@ -249,6 +249,22 @@ class TestInterceptRemoval:
         assert term.variable == "x"
         assert term.fixed_value == expected
 
+    @pytest.mark.parametrize(
+        "spec_string",
+        [
+            "y ~ lag(rate-1)",
+            "y ~ adstock(my-var)",
+            "y ~ logistic_saturation(income-1, lam=lam)",
+            "y ~ adstock(logistic_saturation(my-var), decay=theta)",
+        ],
+    )
+    def test_hyphen_inside_transform_arg_raises(self, spec_string):
+        """A '-' inside a transform's leaf input is the same garbage-name
+        bug as a top-level '-'. The guard must apply to transform
+        arguments, not just top-level terms."""
+        with pytest.raises(ParseError, match="Unsupported '-'"):
+            parse_spec(spec_string)
+
     def test_negative_transform_param_still_allowed(self):
         """A '-' inside transform parentheses (a negative kwarg value) is
         unrelated to formula subtraction and must not be rejected."""

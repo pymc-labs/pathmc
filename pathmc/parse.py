@@ -508,6 +508,7 @@ def _parse_transform_expr(raw: str) -> TransformCall:
             )
         input_expr: str | TransformCall = _parse_transform_expr(input_raw)
     else:
+        _reject_top_level_minus(input_raw)
         input_expr = input_raw
 
     params: dict[str, str] = {}
