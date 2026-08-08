@@ -14,8 +14,9 @@
 """Item 11 (issue #327): DSL parse-tree golden tests for tricky specs.
 
 Covers operator precedence, ``a:b`` vs ``a*b``, nested transforms, the
-``0 +``/``-1`` intercept-removal crash vector (#316), multi-equation specs,
-and variable names colliding with transform names. Every test here only
+``0 +``/``-1`` intercept-removal crash vector (#316), hyphenated names
+rejected by the top-level minus guard, multi-equation specs, and variable
+names colliding with transform names. Every test here only
 calls ``parse_spec`` -- no data, no PyMC, no sampling -- so the whole file
 runs in well under a second.
 """
@@ -203,6 +204,9 @@ class TestInterceptRemoval:
             "y ~ income-1",
             "y ~ x + rate-1",
             "y ~ RATE-1",
+            # Hyphenated plain terms and coefficient labels (use underscores).
+            "y ~ my-var",
+            "y ~ my-label*x",
             # An 'e' terminating an identifier, not a numeric mantissa.
             "y ~ x2e-1",
             # 'e' with no digits after the sign is not an exponent either.

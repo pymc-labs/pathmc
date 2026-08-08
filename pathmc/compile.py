@@ -444,7 +444,7 @@ def compile_to_pymc(
         graph_info = build_graph(spec, latent=latent)
 
     _validate_residual_cov_families(spec, families)
-    _validate_latent_families(spec, families, latent)
+    _validate_latent_families(families, latent)
     _warn_partial_pooling_intercept(spec, pooling)
 
     if panel_info is not None and _spec_has_hsgp(spec):
@@ -1210,9 +1210,7 @@ def _validate_residual_cov_families(spec: Spec, families: dict[str, str]) -> Non
                 )
 
 
-def _validate_latent_families(
-    spec: Spec, families: dict[str, str], latent: set[str]
-) -> None:
+def _validate_latent_families(families: dict[str, str], latent: set[str]) -> None:
     """Raise if a latent variable is assigned a discrete family.
 
     Latent (unobserved) nodes only support two compilation modes:
@@ -1496,7 +1494,7 @@ def _warn_high_rate_clip_risk(
                 "Consider rescaling this outcome (e.g. to smaller units) if "
                 "the model shows poor fit for high-rate observations.",
                 UserWarning,
-                stacklevel=2,
+                stacklevel=4,
             )
 
 

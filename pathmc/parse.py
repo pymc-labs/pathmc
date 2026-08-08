@@ -311,6 +311,10 @@ def _reject_top_level_minus(raw: str) -> None:
     fails much later with a confusing "column not found" error at data
     binding or compile time instead of a clear parse error (issue #316's
     crash-vector concern for intercept-removal syntax applies here too).
+
+    The same guard also rejects hyphenated plain terms (``my-var``) and
+    coefficient labels (``my-label*x``): ``-`` is never a name character
+    in the DSL, so use underscores instead (``my_var``, ``my_label*x``).
     """
     star_pos = _find_top_level_star(raw)
     depth = 0
