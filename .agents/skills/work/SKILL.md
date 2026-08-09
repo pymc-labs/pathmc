@@ -16,6 +16,22 @@ For **bugs**, delegate to the `fix-bug` skill instead.
 
 Read **Repo conventions** below and `docs/agents/*.md` before changing code.
 
+Skills are plain Markdown (`SKILL.md`). Any agent harness — Cursor, VS Code extensions, or a CLI — reads the same files; only the skill discovery path differs per tool. State lives on GitHub (labels, issue bodies, PR comment markers), not in local agent state, so work resumes across machines and tools.
+
+## Phase 0: Bootstrap (first use on a machine or repo)
+
+**pathmc**: `docs/agents/` is committed — skip this phase after clone.
+
+**Another repo** copying `work`: before Phase 1, check that `docs/agents/issue-tracker.md` exists.
+
+| Check | Action |
+|-------|--------|
+| `docs/agents/issue-tracker.md` present | Continue to Phase 1 |
+| Missing, `git remote` points at GitHub | Copy templates from `.agents/skills/setup-matt-pocock-skills/issue-tracker-github.md`, `domain.md`, and `triage-labels.md` into `docs/agents/` without an interview; add the Agent skills block to `AGENTS.md` |
+| Missing, not GitHub or ambiguous | Stop and tell the developer to run `setup-matt-pocock-skills` once |
+
+The setup skill does **not** run automatically on its own. `work` performs this lightweight bootstrap when config is missing. Full interactive setup is only needed for non-GitHub trackers or custom label vocabularies.
+
 ## Entry points
 
 | You say | What the agent does |
