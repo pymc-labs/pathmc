@@ -5,7 +5,7 @@ description: >-
   implementation, test/lint validation, and a bounded fix/review loop with an
   independent reviewer subagent. Use when fixing a GitHub bug report, or when the
   user says "fix bug", "bugfix", or references a bug issue or PR such as
-  "fix bug #149", "bugfix #149", or "fix bug PR #408".
+  "fix bug #149", "bugfix #149", or "fix bug PR #123".
 ---
 
 # Fix Bug — Autonomous Bug-Fix Workflow
@@ -21,7 +21,7 @@ Invoke with either a **bug issue** or an **existing PR**. The agent detects wher
 | You say | What the agent does |
 |---------|---------------------|
 | `fix bug #149` / `bugfix #149` | Load issue #149 → find or create a PR → implement or resume |
-| `fix bug PR #408` / `bugfix pr 408` | Load PR #408 → derive linked issue if present → resume from PR state |
+| `fix bug PR #123` / `bugfix pr 123` | Load PR #123 → derive linked issue if present → resume from PR state |
 
 **Fresh issue** (no PR yet): read the bug report, reproduce or trace root cause, implement on a fix branch, open a PR, then enter the review loop.
 
@@ -39,7 +39,7 @@ Customize this section when copying the skill into a new repository. The orchest
 - **Lint**: formatter/linter/typecheck command(s) required before push.
 - **Branch naming**: e.g. `fix/<issue-number>-<short-slug>`.
 - **Commit messages**: imperative mood; `Fixes #N` in body when closing a bug issue.
-- **PR body**: accurate closing semantics (`Fixes` / `Part of` / `Addresses`), summary of approach, test plan.
+- **PR body**: `## Issue links` with accurate closing semantics (`Fixes` / `Part of` / `Related to`), summary, test plan.
 - **Fixer PR comments**: brief comments explaining what changed and why (see Phase 2).
 - **Test policy**: whether existing test assertions may be changed (many repos: add tests, don't change expected behavior without human review).
 - **Escalation label**: label applied when the loop exhausts (e.g. `needs developer attention`).
@@ -79,12 +79,16 @@ gh pr checkout $PR_NUMBER
 
 ### Inspect PR state
 
-Round markers use the prefix `fix-bug-round` (HTML comments). Fixer summaries use `fix-bug-fix-summary`. Use the same prefixes in every repo copy of this skill so resume logic stays portable.
+Round markers use the prefix `fix-bug-round` (HTML comments). Fixer summaries use `fix-bug-fix-summary`. Approval uses `fix-bug-approved`. Use the same prefixes in every repo copy of this skill so resume logic stays portable.
 
 ```bash
 # Count review-round markers from automated reviewer:
 gh pr view $PR_NUMBER --json comments -q \
   '[.comments[].body | select(test("fix-bug-round"))] | length'
+
+# Approval marker (distinct from reviewer crash — no comment at all):
+gh pr view $PR_NUMBER --json comments -q \
+  '[.comments[].body | select(test("fix-bug-approved"))] | length'
 
 # CI status:
 gh pr checks $PR_NUMBER
@@ -97,6 +101,7 @@ gh pr view $PR_NUMBER --json comments -q \
 | Detected state | Action |
 |----------------|--------|
 | Issue closed or PR merged | Exit — already resolved |
+| PR has `fix-bug-approved` and CI passing | Exit — review loop complete (run umbrella wrap-up if applicable) |
 | No PR exists (issue entry only) | Full flow: understand → implement → push → create PR → review loop |
 | PR exists, CI failing | Read failures → fix → push → wait CI → continue |
 | PR exists, unaddressed review comment (has round marker) | Address findings → push → wait CI → continue |
@@ -105,7 +110,15 @@ gh pr view $PR_NUMBER --json comments -q \
 | 3+ round markers already present | Escalate immediately |
 | Human pushed or commented since last automation activity | Escalate — don't overwrite human work |
 
-**Fallback when markers are missing**: Use `max(marker_count, substantive_review_comment_count)` as round estimate. If ambiguous, treat as round 0 and start fresh.
+**Fallback when round markers are missing**: estimate rounds from PR comments that are **not** orchestration markers (`fix-bug-fix-summary`, `fix-bug-escalation`, `fix-bug-approved`). Do not count fixer summaries — they are posted every push and would trigger premature escalation.
+
+```bash
+marker_count=$(gh pr view $PR_NUMBER --json comments -q \
+  '[.comments[].body | select(test("fix-bug-round"))] | length')
+fallback_count=$(gh pr view $PR_NUMBER --json comments -q \
+  '[.comments[].body | select(test("fix-bug-fix-summary|fix-bug-escalation|fix-bug-approved") | not)] | length')
+# round_estimate = max(marker_count, fallback_count); if ambiguous, treat as round 0
+```
 
 ### Scope selection (umbrella / meta issues)
 
@@ -114,11 +127,18 @@ Some issues track many bugs (sub-issues, checklists, or long itemised lists). **
 **Detect umbrella issues** before implementing:
 
 ```bash
-# Sub-issues (GitHub task lists / linked children)
-gh issue view $ISSUE_NUMBER --json title,body,labels,comments
-gh issue list --search "is:issue $ISSUE_NUMBER" --json number,title,state,labels
-# Also scan the issue body for unchecked `- [ ]` items or numbered bug lists
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+
+# Sub-issues (primary — GitHub sub-issues API)
+gh api "repos/$REPO/issues/$ISSUE_NUMBER/sub_issues" \
+  --jq '.[] | {number, title, state}'
+
+# Issue body and metadata (checklists, cross-references)
+gh issue view $ISSUE_NUMBER --json title,body,state,labels,comments
+# Secondary: scan body for unchecked `- [ ]` items, numbered bug lists, or `#NNN` cross-refs
 ```
+
+Placeholders in templates below use angle brackets (`#<scope-issue>`, `#<parent-issue>`) — substitute the actual issue numbers. Heredocs use `<<'EOF'` (no shell expansion).
 
 | Issue shape | Pick exactly one |
 |-------------|------------------|
@@ -131,7 +151,7 @@ gh issue list --search "is:issue $ISSUE_NUMBER" --json number,title,state,labels
 
 **Record scope explicitly** before coding:
 
-- Set `SCOPE_ISSUE` to the child issue number when fixing a sub-issue; otherwise the parent/issue you were pointed at.
+- Note the scope issue number (`#<scope-issue>`) — the child issue when fixing a sub-issue, otherwise the issue you were pointed at.
 - Note which checklist item or sub-issue you chose and why (one sentence).
 
 **Closing semantics** (must match what the PR actually does):
@@ -160,7 +180,7 @@ Skip steps already done when resuming an existing PR (e.g. branch exists, partia
    git commit -m "$(cat <<'EOF'
    Short imperative summary
 
-   Fixes #SCOPE_ISSUE. Part of #PARENT if umbrella. Why this approach.
+   Fixes #<scope-issue>. Part of #<parent-issue> if umbrella. Why this approach.
    EOF
    )"
    git push -u origin HEAD
@@ -171,8 +191,8 @@ Skip steps already done when resuming an existing PR (e.g. branch exists, partia
    ## Summary
    <1-2 sentences on the approach.>
 
-   ## Closes
-   - Fixes #SCOPE_ISSUE (or Part of #PARENT — match actual scope)
+   ## Issue links
+   - Fixes #<scope-issue> (or Part of #<parent-issue> — match actual scope)
    - <If umbrella: which sub-issue or checklist item this addresses>
 
    ## Test plan
@@ -188,7 +208,7 @@ Skip steps already done when resuming an existing PR (e.g. branch exists, partia
    <!-- fix-bug-fix-summary -->
    ## Fix summary
 
-   **Scope**: Fixes #SCOPE_ISSUE / Part of #PARENT — <which sub-issue or checklist item, if umbrella>
+   **Scope**: Fixes #<scope-issue> / Part of #<parent-issue> — <which sub-issue or checklist item, if umbrella>
    **Root cause**: <one sentence>
    **Approach**: <why this fix, not an alternative>
    **Not in scope**: <what was deliberately left for a follow-up PR>
@@ -197,19 +217,13 @@ Skip steps already done when resuming an existing PR (e.g. branch exists, partia
    ```
    Keep it brief (4–6 sentences). The reviewer reads the diff; this comment explains intent for humans and the next automation pass.
 
-9. **Update PR body when scope drifts** — if implementation narrows or shifts scope (e.g. you fixed a different checklist item than planned), edit the PR before requesting review:
+9. **Update PR body when scope drifts** — if implementation narrows or shifts scope, edit **only** the `## Issue links` section. Read the current body first; never replace the whole description (that would destroy human edits to Summary, Test plan, or checkboxes):
+
    ```bash
+   gh pr view $PR_NUMBER --json body -q .body   # read current body
+   # Merge: keep all existing sections; update only ## Issue links
    gh pr edit $PR_NUMBER --body "$(cat <<'EOF'
-   ## Summary
-   <updated>
-
-   ## Closes
-   - <updated Fixes / Part of lines — must match what the diff actually does>
-
-   ## Test plan
-   - [ ] Targeted tests pass
-   - [ ] Full/fast test suite passes
-   - [ ] Lint passes
+   <paste merged body — preserve everything outside Issue links>
    EOF
    )"
    ```
@@ -227,15 +241,16 @@ Spawn a Task subagent with these characteristics:
 
 > You are an independent code reviewer for this repository. You have never seen this code before.
 >
-> **Your job**: Review PR #$PR_NUMBER. Post ONE review comment on the PR with your findings. You NEVER modify code, push, or run commands other than reading the diff and the repo's `AGENTS.md` / `CONTRIBUTING.md` if present.
+> **Your job**: Review PR #$PR_NUMBER. Post ONE review comment on the PR with your findings. You NEVER modify code or push. Permitted reads only:
+> - `gh pr diff $PR_NUMBER`
+> - `gh pr view $PR_NUMBER --json body,comments`
+> - The repo's `AGENTS.md` / `CONTRIBUTING.md` if present
 >
-> **Read the diff**: `gh pr diff $PR_NUMBER`
->
-> **Read fixer intent** (if present): scan PR comments for `<!-- fix-bug-fix-summary -->` — use this for context, but judge correctness from the diff.
+> **Read fixer intent** (if present): scan PR comments for `<!-- fix-bug-fix-summary -->`. Use for context only — if the diff and the summary disagree, the diff is the truth and the disagreement is a 🔴 finding.
 >
 > **Review criteria** (check each):
 > - Correctness: Does the fix address the root cause? Any logic errors?
-> - Scope alignment: Does the diff match the PR **Closes** section and the fixer summary? Flag over-closing (`Fixes #parent` when only one sub-item is done) or under-documented scope.
+> - Scope alignment: Does the diff match the PR **Issue links** section and the fixer summary? Flag over-closing (`Fixes #parent` when only one sub-item is done) or under-documented scope.
 > - Regressions: Could this break existing behavior? Check callers of modified functions.
 > - Edge cases: Are boundary conditions handled?
 > - Test coverage: Are the new/changed paths tested?
@@ -250,8 +265,11 @@ Spawn a Task subagent with these characteristics:
 >
 > **Output format**: Post a PR comment via `gh pr comment $PR_NUMBER --body "..."`.
 > Start the comment with the marker: `<!-- fix-bug-round:$ROUND -->`
-> If you find NO actionable issues (no 🔴 or 🟡), post an approval comment WITHOUT the marker:
-> "Reviewed — no actionable issues found. Approving."
+> If you find NO actionable issues (no 🔴 or 🟡), post an approval comment with marker:
+> `<!-- fix-bug-approved -->`
+> Reviewed — no actionable issues found. Approving.
+>
+> Absence of any comment means reviewer failure, not approval.
 >
 > Be specific and actionable. Another agent will read your comments and fix what you raise.
 
@@ -265,8 +283,8 @@ while round < 3:
     spawn_reviewer(round + 1)
     verdict = read_reviewer_output()
 
-    if verdict == "approved" (no marker posted):
-        break  # Done — natural termination
+    if verdict == "approved" (fix-bug-approved marker posted):
+        break  # Done — run umbrella wrap-up if applicable
 
     address_review_findings()
     push_fixes()
@@ -284,6 +302,23 @@ if round >= 3 and not approved:
 - Run tests and lint before pushing.
 - Post a **fixer summary comment** (step 8 above) describing what you changed in response to the review — do not push silently.
 - Do NOT post your own code review or approve your changes — the independent reviewer will check on the next pass.
+
+### Umbrella wrap-up (on approval)
+
+When the review loop completes with `fix-bug-approved` and the work scoped to one item of an umbrella issue:
+
+1. **Tell the user** which item was fixed and list what remains (open sub-issues or unchecked checklist items on the parent).
+2. **Optionally comment on the parent issue** so the tracker shows partial progress:
+
+   ```bash
+   gh issue comment $PARENT_ISSUE --body "$(cat <<'EOF'
+   Automated fix PR #<pr-number> merged/ready — addressed: <item fixed>.
+   Remaining: <enumerate open sub-issues or unchecked items>.
+   EOF
+   )"
+   ```
+
+   One item per PR is intentional; the user invoked `fix bug` on the umbrella and should see clear next steps, not a silent partial completion.
 
 ## Phase 4: Escalation
 
@@ -325,8 +360,8 @@ These apply regardless of marker state:
 ## Robustness notes
 
 - **Internal counter is primary** during a live session. Markers are for observability and resume.
-- **On resume with missing markers**: estimate round from comment count. If ambiguous, start at round 0.
-- **Reviewer subagent failure**: If it returns without posting a comment, check the PR. If no comment appeared, count as a failed round.
+- **On resume with missing round markers**: use the fallback query above (excludes fixer summaries). If ambiguous, start at round 0.
+- **Reviewer subagent failure**: If it returns without posting a comment, check the PR. No comment = failed round. A `fix-bug-approved` comment = success.
 - **Human intervention**: If a human has pushed commits or posted comments since the last automation activity, escalate rather than overwriting.
 - **Already resolved**: If the issue is closed or PR is merged, exit immediately.
 - **PR without linked issue**: Workflow still runs; omit issue labels/steps that need `ISSUE_NUMBER` or ask the user for the bug issue number.
@@ -337,5 +372,5 @@ These apply regardless of marker state:
 ## Copying to another repo
 
 1. Copy `.agents/skills/fix-bug/SKILL.md` unchanged except **Repo conventions** — replace the pathmc subsection with that repo's commands and policies (or a single pointer to its `AGENTS.md`).
-2. Keep marker prefixes (`fix-bug-round`, `fix-bug-escalation`, `fix-bug-fix-summary`) identical so cross-repo tooling and resume logic stay consistent.
+2. Keep marker prefixes (`fix-bug-round`, `fix-bug-escalation`, `fix-bug-fix-summary`, `fix-bug-approved`) identical so cross-repo tooling and resume logic stay consistent.
 3. Adjust escalation label name only in **Repo conventions** if the target org uses a different label.
