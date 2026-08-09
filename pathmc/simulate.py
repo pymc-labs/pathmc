@@ -470,7 +470,12 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             raise KeyError(
                 f"Unknown variable '{var}'. Available variables: {available}"
             )
-        if not _has_by_time(self._ds) or "time" not in self._ds[var].dims:
+        no_time_data = (
+            not _has_by_time(self._ds)
+            or "time" not in self._ds[var].dims
+            or self._time_index is None
+        )
+        if no_time_data:
             raise ValueError(
                 "DoResult.plot() requires per-time panel data. "
                 "Use do(simulate_over='time') for trajectory plots, or "
@@ -478,12 +483,7 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             )
 
         time_coords = self._time_index
-        if time_coords is None:
-            raise ValueError(
-                "DoResult.plot() requires per-time panel data. "
-                "Use do(simulate_over='time') for trajectory plots, or "
-                "DoResult.plot_dist() for cross-sectional marginal posteriors."
-            )
+        assert time_coords is not None
 
         draws = self._by_time_draws(var)
         n_times = draws.shape[0]

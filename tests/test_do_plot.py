@@ -86,9 +86,16 @@ class TestDoResultPlot:
             result.plot("Y", vs="observed")
 
     def test_vs_observed_uses_attached_metadata(self):
-        result, time_index = _panel_result()
-        observed = np.ones(len(time_index))
-        result._observed_by_time["Y"] = observed
+        n_times = 4
+        time_index = np.arange(1, n_times + 1)
+        arr = np.ones((n_times, 2, 3))
+        result = do_result_from_flat(
+            values_by_time={"Y": arr},
+            time_index=time_index,
+            n_chains=2,
+            n_draws=3,
+            observed_by_time={"Y": np.ones(n_times)},
+        )
         fig = result.plot("Y", vs="observed")
         ax = fig.axes[0]
         assert any(line.get_label() == "Observed" for line in ax.lines)

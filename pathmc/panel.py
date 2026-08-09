@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import narwhals.stable.v1 as nw
 import numpy as np
 
-__all__ = ["PanelInfo", "observed_means_by_time"]
+__all__ = ["PanelInfo"]
 
 
 @dataclass
