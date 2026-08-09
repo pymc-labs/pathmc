@@ -171,7 +171,8 @@ def parse_spec(spec_string: str) -> Spec:
     ParseError
         On malformed syntax (missing RHS, invalid operators, etc.).
     DuplicateEquationError
-        If two regressions share the same LHS variable.
+        If two regressions share the same LHS variable, or a coefficient
+        label is reused across equations.
     """
     spec_string = _join_continuation_lines(spec_string)
     raw_statements = re.split(r"[;\n]", spec_string)
@@ -186,6 +187,7 @@ def parse_spec(spec_string: str) -> Spec:
     residual_covs: list[ResidualCov] = []
     defined_params: list[DefinedParam] = []
     seen_lhs: set[str] = set()
+    seen_labels: dict[str, str] = {}
 
     for stmt in statements:
         if ":=" in stmt:
@@ -199,6 +201,25 @@ def parse_spec(spec_string: str) -> Spec:
                     f"Duplicate equation for '{reg.lhs}'. "
                     "Each variable can appear as LHS in at most one regression."
                 )
+            labels_in_stmt: list[str] = []
+            for term in reg.terms:
+                if term.label is None:
+                    continue
+                if term.label in labels_in_stmt:
+                    raise DuplicateEquationError(
+                        f"Label '{term.label}' used more than once in '{stmt}'. "
+                        "Each label must be unique. Use different labels "
+                        "(e.g., 'a1', 'a2') for distinct coefficients."
+                    )
+                labels_in_stmt.append(term.label)
+                if term.label in seen_labels:
+                    raise DuplicateEquationError(
+                        f"Label '{term.label}' used in both "
+                        f"'{seen_labels[term.label]}' and '{stmt}'. "
+                        "Each label must be unique. Use different labels "
+                        "(e.g., 'a1', 'a2') for distinct coefficients."
+                    )
+                seen_labels[term.label] = stmt
             seen_lhs.add(reg.lhs)
             regressions.append(reg)
         else:
