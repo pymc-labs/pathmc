@@ -47,7 +47,12 @@ def panel_lag_data():
 
 @pytest.fixture(scope="module")
 def panel_lag_model(panel_lag_data, mock_pymc_sample_module):
-    """Fitted panel model with lag structure and pinned oracle posterior."""
+    """Fitted panel model with lag structure and pinned oracle posterior.
+
+    Posterior pinning is only for ``do()`` propagation tests: mock sampling
+    does not respect the identified partial-pooling geometry. Compile-time
+    structure (intercept drop, coords) is covered separately without pinning.
+    """
     model = pathmc.model(
         "sales ~ lag(spend)",
         data=panel_lag_data,
@@ -66,6 +71,20 @@ def panel_lag_model(panel_lag_data, mock_pymc_sample_module):
     posterior["sigma_sales"] = posterior["sigma_sales"] * 0.0 + 0.5
     model._idata["posterior"] = xr.DataTree(posterior)
     return model
+
+
+def test_panel_lag_compile_drops_intercept_and_keeps_mu_alpha(panel_lag_data):
+    """Compile-time check for partial-pooling intercept drop (no posterior pin)."""
+    model = pathmc.model(
+        "sales ~ lag(spend)",
+        data=panel_lag_data,
+        panel={"unit": "region", "time": "week"},
+        pooling="partial",
+    )
+    free_rv_names = {rv.name for rv in model.pymc_model.free_RVs}
+    assert "Intercept" not in model.pymc_model.coords["sales_predictors"]
+    assert "mu_alpha_sales" in free_rv_names
+    assert "alpha_sales" in free_rv_names
 
 
 class TestPanelDoAPI:

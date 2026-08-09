@@ -821,25 +821,27 @@ def _make_cross_sectional_resolver(
     slots (which need the equation LHS to name RVs and the prior config
     for hyperpriors); they may be omitted for HSGP-free equations.
 
-    When *prefer_observed_block_members* is True, predictors that are
-    residual-covariance block members resolve to their observed data
-    columns rather than structural means — giving identified downstream
-    regression coefficients at fit time while ``mu_{var}`` deterministics
-    (built with ``prefer_observed_block_members=False``) retain the
-    generative wiring needed by ``pm.do()``.
+    When *prefer_observed_block_members* is True, block-member names are
+    removed from the endogenous-RV map passed to resolution (including
+    transform chains and interaction products) so downstream likelihoods
+    wire through observed data columns.  ``mu_{var}`` deterministics
+    (built with ``prefer_observed_block_members=False``) retain structural
+    means for ``pm.do()``.
     """
     import pytensor.tensor as pt
 
     block_member_set = block_vars or set()
+    active_endogenous = endogenous_rvs
+    if prefer_observed_block_members and block_member_set:
+        active_endogenous = {
+            name: tensor
+            for name, tensor in endogenous_rvs.items()
+            if name not in block_member_set
+        }
 
     def _resolve_var(name: str) -> Any:
-        if prefer_observed_block_members and name in block_member_set:
-            if name in data.columns:
-                if name in data_vars:
-                    return data_vars[name]
-                return pt.as_tensor_variable(data[name].to_numpy().astype(float))
-        if name in endogenous_rvs:
-            return endogenous_rvs[name]
+        if name in active_endogenous:
+            return active_endogenous[name]
         if name in data_vars:
             return data_vars[name]
         return pt.as_tensor_variable(data[name].to_numpy().astype(float))
@@ -862,7 +864,7 @@ def _make_cross_sectional_resolver(
                 transform_param_rvs,
                 panel_info=panel_info,
                 data_vars=data_vars,
-                endogenous_rvs=endogenous_rvs,
+                endogenous_rvs=active_endogenous,
             )
         if slot.kind == "interaction":
             assert slot.interaction_parts is not None
