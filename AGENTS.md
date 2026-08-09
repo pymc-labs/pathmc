@@ -80,3 +80,24 @@ git add _freeze/
 - The do() planner (propagation order) is logically separate from the do() executor (applies posterior draws).
 - Residual covariance uses an abstraction layer, not hardcoded LKJ, so alternative structures can be added without major refactors.
 - Parameter naming is predictable and stable across runs, via ArviZ/xarray coords.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues (`gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+`ready-for-agent`, `needs-human`, `needs developer attention`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+
+### Autonomous workflows
+
+- **Bugs**: `fix-bug` skill — `fix bug #N`
+- **Features**: `work` skill — `work #N` (orchestrates grill-with-docs, to-spec, implement, tdd, code-review)
+
+Matt Pocock sub-skills live under `.agents/skills/` (installed via `skills-lock.json`). Update with `npx skills update`.
