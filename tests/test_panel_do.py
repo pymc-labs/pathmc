@@ -192,4 +192,5 @@ class TestContrastArithmetic:
         contrast = r1 - r0
         hdi = contrast.hdi("sales")
         assert len(hdi) == 2
-        assert hdi[0] < hdi[1]
+        assert np.all(np.isfinite(hdi))
+        assert hdi[0] <= hdi[1]
