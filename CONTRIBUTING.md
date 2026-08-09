@@ -148,3 +148,7 @@ git add _freeze/
 This wipes `_freeze/`, re-runs all example and user-guide notebooks except the homepage (which needs a separate build step because of an upstream path-mapping quirk), copies the refreshed homepage cache, and prints a reminder to commit `_freeze/`. Expect this to take a long time: many example notebooks run MCMC sampling.
 
 See the "Building the docs" section of [AGENTS.md](https://github.com/pymc-labs/pathmc/blob/main/AGENTS.md) for freeze-cache details and caveats.
+
+## README assets on PyPI
+
+The PyPI project page renders `README.md` and loads its images from absolute `raw.githubusercontent.com/.../main/docs/assets/...` URLs at **view** time, not from the sdist. Do not rename or relocate `docs/assets/logo_light.png`, `logo_dark.png`, or `contributors.svg` without updating `README.md`; if those paths disappear from `main`, images break on PyPI for every previously published release. PyPI currently has no dark-mode toggle, so the README uses a `<picture>` block for GitHub (light/dark logos) with a light-background fallback for PyPI.

@@ -19,6 +19,7 @@ Provides the logic behind ``PathModel.effects_summary()`` and
 
 from __future__ import annotations
 
+import re
 import warnings
 from dataclasses import dataclass
 
@@ -37,6 +38,48 @@ __all__ = ["EffectResult"]
 def _has_labeled_terms(spec: Spec) -> bool:
     """Check whether any regression term has a user-supplied label."""
     return any(term.label is not None for reg in spec.regressions for term in reg.terms)
+
+
+def _interacting_vars(reg) -> set[str]:
+    """Variables that participate in any interaction term of a regression."""
+    interacting: set[str] = set()
+    for t in reg.terms:
+        if t.interaction_of is not None:
+            interacting.update(t.interaction_of)
+    return interacting
+
+
+def _interaction_affected_labels(spec: Spec) -> dict[str, str]:
+    """Map label -> ``"source -> target"`` for labeled main-effect terms whose
+    edge also carries an interaction term involving the same source variable.
+
+    A defined parameter (or path effect) built from such a label reports only
+    the linear coefficient and silently omits the interaction's contribution
+    to the true, state-dependent marginal effect.
+    """
+    affected: dict[str, str] = {}
+    for reg in spec.regressions:
+        interacting = _interacting_vars(reg)
+        if not interacting:
+            continue
+        for t in reg.terms:
+            if (
+                t.label is not None
+                and t.interaction_of is None
+                and t.variable in interacting
+            ):
+                affected[t.label] = f"{t.variable} -> {reg.lhs}"
+    return affected
+
+
+_INTERACTION_DEFINED_PARAM_WARNING = (
+    "Defined parameter '{name} := {expression}' uses coefficient(s) ({labels}) "
+    "from edge(s) ({edges}) whose regression also has an interaction term "
+    "involving the same source variable. compute_path_effect()-style path "
+    "multiplication only captures the linear (main-effect) coefficient, so "
+    "'{name}' silently omits the interaction's contribution to the true "
+    "(state-dependent) marginal effect."
+)
 
 
 @dataclass(repr=False)
@@ -141,11 +184,36 @@ def evaluate_defined_params(
         Mapping from defined parameter name to computed draws.
     """
     defined_draws: dict[str, np.ndarray] = {}
+    affected_labels = _interaction_affected_labels(spec)
+    # Names (labels or previously-computed defined params) known to omit an
+    # interaction contribution; grows as flagged defined params are chained
+    # into later ones (e.g. total := indirect + c).
+    affected_names = set(affected_labels)
 
     for dp in spec.defined_params:
         namespace: dict = {k: v for k, v in labeled_draws.items()}
         namespace.update(defined_draws)
         namespace["__builtins__"] = {}
+
+        tokens = set(re.findall(r"[A-Za-z_]\w*", dp.expression))
+        used_affected = sorted(tokens & affected_names)
+        if used_affected:
+            edges = sorted({
+                affected_labels[name]
+                for name in used_affected
+                if name in affected_labels
+            })
+            warnings.warn(
+                _INTERACTION_DEFINED_PARAM_WARNING.format(
+                    name=dp.name,
+                    expression=dp.expression,
+                    labels=", ".join(used_affected),
+                    edges=", ".join(edges) if edges else "unknown",
+                ),
+                UserWarning,
+                stacklevel=2,
+            )
+            affected_names.add(dp.name)
 
         draws = eval(dp.expression, namespace)  # noqa: S307
         defined_draws[dp.name] = np.asarray(draws)
@@ -334,6 +402,16 @@ def compute_path_effect(
     the link-function scale and their product is not interpretable as a
     mediated effect.
 
+    Each edge's contribution is the linear (main-effect) regression
+    coefficient of the source variable on the target; the path effect is
+    the product of these coefficients (Wright's tracing rule). This is
+    exact for linear-Gaussian structural models. If the target's
+    regression also contains an interaction term involving the source
+    variable (e.g. ``Y ~ b*M + g*M:X``), the interaction's contribution is
+    *not* included and the true marginal effect becomes state-dependent
+    (a function of the interacting variable's value); a ``UserWarning``
+    is raised in that case.
+
     Parameters
     ----------
     path : str
@@ -383,6 +461,27 @@ def compute_path_effect(
             raise ValueError(
                 f"No direct edge from '{source}' to '{target}' in the model. "
                 f"Check the path specification."
+            )
+
+        interaction_terms = [
+            t
+            for t in reg.terms
+            if t.interaction_of is not None and source in t.interaction_of
+        ]
+        if interaction_terms:
+            names = ", ".join(t.label or t.variable for t in interaction_terms)
+            warnings.warn(
+                f"Edge '{source} -> {target}' has interaction term(s) ({names}) "
+                f"involving '{source}' on the same regression. compute_path_effect() "
+                f"only multiplies the linear (main-effect) coefficient along each edge "
+                f"and does not account for interaction terms, so the product of "
+                f"edge coefficients along this path will not equal the true "
+                f"(state-dependent) marginal effect of the path's source variable "
+                f"unless the interacting variable(s) are held at zero. This also means "
+                f"a defined parameter such as 'total := direct + indirect' will silently "
+                f"omit the interaction's contribution.",
+                UserWarning,
+                stacklevel=2,
             )
 
         if matched_term.label is not None and matched_term.label in labeled_draws:

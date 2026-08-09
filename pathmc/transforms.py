@@ -36,14 +36,19 @@ import pytensor.tensor as pt
 __all__ = ["ParamSpec", "Transform", "register_transform"]
 
 
-def _geometric_adstock(x: Any, *, alpha: Any, l_max: int) -> Any:
+def _geometric_adstock(
+    x: Any, *, alpha: Any, l_max: int, normalize: bool = False
+) -> Any:
     """Geometric adstock along the leading (time) axis.
 
     ``y[t] = sum_{i=0}^{l_max-1} alpha**i * x[t-i]``, with zero padding before
-    ``t = 0``. The carryover is truncated at ``l_max`` lags, matching the
-    convolution-based implementation in ``pymc_marketing.mmm.transformers``,
-    and is significantly faster than ``pytensor.scan`` with cleaner gradients
-    for NUTS sampling. Batch axes after the first (e.g. panel units) are
+    ``t = 0``. When ``normalize`` is ``True`` the result is divided by
+    ``sum_{i=0}^{l_max-1} alpha**i`` so the lag weights sum to 1. The
+    carryover is truncated at ``l_max`` lags, and both the truncation and the
+    ``normalize`` behaviour match
+    ``pymc_marketing.mmm.transformers.geometric_adstock``. This kernel is
+    significantly faster than ``pytensor.scan`` and has cleaner gradients for
+    NUTS sampling. Batch axes after the first (e.g. panel units) are
     broadcast over.
     """
     if l_max < 1:
@@ -58,6 +63,8 @@ def _geometric_adstock(x: Any, *, alpha: Any, l_max: int) -> Any:
         shifted = pt.zeros_like(x)
         shifted = pt.set_subtensor(shifted[i:], x[:-i])
         result = result + w[i] * shifted
+    if normalize:
+        result = result / pt.sum(w)
     return result
 
 
@@ -165,21 +172,77 @@ class Transform:
 
 
 class Adstock(Transform):
-    """Geometric adstock: ``y_t = x_t + decay * y_{t-1}``.
+    """Geometric adstock: ``y_t = sum_{i=0}^{l_max-1} decay**i * x_{t-i}``.
 
     Applied along the time axis within each panel unit.
     For cross-sectional data, applied along the row axis.
 
     The PyMC graph uses the vectorized :func:`_geometric_adstock`
     kernel, which is significantly faster than ``pytensor.scan`` and
-    produces cleaner gradients for NUTS sampling.
+    produces cleaner gradients for NUTS sampling. ``l_max`` and
+    ``normalize`` mirror the corresponding arguments of
+    ``pymc_marketing.mmm.transformers.geometric_adstock`` — pass them to
+    the constructor and re-register (see :func:`register_transform`) to
+    match a reference model's configuration, e.g.
+    ``register_transform(Adstock(l_max=8, normalize=True))``.
+
+    Panel models with temporal dependencies (``lag()`` or another
+    ``adstock()`` in the same equation, or any ``adstock()`` combined
+    with panel data — see ``_has_temporal_deps`` in ``pathmc.compile``)
+    are compiled with ``pytensor.scan`` and go through :meth:`step`
+    instead of the vectorized kernel. :meth:`step` only implements the
+    *unbounded, unnormalized* recursion ``y_t = x_t + decay * y_{t-1}``
+    (the ``l_max -> inf``, ``normalize=False`` limit of the truncated
+    kernel above), so it cannot honour a non-default ``l_max`` or
+    ``normalize=True`` without silently disagreeing with the vectorized
+    path. Rather than silently ignoring those options on scan-compiled
+    models, :meth:`step` raises ``NotImplementedError`` for any
+    non-default configuration. Use the default ``Adstock()`` for panel
+    models with temporal dependencies; non-default configurations are
+    only supported for cross-sectional models and panel models without
+    temporal dependencies, which use the vectorized kernel.
     """
 
     name = "adstock"
-    l_max: int = 12
     param_specs = {
         "decay": ParamSpec(constraint="unit_interval", default_prior="Beta(2, 2)"),
     }
+
+    #: Configuration the scan recursion in :meth:`step` actually implements.
+    #: The guard there compares against these, so changing a default cannot
+    #: silently widen what scan-compiled models accept.
+    DEFAULT_L_MAX = 12
+    DEFAULT_NORMALIZE = False
+
+    def __init__(
+        self, l_max: int = DEFAULT_L_MAX, normalize: bool = DEFAULT_NORMALIZE
+    ) -> None:
+        """Create a geometric-adstock transform.
+
+        Parameters
+        ----------
+        l_max : int
+            Number of lags (including lag 0) included in the truncated
+            carryover sum. Matches ``pymc_marketing``'s ``l_max``. Must be
+            an integer ``>= 1``.
+        normalize : bool
+            If ``True``, divide by the sum of the lag weights so they sum
+            to 1. Matches ``pymc_marketing``'s ``normalize``.
+
+        Raises
+        ------
+        ValueError
+            If ``l_max`` is not an integer ``>= 1``, or ``normalize`` is
+            not a ``bool``.
+        """
+        if isinstance(l_max, bool) or not isinstance(l_max, (int, np.integer)):
+            raise ValueError(f"l_max must be an int >= 1, got {l_max!r}.")
+        if l_max < 1:
+            raise ValueError(f"l_max must be >= 1, got {l_max!r}.")
+        if not isinstance(normalize, bool):
+            raise ValueError(f"normalize must be a bool, got {normalize!r}.")
+        self.l_max = int(l_max)
+        self.normalize = normalize
 
     def apply_pymc(
         self,
@@ -193,7 +256,9 @@ class Adstock(Transform):
 
         if panel_info is not None and data is not None:
             return self._apply_pymc_panel(x, decay, panel_info, data)
-        return _geometric_adstock(x, alpha=decay, l_max=self.l_max)
+        return _geometric_adstock(
+            x, alpha=decay, l_max=self.l_max, normalize=self.normalize
+        )
 
     def _apply_pymc_panel(self, x: Any, decay: Any, panel_info: Any, data: Any) -> Any:
         """Apply adstock per unit via matrix reshaping, not per-unit scans."""
@@ -214,7 +279,9 @@ class Adstock(Transform):
         x_sorted = x[sorted_idx]
         x_matrix = x_sorted.reshape((n_units, n_time)).T  # (time, units)
 
-        adstocked = _geometric_adstock(x_matrix, alpha=decay, l_max=self.l_max)
+        adstocked = _geometric_adstock(
+            x_matrix, alpha=decay, l_max=self.l_max, normalize=self.normalize
+        )
 
         result_flat = adstocked.T.flatten()  # back to unit-major order
         return result_flat[reverse_idx]
@@ -224,7 +291,34 @@ class Adstock(Transform):
         return True
 
     def step(self, x_t: Any, state: Any, params: dict[str, Any]) -> tuple[Any, Any]:
-        """Single time-step geometric adstock: ``y_t = x_t + decay * y_{t-1}``."""
+        """Single time-step geometric adstock: ``y_t = x_t + decay * y_{t-1}``.
+
+        Raises
+        ------
+        NotImplementedError
+            If this ``Adstock`` was configured with a non-default
+            ``l_max`` or ``normalize=True``. The scan recursion below is
+            unbounded and unnormalized and cannot honour those options
+            without disagreeing with the vectorized kernel used elsewhere
+            (see the class docstring); rather than silently ignore them,
+            scan-compiled models (panel models with temporal
+            dependencies, ``pm.do()``, and predictive sampling on them)
+            reject non-default configurations explicitly.
+        """
+        if self.l_max != self.DEFAULT_L_MAX or self.normalize != self.DEFAULT_NORMALIZE:
+            raise NotImplementedError(
+                f"Adstock(l_max={self.l_max}, normalize={self.normalize}) is "
+                f"not supported on scan-compiled panel models (models with "
+                f"temporal dependencies: adstock()/lag() combined with panel "
+                f"data). Adstock.step(), used by pytensor.scan for such "
+                f"models (including pm.do() and predictive sampling), only "
+                f"implements the unbounded, unnormalized recursion "
+                f"y_t = x_t + decay * y_{{t-1}} and would silently disagree "
+                f"with the vectorized kernel for non-default l_max/normalize. "
+                f"Use the default Adstock(l_max=12, normalize=False) for "
+                f"these models, or restructure the model so adstock() does "
+                f"not need scan compilation (e.g. no panel temporal deps)."
+            )
         decay = params["decay"]
         adstock_t = x_t + decay * state
         return adstock_t, adstock_t

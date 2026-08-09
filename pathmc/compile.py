@@ -51,6 +51,27 @@ from pathmc.transforms import get_transform
 __all__: list[str] = []
 
 
+def _user_stacklevel() -> int:
+    """Stacklevel to attribute a ``warnings.warn`` to the first non-pathmc frame.
+
+    A fixed ``stacklevel`` constant cannot be correct for every call site
+    because internal call-chain depth varies (e.g. warnings from
+    ``_compile_scan_panel`` vs ``compile_to_pymc``). Walking frames is
+    robust to refactors.
+    """
+    import sys
+
+    frame = sys._getframe(1)
+    level = 1
+    while frame.f_back is not None:
+        frame = frame.f_back
+        level += 1
+        module = frame.f_globals.get("__name__", "")
+        if module != "pathmc" and not module.startswith("pathmc."):
+            return level
+    return level
+
+
 @dataclass
 class PanelScanInfo:
     """Metadata stored on a scan-compiled panel model.
@@ -65,6 +86,61 @@ class PanelScanInfo:
     n_times: int
     unit_labels: list[str] = field(default_factory=list)
     time_values: list = field(default_factory=list)
+
+
+def validate_panel_scan_shape(model: pm.Model, scan_info: "PanelScanInfo") -> None:
+    """Raise a clear error if *model*'s panel ``pm.Data`` no longer matches
+    the ``(n_times, n_units)`` shape baked in at compile time.
+
+    ``_compile_scan_panel`` hard-codes ``n_units``/``n_times`` into the RV
+    shapes and scan-carry initial values when the model is built. Swapping
+    in differently-shaped data via ``pm.set_data`` does not resize those --
+    ``pytensor.scan`` silently derives its step count from the *shortest*
+    sequence, so e.g. adding more timepoints to an exogenous predictor
+    while a carry/innovation RV keeps its original (shorter) length
+    silently truncates the extra rows instead of raising. This function
+    catches that mismatch before ``sample_posterior_predictive`` runs.
+
+    Every 2-D ``pm.Data`` node in a scan-compiled panel model (exogenous
+    predictors, lagged-exogenous carries, and observed-carry channels) has
+    exactly the compile-time shape ``(n_times, n_units)``, so comparing
+    against that is sufficient -- no per-variable bookkeeping is needed.
+
+    Parameters
+    ----------
+    model : pm.Model
+        The compiled (and possibly ``pm.set_data``-mutated) PyMC model.
+    scan_info : PanelScanInfo
+        The scan metadata recorded at compile time.
+
+    Raises
+    ------
+    ValueError
+        If any 2-D data node's shape no longer matches
+        ``(scan_info.n_times, scan_info.n_units)``.
+    """
+    expected = (scan_info.n_times, scan_info.n_units)
+    for name, var in model.named_vars.items():
+        if not hasattr(var, "get_value"):
+            continue
+        value = var.get_value()
+        if getattr(value, "ndim", None) != 2:
+            continue
+        if tuple(value.shape) != expected:
+            raise ValueError(
+                f"Data variable '{name}' has shape {tuple(value.shape)}, but "
+                "this model was compiled for a panel with "
+                f"{scan_info.n_times} time step(s) x {scan_info.n_units} "
+                f"unit(s) (expected shape {expected}). Out-of-sample "
+                "prediction on a differently-shaped panel is not supported "
+                "for temporal (lag()/adstock()) panel models: n_units and "
+                "n_times are baked into the scan graph at model-compile "
+                "time, so swapping in new data via pm.set_data() would "
+                "silently mis-reshape or truncate it rather than produce "
+                "correct predictions. Build a new model with "
+                "pathmc.model(..., data=new_data, panel=...) on the "
+                "differently-shaped panel instead."
+            )
 
 
 @dataclass(frozen=True)
@@ -389,6 +465,7 @@ def compile_to_pymc(
         graph_info = build_graph(spec, latent=latent)
 
     _validate_residual_cov_families(spec, families)
+    _validate_latent_families(families, latent)
     _warn_partial_pooling_intercept(spec, pooling)
 
     if panel_info is not None and _spec_has_hsgp(spec):
@@ -400,6 +477,7 @@ def compile_to_pymc(
 
     _reject_hsgp_in_residual_blocks(spec)
     _reject_endogenous_hsgp_inputs(spec)
+    _reject_nan_predictors(data, graph_info)
 
     if panel_info is not None and _has_temporal_deps(spec, graph_info):
         _validate_scan_non_gaussian_intermediaries(spec, families, latent)
@@ -937,6 +1015,47 @@ def _reject_endogenous_hsgp_inputs(spec: Spec) -> None:
                 )
 
 
+def _reject_nan_predictors(data: nw.DataFrame, graph_info: GraphInfo) -> None:
+    """Raise if a purely-exogenous (predictor) column contains NaN/inf.
+
+    Outcome (endogenous, LHS) variables get first-class missing-data
+    support: ``_emit_free_rv``/``_compile_scan_panel`` wrap them in a
+    ``pm.Normal`` with a ``np.ma.masked_invalid`` observed array, so PyMC
+    marginalizes the missing positions correctly.
+
+    Predictors have no equivalent handling. A NaN predictor is fed
+    straight into a ``pm.Data`` node and from there into ``mu`` via plain
+    tensor arithmetic (row-wise) or a ``pytensor.scan`` sequence (panel).
+    Either way a NaN silently poisons every downstream ``mu`` it touches,
+    which usually surfaces much later as a non-finite logp / NUTS
+    divergence with no indication that a NaN predictor was the cause.
+    Reject it here, at compile time, with a message that names the
+    column instead.
+
+    Only checks ``graph_info.exogenous`` columns that are never the LHS of
+    a regression -- i.e. genuine predictors -- so a NaN in an endogenous
+    variable (which *does* have masked-likelihood support) is not
+    double-flagged here.
+    """
+    for var in sorted(graph_info.exogenous):
+        if var not in data.columns:
+            continue
+        vals = np.asarray(data[var].to_numpy(), dtype=float)
+        n_bad = int((~np.isfinite(vals)).sum())
+        if n_bad == 0:
+            continue
+        raise ValueError(
+            f"Predictor column '{var}' contains {n_bad} NaN/inf value(s). "
+            "Missing-data handling is only supported for outcome "
+            "(regression left-hand-side) variables, where it is modeled "
+            "via a masked likelihood. A NaN in a predictor would instead "
+            "propagate silently into every downstream 'mu' it feeds and "
+            "surface later as a non-finite logp with no indication of the "
+            f"cause. Impute or drop the missing '{var}' values before "
+            "fitting."
+        )
+
+
 def _identify_residual_blocks(spec: Spec) -> tuple[set[str], list[set[str]]]:
     """Return variables in residual blocks and the blocks themselves."""
     if not spec.residual_covs:
@@ -1112,6 +1231,37 @@ def _validate_residual_cov_families(spec: Spec, families: dict[str, str]) -> Non
                 )
 
 
+def _validate_latent_families(families: dict[str, str], latent: set[str]) -> None:
+    """Raise if a latent variable is assigned a discrete family.
+
+    Latent (unobserved) nodes only support two compilation modes:
+    deterministic pass-through of the linear predictor ``mu`` (the
+    default), or a stochastic Gaussian innovation via
+    ``family="latent_normal"``. Any other family label
+    (``"bernoulli"``, ``"poisson"``, ``"negbinomial"``) is silently
+    ignored by the compiler -- the latent node still gets the raw,
+    unbounded ``mu`` with no link function applied, which is not the
+    Bernoulli probability / count rate a caller setting that family
+    would reasonably expect. Reject the combination outright rather
+    than silently compiling something else.
+    """
+    discrete_families = {"bernoulli", "poisson", "negbinomial"}
+    for var in sorted(latent):
+        family = families.get(var, "gaussian")
+        if family in discrete_families:
+            raise ValueError(
+                f"Latent variable '{var}' has family '{family}', but latent "
+                "nodes only support the deterministic default (any "
+                "non-discrete family, treated as a pass-through of the "
+                "linear predictor) or family='latent_normal' (a stochastic "
+                "Gaussian innovation). Discrete families are not "
+                "implemented for latent nodes: the compiler would silently "
+                "use the raw, unbounded linear predictor instead of a "
+                f"probability or rate. Remove '{var}' from `latent`, or "
+                "drop the family override."
+            )
+
+
 def _render_term_for_formula(term: Term) -> str:
     """Reconstruct the original term string from a parsed Term.
 
@@ -1194,7 +1344,7 @@ def _warn_partial_pooling_intercept(spec: Spec, pooling: str | dict | None) -> N
         f"The hierarchical mean mu_alpha will serve as the effective intercept.\n"
         f"{'=' * 78}\n",
         UserWarning,
-        stacklevel=4,
+        stacklevel=_user_stacklevel(),
     )
 
 
@@ -1300,6 +1450,75 @@ def _validate_scan_non_gaussian_intermediaries(
     )
 
 
+# Bound applied to the linear predictor ``mu`` before exponentiating it into
+# a Poisson/NegativeBinomial rate inside the temporal scan (see
+# ``_compile_scan_panel``'s step function). Unlike the outer, non-scan
+# compiler -- where each timestep's rate is a single ``pm.Deterministic``
+# evaluated once -- the scan recomputes ``exp(mu)`` at every timestep and
+# feeds the result back into the recursion (adstock carries, lagged
+# endogenous predictors, ...). A transient blow-up in one step can compound
+# through later steps and produce ``inf``/``nan`` that poisons the whole
+# scan's logp, so the clip is a numerical-stability guard, not a modeling
+# choice. ``exp(20) ~= 4.85e8`` and ``exp(-20) ~= 2.06e-9``: for realistic
+# count/rate data (school enrollments, ad impressions, clicks, ...) this
+# range comfortably contains the true rate, so the guard is inert. It only
+# bites -- and silently truncates the true rate, biasing downstream effects
+# toward zero -- when a variable's rate genuinely approaches or exceeds
+# ~4.85e8 per period, or when unstable dynamics push ``mu`` there
+# spuriously. ``_warn_high_rate_clip_risk`` below checks observed data
+# against this bound at compile time and warns rather than staying silent.
+_SCAN_MU_CLIP_BOUND = 20.0
+
+
+def _warn_high_rate_clip_risk(
+    data: nw.DataFrame,
+    families: dict[str, str],
+    endogenous_order: list[str],
+) -> None:
+    """Warn if observed counts approach the scan's internal ``mu`` clip bound.
+
+    The scan step function clips ``mu`` to
+    ``[-_SCAN_MU_CLIP_BOUND, _SCAN_MU_CLIP_BOUND]`` before exponentiating it
+    into a Poisson/NegativeBinomial rate (see the constant's docstring
+    above). That clip is invisible from the outside -- the model still
+    samples and the posterior still looks plausible -- so this check flags
+    the one observable symptom: an observed count already implying a
+    log-rate near the bound.
+    """
+    import warnings
+
+    discrete_rate_families = {"poisson", "negbinomial"}
+    margin = 2.0  # warn once within e^2 (~7x) of the clip bound
+    for var in endogenous_order:
+        if families.get(var, "gaussian") not in discrete_rate_families:
+            continue
+        if var not in data.columns:
+            continue
+        col = np.asarray(data[var].to_numpy(), dtype=float)
+        col = col[np.isfinite(col)]
+        if col.size == 0:
+            continue
+        max_val = float(np.max(col))
+        if max_val <= 0:
+            continue
+        implied_mu = np.log(max_val)
+        if implied_mu > _SCAN_MU_CLIP_BOUND - margin:
+            warnings.warn(
+                f"Observed values of '{var}' include {max_val:g}, implying a "
+                f"log-rate of ~{implied_mu:.1f} -- close to (or past) the "
+                f"internal clip bound of {_SCAN_MU_CLIP_BOUND:g} applied to "
+                f"the linear predictor before exponentiating it into a rate "
+                f"inside the temporal scan. Rates beyond "
+                f"exp({_SCAN_MU_CLIP_BOUND:g}) ~= "
+                f"{np.exp(_SCAN_MU_CLIP_BOUND):.3g} are silently truncated, "
+                f"which biases predictions and effects for '{var}' downward. "
+                "Consider rescaling this outcome (e.g. to smaller units) if "
+                "the model shows poor fit for high-rate observations.",
+                UserWarning,
+                stacklevel=_user_stacklevel(),
+            )
+
+
 def _get_adstock_input(tc: TransformCall) -> str:
     """Return the leaf input variable name of a (possibly nested) transform chain."""
     current = tc
@@ -1400,6 +1619,7 @@ def _compile_scan_panel(
     endogenous_order = [
         v for v in graph_info.topological_order if v in graph_info.endogenous
     ]
+    _warn_high_rate_clip_risk(data, families, endogenous_order)
 
     # --- sort data ---
     unit_col = panel_info.unit
@@ -1581,8 +1801,23 @@ def _compile_scan_panel(
                 observed_panel = _reshape_to_panel(data_sorted, var, n_units, n_times)
             else:
                 observed_panel = np.full((n_times, n_units), np.nan, dtype="float64")
-            observed_carry_nodes[var] = pm.Data(
-                f"_obs_carry_{var}", observed_panel.astype("float64")
+            # Deliberately a plain ``pytensor.shared``, not ``pm.Data``: the
+            # scan step (``pt.switch(pt.isnan(obs_state), sampled, obs)``,
+            # below) depends on NaN passing through untouched to mark
+            # missing carry values that should fall back to the model's own
+            # simulated state. ``pm.Data`` auto-converts any NaN-containing
+            # array to a masked array and then unconditionally raises
+            # ``NotImplementedError`` on masked/NaN input -- it assumes NaN
+            # always means "trigger auto-imputation on an observed
+            # likelihood", which is not what this internal carry node does.
+            # That made *any* NaN in a variable used as its own lag (e.g.
+            # ``y ~ lag(y)``) crash model construction outright, even though
+            # the masked-likelihood path below is fully equipped to handle
+            # it. This node is never looked up by name or swapped via
+            # ``pm.set_data`` (unlike the exogenous ``pm.Data`` nodes), so a
+            # plain shared variable is a safe substitute.
+            observed_carry_nodes[var] = pytensor.shared(
+                observed_panel.astype("float64"), name=f"_obs_carry_{var}"
             )
 
         latent_innovation_nodes: dict[str, Any] = {}
@@ -1597,57 +1832,43 @@ def _compile_scan_panel(
                 f"carry_innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
 
-        # Pre-compute lagged exogenous sequences from pm.Data nodes.
-        #
-        # PyTensor's scan-merge optimizer has a bug that fires when a sit_sot
-        # carry update is trivially ``inner_out = current_seq_slice`` (i.e., the
-        # carry merely echoes the input sequence one step behind). That structure
-        # appeared in the original exog-lag carry: ``out[i] = exog_t[base]``.
-        # When two scan computations sharing the same inner function are compiled
-        # together (as happens when ``pytensor.function`` receives both
-        # ``mu_valued`` and ``logp``), the optimizer merges the two scans but
-        # incorrectly permutes the carry channels, producing a wrong logp graph
-        # that ``pm.sample`` then optimizes — causing the zeroed-out lag-effect
-        # posteriors reported in issue #316.
-        # Upstream bug: https://github.com/pymc-devs/pytensor/issues/2252
-        # TODO: once pytensor/issues/2252 is fixed and released, revert to a
-        # scan carry here and remove this workaround (see pathmc issue #333).
-        #
-        # Fix: build the lagged tensor directly from the existing pm.Data nodes
-        # (so pm.set_data / do() interventions still propagate automatically)
-        # and pass it as a plain scan *sequence* rather than carry state.  This
-        # eliminates the trivial-echo carry that triggered the merge bug.
-        lagged_exog_sequences: dict[str, Any] = {}
-        for base in exog_lag_bases:
-            init_row = pt.as_tensor_variable(
-                init_exog_lag[base][None, :]
-            )  # (1, n_units)
-            if base in exog_data_nodes:
-                lagged_exog_sequences[base] = pt.concatenate(
-                    [init_row, exog_data_nodes[base][:-1]], axis=0
-                )  # (n_times, n_units)
-            else:
-                # No contemporaneous exog data node for this lag base — e.g. a
-                # ``lag(x)`` term whose base column is absent from the data (the
-                # same case ``init_exog_lag`` handles with its zeros/lag1
-                # fallback above).  ``exog_lag_bases`` filters only on
-                # ``base not in endo_set`` while ``exog_data_nodes`` additionally
-                # requires ``base in data_sorted.columns``, so the two key sets
-                # can diverge.  The old carry path resolved such bases to the
-                # init row at t=0 and zeros for t>=1 (via
-                # ``exog_t.get(k, pt.zeros(n_units))``); reproduce that here
-                # rather than raising KeyError on a direct index.
-                zeros_tail = pt.zeros((n_times - 1, n_units))
-                lagged_exog_sequences[base] = pt.concatenate(
-                    [init_row, zeros_tail], axis=0
-                )  # (n_times, n_units)
+        # do()-intervention override channel, one per endogenous var (incl.
+        # latent), defaulting to all-NaN (no-op).  ``pm.do()`` graph surgery
+        # on the top-level free RV / Deterministic named ``var`` cannot sever
+        # the *internal* scan recursion: lag()/contemporaneous references
+        # inside ``step_fn`` are resolved from the Python-level ``new_endo`` /
+        # ``prev_endo`` dicts, which are built from this step's own structural
+        # computation and never re-read the outer ``var`` node. Without this
+        # channel, an intervention on an endogenous var is applied only
+        # cosmetically to the reported value at the intervened timestep and
+        # is invisible to every other equation and to future timesteps'
+        # lag() terms -- issue #327 item 2. Wiring a switchable sequence
+        # directly into ``step_fn`` (mirrors the exogenous pm.Data path,
+        # which already propagates correctly) fixes this: ``do()`` sets
+        # ``_do_intervene_{var}`` (see ``simulate._scan_do_intervention``)
+        # and every downstream consumer inside the scan -- same timestep or
+        # later -- sees the severed value.
+        # ``pm.Data`` rejects NaN-valued arrays outright (it treats them as a
+        # request for missing-data auto-imputation), so this NaN-sentinel
+        # override channel is registered as a plain shared variable instead
+        # -- ``pm.set_data`` only requires ``model[name]`` to resolve to a
+        # ``SharedVariable``, which does not require going through
+        # ``pm.Data()``.
+        do_intervene_nodes: dict[str, Any] = {}
+        for var in endo_keys:
+            shared = pytensor.shared(
+                np.full((n_times, n_units), np.nan, dtype="float64"),
+                name=f"_do_intervene_{var}",
+            )
+            scan_model.register_data_var(shared)
+            do_intervene_nodes[var] = shared
 
         sequences = (
             [exog_data_nodes[k] for k in exog_keys]
-            + [lagged_exog_sequences[k] for k in exog_lag_bases]
             + [observed_carry_nodes[k] for k in stochastic_carry_vars]
             + [latent_innovation_nodes[k] for k in stochastic_latent]
             + [carry_innovation_nodes[k] for k in stochastic_carry_vars]
+            + [do_intervene_nodes[k] for k in endo_keys]
         )
 
         def _init_carry(arr: np.ndarray) -> Any:
@@ -1665,6 +1886,7 @@ def _compile_scan_panel(
         outputs_info = (
             [_init_carry(init_endo[k]) for k in endo_keys]
             + [_init_carry(init_adstock[k]) for k in adstock_keys]
+            + [_init_carry(init_exog_lag[k]) for k in exog_lag_bases]
             + [None for _ in stochastic_carry_vars]
         )
 
@@ -1702,12 +1924,13 @@ def _compile_scan_panel(
 
         n_seq = len(sequences)
         n_exog_seq = len(exog_keys)
-        n_exog_lag_seq = len(exog_lag_bases)
         n_obs_carry_seq = len(stochastic_carry_vars)
         n_latent_innov_seq = len(stochastic_latent)
+        n_carry_innov_seq = len(stochastic_carry_vars)
         n_endo = len(endo_keys)
         n_adstock = len(adstock_keys)
-        n_carry = n_endo + n_adstock
+        n_exog_lag = len(exog_lag_bases)
+        n_carry = n_endo + n_adstock + n_exog_lag
 
         def step_fn(*args: Any) -> list[Any]:
             seq_args = args[:n_seq]
@@ -1715,32 +1938,35 @@ def _compile_scan_panel(
             ns_args = args[n_seq + n_carry :]
 
             exog_t = {k: seq_args[i] for i, k in enumerate(exog_keys)}
-            lagged_exog_t = {
-                k: seq_args[n_exog_seq + i] for i, k in enumerate(exog_lag_bases)
-            }
             obs_carry_t = {
-                k: seq_args[n_exog_seq + n_exog_lag_seq + i]
-                for i, k in enumerate(stochastic_carry_vars)
+                k: seq_args[n_exog_seq + i] for i, k in enumerate(stochastic_carry_vars)
             }
             latent_innov_t = {
-                k: seq_args[n_exog_seq + n_exog_lag_seq + n_obs_carry_seq + i]
+                k: seq_args[n_exog_seq + n_obs_carry_seq + i]
                 for i, k in enumerate(stochastic_latent)
             }
             carry_innov_t = {
+                k: seq_args[n_exog_seq + n_obs_carry_seq + n_latent_innov_seq + i]
+                for i, k in enumerate(stochastic_carry_vars)
+            }
+            do_intervene_t = {
                 k: seq_args[
                     n_exog_seq
-                    + n_exog_lag_seq
                     + n_obs_carry_seq
                     + n_latent_innov_seq
+                    + n_carry_innov_seq
                     + i
                 ]
-                for i, k in enumerate(stochastic_carry_vars)
+                for i, k in enumerate(endo_keys)
             }
             prev_endo = {k: carry_args[i] for i, k in enumerate(endo_keys)}
             prev_adstock_state = {
                 k: carry_args[n_endo + i] for i, k in enumerate(adstock_keys)
             }
-            prev_exog = lagged_exog_t
+            prev_exog = {
+                k: carry_args[n_endo + n_adstock + i]
+                for i, k in enumerate(exog_lag_bases)
+            }
 
             ns_map: dict[str, Any] = {
                 name: ns_args[i] for i, name in enumerate(non_seq_names)
@@ -1800,12 +2026,28 @@ def _compile_scan_panel(
                 elif family == "bernoulli":
                     new_endo[var] = 1.0 / (1.0 + pt.exp(-mu))
                 elif family in ("poisson", "negbinomial"):
-                    new_endo[var] = pt.exp(pt.clip(mu, -20, 20))
+                    # See ``_SCAN_MU_CLIP_BOUND`` above for why this clip
+                    # exists and when it can bias results.
+                    new_endo[var] = pt.exp(
+                        pt.clip(mu, -_SCAN_MU_CLIP_BOUND, _SCAN_MU_CLIP_BOUND)
+                    )
                 else:
                     new_endo[var] = mu
 
+                # Sever the structural equation for this timestep when a
+                # do()-intervention value is present (non-NaN). This must
+                # happen *inside* the scan, before any later var in this same
+                # timestep or the next timestep's carry resolves ``var``
+                # contemporaneously/via lag() -- see the do_intervene_nodes
+                # comment above for why graph surgery on the outer model
+                # cannot reach here.
+                new_endo[var] = pt.switch(
+                    pt.isnan(do_intervene_t[var]), new_endo[var], do_intervene_t[var]
+                )
+
             out = [new_endo[k] for k in endo_keys]
             out += [new_adstock[k] for k in adstock_keys]
+            out += [exog_t.get(k, pt.zeros(n_units)) for k in exog_lag_bases]
             out += [carry_mu[k] for k in stochastic_carry_vars]
             return out
 
@@ -1813,6 +2055,7 @@ def _compile_scan_panel(
             fn=step_fn,
             sequences=sequences,
             outputs_info=outputs_info,
+            n_steps=n_times,
             non_sequences=non_seq_list,
             strict=True,
             return_updates=False,

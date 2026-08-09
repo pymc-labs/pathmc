@@ -19,7 +19,12 @@ import pytest
 
 import pathmc
 from pathmc.graph import build_graph
-from pathmc.identify import adjustment_sets, collider_warnings, is_identifiable
+from pathmc.identify import (
+    adjustment_sets,
+    collider_warnings,
+    implied_independences,
+    is_identifiable,
+)
 from pathmc.parse import parse_spec
 
 
@@ -179,3 +184,106 @@ class TestTemporalEdgesIdentification:
         g = _graph("sales ~ spend + lag(sales)")
         warnings = collider_warnings(g, {"lag(sales)"}, "spend", "sales")
         assert len(warnings) == 0
+
+
+class TestResidualCovarianceIdentification:
+    """``~~`` declares unobserved confounding, so the backdoor
+    criterion must not report the effect as identifiable (#344)."""
+
+    IV_SPEC = "T ~ Z\nY ~ T\nT ~~ Y"
+
+    def test_residual_block_blocks_identification(self):
+        g = _graph(self.IV_SPEC)
+        assert not is_identifiable(g, "T", "Y")
+
+    def test_residual_block_has_no_adjustment_set(self):
+        g = _graph(self.IV_SPEC)
+        assert adjustment_sets(g, "T", "Y") == []
+
+    def test_without_residual_block_effect_is_identified(self):
+        """Same DAG minus the ~~ edge: nothing to adjust for, so the
+        empty set is valid and the effect is identifiable."""
+        g = _graph("T ~ Z\nY ~ T")
+        assert is_identifiable(g, "T", "Y")
+
+    def test_synthetic_confounder_not_offered_for_adjustment(self):
+        """The latent node is never a candidate adjustment variable."""
+        g = _graph("T ~ Z\nY ~ T + W\nT ~~ Y")
+        for s in adjustment_sets(g, "T", "Y"):
+            assert not any(v.startswith("_u_resid_") for v in s)
+
+    def test_unrelated_residual_block_does_not_break_identification(self):
+        """A ~~ block between two variables that are not the treatment
+        and outcome must leave the T -> Y effect identifiable."""
+        g = _graph("M1 ~ X\nM2 ~ X\nY ~ T\nM1 ~~ M2")
+        assert is_identifiable(g, "T", "Y")
+
+    def test_model_method_reports_not_identifiable(self):
+        rng = np.random.default_rng(0)
+        n = 50
+        df = pd.DataFrame({
+            "Z": rng.normal(size=n),
+            "T": rng.normal(size=n),
+            "Y": rng.normal(size=n),
+        })
+        model = pathmc.model(self.IV_SPEC, data=df)
+        assert not model.is_identifiable("T", "Y")
+
+
+class TestResidualCovarianceColliderConsistency:
+    """``collider_warnings`` must reason about the same residual-
+    augmented DAG as the backdoor/frontdoor path, otherwise it can miss
+    a collider that only exists because of a declared ``~~`` block."""
+
+    def test_collider_opened_by_residual_block_is_flagged(self):
+        """T -> V, O -> Y are separate branches; V and O are joined only
+        by an unobserved common cause (V ~~ O). That makes V a collider
+        on the path T -> V <- u -> O -> Y, which is invisible if the
+        collider search only looks at V's declared (single) parent."""
+        g = _graph("T ~ Z\nV ~ T\nO ~ Z2\nY ~ O\nV ~~ O")
+        warnings = collider_warnings(g, {"V"}, "T", "Y")
+        assert any("collider" in w for w in warnings)
+
+    def test_no_false_collider_without_residual_block(self):
+        """Same skeleton without the ~~ block: V has one parent and is
+        not a collider anywhere."""
+        g = _graph("T ~ Z\nV ~ T\nO ~ Z2\nY ~ O")
+        warnings = collider_warnings(g, {"V"}, "T", "Y")
+        assert warnings == []
+
+
+class TestResidualCovarianceIndependenceConsistency:
+    """``implied_independences`` must not assert an independence that a
+    declared ``~~`` block explicitly contradicts."""
+
+    def test_residual_confounded_pair_not_claimed_independent(self):
+        """A and B share no directed edge but are joined by A ~~ B, so
+        no conditioning set (observed or not) makes them independent."""
+        g = _graph("A ~ Za\nB ~ Zb\nA ~~ B")
+        pairs = {(ci.x, ci.y) for ci in implied_independences(g)}
+        assert ("A", "B") not in pairs
+
+    def test_unrelated_pair_still_reported_independent(self):
+        """Za and Zb share no path at all, residual block or otherwise,
+        so the independence still holds and should still be reported."""
+        g = _graph("A ~ Za\nB ~ Zb\nA ~~ B")
+        pairs = {(ci.x, ci.y) for ci in implied_independences(g)}
+        assert ("Za", "Zb") in pairs
+
+
+class TestResidualNameCollision:
+    """The synthetic latent name must never collide with a real,
+    user-declared variable, even one named exactly like the generated
+    name."""
+
+    def test_user_variable_named_like_synthetic_latent_does_not_collide(self):
+        """A real confounder literally named ``_u_resid_0`` opens a
+        backdoor path T <- _u_resid_0 -> Y that adjusting for the real
+        variable closes. An unrelated ~~ block elsewhere in the graph
+        (which would generate a synthetic node with the same index and
+        therefore the same default name) must not merge into it, mark
+        it latent, or otherwise corrupt it."""
+        g = _graph("T ~ Z + _u_resid_0\nY ~ T + _u_resid_0\nA ~ Z\nB ~ Z\nA ~~ B")
+        sets = adjustment_sets(g, "T", "Y")
+        assert {"_u_resid_0"} in sets
+        assert is_identifiable(g, "T", "Y")

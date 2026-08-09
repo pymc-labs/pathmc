@@ -277,6 +277,68 @@ def _parse_regression(stmt: str) -> Regression:
     return Regression(lhs=lhs, terms=terms, has_intercept=has_intercept)
 
 
+#: A float mantissa immediately followed by its exponent marker, anchored so
+#: the digits start a fresh token: ``1e``, ``2.5E``, ``.5e`` all match, but the
+#: trailing ``2e`` of an identifier such as ``x2e`` does not.
+_FLOAT_EXPONENT_RE = re.compile(r"(?:^|[^0-9A-Za-z_.])(?:\d+\.?\d*|\.\d+)[eE]$")
+
+
+def _is_float_exponent_sign(raw: str, i: int) -> bool:
+    """Is ``raw[i]`` (a ``-``) the exponent sign of a float literal?
+
+    Checking only that the preceding character is ``e``/``E`` is not enough:
+    an identifier ending in ``e`` (``response-1``, ``income-1``, ``rate-1``)
+    would then slip past the R-style-subtraction guard and become a single
+    garbage variable name that only fails later, at data binding. The ``e``
+    must terminate an actual numeric mantissa and be followed by digits.
+    """
+    if i == 0 or raw[i - 1] not in {"e", "E"}:
+        return False
+    if not _FLOAT_EXPONENT_RE.search(raw[:i]):
+        return False
+    return i + 1 < len(raw) and raw[i + 1].isdigit()
+
+
+def _reject_top_level_minus(raw: str) -> None:
+    """Reject R/patsy-style subtraction such as ``x - 1`` or ``-x``.
+
+    pathmc's DSL is purely additive: terms are joined with ``+``, the
+    intercept is controlled with a standalone ``0`` or ``1`` term, and a
+    fixed coefficient (which may itself be negative, e.g. ``-1*x``) uses
+    ``value*variable``. There is no formula algebra where ``-`` removes a
+    term. Without this check, something like ``y ~ x - 1`` parses
+    "successfully" into a term literally named ``"x - 1"``, which then
+    fails much later with a confusing "column not found" error at data
+    binding or compile time instead of a clear parse error (issue #316's
+    crash-vector concern for intercept-removal syntax applies here too).
+
+    The same guard also rejects hyphenated plain terms (``my-var``) and
+    coefficient labels (``my-label*x``): ``-`` is never a name character
+    in the DSL, so use underscores instead (``my_var``, ``my_label*x``).
+    """
+    star_pos = _find_top_level_star(raw)
+    depth = 0
+    for i, ch in enumerate(raw):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "-" and depth == 0:
+            if i == 0 and star_pos is not None and i < star_pos:
+                # Leading '-' of a fixed-value coefficient, e.g. "-1*x".
+                continue
+            if _is_float_exponent_sign(raw, i):
+                # Exponent sign in a float literal, e.g. "1e-5*x".
+                continue
+            raise ParseError(
+                f"Unsupported '-' in term '{raw}'. pathmc's formula DSL is "
+                "additive only (terms are joined with '+'); it does not "
+                "support R/patsy-style subtraction. To drop the intercept, "
+                "use '0 + ...' (not '... - 1'); to fix a coefficient, use "
+                "'value*variable' (e.g. '-1*x')."
+            )
+
+
 def _parse_term(raw: str) -> Term:
     """Parse a single term, optionally with a coefficient label and/or transform.
 
@@ -284,6 +346,7 @@ def _parse_term(raw: str) -> Term:
     coefficient values rather than free parameter names.
     """
     raw = raw.strip()
+    _reject_top_level_minus(raw)
     label: str | None = None
     fixed_value: float | None = None
 
@@ -445,6 +508,7 @@ def _parse_transform_expr(raw: str) -> TransformCall:
             )
         input_expr: str | TransformCall = _parse_transform_expr(input_raw)
     else:
+        _reject_top_level_minus(input_raw)
         input_expr = input_raw
 
     params: dict[str, str] = {}
