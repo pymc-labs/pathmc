@@ -101,6 +101,7 @@ gh pr view $PR_NUMBER --json comments -q \
 | Detected state | Action |
 |----------------|--------|
 | Issue closed or PR merged | Exit — already resolved |
+| Human pushed or commented since last automation activity | Escalate — don't overwrite human work |
 | PR has `fix-bug-approved` and CI passing | Exit — review loop complete (run umbrella wrap-up if applicable) |
 | No PR exists (issue entry only) | Full flow: understand → implement → push → create PR → review loop |
 | PR exists, CI failing | Read failures → fix → push → wait CI → continue |
@@ -108,7 +109,8 @@ gh pr view $PR_NUMBER --json comments -q \
 | PR exists, CI passing, no unaddressed review | Enter review loop (spawn reviewer) |
 | PR exists, resuming | Read latest `fix-bug-fix-summary` comment to recover scope before changing code |
 | 3+ round markers already present | Escalate immediately |
-| Human pushed or commented since last automation activity | Escalate — don't overwrite human work |
+
+Match rows **top-to-bottom**. Human intervention must win over `fix-bug-approved` — e.g. a human commenting after approval should escalate, not exit silently.
 
 **Fallback when round markers are missing**: estimate rounds from PR comments that are **not** orchestration markers (`fix-bug-fix-summary`, `fix-bug-escalation`, `fix-bug-approved`). Do not count fixer summaries — they are posted every push and would trigger premature escalation.
 
