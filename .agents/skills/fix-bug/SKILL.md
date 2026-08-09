@@ -273,7 +273,7 @@ Spawn a Task subagent with these characteristics:
 >
 > Absence of any comment means reviewer failure, not approval.
 >
-> Be specific and actionable. Another agent will read your comments and fix what you raise.
+> **Actionable detail** (the fixer agent reads this, not a human skimming): For each 🔴/🟡 include **Where** (file:line or symbol), **What** (current vs expected), **Why** (correctness/regression/spec), and **Fix** (concrete steps). Quote short diff hunks when helpful. See the **Actionable findings** section in the `code-review` skill and the `work-round` template in the `work` skill. Detail beats brevity — thin findings waste a review round.
 
 ### Loop control
 

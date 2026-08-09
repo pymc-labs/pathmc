@@ -190,6 +190,25 @@ Spawn **two parallel** Task subagents following the **`code-review`** skill:
 
 Each reviewer posts **one** PR comment on its axis. Use the templates below. Reviewers never modify code.
 
+### Review comment quality
+
+Review comments are the **primary handoff to the implementer agent**. If you spent effort finding a problem, convey that effort: enough context that the implementer can fix it without re-deriving your reasoning.
+
+**Every 🔴 and 🟡 finding must include:**
+
+| Field | What to write |
+|-------|----------------|
+| **Where** | File path and line(s), or symbol name (e.g. `DoResult.plot` in `simulate.py`) |
+| **What** | What the code does today vs what it should do |
+| **Why** | Cite the repo rule (`AGENTS.md`, convention) or spec line; say user/regression impact |
+| **Fix** | Concrete steps — rename X, move Y, add test Z, change guard to … |
+
+Quote a short hunk from the diff when it clarifies the issue. One-line bullet findings are too thin for agent handoff.
+
+**Approval comments** should still be substantive: list what was reviewed (files/areas), note any 🟢 nits optionally, and confirm no 🔴/🟡. Do not post empty approvals.
+
+When spawning reviewers via **`code-review`**, tell them: *comments are for an implementer agent, not a human skimming — prefer detail over brevity.*
+
 ### Reviewer output (one comment per axis)
 
 **If 🔴 or 🟡 findings** — post round comment:
@@ -199,21 +218,35 @@ gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
 <!-- work-round:1:standards -->
 ## Standards review (round 1)
 
-<Short intro: what was reviewed — e.g. "Repo conventions and code smells on the panel `do()` plot diff.">
+Reviewed <scope — e.g. `pathmc/simulate.py`, `pathmc/panel.py`, `tests/test_do_plot.py`> against `AGENTS.md` and CONTRIBUTING conventions.
 
 ### Must fix
-- 🔴 <finding>: <what is wrong and where> → <concrete fix>
+
+#### 🔴 <short title>
+- **Where**: `<path>:<lines>` (`<symbol>`)
+- **What**: <current behaviour in plain language>
+- **Why**: <which standard or smell; why it matters>
+- **Fix**: <numbered steps or exact change to make>
+
+```diff
+<optional: short quoted hunk from the PR diff>
+```
 
 ### Should fix
-- 🟡 <finding>: <what is wrong and where> → <concrete fix>
+
+#### 🟡 <short title>
+- **Where**: …
+- **What**: …
+- **Why**: …
+- **Fix**: …
 
 ### Nits (optional)
-- 🟢 <finding>
+- 🟢 <finding + optional one-line suggestion>
 EOF
 )"
 ```
 
-Use `work-round:$N:spec` for the spec reviewer (same structure; quote spec lines for each finding).
+Use `work-round:$N:spec` for the spec reviewer. Quote the spec requirement for each finding. Add a **Requirements checked** subsection listing spec items verified (even when passing) so the implementer sees coverage.
 
 **If no 🔴 or 🟡** — post per-axis approval (not the umbrella `work-approved`):
 
@@ -222,12 +255,24 @@ gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
 <!-- work-approved:standards -->
 ## Standards review (round 1)
 
-Reviewed repo conventions and code smells on this diff. No must-fix or should-fix items.
+Reviewed <files/modules> against `AGENTS.md` and code-smell baseline.
+
+**Checked**: <bullets — e.g. public API surface, error messages, lazy imports, test style, docstrings on new public methods>.
+
+No must-fix or should-fix items. <Optional: one or two 🟢 nits with brief suggestions.>
 EOF
 )"
 ```
 
-Use `work-approved:spec` for the spec reviewer. Mention the issue number and that requirements appear satisfied.
+Use `work-approved:spec` for the spec reviewer. Include **Requirements checked** (bullets mapping spec items to what you verified in the diff) and the issue number.
+
+### Implementer: addressing review
+
+When `work-round` comments exist, the implementer must:
+
+1. Read **every** finding block (Where / What / Why / Fix) before editing.
+2. In the follow-up `work-summary`, reference each 🔴/🟡 by title and state what changed (or why deferred with reason).
+3. Not close a finding with a one-word fix — match the specificity the reviewer provided.
 
 ### Orchestrator loop
 
