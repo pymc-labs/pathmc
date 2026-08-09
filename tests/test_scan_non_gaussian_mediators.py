@@ -11,20 +11,19 @@
 #   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
-"""Item 8 (issue #327): non-Gaussian mediators in the scan compiler.
+"""Item 8 (issue #327) / #191: non-Gaussian mediators in the scan compiler.
 
 Two independent concerns:
 
-1. ``_validate_scan_non_gaussian_intermediaries`` must reject *every*
-   topology where a Bernoulli/Poisson/NegativeBinomial endogenous node is
-   used as a *predictor* elsewhere in a scan-compiled panel model, because
-   the scan step function passes that node's probability/rate forward
-   (never a sample). These tests enumerate the topologies (plain term,
-   self-lag, cross-equation lag, single transform, nested transform,
-   interaction, random slope, and transitive chains) and prove the
-   validator catches each one, while confirming it stays silent for the
-   cases that are actually fine (terminal outcome, no temporal deps at
-   all -- so the scan compiler never engages).
+1. Non-Gaussian endogenous variables used as predictors in scan-compiled panel
+   models must carry *sampled* Bernoulli/count values through the temporal
+   recursion, not response-scale means. Issue #191 added stochastic discrete
+   carry (uniform innovations for Bernoulli, ``pt.random.poisson`` /
+   ``pt.random.negative_binomial`` for count families). These tests enumerate
+   the topologies (plain term, self-lag, cross-equation lag, single transform,
+   nested transform, interaction, random slope, and transitive chains) and
+   prove each one compiles with the expected innovation nodes, while
+   confirming terminal outcomes and cross-sectional models stay unchanged.
 
 2. The ``clip(mu, -20, 20)`` guard on Poisson/NegativeBinomial rates
    inside the scan (``pathmc.compile._SCAN_MU_CLIP_BOUND``) is a
@@ -74,98 +73,102 @@ def panel_data() -> pd.DataFrame:
     return _panel_data()
 
 
-REJECTION_MATCH = "non-Gaussian endogenous variables as predictors"
+def _assert_discrete_sample_nodes(model, family: str, var: str = "M") -> None:
+    """Assert the scan model has the expected stochastic discrete carry nodes."""
+    nv = model.pymc_model.named_vars
+    assert f"mu_{var}" in nv or var in nv
+    if family == "bernoulli":
+        assert f"discrete_uniforms_{var}" in nv
+    assert "_use_observed_carry" in nv
 
 
-class TestValidatorCatchesEveryTopology:
+class TestDiscreteSampleCompilation:
     """Each of these specs has *some* temporal dep (so the scan compiler
     engages) and uses a non-Gaussian endogenous node as a predictor
-    somewhere -- every one of them must raise."""
+    somewhere -- every one of them must compile with stochastic carry."""
 
     @pytest.mark.parametrize("family", NON_GAUSSIAN_FAMILIES)
     def test_plain_term(self, panel_data, family):
-        with pytest.raises(ValueError, match=REJECTION_MATCH):
-            pathmc.model(
-                "M ~ X\nY ~ M + lag(Y)",
-                data=panel_data,
-                panel={"unit": "region", "time": "week"},
-                families={"M": family},
-            )
+        model = pathmc.model(
+            "M ~ X\nY ~ M + lag(Y)",
+            data=panel_data,
+            panel={"unit": "region", "time": "week"},
+            families={"M": family},
+        )
+        _assert_discrete_sample_nodes(model, family)
 
     @pytest.mark.parametrize("family", NON_GAUSSIAN_FAMILIES)
     def test_self_lag(self, panel_data, family):
-        with pytest.raises(ValueError, match=REJECTION_MATCH):
-            pathmc.model(
-                "M ~ X + lag(M)",
-                data=panel_data,
-                panel={"unit": "region", "time": "week"},
-                families={"M": family},
-            )
+        model = pathmc.model(
+            "M ~ X + lag(M)",
+            data=panel_data,
+            panel={"unit": "region", "time": "week"},
+            families={"M": family},
+        )
+        _assert_discrete_sample_nodes(model, family)
 
     @pytest.mark.parametrize("family", NON_GAUSSIAN_FAMILIES)
     def test_cross_equation_lag(self, panel_data, family):
-        with pytest.raises(ValueError, match=REJECTION_MATCH):
-            pathmc.model(
-                "M ~ X\nY ~ lag(M)",
-                data=panel_data,
-                panel={"unit": "region", "time": "week"},
-                families={"M": family},
-            )
+        model = pathmc.model(
+            "M ~ X\nY ~ lag(M)",
+            data=panel_data,
+            panel={"unit": "region", "time": "week"},
+            families={"M": family},
+        )
+        _assert_discrete_sample_nodes(model, family)
 
     @pytest.mark.parametrize("family", NON_GAUSSIAN_FAMILIES)
     def test_single_transform(self, panel_data, family):
-        with pytest.raises(ValueError, match=REJECTION_MATCH):
-            pathmc.model(
-                "M ~ X\nY ~ adstock(M) + lag(Y)",
-                data=panel_data,
-                panel={"unit": "region", "time": "week"},
-                families={"M": family},
-            )
+        model = pathmc.model(
+            "M ~ X\nY ~ adstock(M, decay=theta) + lag(Y)",
+            data=panel_data,
+            panel={"unit": "region", "time": "week"},
+            families={"M": family},
+        )
+        _assert_discrete_sample_nodes(model, family)
 
     @pytest.mark.parametrize("family", NON_GAUSSIAN_FAMILIES)
     def test_nested_transform(self, panel_data, family):
-        with pytest.raises(ValueError, match=REJECTION_MATCH):
-            pathmc.model(
-                "M ~ X\nY ~ adstock(logistic_saturation(M)) + lag(Y)",
-                data=panel_data,
-                panel={"unit": "region", "time": "week"},
-                families={"M": family},
-            )
+        model = pathmc.model(
+            "M ~ X\nY ~ adstock(logistic_saturation(M, lam=lam), decay=theta) + lag(Y)",
+            data=panel_data,
+            panel={"unit": "region", "time": "week"},
+            families={"M": family},
+        )
+        _assert_discrete_sample_nodes(model, family)
 
     @pytest.mark.parametrize("family", NON_GAUSSIAN_FAMILIES)
     def test_interaction_term(self, panel_data, family):
-        with pytest.raises(ValueError, match=REJECTION_MATCH):
-            pathmc.model(
-                "M ~ X\nY ~ M:Z + lag(Y)",
-                data=panel_data,
-                panel={"unit": "region", "time": "week"},
-                families={"M": family},
-            )
+        model = pathmc.model(
+            "M ~ X\nY ~ M:Z + lag(Y)",
+            data=panel_data,
+            panel={"unit": "region", "time": "week"},
+            families={"M": family},
+        )
+        _assert_discrete_sample_nodes(model, family)
 
     @pytest.mark.parametrize("family", NON_GAUSSIAN_FAMILIES)
     def test_random_slope_term(self, panel_data, family):
-        with pytest.raises(ValueError, match=REJECTION_MATCH):
-            pathmc.model(
-                "M ~ X\nY ~ M + lag(Y)",
-                data=panel_data,
-                panel={"unit": "region", "time": "week"},
-                families={"M": family},
-                pooling={"slopes": ["M"]},
-            )
+        model = pathmc.model(
+            "M ~ X\nY ~ M + lag(Y)",
+            data=panel_data,
+            panel={"unit": "region", "time": "week"},
+            families={"M": family},
+            pooling={"intercept": True, "slopes": ["M"]},
+        )
+        _assert_discrete_sample_nodes(model, family)
 
-    def test_transitive_chain_flags_each_link(self, panel_data):
-        """M (bernoulli) -> N (poisson) -> Y: both mediators must be
-        individually flagged, not just the first one found."""
-        with pytest.raises(ValueError, match=REJECTION_MATCH) as excinfo:
-            pathmc.model(
-                "M ~ X + lag(M)\nN ~ M\nY ~ N + lag(Y)",
-                data=panel_data,
-                panel={"unit": "region", "time": "week"},
-                families={"M": "bernoulli", "N": "poisson"},
-            )
-        message = str(excinfo.value)
-        assert "'M'" in message
-        assert "'N'" in message
+    def test_transitive_chain_compiles(self, panel_data):
+        """M (bernoulli) -> N (poisson) -> Y: both mediators get sampled carry."""
+        model = pathmc.model(
+            "M ~ X + lag(M)\nN ~ M\nY ~ N + lag(Y)",
+            data=panel_data,
+            panel={"unit": "region", "time": "week"},
+            families={"M": "bernoulli", "N": "poisson"},
+        )
+        _assert_discrete_sample_nodes(model, "bernoulli", var="M")
+        assert "discrete_uniforms_M" in model.pymc_model.named_vars
+        assert "mu_N" in model.pymc_model.named_vars
 
 
 class TestValidatorStaysSilentWhenSafe:

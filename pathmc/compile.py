@@ -480,7 +480,6 @@ def compile_to_pymc(
     _reject_nan_predictors(data, graph_info)
 
     if panel_info is not None and _has_temporal_deps(spec, graph_info):
-        _validate_scan_non_gaussian_intermediaries(spec, families, latent)
         return _compile_scan_panel(
             spec=spec,
             data=data,
@@ -1409,12 +1408,17 @@ def _scan_term_base_vars(term: Term) -> list[str]:
     return _term_base_vars(term)
 
 
-def _validate_scan_non_gaussian_intermediaries(
+def _scan_discrete_sample_vars(
     spec: Spec,
     families: dict[str, str],
     latent: set[str],
-) -> None:
-    """Reject scan models that would pass response means downstream."""
+) -> set[str]:
+    """Return discrete endogenous vars that must carry sampled values in scan.
+
+    Bernoulli/Poisson/NegativeBinomial nodes used as predictors (including
+    via ``lag()`` or transforms) must propagate *sampled* values through the
+    scan carry, not response-scale means (probabilities or rates).
+    """
     discrete_families = {"bernoulli", "poisson", "negbinomial"}
     non_gaussian = {
         reg.lhs
@@ -1423,31 +1427,15 @@ def _validate_scan_non_gaussian_intermediaries(
         and families.get(reg.lhs, "gaussian") in discrete_families
     }
     if not non_gaussian:
-        return
+        return set()
 
-    downstream: dict[str, set[str]] = {}
+    used_as_predictor: set[str] = set()
     for reg in spec.regressions:
         for term in reg.terms:
             for base_var in _scan_term_base_vars(term):
                 if base_var in non_gaussian:
-                    downstream.setdefault(base_var, set()).add(reg.lhs)
-
-    if not downstream:
-        return
-
-    details = "; ".join(
-        f"'{var}' ({families.get(var, 'gaussian')}) -> {', '.join(sorted(targets))}"
-        for var, targets in sorted(downstream.items())
-    )
-    raise ValueError(
-        "Scan-compiled panel models do not support non-Gaussian endogenous "
-        "variables as predictors in downstream equations. The current scan "
-        "compiler would propagate response means (probabilities or rates) "
-        f"instead of sampled Bernoulli/count values: {details}. Make these "
-        "variables terminal outcomes, remove temporal terms so the "
-        "cross-sectional compiler can be used, or follow #191 for the "
-        "split-scan stochastic compiler work."
-    )
+                    used_as_predictor.add(base_var)
+    return used_as_predictor
 
 
 # Bound applied to the linear predictor ``mu`` before exponentiating it into
@@ -1784,19 +1772,36 @@ def _compile_scan_panel(
 
         # Flag toggled by caller: 0 for generative recursion, 1 for observed carry.
         use_observed_carry = pm.Data("_use_observed_carry", np.array(0, dtype="int8"))
+        discrete_scan_rng = pt.random.default_rng()
 
         endo_lag_bases = sorted({
             base for _col, (base, _k) in lag_cols.items() if base in endo_set
         })
+        discrete_sample_vars = sorted(
+            _scan_discrete_sample_vars(spec, families, latent)
+        )
+        discrete_sample_set = set(discrete_sample_vars)
+        discrete_carry_vars = sorted(
+            v for v in discrete_sample_vars if v in endo_lag_bases
+        )
+        discrete_bernoulli_vars = sorted(
+            v
+            for v in discrete_sample_vars
+            if families.get(v, "gaussian") == "bernoulli"
+        )
         stochastic_carry_vars = sorted(
             v
             for v in endo_lag_bases
             if v not in latent
             and families.get(v, "gaussian") in ("gaussian", "studentt")
         )
+        observed_carry_vars = sorted(
+            set(stochastic_carry_vars) | set(discrete_carry_vars)
+        )
+        carry_mu_vars = sorted(set(stochastic_carry_vars) | set(discrete_sample_vars))
 
         observed_carry_nodes: dict[str, Any] = {}
-        for var in stochastic_carry_vars:
+        for var in observed_carry_vars:
             if var in data_sorted.columns:
                 observed_panel = _reshape_to_panel(data_sorted, var, n_units, n_times)
             else:
@@ -1832,6 +1837,15 @@ def _compile_scan_panel(
                 f"carry_innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
 
+        discrete_uniform_nodes: dict[str, Any] = {}
+        for var in discrete_bernoulli_vars:
+            discrete_uniform_nodes[var] = pm.Uniform(
+                f"discrete_uniforms_{var}",
+                lower=0.0,
+                upper=1.0,
+                shape=(n_times, n_units),
+            )
+
         # do()-intervention override channel, one per endogenous var (incl.
         # latent), defaulting to all-NaN (no-op).  ``pm.do()`` graph surgery
         # on the top-level free RV / Deterministic named ``var`` cannot sever
@@ -1865,9 +1879,10 @@ def _compile_scan_panel(
 
         sequences = (
             [exog_data_nodes[k] for k in exog_keys]
-            + [observed_carry_nodes[k] for k in stochastic_carry_vars]
+            + [observed_carry_nodes[k] for k in observed_carry_vars]
             + [latent_innovation_nodes[k] for k in stochastic_latent]
             + [carry_innovation_nodes[k] for k in stochastic_carry_vars]
+            + [discrete_uniform_nodes[k] for k in discrete_bernoulli_vars]
             + [do_intervene_nodes[k] for k in endo_keys]
         )
 
@@ -1887,7 +1902,7 @@ def _compile_scan_panel(
             [_init_carry(init_endo[k]) for k in endo_keys]
             + [_init_carry(init_adstock[k]) for k in adstock_keys]
             + [_init_carry(init_exog_lag[k]) for k in exog_lag_bases]
-            + [None for _ in stochastic_carry_vars]
+            + [None for _ in carry_mu_vars]
         )
 
         # Non-sequences: all parameters
@@ -1896,6 +1911,8 @@ def _compile_scan_panel(
         beta_component_names: dict[str, list[str]] = {}
         non_seq_list.append(use_observed_carry)
         non_seq_names.append("_use_observed_carry")
+        non_seq_list.append(discrete_scan_rng)
+        non_seq_names.append("_discrete_scan_rng")
         for var in endo_keys:
             if beta_rvs[var] is not None:
                 beta_component_names[var] = []
@@ -1921,12 +1938,17 @@ def _compile_scan_panel(
         for var in stochastic_carry_vars:
             non_seq_list.append(sigma_rvs[var])
             non_seq_names.append(f"sigma_{var}")
+        for var in discrete_sample_vars:
+            if families.get(var, "gaussian") == "negbinomial":
+                non_seq_list.append(scan_model[f"alpha_disp_{var}"])
+                non_seq_names.append(f"alpha_disp_{var}")
 
         n_seq = len(sequences)
         n_exog_seq = len(exog_keys)
-        n_obs_carry_seq = len(stochastic_carry_vars)
+        n_obs_carry_seq = len(observed_carry_vars)
         n_latent_innov_seq = len(stochastic_latent)
         n_carry_innov_seq = len(stochastic_carry_vars)
+        n_discrete_uniform_seq = len(discrete_bernoulli_vars)
         n_endo = len(endo_keys)
         n_adstock = len(adstock_keys)
         n_exog_lag = len(exog_lag_bases)
@@ -1939,7 +1961,7 @@ def _compile_scan_panel(
 
             exog_t = {k: seq_args[i] for i, k in enumerate(exog_keys)}
             obs_carry_t = {
-                k: seq_args[n_exog_seq + i] for i, k in enumerate(stochastic_carry_vars)
+                k: seq_args[n_exog_seq + i] for i, k in enumerate(observed_carry_vars)
             }
             latent_innov_t = {
                 k: seq_args[n_exog_seq + n_obs_carry_seq + i]
@@ -1949,12 +1971,23 @@ def _compile_scan_panel(
                 k: seq_args[n_exog_seq + n_obs_carry_seq + n_latent_innov_seq + i]
                 for i, k in enumerate(stochastic_carry_vars)
             }
+            discrete_uniform_t = {
+                k: seq_args[
+                    n_exog_seq
+                    + n_obs_carry_seq
+                    + n_latent_innov_seq
+                    + n_carry_innov_seq
+                    + i
+                ]
+                for i, k in enumerate(discrete_bernoulli_vars)
+            }
             do_intervene_t = {
                 k: seq_args[
                     n_exog_seq
                     + n_obs_carry_seq
                     + n_latent_innov_seq
                     + n_carry_innov_seq
+                    + n_discrete_uniform_seq
                     + i
                 ]
                 for i, k in enumerate(endo_keys)
@@ -1972,6 +2005,7 @@ def _compile_scan_panel(
                 name: ns_args[i] for i, name in enumerate(non_seq_names)
             }
             use_observed_carry_t = ns_map["_use_observed_carry"]
+            discrete_rng = ns_map["_discrete_scan_rng"]
 
             new_endo: dict[str, Any] = {}
             new_adstock = dict(prev_adstock_state)
@@ -2012,6 +2046,46 @@ def _compile_scan_panel(
                         new_endo[var] = mu + sigma_val * latent_innov_t[var]
                     else:
                         new_endo[var] = mu
+                elif var in discrete_sample_set:
+                    if family == "bernoulli":
+                        p = 1.0 / (1.0 + pt.exp(-mu))
+                        carry_mu[var] = p
+                        sampled_state = pt.cast(discrete_uniform_t[var] < p, "float64")
+                    elif family == "poisson":
+                        rate = pt.exp(
+                            pt.clip(mu, -_SCAN_MU_CLIP_BOUND, _SCAN_MU_CLIP_BOUND)
+                        )
+                        carry_mu[var] = rate
+                        sampled_state = pt.cast(
+                            pt.random.poisson(lam=rate, rng=discrete_rng), "float64"
+                        )
+                    elif family == "negbinomial":
+                        rate = pt.exp(
+                            pt.clip(mu, -_SCAN_MU_CLIP_BOUND, _SCAN_MU_CLIP_BOUND)
+                        )
+                        carry_mu[var] = rate
+                        alpha_disp = ns_map[f"alpha_disp_{var}"]
+                        p_nb = alpha_disp / (alpha_disp + rate)
+                        sampled_state = pt.cast(
+                            pt.random.negative_binomial(
+                                n=alpha_disp, p=p_nb, rng=discrete_rng
+                            ),
+                            "float64",
+                        )
+                    else:
+                        raise RuntimeError(
+                            f"unexpected discrete family {family!r} for {var!r}"
+                        )
+                    if var in discrete_carry_vars:
+                        obs_state = obs_carry_t[var]
+                        observed_or_sampled = pt.switch(
+                            pt.isnan(obs_state), sampled_state, obs_state
+                        )
+                        new_endo[var] = pt.switch(
+                            use_observed_carry_t, observed_or_sampled, sampled_state
+                        )
+                    else:
+                        new_endo[var] = sampled_state
                 elif var in stochastic_carry_vars:
                     carry_mu[var] = mu
                     sigma_val = ns_map[f"sigma_{var}"]
@@ -2048,7 +2122,7 @@ def _compile_scan_panel(
             out = [new_endo[k] for k in endo_keys]
             out += [new_adstock[k] for k in adstock_keys]
             out += [exog_t.get(k, pt.zeros(n_units)) for k in exog_lag_bases]
-            out += [carry_mu[k] for k in stochastic_carry_vars]
+            out += [carry_mu[k] for k in carry_mu_vars]
             return out
 
         results = pytensor.scan(
@@ -2066,8 +2140,7 @@ def _compile_scan_panel(
 
         carry_mu_start = n_carry
         carry_mu_results: dict[str, Any] = {
-            var: results[carry_mu_start + i]
-            for i, var in enumerate(stochastic_carry_vars)
+            var: results[carry_mu_start + i] for i, var in enumerate(carry_mu_vars)
         }
 
         # --- emit deterministics and free RVs ---
