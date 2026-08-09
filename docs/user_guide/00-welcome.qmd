@@ -101,13 +101,13 @@ m.fit(draws=1000)
 
 A single spec string unlocks the full causal analysis toolkit.
 
-**Introspection** — inspect the model before spending any time on MCMC. Render the causal DAG, display structural equations with LaTeX, review default priors, and refine priors iteratively. All of these work with or without data.
+**Introspection** — inspect the model before spending any time on MCMC. Render the causal DAG, display structural equations with LaTeX, review default priors, and refine priors iteratively. `graph()`, `equations()`, and `set_priors()` work with or without data; `sample_prior_predictive()` requires a data-bound model to set sample size and exogenous inputs.
 
 ```python
 m.graph()  # causal DAG plot
 m.equations()  # structural equations + priors
 m.set_priors({"beta_Y": Prior(...)})  # refine priors
-m.sample_prior_predictive()  # simulate data from priors (requires data)
+m.sample_prior_predictive()  # check priors generate plausible data (requires data)
 ```
 
 **Estimation** — fit the structural model with MCMC. Get posterior summaries, labeled coefficients with uncertainty, path-specific effects, and stdyx-standardized coefficients for comparing effect sizes across variables on different scales.
