@@ -19,6 +19,7 @@ Provides the logic behind ``PathModel.effects_summary()`` and
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import narwhals.stable.v1 as nw
@@ -193,11 +194,15 @@ def build_effects_summary(
     return pd.DataFrame(rows).set_index("name")
 
 
+_NON_GAUSSIAN_FAMILIES = frozenset({"bernoulli", "poisson", "negbinomial"})
+
+
 def build_standardized_effects(
     spec: Spec,
     idata: xr.DataTree,
     data: nw.DataFrame,
     latent: set[str] | None = None,
+    families: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Compute stdyx-standardized coefficients from posterior draws.
 
@@ -206,7 +211,8 @@ def build_standardized_effects(
         stdyx = coef * sd(X) / sd(Y)
 
     This gives the expected change in Y (in SD units) per SD change in X.
-    Edges involving latent variables (no observed SD) are skipped.
+    Edges involving latent variables (no observed SD) or non-Gaussian outcomes
+    are skipped.
 
     Parameters
     ----------
@@ -218,6 +224,9 @@ def build_standardized_effects(
         Observed data used to compute variable standard deviations.
     latent : set[str] | None
         Latent variable names (skipped for standardization).
+    families : dict[str, str] | None
+        Per-variable distribution families. Non-Gaussian outcomes are
+        skipped with a warning.
 
     Returns
     -------
@@ -227,13 +236,19 @@ def build_standardized_effects(
     """
     if latent is None:
         latent = set()
+    if families is None:
+        families = {}
 
     labeled_draws = extract_labeled_draws(spec, idata)
 
+    skipped_non_gaussian: list[str] = []
     rows = []
     for reg in spec.regressions:
         lhs = reg.lhs
         if lhs in latent or lhs not in data.columns:
+            continue
+        if families.get(lhs, "gaussian") in _NON_GAUSSIAN_FAMILIES:
+            skipped_non_gaussian.append(lhs)
             continue
         # narwhals Series.std() returns None for an all-null column; treat that
         # (and a zero-variance column) as non-standardizable and skip.
@@ -270,6 +285,16 @@ def build_standardized_effects(
                 "hdi_97%": float(interval[1]),
             })
 
+    if skipped_non_gaussian:
+        warnings.warn(
+            f"standardized() skipped non-Gaussian outcomes {skipped_non_gaussian}. "
+            f"STDYX standardization assumes identity-link (Gaussian) models. "
+            f"For non-Gaussian families, coefficients are on the link-function "
+            f"scale and sd(Y) is not meaningful.",
+            UserWarning,
+            stacklevel=3,
+        )
+
     if not rows:
         return pd.DataFrame(
             columns=["predictor", "outcome", "mean", "sd", "hdi_3%", "hdi_97%"]
@@ -277,12 +302,37 @@ def build_standardized_effects(
     return pd.DataFrame(rows).set_index("name")
 
 
+def _guard_non_gaussian_path(
+    nodes: list[str],
+    families: dict[str, str] | None,
+    path: str,
+) -> None:
+    """Raise if any endogenous node on *path* has a non-Gaussian family."""
+    if not families:
+        return
+    bad = [n for n in nodes if families.get(n, "gaussian") in _NON_GAUSSIAN_FAMILIES]
+    if bad:
+        raise NotImplementedError(
+            f"effect('{path}') uses the product-of-coefficients method which "
+            f"assumes linear structural equations. The following variables have "
+            f"non-Gaussian families and coefficients on the link-function scale: "
+            f"{bad}. Use do()-based simulation for causal effects involving "
+            f"non-linear links."
+        )
+
+
 def compute_path_effect(
     path: str,
     spec: Spec,
     idata: xr.DataTree,
+    families: dict[str, str] | None = None,
 ) -> EffectResult:
     """Compute the effect along a specified causal path.
+
+    The product-of-coefficients estimator assumes linear structural equations.
+    For non-Gaussian families (e.g. Bernoulli, Poisson), coefficients live on
+    the link-function scale and their product is not interpretable as a
+    mediated effect.
 
     Parameters
     ----------
@@ -292,6 +342,9 @@ def compute_path_effect(
         Parsed model specification.
     idata : xarray.DataTree
         Posterior samples.
+    families : dict[str, str] | None
+        Per-variable distribution families. Used to guard against
+        uninterpretable results for non-Gaussian models.
 
     Returns
     -------
@@ -302,8 +355,11 @@ def compute_path_effect(
     ------
     ValueError
         If a node in the path is not endogenous or an edge does not exist.
+    NotImplementedError
+        If any endogenous node on the path has a non-Gaussian family.
     """
     nodes = [n.strip() for n in path.split("->")]
+    _guard_non_gaussian_path(nodes, families, path)
     edges = [(nodes[i], nodes[i + 1]) for i in range(len(nodes) - 1)]
 
     reg_by_lhs = {r.lhs: r for r in spec.regressions}
