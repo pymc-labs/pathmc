@@ -141,9 +141,8 @@ class TestEffectNonGaussianIntegration:
 
         warning_msgs = [str(x.message) for x in w]
         assert any("non-Gaussian" in msg for msg in warning_msgs)
-        # M is skipped as outcome, but Y (gaussian) should still appear
-        if "b" in result.index or "c" in result.index:
-            assert "a" not in result.index  # a is X->M, M is non-Gaussian
+        assert "a" not in result.index
+        assert {"b", "c"} & set(result.index)
 
     def test_standardized_ok_for_gaussian(self, mock_pymc_sample):
         rng = np.random.default_rng(42)
