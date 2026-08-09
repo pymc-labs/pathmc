@@ -11,9 +11,15 @@ permissions: {}
 # push simultaneously, and the loser is rejected non-fast-forward. Serialise
 # repo-wide instead, and never cancel: a `closed` run is a one-shot,
 # irreversible consolidation that no later event ever retries.
+#
+# `queue: max` holds up to 100 pending runs FIFO instead of the default
+# `single`, which keeps one pending run and replaces it when the next arrives.
+# Without it, a merged PR's `closed` run can be evicted while waiting behind
+# another run, and nothing ever retries it. Requires cancel-in-progress: false.
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
+  queue: max
 
 env:
   # Pinned deliberately; bump both together using the release's SHA256SUMS.
