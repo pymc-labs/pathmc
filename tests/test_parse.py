@@ -169,6 +169,10 @@ class TestParseErrors:
         with pytest.raises(Exception, match="Label 'a' used in both"):
             parse_spec(DUPLICATE_LABEL_SPEC)
 
+    def test_duplicate_label_within_equation_raises(self):
+        with pytest.raises(Exception, match="used more than once"):
+            parse_spec("Y ~ a*X + a*Z")
+
     def test_empty_spec_raises(self):
         with pytest.raises(Exception):
             parse_spec("")
