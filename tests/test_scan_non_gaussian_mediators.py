@@ -171,7 +171,7 @@ class TestDiscreteSampleCompilation:
         assert "mu_N" in model.pymc_model.named_vars
 
 
-class TestValidatorStaysSilentWhenSafe:
+class TestTerminalDiscreteOutcomesUnchanged:
     """Cases that must compile cleanly: no probability/rate leaks into a
     downstream equation, or the scan compiler never engages at all."""
 
@@ -187,6 +187,7 @@ class TestValidatorStaysSilentWhenSafe:
             families={"M": family},
         )
         assert "_use_observed_carry" in model.pymc_model.named_vars
+        assert "discrete_uniforms_M" not in model.pymc_model.named_vars
 
     @pytest.mark.parametrize("family", NON_GAUSSIAN_FAMILIES)
     def test_no_temporal_deps_skips_scan_entirely(self, panel_data, family):
@@ -209,6 +210,48 @@ class TestValidatorStaysSilentWhenSafe:
             families={"M": family},
         )
         assert model.pymc_model is not None
+
+
+class TestDownstreamMuUsesSampledValues:
+    """Regression: downstream ``mu`` must depend on sampled discrete carry,
+    not on response-scale means that are invariant to the uniform draw."""
+
+    def test_bernoulli_mediator_mu_y_differs_with_uniform_draw(self):
+        import pytensor
+
+        rows = []
+        for unit in range(2):
+            for week in range(1, 6):
+                rows.append({
+                    "region": f"R{unit}",
+                    "week": week,
+                    "X": 0.0,
+                    "M": 0.0,
+                    "Y": 0.0,
+                })
+        df = pd.DataFrame(rows)
+
+        model = pathmc.model(
+            "M ~ 0 + X\nY ~ 0 + M + lag(Y)",
+            data=df,
+            panel={"unit": "region", "time": "week"},
+            families={"M": "bernoulli"},
+        )
+        pmodel = model.pymc_model
+        n_times = len(df) // 2
+        n_units = 2
+
+        with pmodel:
+            pmodel["_use_observed_carry"].set_value(np.array(0, dtype="int8"))
+            uniforms = pmodel["discrete_uniforms_M"]
+            mu_y = pmodel["mu_Y"]
+            fn = pytensor.function([uniforms], mu_y)
+            mu_at_t0_all0 = fn(np.zeros((n_times, n_units)))[0]
+            mu_at_t0_all1 = fn(np.ones((n_times, n_units)))[0]
+
+        # If ``mu_Y`` consumed sigmoid(mu_M) instead of a Bernoulli draw,
+        # the two uniform inputs would yield identical ``mu_Y`` at t=0.
+        assert not np.allclose(mu_at_t0_all0, mu_at_t0_all1)
 
 
 class TestLatentDiscreteFamilyRejected:
