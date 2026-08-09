@@ -270,6 +270,31 @@ class TestResidualCovarianceIndependenceConsistency:
         pairs = {(ci.x, ci.y) for ci in implied_independences(g)}
         assert ("Za", "Zb") in pairs
 
+    def test_confounder_with_descendants_not_claimed_independent(self):
+        """Latent projection must keep X and Y d-connected when the
+        confounder has descendants (Z ~ X, T ~ Y)."""
+        g = _graph("Z ~ X\nT ~ Y\nX ~~ Y")
+        pairs = {(ci.x, ci.y) for ci in implied_independences(g)}
+        assert ("X", "Y") not in pairs
+
+    def test_issue_277_no_spurious_test_implications_violation(self):
+        """End-to-end regression for #277: a declared ``~~`` block must
+        not surface X ⊥ Y as a violated implied independence."""
+        rng = np.random.default_rng(31)
+        n = 1000
+        u = rng.normal(size=n)
+        x = 0.9 * u + rng.normal(scale=0.4, size=n)
+        y = 0.9 * u + rng.normal(scale=0.4, size=n)
+        w = 0.5 * x + 0.5 * y + rng.normal(scale=0.5, size=n)
+        df = pd.DataFrame({"X": x, "Y": y, "W": w})
+        model = pathmc.model("W ~ X + Y\nX ~~ Y", data=df)
+        result = model.test_implications()
+        assert result.n_violations == 0
+        tested_pairs = {
+            frozenset({row["x"], row["y"]}) for _, row in result.results.iterrows()
+        }
+        assert frozenset({"X", "Y"}) not in tested_pairs
+
 
 class TestResidualNameCollision:
     """The synthetic latent name must never collide with a real,
