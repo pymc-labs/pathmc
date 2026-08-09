@@ -125,6 +125,16 @@ class TestFullPipeline:
         ate = r_high - r_low
         assert ate.mean("sales") > 0
 
+    def test_do_plot_trajectory(self, fitted_full_panel):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        model, _ = fitted_full_panel
+        result = model.do(set={"spend": 10.0}, simulate_over="time", kind="mean")
+        fig = result.plot(var="sales", vs="observed")
+        assert fig is not None
+        assert len(fig.axes) >= 1
+
     def test_graph_works(self, full_panel_data):
         model = pathmc.model(
             "sales ~ lag(spend)",

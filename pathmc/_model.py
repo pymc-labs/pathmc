@@ -64,7 +64,7 @@ from pathmc.introspect import (
     build_equations,
     build_priors,
 )
-from pathmc.panel import PanelInfo, build_panel_info
+from pathmc.panel import PanelInfo, build_panel_info, observed_means_by_time
 from pathmc.parse import Spec, parse_spec
 from pathmc.refute import PlaceboRefutationResult, refute_placebo as _refute_placebo
 from pathmc.sensitivity import SensitivityResult, compute_sensitivity
@@ -1316,6 +1316,17 @@ class PathModel:
                         )
 
             if scan_info is not None:
+                time_idx = (
+                    np.array(scan_info.time_values)
+                    if scan_info.time_values
+                    else np.arange(scan_info.n_times)
+                )
+                observed_by_time = observed_means_by_time(
+                    self._data,
+                    self._panel_info,
+                    time_idx,
+                    list(self._graph_info.topological_order),
+                )
                 return run_do_panel_unified(
                     gen_model=self._gen_model,
                     graph_info=self._graph_info,
@@ -1325,6 +1336,7 @@ class PathModel:
                     set=set,
                     kind=kind,
                     families=self._families,
+                    observed_by_time=observed_by_time,
                 )
             # Non-scan panel models fall through to the cross-sectional path.
 

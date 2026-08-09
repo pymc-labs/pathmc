@@ -19,8 +19,9 @@ from collections import Counter
 from dataclasses import dataclass
 
 import narwhals.stable.v1 as nw
+import numpy as np
 
-__all__ = ["PanelInfo"]
+__all__ = ["PanelInfo", "observed_means_by_time"]
 
 
 @dataclass
@@ -256,3 +257,42 @@ def build_panel_info(
         require_rectangular=require_rectangular,
     )
     return PanelInfo(unit=unit_col, time=time_col, unit_labels=unit_labels)
+
+
+def observed_means_by_time(
+    data: nw.DataFrame,
+    panel_info: PanelInfo,
+    time_index: np.ndarray,
+    variables: list[str],
+) -> dict[str, np.ndarray]:
+    """Unit-mean observed series per time step, aligned to *time_index*.
+
+    Parameters
+    ----------
+    data : nw.DataFrame
+        Panel data used to fit the model.
+    panel_info : PanelInfo
+        Panel column metadata.
+    time_index : np.ndarray
+        Time labels in the order used by panel ``do(simulate_over="time")``.
+    variables : list[str]
+        Variables to aggregate (ignored when absent from *data*).
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        Mapping from variable name to a length-``n_times`` mean array.
+    """
+    time_col = panel_info.time
+    result: dict[str, np.ndarray] = {}
+    for var in variables:
+        if var not in data.columns:
+            continue
+        means: list[float] = []
+        for t in time_index:
+            mask = data[time_col] == t
+            col = data.filter(mask)[var].to_numpy()
+            arr = np.asarray(col, dtype=float)
+            means.append(float(np.nanmean(arr)) if arr.size else float("nan"))
+        result[var] = np.asarray(means, dtype=float)
+    return result

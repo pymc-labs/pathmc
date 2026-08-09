@@ -28,7 +28,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import narwhals.stable.v1 as nw
 import numpy as np
@@ -48,6 +48,10 @@ from pathmc.idata import hdi_label
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
 from pathmc.reprs import ReprSpec, ResultReprMixin
+
+if TYPE_CHECKING:
+    import matplotlib.axes
+    import matplotlib.figure
 
 __all__ = ["DoResult", "EstimandResult"]
 
@@ -335,6 +339,8 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         population-level and unit-level counterfactual simulations.
     evidence : Mapping[str, float] | None
         Individual evidence associated with a counterfactual result.
+    observed_by_time : Mapping[str, np.ndarray] | None
+        Unit-mean observed series per variable, aligned to :attr:`time_index`.
     """
 
     def __init__(
@@ -343,10 +349,16 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         ds: xr.Dataset,
         scenario: str = "do",
         evidence: Mapping[str, float] | None = None,
+        observed_by_time: Mapping[str, np.ndarray] | None = None,
     ) -> None:
         self._ds = ds
         self._scenario = scenario
         self._evidence = dict(evidence) if evidence is not None else None
+        self._observed_by_time = (
+            {k: np.asarray(v, dtype=float) for k, v in observed_by_time.items()}
+            if observed_by_time is not None
+            else {}
+        )
 
     def draws(self, var: str) -> np.ndarray:
         """Return raw posterior draws for *var* under this intervention.
@@ -407,6 +419,124 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         """
         return self._by_time_draws(var)
 
+    def plot(
+        self,
+        var: str,
+        *,
+        vs: str | None = None,
+        observed: np.ndarray | None = None,
+        ax: matplotlib.axes.Axes | None = None,
+        prob: float = DEFAULT_HDI_PROB,
+    ) -> matplotlib.figure.Figure:
+        """Plot a per-time trajectory with an HDI band.
+
+        For panel ``do(simulate_over="time")`` results, draws the posterior
+        mean over :attr:`time_index` with a shaded HDI band. Optionally overlays
+        an observed series when ``vs="observed"`` or ``observed=`` is passed.
+
+        Parameters
+        ----------
+        var : str
+            Variable to plot.
+        vs : str | None
+            When ``"observed"``, overlay the unit-mean observed series attached
+            at construction or supplied via ``observed=``.
+        observed : np.ndarray | None
+            Optional length-``n_times`` observed series; overrides attached
+            metadata for the overlay.
+        ax : matplotlib.axes.Axes | None
+            Axes to plot on. Creates a new figure if ``None``.
+        prob : float
+            Probability mass of the HDI band (default 0.94).
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            The figure containing the trajectory plot.
+
+        Raises
+        ------
+        KeyError
+            If *var* is not stored on this result.
+        ValueError
+            If per-time data is unavailable (cross-sectional result), if
+            ``vs="observed"`` is requested without a series, or if
+            ``observed`` has the wrong length.
+        """
+        import matplotlib.pyplot as plt
+
+        if var not in self._ds.data_vars:
+            available = sorted(str(v) for v in self._ds.data_vars)
+            raise KeyError(
+                f"Unknown variable '{var}'. Available variables: {available}"
+            )
+        if not _has_by_time(self._ds) or "time" not in self._ds[var].dims:
+            raise ValueError(
+                "DoResult.plot() requires per-time panel data. "
+                "Use do(simulate_over='time') for trajectory plots, or "
+                "DoResult.plot_dist() for cross-sectional marginal posteriors."
+            )
+
+        time_coords = self._time_index
+        if time_coords is None:
+            raise ValueError(
+                "DoResult.plot() requires per-time panel data. "
+                "Use do(simulate_over='time') for trajectory plots, or "
+                "DoResult.plot_dist() for cross-sectional marginal posteriors."
+            )
+
+        draws = self._by_time_draws(var)
+        n_times = draws.shape[0]
+        means = np.mean(draws, axis=1)
+        hdi_band = compute_hdi(draws, prob=prob)
+        if hdi_band.ndim == 1 and hdi_band.shape[0] == 2:
+            lo = np.full(n_times, float(hdi_band[0]))
+            hi = np.full(n_times, float(hdi_band[1]))
+        else:
+            lo = hdi_band[:, 0]
+            hi = hdi_band[:, 1]
+
+        overlay: np.ndarray | None = None
+        if observed is not None:
+            overlay = np.asarray(observed, dtype=float)
+        elif vs == "observed":
+            overlay = self._observed_by_time.get(var)
+            if overlay is None:
+                raise ValueError(
+                    f"No observed series available for '{var}'. Pass observed= "
+                    f"with a length-{n_times} array of unit-mean values."
+                )
+        elif vs is not None:
+            raise ValueError(
+                f"Unknown vs='{vs}'. Supported values: 'observed' or omit vs."
+            )
+
+        if overlay is not None:
+            if overlay.shape[0] != n_times:
+                raise ValueError(
+                    f"observed must have length {n_times} (one per time step), "
+                    f"got {overlay.shape[0]}."
+                )
+
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 4))
+        else:
+            fig = cast("matplotlib.figure.Figure", ax.get_figure())
+
+        x = np.arange(n_times)
+        ax.fill_between(x, lo, hi, alpha=0.3, label=hdi_label(prob))
+        ax.plot(x, means, color="C0", label="Counterfactual")
+        if overlay is not None:
+            ax.plot(x, overlay, color="C1", linestyle="--", label="Observed")
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(t) for t in time_coords], rotation=45, ha="right")
+        ax.set_xlabel("time")
+        ax.set_ylabel(var)
+        ax.legend(loc="best")
+        ax.set_title(var)
+        fig.tight_layout()
+        return fig
+
     def __sub__(self, other: DoResult) -> DoResult:
         """Element-wise contrast between two DoResults."""
         if self._scenario != other._scenario:
@@ -450,7 +580,7 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             title=f"DoResult — {n_samples} draws, {n_vars} variables",
             rows=rows,
             columns=["variable", "mean", hdi_label()],
-            footer="Methods: .draws() .mean() .hdi() .by_time() .dataset",
+            footer="Methods: .draws() .mean() .hdi() .by_time() .plot() .dataset",
         )
 
 
@@ -1181,6 +1311,7 @@ def run_do_panel_unified(
     set: dict[str, float | np.ndarray] | None = None,
     kind: str = "mean",
     families: dict[str, str] | None = None,
+    observed_by_time: Mapping[str, np.ndarray] | None = None,
 ) -> DoResult:
     """Run the do-operator on a scan-compiled panel model.
 
@@ -1207,6 +1338,8 @@ def run_do_panel_unified(
         ``"mean"`` or ``"predictive"``.
     families : dict[str, str] | None
         Per-variable distribution families.
+    observed_by_time : Mapping[str, np.ndarray] | None
+        Unit-mean observed series per variable for trajectory overlays.
     """
     if set is None:
         set = {}
@@ -1290,7 +1423,10 @@ def run_do_panel_unified(
                 det_key = var if var in stochastic_latent else f"mu_{var}"
                 data_vars[var] = _panel_unit_mean(det[det_key], time_idx)
 
-        return DoResult(ds=xr.Dataset(data_vars))
+        return DoResult(
+            ds=xr.Dataset(data_vars),
+            observed_by_time=observed_by_time,
+        )
 
     # kind == "predictive"
     stochastic_latent = {
@@ -1343,4 +1479,7 @@ def run_do_panel_unified(
             if det_key in latent_det:
                 predictive_vars[var] = _panel_unit_mean(latent_det[det_key], time_idx)
 
-    return DoResult(ds=xr.Dataset(predictive_vars))
+    return DoResult(
+        ds=xr.Dataset(predictive_vars),
+        observed_by_time=observed_by_time,
+    )
