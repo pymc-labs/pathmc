@@ -88,6 +88,10 @@ gh pr view $PR_NUMBER --json comments -q \
 
 # CI status:
 gh pr checks $PR_NUMBER
+
+# On resume: recover chosen scope from the latest fixer summary
+gh pr view $PR_NUMBER --json comments -q \
+  '[.comments[].body | select(test("fix-bug-fix-summary"))] | last'
 ```
 
 | Detected state | Action |
@@ -97,6 +101,7 @@ gh pr checks $PR_NUMBER
 | PR exists, CI failing | Read failures → fix → push → wait CI → continue |
 | PR exists, unaddressed review comment (has round marker) | Address findings → push → wait CI → continue |
 | PR exists, CI passing, no unaddressed review | Enter review loop (spawn reviewer) |
+| PR exists, resuming | Read latest `fix-bug-fix-summary` comment to recover scope before changing code |
 | 3+ round markers already present | Escalate immediately |
 | Human pushed or commented since last automation activity | Escalate — don't overwrite human work |
 
@@ -121,6 +126,8 @@ gh issue list --search "is:issue $ISSUE_NUMBER" --json number,title,state,labels
 | Closed sub-issues + open parent | Next open child, or one unchecked checklist item on the parent |
 | Checklist / itemised list, no sub-issues | One unchecked item — prefer the most obvious or self-contained |
 | Single clear bug | The whole issue (normal case) |
+
+**Tie-breaking**: When several candidates look equally valid, pick one and proceed — do not ask the user. The user delegated this work; a coin-flip question blocks progress. Use the first open sub-issue by number, or the first unchecked checklist item top-to-bottom, and record the choice in the fixer summary.
 
 **Record scope explicitly** before coding:
 
@@ -188,7 +195,24 @@ Skip steps already done when resuming an existing PR (e.g. branch exists, partia
    EOF
    )"
    ```
-   Keep it brief (4–6 sentences). The reviewer reads the diff; this comment explains intent for humans and the next automation pass. Update the PR **Closes** section if scope changed while implementing.
+   Keep it brief (4–6 sentences). The reviewer reads the diff; this comment explains intent for humans and the next automation pass.
+
+9. **Update PR body when scope drifts** — if implementation narrows or shifts scope (e.g. you fixed a different checklist item than planned), edit the PR before requesting review:
+   ```bash
+   gh pr edit $PR_NUMBER --body "$(cat <<'EOF'
+   ## Summary
+   <updated>
+
+   ## Closes
+   - <updated Fixes / Part of lines — must match what the diff actually does>
+
+   ## Test plan
+   - [ ] Targeted tests pass
+   - [ ] Full/fast test suite passes
+   - [ ] Lint passes
+   EOF
+   )"
+   ```
 
 ## Phase 3: Review loop
 
@@ -208,8 +232,10 @@ Spawn a Task subagent with these characteristics:
 > **Read the diff**: `gh pr diff $PR_NUMBER`
 >
 > **Read fixer intent** (if present): scan PR comments for `<!-- fix-bug-fix-summary -->` — use this for context, but judge correctness from the diff.
+>
 > **Review criteria** (check each):
 > - Correctness: Does the fix address the root cause? Any logic errors?
+> - Scope alignment: Does the diff match the PR **Closes** section and the fixer summary? Flag over-closing (`Fixes #parent` when only one sub-item is done) or under-documented scope.
 > - Regressions: Could this break existing behavior? Check callers of modified functions.
 > - Edge cases: Are boundary conditions handled?
 > - Test coverage: Are the new/changed paths tested?
@@ -305,6 +331,7 @@ These apply regardless of marker state:
 - **Already resolved**: If the issue is closed or PR is merged, exit immediately.
 - **PR without linked issue**: Workflow still runs; omit issue labels/steps that need `ISSUE_NUMBER` or ask the user for the bug issue number.
 - **Umbrella issues**: One bug per PR. Re-read `fix-bug-fix-summary` comments on resume to recover chosen scope.
+- **Scope ties**: Pick one candidate and document the choice — never block on a user tie-break.
 - **Over-closing**: Never put `Fixes #N` on a parent meta issue unless this PR resolves every tracked item. Prefer `Part of #N` plus `Fixes #child`.
 
 ## Copying to another repo
