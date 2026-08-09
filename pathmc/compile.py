@@ -184,7 +184,54 @@ class MuSpec:
     slots: list[PredictorSlot]
 
 
-def get_predictor_columns(reg: Regression) -> list[str]:
+# ---------------------------------------------------------------------------
+# Helpers: pooling / random effects
+# ---------------------------------------------------------------------------
+
+
+def _has_random_intercepts(pooling: str | dict | None) -> bool:
+    """Whether pooling spec requests random intercepts."""
+    if pooling == "partial":
+        return True
+    if isinstance(pooling, dict):
+        return pooling.get("intercept", False)
+    return False
+
+
+def _get_slope_vars(pooling: str | dict | None) -> list[str]:
+    """Extract variables that should get random slopes."""
+    if isinstance(pooling, dict):
+        return list(pooling.get("slopes", []))
+    return []
+
+
+def _drops_formula_intercept(
+    pooling: str | dict | None,
+    panel_info: PanelInfo | None,
+) -> bool:
+    """Whether the fixed formula intercept is absorbed by ``mu_alpha``."""
+    return _has_random_intercepts(pooling) and panel_info is not None
+
+
+def _effective_has_intercept(
+    reg: Regression,
+    pooling: str | dict | None = None,
+    panel_info: PanelInfo | None = None,
+) -> bool:
+    """Whether a regression keeps its formula intercept in the design matrix."""
+    if not reg.has_intercept:
+        return False
+    if _drops_formula_intercept(pooling, panel_info):
+        return False
+    return True
+
+
+def get_predictor_columns(
+    reg: Regression,
+    *,
+    pooling: str | dict | None = None,
+    panel_info: PanelInfo | None = None,
+) -> list[str]:
     """Return *all* predictor column names for a regression equation.
 
     Includes both free and fixed-coefficient predictors.
@@ -193,6 +240,10 @@ def get_predictor_columns(reg: Regression) -> list[str]:
     ----------
     reg : Regression
         Parsed regression with terms and intercept flag.
+    pooling, panel_info
+        When partial pooling with random intercepts is active on a panel
+        model, the fixed ``Intercept`` column is dropped and ``mu_alpha``
+        serves as the global intercept.
 
     Returns
     -------
@@ -200,19 +251,24 @@ def get_predictor_columns(reg: Regression) -> list[str]:
         Column names including ``"Intercept"`` when applicable.
     """
     cols: list[str] = []
-    if reg.has_intercept:
+    if _effective_has_intercept(reg, pooling, panel_info):
         cols.append("Intercept")
     cols.extend(t.variable for t in reg.terms)
     return cols
 
 
-def get_free_predictor_columns(reg: Regression) -> list[str]:
+def get_free_predictor_columns(
+    reg: Regression,
+    *,
+    pooling: str | dict | None = None,
+    panel_info: PanelInfo | None = None,
+) -> list[str]:
     """Return predictor column names that have free (estimated) coefficients.
 
     Fixed-value terms (e.g. ``1*X``) are excluded.
     """
     cols: list[str] = []
-    if reg.has_intercept:
+    if _effective_has_intercept(reg, pooling, panel_info):
         cols.append("Intercept")
     # HSGP terms carry their own basis weights (not a scalar beta column), so
     # they are excluded here to keep ``beta`` sized to the plain/free terms.
@@ -243,7 +299,12 @@ def _term_base_vars(term: Term) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def build_mu_specs(spec: Spec) -> dict[str, MuSpec]:
+def build_mu_specs(
+    spec: Spec,
+    *,
+    pooling: str | dict | None = None,
+    panel_info: PanelInfo | None = None,
+) -> dict[str, MuSpec]:
     """Convert Spec regressions into MuSpec intermediate representations.
 
     Pure transformation with no PyMC dependency.  Each ``Regression``
@@ -266,7 +327,7 @@ def build_mu_specs(spec: Spec) -> dict[str, MuSpec]:
     for reg in spec.regressions:
         slots: list[PredictorSlot] = []
 
-        if reg.has_intercept:
+        if _effective_has_intercept(reg, pooling, panel_info):
             slots.append(
                 PredictorSlot(
                     name="Intercept",
@@ -322,7 +383,13 @@ def build_mu_specs(spec: Spec) -> dict[str, MuSpec]:
     return result
 
 
-def build_design_matrix(reg: Regression, data: nw.DataFrame) -> nw.DataFrame:
+def build_design_matrix(
+    reg: Regression,
+    data: nw.DataFrame,
+    *,
+    pooling: str | dict | None = None,
+    panel_info: PanelInfo | None = None,
+) -> nw.DataFrame:
     """Build a patsy design matrix for a single regression equation.
 
     Parameters
@@ -358,7 +425,7 @@ def build_design_matrix(reg: Regression, data: nw.DataFrame) -> nw.DataFrame:
 
     if missing:
         columns: dict[str, np.ndarray] = {}
-        if reg.has_intercept:
+        if _effective_has_intercept(reg, pooling, panel_info):
             columns["Intercept"] = np.ones(n)
         for term in reg.terms:
             v = term.variable
@@ -375,11 +442,16 @@ def build_design_matrix(reg: Regression, data: nw.DataFrame) -> nw.DataFrame:
             else:
                 columns[v] = np.full(n, np.nan)
         return nw.from_dict(
-            {c: columns[c] for c in get_predictor_columns(reg)},
+            {
+                c: columns[c]
+                for c in get_predictor_columns(
+                    reg, pooling=pooling, panel_info=panel_info
+                )
+            },
             backend=data.implementation,
         )
 
-    if reg.has_intercept:
+    if _effective_has_intercept(reg, pooling, panel_info):
         formula_str = " + ".join(rhs_parts)
     else:
         formula_str = "0 + " + " + ".join(rhs_parts)
@@ -457,7 +529,7 @@ def compile_to_pymc(
         latent = set()
 
     if priors is None:
-        priors = default_priors(spec, families, pooling, latent)
+        priors = default_priors(spec, families, pooling, latent, panel_info)
 
     if graph_info is None:
         from pathmc.graph import build_graph
@@ -466,7 +538,6 @@ def compile_to_pymc(
 
     _validate_residual_cov_families(spec, families)
     _validate_latent_families(families, latent)
-    _warn_partial_pooling_intercept(spec, pooling)
 
     if panel_info is not None and _spec_has_hsgp(spec):
         raise NotImplementedError(
@@ -504,7 +575,9 @@ def compile_to_pymc(
 
     coords: dict[str, Any] = {}
     for reg in spec.regressions:
-        free_cols = get_free_predictor_columns(reg)
+        free_cols = get_free_predictor_columns(
+            reg, pooling=pooling, panel_info=panel_info
+        )
         if free_cols:
             coords[f"{reg.lhs}_predictors"] = free_cols
         for term in reg.terms:
@@ -518,7 +591,7 @@ def compile_to_pymc(
         unit_idx = _build_unit_index(data, panel_info)
 
     transform_map = _build_transform_map(spec)
-    mu_specs = build_mu_specs(spec)
+    mu_specs = build_mu_specs(spec, pooling=pooling, panel_info=panel_info)
 
     sparse_data: dict[str, np.ma.MaskedArray] = {}
     for reg in spec.regressions:
@@ -578,14 +651,16 @@ def compile_to_pymc(
 
             reg = reg_by_lhs[var]
             family = families.get(var, "gaussian")
-            free_cols = get_free_predictor_columns(reg)
+            free_cols = get_free_predictor_columns(
+                reg, pooling=pooling, panel_info=panel_info
+            )
 
             beta = None
             if free_cols:
                 beta_prior = _ensure_dims(priors[f"beta_{var}"], f"{var}_predictors")
                 beta = beta_prior.create_variable(f"beta_{var}")
 
-            resolver = _make_cross_sectional_resolver(
+            resolver_gen = _make_cross_sectional_resolver(
                 data,
                 data_vars,
                 endogenous_rvs,
@@ -594,24 +669,49 @@ def compile_to_pymc(
                 panel_info,
                 lhs=var,
                 priors=priors,
+                block_vars=block_vars,
+                prefer_observed_block_members=False,
             )
-            mu = build_mu(mu_specs[var], resolver, beta, pt.zeros(len(data)))
+            mu_gen = build_mu(mu_specs[var], resolver_gen, beta, pt.zeros(len(data)))
+
+            if _references_block_members(mu_specs[var], block_vars):
+                resolver_est = _make_cross_sectional_resolver(
+                    data,
+                    data_vars,
+                    endogenous_rvs,
+                    transform_map,
+                    transform_param_rvs,
+                    panel_info,
+                    lhs=var,
+                    priors=priors,
+                    block_vars=block_vars,
+                    prefer_observed_block_members=True,
+                )
+                mu_est = build_mu(
+                    mu_specs[var], resolver_est, beta, pt.zeros(len(data))
+                )
+            else:
+                mu_est = mu_gen
 
             if (
                 has_random_intercepts
                 and panel_info is not None
                 and unit_idx is not None
             ):
-                mu = mu + _compile_random_intercept(var, unit_idx, priors)
+                ri = _compile_random_intercept(var, unit_idx, priors)
+                mu_gen = mu_gen + ri
+                mu_est = mu_est + ri
 
             if slope_vars and panel_info is not None and unit_idx is not None:
-                mu = mu + _compile_random_slopes(
+                rs = _compile_random_slopes(
                     reg, slope_vars, data_vars, unit_idx, priors
                 )
+                mu_gen = mu_gen + rs
+                mu_est = mu_est + rs
 
-            mu_det = pm.Deterministic(f"mu_{var}", mu)
+            pm.Deterministic(f"mu_{var}", mu_gen)
 
-            rv = _emit_free_rv(var, mu_det, family, latent, sparse_data, priors)
+            rv = _emit_free_rv(var, mu_est, family, latent, sparse_data, priors)
             if family in ("bernoulli", "poisson", "negbinomial"):
                 endogenous_rvs[var] = pt.cast(rv, "float64")
             else:
@@ -682,6 +782,24 @@ def build_mu(
     return mu
 
 
+def _references_block_members(mu_spec: MuSpec, block_vars: set[str]) -> bool:
+    """Return True if any predictor slot references a residual-block member."""
+    if not block_vars:
+        return False
+    for slot in mu_spec.slots:
+        if slot.kind == "plain" and slot.name in block_vars:
+            return True
+        if slot.kind == "interaction" and slot.interaction_parts is not None:
+            if any(part in block_vars for part in slot.interaction_parts):
+                return True
+        if slot.kind == "lag" and slot.lag_of in block_vars:
+            return True
+        if slot.kind == "transform" and slot.transform is not None:
+            if _get_adstock_input(slot.transform) in block_vars:
+                return True
+    return False
+
+
 def _make_cross_sectional_resolver(
     data: nw.DataFrame,
     data_vars: dict[str, Any],
@@ -691,6 +809,9 @@ def _make_cross_sectional_resolver(
     panel_info: PanelInfo | None,
     lhs: str | None = None,
     priors: dict[str, Any] | None = None,
+    *,
+    block_vars: set[str] | None = None,
+    prefer_observed_block_members: bool = False,
 ) -> Callable[[PredictorSlot], Any]:
     """Create a resolver for cross-sectional mu construction.
 
@@ -699,10 +820,24 @@ def _make_cross_sectional_resolver(
     propagation.  ``lhs`` and ``priors`` are required to resolve HSGP
     slots (which need the equation LHS to name RVs and the prior config
     for hyperpriors); they may be omitted for HSGP-free equations.
+
+    When *prefer_observed_block_members* is True, predictors that are
+    residual-covariance block members resolve to their observed data
+    columns rather than structural means — giving identified downstream
+    regression coefficients at fit time while ``mu_{var}`` deterministics
+    (built with ``prefer_observed_block_members=False``) retain the
+    generative wiring needed by ``pm.do()``.
     """
     import pytensor.tensor as pt
 
+    block_member_set = block_vars or set()
+
     def _resolve_var(name: str) -> Any:
+        if prefer_observed_block_members and name in block_member_set:
+            if name in data.columns:
+                if name in data_vars:
+                    return data_vars[name]
+                return pt.as_tensor_variable(data[name].to_numpy().astype(float))
         if name in endogenous_rvs:
             return endogenous_rvs[name]
         if name in data_vars:
@@ -803,24 +938,8 @@ def _make_scan_resolver(
 
 
 # ---------------------------------------------------------------------------
-# Helpers: pooling / random effects
+# Helpers: pooling / random effects (continued)
 # ---------------------------------------------------------------------------
-
-
-def _has_random_intercepts(pooling: str | dict | None) -> bool:
-    """Whether pooling spec requests random intercepts."""
-    if pooling == "partial":
-        return True
-    if isinstance(pooling, dict):
-        return pooling.get("intercept", False)
-    return False
-
-
-def _get_slope_vars(pooling: str | dict | None) -> list[str]:
-    """Extract variables that should get random slopes."""
-    if isinstance(pooling, dict):
-        return list(pooling.get("slopes", []))
-    return []
 
 
 def _build_unit_index(data: nw.DataFrame, panel_info: PanelInfo) -> np.ndarray:
@@ -1293,61 +1412,6 @@ def _render_transform_call(tc: TransformCall) -> str:
     return f"{tc.name}({input_str}, {', '.join(param_strs)})"
 
 
-def _warn_partial_pooling_intercept(spec: Spec, pooling: str | dict | None) -> None:
-    """Warn if partial pooling is combined with formula intercepts.
-
-    Partial pooling models include both a fixed intercept (beta[Intercept])
-    and a hierarchical mean (mu_alpha). Only their sum is identified by the
-    data, creating a non-identifiable parameterization that causes divergences.
-
-    Raises
-    ------
-    UserWarning
-        When any equation has an intercept and pooling requests random intercepts.
-    """
-    import warnings
-
-    if not _has_random_intercepts(pooling):
-        return
-
-    equations_with_intercepts = [
-        reg.lhs for reg in spec.regressions if reg.has_intercept
-    ]
-
-    if not equations_with_intercepts:
-        return
-
-    var_list = ", ".join(f"'{v}'" for v in equations_with_intercepts)
-    formulas = "\n".join(
-        f"  {reg.lhs} ~ 0 + {' + '.join(_render_term_for_formula(t) for t in reg.terms)}"
-        for reg in spec.regressions
-        if reg.has_intercept
-    )
-
-    warnings.warn(
-        f"\n{'=' * 78}\n"
-        f"PARTIAL POOLING WITH REDUNDANT INTERCEPT\n"
-        f"{'=' * 78}\n"
-        f"\n"
-        f"Your model uses pooling='partial' (random intercepts) but the following\n"
-        f"equations include a formula intercept: {var_list}.\n"
-        f"\n"
-        f"This creates a NON-IDENTIFIABLE parameterization:\n"
-        f"  • beta[Intercept] (fixed global intercept)\n"
-        f"  • mu_alpha (mean of random intercepts)\n"
-        f"Only their sum is identified by the data. This causes sampling divergences.\n"
-        f"\n"
-        f"SOLUTION: Remove the intercept from your formula(s):\n"
-        f"\n"
-        f"{formulas}\n"
-        f"\n"
-        f"The hierarchical mean mu_alpha will serve as the effective intercept.\n"
-        f"{'=' * 78}\n",
-        UserWarning,
-        stacklevel=_user_stacklevel(),
-    )
-
-
 # ---------------------------------------------------------------------------
 # Temporal dependency detection
 # ---------------------------------------------------------------------------
@@ -1608,11 +1672,11 @@ def _compile_scan_panel(
     from pathmc.priors import _ensure_dims, default_priors
 
     if priors is None:
-        priors = default_priors(spec, families, pooling, latent)
+        priors = default_priors(spec, families, pooling, latent, panel_info)
 
     reg_by_lhs = {r.lhs: r for r in spec.regressions}
     transform_map = _build_transform_map(spec)
-    mu_specs = build_mu_specs(spec)
+    mu_specs = build_mu_specs(spec, pooling=pooling, panel_info=panel_info)
     has_ri = _has_random_intercepts(pooling)
     slope_vars = _get_slope_vars(pooling)
 
@@ -1665,7 +1729,9 @@ def _compile_scan_panel(
     coords: dict[str, Any] = {}
     fixed_coeffs_by_var: dict[str, dict[str, float]] = {}
     for reg in spec.regressions:
-        free_cols = get_free_predictor_columns(reg)
+        free_cols = get_free_predictor_columns(
+            reg, pooling=pooling, panel_info=panel_info
+        )
         if free_cols:
             coords[f"{reg.lhs}_predictors"] = free_cols
         fixed_coeffs_by_var[reg.lhs] = get_fixed_coefficients(reg)
@@ -1685,7 +1751,9 @@ def _compile_scan_panel(
         sigma_rvs: dict[str, Any] = {}
         for var in endogenous_order:
             family = families.get(var, "gaussian")
-            free_cols = get_free_predictor_columns(reg_by_lhs[var])
+            free_cols = get_free_predictor_columns(
+                reg_by_lhs[var], pooling=pooling, panel_info=panel_info
+            )
             if free_cols:
                 beta_prior = _ensure_dims(priors[f"beta_{var}"], f"{var}_predictors")
                 beta_rvs[var] = beta_prior.create_variable(f"beta_{var}")
@@ -1899,7 +1967,15 @@ def _compile_scan_panel(
         for var in endo_keys:
             if beta_rvs[var] is not None:
                 beta_component_names[var] = []
-                for idx in range(len(get_free_predictor_columns(reg_by_lhs[var]))):
+                for idx in range(
+                    len(
+                        get_free_predictor_columns(
+                            reg_by_lhs[var],
+                            pooling=pooling,
+                            panel_info=panel_info,
+                        )
+                    )
+                ):
                     component_name = f"beta_{var}__{idx}"
                     non_seq_list.append(beta_rvs[var][idx])
                     non_seq_names.append(component_name)

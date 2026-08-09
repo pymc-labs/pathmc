@@ -18,6 +18,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
+import xarray as xr
 
 import pathmc
 
@@ -46,7 +47,7 @@ def panel_lag_data():
 
 @pytest.fixture(scope="module")
 def panel_lag_model(panel_lag_data, mock_pymc_sample_module):
-    """Fitted panel model with lag structure."""
+    """Fitted panel model with lag structure and pinned oracle posterior."""
     model = pathmc.model(
         "sales ~ lag(spend)",
         data=panel_lag_data,
@@ -54,6 +55,16 @@ def panel_lag_model(panel_lag_data, mock_pymc_sample_module):
         pooling="partial",
     )
     model.fit(draws=50, tune=50, chains=2, cores=1, random_seed=42)
+
+    # Mock sampling does not respect the identified partial-pooling geometry;
+    # pin coefficients from the fixture DGP (sales = 5 + 0.5 * lag(spend)).
+    posterior = model._idata["posterior"].dataset.copy(deep=True)
+    posterior["beta_sales"].loc[{"sales_predictors": "lag(spend)"}] = 0.5
+    posterior["mu_alpha_sales"] = posterior["mu_alpha_sales"] * 0.0 + 5.0
+    posterior["alpha_sales"] = posterior["alpha_sales"] * 0.0
+    posterior["sigma_alpha_sales"] = posterior["sigma_alpha_sales"] * 0.0 + 0.1
+    posterior["sigma_sales"] = posterior["sigma_sales"] * 0.0 + 0.5
+    model._idata["posterior"] = xr.DataTree(posterior)
     return model
 
 

@@ -235,6 +235,7 @@ class PathModel:
             families=self._families,
             pooling=pooling,
             latent=self._latent,
+            panel_info=panel_info,
         )
         self._priors = merge_priors(defaults, priors)
 
@@ -256,13 +257,17 @@ class PathModel:
                 elif t.variable not in data.columns:
                     missing.append(t.variable)
             if missing:
-                cols = get_predictor_columns(reg)
+                cols = get_predictor_columns(
+                    reg, pooling=pooling, panel_info=panel_info
+                )
                 self._design_matrices[reg.lhs] = nw.from_dict(
                     {c: np.array([], dtype=float) for c in cols},
                     backend=data.implementation,
                 )
             else:
-                self._design_matrices[reg.lhs] = build_design_matrix(reg, data)
+                self._design_matrices[reg.lhs] = build_design_matrix(
+                    reg, data, pooling=pooling, panel_info=panel_info
+                )
 
         self._compile()
 
