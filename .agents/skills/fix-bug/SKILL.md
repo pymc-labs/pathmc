@@ -39,7 +39,8 @@ Customize this section when copying the skill into a new repository. The orchest
 - **Lint**: formatter/linter/typecheck command(s) required before push.
 - **Branch naming**: e.g. `fix/<issue-number>-<short-slug>`.
 - **Commit messages**: imperative mood; `Fixes #N` in body when closing a bug issue.
-- **PR body**: `Fixes #N`, summary of approach, test plan.
+- **PR body**: accurate closing semantics (`Fixes` / `Part of` / `Addresses`), summary of approach, test plan.
+- **Fixer PR comments**: brief comments explaining what changed and why (see Phase 2).
 - **Test policy**: whether existing test assertions may be changed (many repos: add tests, don't change expected behavior without human review).
 - **Escalation label**: label applied when the loop exhausts (e.g. `needs developer attention`).
 
@@ -78,7 +79,7 @@ gh pr checkout $PR_NUMBER
 
 ### Inspect PR state
 
-Round markers use the prefix `fix-bug-round` (HTML comments). Use the same prefix in every repo copy of this skill so resume logic stays portable.
+Round markers use the prefix `fix-bug-round` (HTML comments). Fixer summaries use `fix-bug-fix-summary`. Use the same prefixes in every repo copy of this skill so resume logic stays portable.
 
 ```bash
 # Count review-round markers from automated reviewer:
@@ -101,11 +102,47 @@ gh pr checks $PR_NUMBER
 
 **Fallback when markers are missing**: Use `max(marker_count, substantive_review_comment_count)` as round estimate. If ambiguous, treat as round 0 and start fresh.
 
+### Scope selection (umbrella / meta issues)
+
+Some issues track many bugs (sub-issues, checklists, or long itemised lists). **Fix one thing per PR** — never attempt the whole umbrella in a single pass.
+
+**Detect umbrella issues** before implementing:
+
+```bash
+# Sub-issues (GitHub task lists / linked children)
+gh issue view $ISSUE_NUMBER --json title,body,labels,comments
+gh issue list --search "is:issue $ISSUE_NUMBER" --json number,title,state,labels
+# Also scan the issue body for unchecked `- [ ]` items or numbered bug lists
+```
+
+| Issue shape | Pick exactly one |
+|-------------|------------------|
+| Open sub-issues | Highest-priority open child (priority labels, then smallest/isolated fix) |
+| Closed sub-issues + open parent | Next open child, or one unchecked checklist item on the parent |
+| Checklist / itemised list, no sub-issues | One unchecked item — prefer the most obvious or self-contained |
+| Single clear bug | The whole issue (normal case) |
+
+**Record scope explicitly** before coding:
+
+- Set `SCOPE_ISSUE` to the child issue number when fixing a sub-issue; otherwise the parent/issue you were pointed at.
+- Note which checklist item or sub-issue you chose and why (one sentence).
+
+**Closing semantics** (must match what the PR actually does):
+
+| Situation | PR body / commit footer |
+|-----------|-------------------------|
+| Fully fixes one issue | `Fixes #N` |
+| Fixes one child of an umbrella parent | `Fixes #child` and `Part of #parent` |
+| Partial progress on a single issue (one checklist item) | `Part of #N` — do **not** use `Fixes #N` on the parent |
+| Investigation only, no fix yet | `Related to #N` — rare; prefer not opening a PR |
+
+When in doubt, under-close (`Part of`) rather than over-close (`Fixes` on a parent meta issue).
+
 ## Phase 2: Fix implementation
 
 Skip steps already done when resuming an existing PR (e.g. branch exists, partial fix landed).
 
-1. **Read the bug report thoroughly** — issue body, all comments (especially triage bot comments), linked PR discussion, any linked docs.
+1. **Read the bug report thoroughly** — issue body, all comments (especially triage bot comments), linked PR discussion, any linked docs. If the issue is an umbrella, complete **Scope selection** above and fix only the chosen item.
 2. **Identify root cause** — trace the actual code path; reproduce with a failing test when possible. Don't guess from the description alone.
 3. **Consider 2–3 approaches** — pick the smallest correct diff. Prefer fixing the shared function once over patching each caller.
 4. **Implement** — follow the repo's agent guide and style conventions.
@@ -116,7 +153,7 @@ Skip steps already done when resuming an existing PR (e.g. branch exists, partia
    git commit -m "$(cat <<'EOF'
    Short imperative summary
 
-   Fixes #N. Explanation of why this approach was chosen.
+   Fixes #SCOPE_ISSUE. Part of #PARENT if umbrella. Why this approach.
    EOF
    )"
    git push -u origin HEAD
@@ -125,7 +162,11 @@ Skip steps already done when resuming an existing PR (e.g. branch exists, partia
    ```bash
    gh pr create --title "Fix: <short description>" --body "$(cat <<'EOF'
    ## Summary
-   Fixes #N. <1-2 sentences on the approach.>
+   <1-2 sentences on the approach.>
+
+   ## Closes
+   - Fixes #SCOPE_ISSUE (or Part of #PARENT — match actual scope)
+   - <If umbrella: which sub-issue or checklist item this addresses>
 
    ## Test plan
    - [ ] Targeted tests pass
@@ -134,6 +175,20 @@ Skip steps already done when resuming an existing PR (e.g. branch exists, partia
    EOF
    )"
    ```
+8. **Post a fixer summary comment** on the PR (required after initial push and after each round of review fixes):
+   ```bash
+   gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
+   <!-- fix-bug-fix-summary -->
+   ## Fix summary
+
+   **Scope**: Fixes #SCOPE_ISSUE / Part of #PARENT — <which sub-issue or checklist item, if umbrella>
+   **Root cause**: <one sentence>
+   **Approach**: <why this fix, not an alternative>
+   **Not in scope**: <what was deliberately left for a follow-up PR>
+   EOF
+   )"
+   ```
+   Keep it brief (4–6 sentences). The reviewer reads the diff; this comment explains intent for humans and the next automation pass. Update the PR **Closes** section if scope changed while implementing.
 
 ## Phase 3: Review loop
 
@@ -152,6 +207,7 @@ Spawn a Task subagent with these characteristics:
 >
 > **Read the diff**: `gh pr diff $PR_NUMBER`
 >
+> **Read fixer intent** (if present): scan PR comments for `<!-- fix-bug-fix-summary -->` — use this for context, but judge correctness from the diff.
 > **Review criteria** (check each):
 > - Correctness: Does the fix address the root cause? Any logic errors?
 > - Regressions: Could this break existing behavior? Check callers of modified functions.
@@ -200,7 +256,8 @@ if round >= 3 and not approved:
 - Address all 🔴 (must fix) and 🟡 (should fix) items.
 - 🟢 (nitpick) items: fix if trivial, skip if not.
 - Run tests and lint before pushing.
-- Do NOT post your own review or evaluate your changes — the reviewer will check on the next pass.
+- Post a **fixer summary comment** (step 8 above) describing what you changed in response to the review — do not push silently.
+- Do NOT post your own code review or approve your changes — the independent reviewer will check on the next pass.
 
 ## Phase 4: Escalation
 
@@ -247,9 +304,11 @@ These apply regardless of marker state:
 - **Human intervention**: If a human has pushed commits or posted comments since the last automation activity, escalate rather than overwriting.
 - **Already resolved**: If the issue is closed or PR is merged, exit immediately.
 - **PR without linked issue**: Workflow still runs; omit issue labels/steps that need `ISSUE_NUMBER` or ask the user for the bug issue number.
+- **Umbrella issues**: One bug per PR. Re-read `fix-bug-fix-summary` comments on resume to recover chosen scope.
+- **Over-closing**: Never put `Fixes #N` on a parent meta issue unless this PR resolves every tracked item. Prefer `Part of #N` plus `Fixes #child`.
 
 ## Copying to another repo
 
 1. Copy `.agents/skills/fix-bug/SKILL.md` unchanged except **Repo conventions** — replace the pathmc subsection with that repo's commands and policies (or a single pointer to its `AGENTS.md`).
-2. Keep marker prefixes (`fix-bug-round`, `fix-bug-escalation`) identical so cross-repo tooling and resume logic stay consistent.
+2. Keep marker prefixes (`fix-bug-round`, `fix-bug-escalation`, `fix-bug-fix-summary`) identical so cross-repo tooling and resume logic stay consistent.
 3. Adjust escalation label name only in **Repo conventions** if the target org uses a different label.
