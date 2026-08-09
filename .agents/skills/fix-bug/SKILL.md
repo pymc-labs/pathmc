@@ -140,7 +140,6 @@ Skip steps already done when resuming an existing PR (e.g. branch exists, partia
 ### Spawning the reviewer subagent
 
 Spawn a Task subagent with these characteristics:
-- **Model**: `composer-2.5`
 - **Fresh context**: The reviewer has NO knowledge of your fix reasoning.
 - **Prompt**: Include the PR number, the diff (or instruct it to read via `gh pr diff`), and the review criteria below.
 - **Role boundary**: The reviewer NEVER modifies code. Its only output is a PR comment.
