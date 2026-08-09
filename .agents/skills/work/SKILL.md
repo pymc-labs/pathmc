@@ -217,9 +217,40 @@ Same pattern as `fix-bug`: label PR + issue with `needs developer attention`, po
 | Review | `code-review` |
 | Bugs | `fix-bug` (separate entry point) |
 
-## Copying to another repo
+## Bringing `work` to a new repo
 
-1. Copy `.agents/skills/work/SKILL.md`; update **Repo conventions**.
-2. Install Matt Pocock sub-skills: `npx skills@latest add mattpocock/skills --skill grill-with-docs --skill to-spec --skill implement --skill tdd --skill code-review --skill grilling --skill domain-modeling --agent cursor --copy -y`
-3. Run `setup-matt-pocock-skills` once, or copy `docs/agents/` from a configured repo.
-4. Keep marker prefixes identical for portable resume logic.
+An agent asked to port this stack should follow this checklist. Do **not** run `setup-matt-pocock-skills` unless the target repo is non-GitHub or needs custom triage labels — on a normal GitHub repo, Phase 0 or copying `docs/agents/` is enough.
+
+### What to copy
+
+| Copy | Why |
+|------|-----|
+| `.agents/skills/work/SKILL.md` | The orchestrator |
+| `.agents/skills/fix-bug/SKILL.md` | Bug workflow (separate entry point, same loop pattern) |
+| Matt sub-skills (see below) or run `npx skills@latest add mattpocock/skills --skill grill-with-docs --skill to-spec --skill implement --skill tdd --skill code-review --skill grilling --skill domain-modeling --copy -y` | Internal phases `work` delegates to |
+| `docs/agents/issue-tracker.md`, `triage-labels.md`, `domain.md` | Repo config sub-skills read |
+| `skills-lock.json` | Optional; tracks vendored skill versions for `npx skills update` |
+
+Update the **Repo conventions** section in `work` and `fix-bug` for the target repo (test commands, branch naming, lint). Add an **Agent skills** block to the target's `AGENTS.md`.
+
+Keep marker prefixes (`work-*`, `fix-bug-*`) identical so GitHub state is portable.
+
+### Config: three ways to get `docs/agents/`
+
+| Situation | What to do |
+|-----------|------------|
+| **pathmc itself** | Nothing — `docs/agents/` is already committed. No setup ever. |
+| **New GitHub repo** | Copy `docs/agents/` from pathmc and edit repo conventions; **or** let `work` Phase 0 auto-copy from `.agents/skills/setup-matt-pocock-skills/issue-tracker-github.md` on first run. |
+| **GitLab, Linear, local markdown, or custom labels** | Run `setup-matt-pocock-skills` **once**, interactively, with a human. |
+
+### Do we need `setup-matt-pocock-skills`?
+
+**Usually no.** It is a human-facing wizard for edge cases. pathmc never ran it — we wrote `docs/agents/` directly from the templates that ship inside the setup skill folder. That produces the same result as running setup on a GitHub repo and accepting all defaults.
+
+Keep the setup skill vendored so an agent *can* invoke it when the target repo is not plain GitHub. For the common case (GitHub + default labels), copying `docs/agents/` or Phase 0 bootstrap is faster and needs no human in the loop.
+
+### After copying
+
+1. Edit **Repo conventions** in `work` and `fix-bug`.
+2. Create GitHub labels from `docs/agents/triage-labels.md` if they do not exist (`ready-for-agent`, `needs-human`, `needs developer attention`).
+3. Pilot: `work #<small-issue>` on a branch.

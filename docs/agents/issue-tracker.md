@@ -2,6 +2,8 @@
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
+This file was written for pathmc by adapting the template in `.agents/skills/setup-matt-pocock-skills/issue-tracker-github.md`. We did not run the interactive setup skill — the result is the same as accepting its GitHub defaults. See the **Bringing work to a new repo** section in `.agents/skills/work/SKILL.md` when porting this stack elsewhere.
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
