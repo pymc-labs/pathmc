@@ -38,26 +38,34 @@ class TestGuardNonGaussianPath:
         with pytest.raises(NotImplementedError, match="non-Gaussian"):
             _guard_non_gaussian_path(["X", "M", "Y"], families, "X -> M -> Y")
 
-    def test_poisson_raises(self):
+    def test_poisson_single_edge_passes(self):
+        """Single-edge path: one coefficient, no cross-scale product."""
+        families = {"Y": "poisson"}
+        _guard_non_gaussian_path(["X", "Y"], families, "X -> Y")
+
+    def test_negbinomial_single_edge_passes(self):
+        families = {"Y": "negbinomial"}
+        _guard_non_gaussian_path(["X", "Y"], families, "X -> Y")
+
+    def test_multi_hop_poisson_target_raises(self):
         families = {"Y": "poisson"}
         with pytest.raises(NotImplementedError, match="non-Gaussian"):
-            _guard_non_gaussian_path(["X", "Y"], families, "X -> Y")
-
-    def test_negbinomial_raises(self):
-        families = {"Y": "negbinomial"}
-        with pytest.raises(NotImplementedError, match="link-function scale"):
-            _guard_non_gaussian_path(["X", "Y"], families, "X -> Y")
+            _guard_non_gaussian_path(["X", "M", "Y"], families, "X -> M -> Y")
 
     def test_message_suggests_do(self):
         families = {"M": "bernoulli"}
         with pytest.raises(NotImplementedError, match="do\\(\\)-based simulation"):
             _guard_non_gaussian_path(["X", "M", "Y"], families, "X -> M -> Y")
 
-    def test_exogenous_non_gaussian_still_raises(self):
-        """Even exogenous nodes on the path trigger the guard."""
+    def test_exogenous_non_gaussian_passes(self):
+        """Source-node family does not affect the target regression coefficient."""
         families = {"X": "poisson"}
-        with pytest.raises(NotImplementedError, match="non-Gaussian"):
-            _guard_non_gaussian_path(["X", "Y"], families, "X -> Y")
+        _guard_non_gaussian_path(["X", "Y"], families, "X -> Y")
+
+    def test_bernoulli_mediator_single_edge_passes(self):
+        """M -> Y with bernoulli M: coefficient is on Y's Gaussian scale."""
+        families = {"M": "bernoulli", "Y": "gaussian"}
+        _guard_non_gaussian_path(["M", "Y"], families, "M -> Y")
 
 
 class TestEffectNonGaussianIntegration:
@@ -80,6 +88,24 @@ class TestEffectNonGaussianIntegration:
 
         with pytest.raises(NotImplementedError, match="non-Gaussian"):
             m.effect("X -> M -> Y")
+
+    def test_effect_ok_for_bernoulli_mediator_direct_path(self, mock_pymc_sample):
+        """Single-edge M -> Y is valid even when M is Bernoulli."""
+        rng = np.random.default_rng(42)
+        n = 200
+        X = rng.normal(size=n)
+        M = (X > 0).astype(float)
+        Y = M + rng.normal(scale=0.5, size=n)
+        df = pd.DataFrame({"X": X, "M": M, "Y": Y})
+
+        m = pathmc.model(
+            "M ~ X\nY ~ M + X",
+            data=df,
+            families={"M": "bernoulli"},
+        )
+        m.fit(random_seed=42)
+        result = m.effect("M -> Y")
+        assert result is not None
 
     def test_effect_ok_for_gaussian(self, mock_pymc_sample):
         rng = np.random.default_rng(42)

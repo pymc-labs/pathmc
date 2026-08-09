@@ -375,10 +375,17 @@ def _guard_non_gaussian_path(
     families: dict[str, str] | None,
     path: str,
 ) -> None:
-    """Raise if any endogenous node on *path* has a non-Gaussian family."""
-    if not families:
+    """Raise if a multi-edge path crosses a non-Gaussian link scale.
+
+    Each edge coefficient lives on the target regression's link scale. The
+    product-of-coefficients estimator is only invalid when multiple such
+    coefficients are multiplied across edges; a single-edge path has no
+    cross-scale product, and the source node's family is irrelevant.
+    """
+    if not families or len(nodes) < 3:
         return
-    bad = [n for n in nodes if families.get(n, "gaussian") in _NON_GAUSSIAN_FAMILIES]
+    targets = nodes[1:]
+    bad = [n for n in targets if families.get(n, "gaussian") in _NON_GAUSSIAN_FAMILIES]
     if bad:
         raise NotImplementedError(
             f"effect('{path}') uses the product-of-coefficients method which "
@@ -434,7 +441,8 @@ def compute_path_effect(
     ValueError
         If a node in the path is not endogenous or an edge does not exist.
     NotImplementedError
-        If any endogenous node on the path has a non-Gaussian family.
+        If a multi-edge path includes a non-Gaussian edge target whose
+        coefficient would be multiplied across link scales.
     """
     nodes = [n.strip() for n in path.split("->")]
     _guard_non_gaussian_path(nodes, families, path)
