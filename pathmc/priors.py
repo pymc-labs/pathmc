@@ -19,9 +19,14 @@ priors using the ``Prior`` class from ``pymc_extras``.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pymc_extras.prior import Prior
 
 from pathmc.parse import HSGPCall, Spec, TransformCall
+
+if TYPE_CHECKING:
+    from pathmc.panel import PanelInfo
 
 PriorConfig = dict[str, Prior]
 """Mapping from parameter name to ``Prior`` specification."""
@@ -34,6 +39,7 @@ def default_priors(
     families: dict[str, str] | None = None,
     pooling: str | dict | None = None,
     latent: set[str] | None = None,
+    panel_info: PanelInfo | None = None,
 ) -> PriorConfig:
     """Build default priors for all customizable model parameters.
 
@@ -71,7 +77,7 @@ def default_priors(
     seen_transform_params: set[str] = set()
 
     for reg in spec.regressions:
-        if get_free_predictor_columns(reg):
+        if get_free_predictor_columns(reg, pooling=pooling, panel_info=panel_info):
             priors[f"beta_{reg.lhs}"] = Prior("Normal", mu=0, sigma=10)
 
         family = families.get(reg.lhs, "gaussian")

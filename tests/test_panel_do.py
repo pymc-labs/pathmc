@@ -13,9 +13,12 @@
 #   limitations under the License.
 """Gate tests for M16: Time-forward do(simulate_over='time')."""
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
+import xarray as xr
 
 import pathmc
 
@@ -44,7 +47,12 @@ def panel_lag_data():
 
 @pytest.fixture(scope="module")
 def panel_lag_model(panel_lag_data, mock_pymc_sample_module):
-    """Fitted panel model with lag structure."""
+    """Fitted panel model with lag structure and pinned oracle posterior.
+
+    Posterior pinning is only for ``do()`` propagation tests: mock sampling
+    does not respect the identified partial-pooling geometry. Compile-time
+    structure (intercept drop, coords) is covered separately without pinning.
+    """
     model = pathmc.model(
         "sales ~ lag(spend)",
         data=panel_lag_data,
@@ -52,7 +60,31 @@ def panel_lag_model(panel_lag_data, mock_pymc_sample_module):
         pooling="partial",
     )
     model.fit(draws=50, tune=50, chains=2, cores=1, random_seed=42)
+
+    # Mock sampling does not respect the identified partial-pooling geometry;
+    # pin coefficients from the fixture DGP (sales = 5 + 0.5 * lag(spend)).
+    posterior = model._idata["posterior"].dataset.copy(deep=True)
+    posterior["beta_sales"].loc[{"sales_predictors": "lag(spend)"}] = 0.5
+    posterior["mu_alpha_sales"] = posterior["mu_alpha_sales"] * 0.0 + 5.0
+    posterior["alpha_sales"] = posterior["alpha_sales"] * 0.0
+    posterior["sigma_alpha_sales"] = posterior["sigma_alpha_sales"] * 0.0 + 0.1
+    posterior["sigma_sales"] = posterior["sigma_sales"] * 0.0 + 0.5
+    model._idata["posterior"] = xr.DataTree(posterior)
     return model
+
+
+def test_panel_lag_compile_drops_intercept_and_keeps_mu_alpha(panel_lag_data):
+    """Compile-time check for partial-pooling intercept drop (no posterior pin)."""
+    model = pathmc.model(
+        "sales ~ lag(spend)",
+        data=panel_lag_data,
+        panel={"unit": "region", "time": "week"},
+        pooling="partial",
+    )
+    free_rv_names = {rv.name for rv in model.pymc_model.free_RVs}
+    assert "Intercept" not in model.pymc_model.coords["sales_predictors"]
+    assert "mu_alpha_sales" in free_rv_names
+    assert "alpha_sales" in free_rv_names
 
 
 class TestPanelDoAPI:
@@ -86,6 +118,45 @@ class TestPanelDoAPI:
         model.fit(draws=5, tune=5, chains=1, cores=1, random_seed=42)
         with pytest.raises(ValueError, match="panel"):
             model.do(set={"X": 1.0}, simulate_over="time")
+
+    def test_scan_panel_requires_time_simulation(self, panel_lag_model):
+        """Temporal scan models require time-forward simulation."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(
+                ValueError, match=r"temporal dependencies.*simulate_over='time'"
+            ):
+                panel_lag_model.do(set={"spend": 100.0}, kind="mean")
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda model: model.ate("sales", "spend"),
+            lambda model: model.prob("sales > 0", set={"spend": 10.0}),
+        ],
+        ids=["ate", "prob"],
+    )
+    def test_scan_panel_wrappers_require_time_simulation(self, panel_lag_model, call):
+        """Wrappers expose the same actionable temporal-simulation error."""
+        with pytest.raises(
+            ValueError,
+            match=r"temporal dependencies.*simulate_over='time'.*ate.*prob",
+        ):
+            call(panel_lag_model)
+
+    def test_non_scan_panel_uses_cross_sectional_do(
+        self, panel_lag_data, mock_pymc_sample
+    ):
+        """A panel without temporal dependencies retains flat-row simulation."""
+        model = pathmc.model(
+            "sales ~ spend",
+            data=panel_lag_data,
+            panel={"unit": "region", "time": "week"},
+            pooling="partial",
+        )
+        model.fit(draws=5, tune=5, chains=1, cores=1, random_seed=42)
+
+        assert np.isfinite(model.do(set={"spend": 10.0}).mean("sales"))
 
 
 class TestTemporalPropagation:
@@ -121,4 +192,5 @@ class TestContrastArithmetic:
         contrast = r1 - r0
         hdi = contrast.hdi("sales")
         assert len(hdi) == 2
-        assert hdi[0] < hdi[1]
+        assert np.all(np.isfinite(hdi))
+        assert hdi[0] <= hdi[1]

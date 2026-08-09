@@ -30,6 +30,7 @@ from conftest import (
     NO_INTERCEPT_SPEC,
     SEMICOLON_SPEC,
     DUPLICATE_LHS_SPEC,
+    DUPLICATE_LABEL_SPEC,
 )
 
 
@@ -163,6 +164,14 @@ class TestParseErrors:
     def test_duplicate_lhs_raises(self):
         with pytest.raises(Exception, match="(?i)duplicate"):
             parse_spec(DUPLICATE_LHS_SPEC)
+
+    def test_duplicate_label_raises(self):
+        with pytest.raises(Exception, match="Label 'a' used in both"):
+            parse_spec(DUPLICATE_LABEL_SPEC)
+
+    def test_duplicate_label_within_equation_raises(self):
+        with pytest.raises(Exception, match="used more than once"):
+            parse_spec("Y ~ a*X + a*Z")
 
     def test_empty_spec_raises(self):
         with pytest.raises(Exception):

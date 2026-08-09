@@ -176,6 +176,20 @@ omitted_model.test_implications()
 The implied independence T ⊥⊥ Y | M fails because the omitted U still links T and Y after conditioning on M. `test_implications()` cannot name U for you, but it can show that the declared structure is inconsistent with the data.
 
 
+## Declared residual covariance (`~~`)
+
+When you *know* two equations share an unobserved common cause, you can declare it explicitly with a residual covariance block:
+
+```
+W ~ X + Y
+X ~~ Y
+```
+
+The `~~` syntax does not add a node to the DAG — it records that X and Y are confounded by something you have not measured. pathmc expands each `~~` block into a synthetic latent confounder internally before running d-separation, so `implied_independences()` and `test_implications()` never treat a declared confounded pair as an independence that should hold in the data. A model that correctly specifies `X ~~ Y` will not report X ⊥ Y as a violation, even when X and Y are strongly correlated in the sample.
+
+The same latent projection is used by `is_identifiable()`, `adjustment_sets()`, and `collider_warnings()`, so identification diagnostics and implication tests reason about `~~` consistently. If you omit the `~~` declaration instead, the helpers assume no shared unobserved cause — the scenario in the previous section.
+
+
 ## Catching a missing edge
 
 Now suppose the true data-generating process includes an edge the DAG doesn't capture.

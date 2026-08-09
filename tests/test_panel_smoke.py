@@ -71,7 +71,7 @@ def fitted_full_panel(full_panel_data):
 
 
 class TestScanNonGaussianValidation:
-    """Scan panel validation for non-Gaussian endogenous predictors."""
+    """Scan panel support for non-Gaussian endogenous predictors (#191)."""
 
     def test_terminal_non_gaussian_scan_outcome_allowed(self, binary_panel_data):
         model = pathmc.model(
@@ -82,30 +82,25 @@ class TestScanNonGaussianValidation:
         )
 
         assert "_use_observed_carry" in model.pymc_model.named_vars
+        assert "discrete_uniforms_M" not in model.pymc_model.named_vars
 
-    def test_non_gaussian_scan_intermediary_rejected(self, binary_panel_data):
-        with pytest.raises(
-            ValueError,
-            match="non-Gaussian endogenous variables as predictors",
-        ):
-            pathmc.model(
-                "M ~ X\nY ~ M + lag(Y)",
-                data=binary_panel_data,
-                panel={"unit": "region", "time": "week"},
-                families={"M": "bernoulli"},
-            )
+    def test_non_gaussian_scan_intermediary_compiles(self, binary_panel_data):
+        model = pathmc.model(
+            "M ~ X\nY ~ M + lag(Y)",
+            data=binary_panel_data,
+            panel={"unit": "region", "time": "week"},
+            families={"M": "bernoulli"},
+        )
+        assert "discrete_uniforms_M" in model.pymc_model.named_vars
 
-    def test_non_gaussian_scan_self_lag_rejected(self, binary_panel_data):
-        with pytest.raises(
-            ValueError,
-            match="non-Gaussian endogenous variables as predictors",
-        ):
-            pathmc.model(
-                "M ~ X + lag(M)",
-                data=binary_panel_data,
-                panel={"unit": "region", "time": "week"},
-                families={"M": "bernoulli"},
-            )
+    def test_non_gaussian_scan_self_lag_compiles(self, binary_panel_data):
+        model = pathmc.model(
+            "M ~ X + lag(M)",
+            data=binary_panel_data,
+            panel={"unit": "region", "time": "week"},
+            families={"M": "bernoulli"},
+        )
+        assert "discrete_uniforms_M" in model.pymc_model.named_vars
 
 
 @pytest.mark.slow
