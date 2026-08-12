@@ -13,11 +13,13 @@
 #   limitations under the License.
 """Optional delegation to ``pymc_marketing.mmm.transformers``.
 
-``pymc-marketing`` 1.0.0 supports PyMC 6.0.x but not the PyMC 6.2+ /
-PyTensor 3.1+ stack pathmc currently requires. When a compatible
-``pymc-marketing`` release is installed, the built-in transforms delegate
-through the xtensor bridging helpers below; otherwise ``pathmc.transforms``
-falls back to vendored pytensor kernels with matching numerics.
+``pymc-marketing`` 1.0.0 pins ``pymc<6.1``, which transitively constrains
+``pytensor<3.1``. pathmc requires ``pytensor>=3.1.1`` for exog-lag scan carry
+(#333), so the two stacks cannot be installed together until upstream relaxes
+its pins. When a compatible ``pymc-marketing`` release is installed, the
+built-in transforms delegate through the xtensor bridging helpers below;
+otherwise ``pathmc.transforms`` falls back to vendored pytensor kernels with
+matching numerics.
 """
 
 from __future__ import annotations

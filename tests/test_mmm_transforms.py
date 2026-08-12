@@ -122,6 +122,15 @@ class TestTransformApply:
         out = transform.apply_pymc(x, {"decay": 0.5, "theta": 0.0}).eval()
         assert out.shape == (5,)
 
+    def test_delayed_theta_prior_is_left_skewed(self):
+        import pymc as pm
+
+        transform = DelayedAdstock()
+        with pm.Model():
+            prior = transform.emit_prior("peak", transform.param_specs["theta"])
+        assert prior.owner.op.name == "beta"
+        assert prior.name == "peak"
+
     def test_weibull_apply_pymc(self):
         x = pt.as_tensor_variable(np.linspace(0, 1, 8))
         transform = WeibullAdstock(l_max=4)

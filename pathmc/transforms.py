@@ -22,7 +22,7 @@ release is installed (see :mod:`pathmc._pmm_backend`); otherwise they use
 vendored pytensor kernels with matching numerics. Additional MMM variants
 (delayed / Weibull adstock, Michaelis-Menten saturation) follow the same
 pattern. Install ``pymc-marketing`` manually once a release compatible with
-pathmc's PyMC 6.2+ stack is published upstream to activate delegation.
+pathmc's ``pytensor>=3.1.1`` floor is published upstream to activate delegation.
 """
 
 from __future__ import annotations
@@ -282,16 +282,11 @@ class _ConvAdstockBase(Transform):
         return True
 
     def step(self, x_t: Any, state: Any, params: dict[str, Any]) -> tuple[Any, Any]:
-        if self.l_max != self.DEFAULT_L_MAX or self.normalize != self.DEFAULT_NORMALIZE:
-            raise NotImplementedError(
-                f"{type(self).__name__}(l_max={self.l_max}, "
-                f"normalize={self.normalize}) is not supported on scan-compiled "
-                f"panel models. Use the default configuration or restructure the "
-                f"model so the transform does not need scan compilation."
-            )
         raise NotImplementedError(
-            f"{type(self).__name__} does not implement a scan step; only geometric "
-            f"adstock supports temporal propagation via pytensor.scan."
+            f"{type(self).__name__} is vectorized-only and cannot be used on "
+            f"scan-compiled panel models (models with lag() or geometric "
+            f"adstock() combined with panel data). Use cross-sectional data, "
+            f"remove temporal dependencies, or switch to geometric adstock()."
         )
 
 
@@ -359,6 +354,11 @@ class DelayedAdstock(_ConvAdstockBase):
         "decay": ParamSpec(constraint="unit_interval", default_prior="Beta(2, 2)"),
         "theta": ParamSpec(constraint="unit_interval", default_prior="Beta(2, 5)"),
     }
+
+    def emit_prior(self, param_name: str, spec: ParamSpec) -> Any:
+        if spec.default_prior == "Beta(2, 5)":
+            return pm.Beta(param_name, alpha=2, beta=5)
+        return super().emit_prior(param_name, spec)
 
     def apply_pymc(
         self,
