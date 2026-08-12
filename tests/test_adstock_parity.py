@@ -20,10 +20,10 @@ plain-numpy reference that mirrors
     y[t] = sum_{i=0}^{l_max-1} alpha**i * x[t-i]   (zero-padded before t=0)
     y[t] /= sum_{i=0}^{l_max-1} alpha**i            (only when normalize=True)
 
-pymc-marketing is not installed in this environment (it does not yet
-support PyMC 6 / ArviZ 1 — see the module docstring in
-``pathmc/transforms.py``), so parity is checked against this independently
-implemented oracle rather than by importing the upstream package directly.
+When ``pymc-marketing`` is not installed (or not yet compatible with the
+current PyMC stack — see :mod:`pathmc._pmm_backend`), parity is checked
+against this independently implemented oracle rather than by importing the
+upstream package directly.
 """
 
 from __future__ import annotations
