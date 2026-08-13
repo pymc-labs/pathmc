@@ -1,0 +1,221 @@
+---
+title: "SCM vs Regression Adjustment"
+guide-section: "Concepts"
+status: new
+jupyter: pathmc
+---
+
+# SCM vs Regression Adjustment
+
+Does increasing treatment `X` raise outcome `Y` when confounder `Z` affects both, and mediator `M` carries part of the effect?
+This page runs that total-effect question through two estimators on the same DAG and dataset: a full structural causal model (SCM) with `ate()`, and a backdoor-adjusted outcome regression via `adjustment_model().ate()`.
+When the assumptions line up, the two ATEs should agree; when the structural model is wrong in places the adjustment model never had to model, they can diverge without either estimator being "broken."
+
+## The causal question and DAG
+
+We simulate a linear-Gaussian system with a fork confounder and a mediator on the path from `X` to `Y`.
+
+```{python}
+import numpy as np
+import pandas as pd
+
+rng = np.random.default_rng(42)
+n = 400
+
+Z = rng.normal(size=n)
+X = 0.6 * Z + rng.normal(scale=0.4, size=n)
+M = 0.5 * X + rng.normal(scale=0.3, size=n)
+Y = 0.7 * M + 0.2 * X + 0.4 * Z + rng.normal(scale=0.3, size=n)
+
+df = pd.DataFrame({"Z": Z, "X": X, "M": M, "Y": Y})
+```
+
+The structural specification encodes every mechanism we believe is active.
+
+```{python}
+import pathmc
+
+spec = """
+X ~ Z
+M ~ X
+Y ~ M + X + Z
+"""
+
+scm = pathmc.model(spec, data=df)
+scm.graph()
+```
+
+The research question is the **total effect** of `X` on `Y`: how much does `Y` change if we intervene to set `X` one unit higher, holding the causal graph fixed?
+That is an interventional quantity, not the slope from a naive regression of `Y` on `X`.
+
+## Shared identification
+
+Before fitting anything, read the DAG to see which covariates must enter an adjustment set.
+`adjustment_sets()` works on the data-free spec, so you can check identification before committing to MCMC.
+
+```{python}
+dag = pathmc.model(spec)
+dag.adjustment_sets("X", "Y")
+```
+
+Here the only backdoor path from `X` to `Y` runs through `Z`, so the minimal adjustment set is `{Z}`.
+A nonempty set means the outcome regression must condition on those variables to target the causal effect rather than a biased association.
+
+When no backdoor path exists, the minimal set is empty and the default reduced formula is just `Y ~ X`.
+For example, in a simple chain `M ~ X` and `Y ~ M + X` with no confounders, `adjustment_sets("X", "Y")` returns `[set()]`.
+
+```{python}
+chain = pathmc.model("M ~ X\nY ~ M + X", data=df[["X", "M", "Y"]])
+chain.adjustment_sets("X", "Y")
+```
+
+If several **minimal** sets exist, pathmc lists them but does not pick one for you.
+`adjustment_model()` raises until you pass `adjustment_set=` explicitly.
+
+```python
+# | eval: false
+# Several minimal sets: pass adjustment_set={"Z2"} or {"Z1"}, not both implicitly.
+multi_spec = "M1 ~ Z1 + X\nM2 ~ Z2\nY ~ M1 + M2\nX ~ Z2"
+multi = pathmc.model(multi_spec, data=df)
+multi.adjustment_sets("X", "Y")
+multi.adjustment_model("X -> Y")  # ValueError: pass adjustment_set= explicitly
+```
+
+## Estimator A: structural SCM and g-computation
+
+Fit the **full** structural model: every equation in the spec is estimated jointly.
+`ate("Y", "X")` applies graph surgery and forward-simulates through the fitted mechanisms.
+Pearl calls this **structural g-computation** (truncated factorization): intervene on `X`, propagate through `M` and `Y`, and average the contrast.
+
+```{python}
+scm.fit(draws=400, tune=400, chains=2, cores=1, random_seed=42)
+scm_ate = scm.ate("Y", "X", values=(0.0, 1.0))
+scm_ate
+```
+
+The returned `EstimandResult` is the shared result type for causal contrasts: posterior mean, HDI, and sign probabilities use the same accessors whether the estimator is structural or regression-based.
+
+```{python}
+scm_ate.mean()
+scm_ate.hdi(prob=0.94)
+scm_ate.prob("> 0")
+```
+
+## Estimator B: regression adjustment and standardization
+
+`adjustment_model()` keeps the **original DAG** for context but fits a single reduced outcome equation identified by the backdoor criterion.
+It exposes the chosen set and formula before you sample.
+
+```{python}
+adjusted = scm.adjustment_model("X -> Y")
+adjusted.adjustment_set
+adjusted.formula
+```
+
+This path is **outcome-regression standardization**: fit `Y ~ X + Z`, predict counterfactual outcomes at each observed covariate profile, and average the contrast.
+It is g-computation on one equation rather than on the full factorization.
+
+```{python}
+adjusted.fit(draws=400, tune=400, chains=2, cores=1, random_seed=42)
+adj_ate = adjusted.ate(values=(0.0, 1.0))
+adj_ate
+```
+
+The stamped metadata records `estimator="regression_adjustment"`, but the accessors match the SCM run.
+
+```{python}
+adj_ate.mean()
+adj_ate.hdi(prob=0.94)
+adj_ate.prob("> 0")
+```
+
+## Compare the ATEs
+
+Side by side, both estimators target the same total-effect estimand when the linear-Gaussian structural model is correctly specified and the adjustment set blocks every backdoor path.
+
+```{python}
+import pandas as pd
+
+comparison = pd.DataFrame({
+    "Estimator": [
+        "Structural SCM (g-computation)",
+        "Regression adjustment (standardization)",
+    ],
+    "ATE mean": [scm_ate.mean(), adj_ate.mean()],
+    "94% HDI low": [
+        scm_ate.hdi(prob=0.94)[0],
+        adj_ate.hdi(prob=0.94)[0],
+    ],
+    "94% HDI high": [
+        scm_ate.hdi(prob=0.94)[1],
+        adj_ate.hdi(prob=0.94)[1],
+    ],
+    "P(ATE > 0)": [scm_ate.prob("> 0"), adj_ate.prob("> 0")],
+})
+comparison
+```
+
+With the simulated coefficients, the true total effect is about $0.5 \times 0.7 + 0.2 = 0.55$.
+The two posterior means should land near that value and near each other, within MCMC noise.
+
+## When the estimators diverge
+
+Disagreement is not always a software bug.
+The SCM estimator propagates **every** equation you wrote; the adjustment estimator only needs the outcome equation and the adjustment set to be right for the total effect.
+
+Suppose we misspecify the `Y` equation by dropping the paths through `M` and `X`, keeping only `Y ~ Z` while still listing `M ~ X` in the spec.
+
+```{python}
+misspec = pathmc.model("X ~ Z\nM ~ X\nY ~ Z", data=df)
+misspec.fit(draws=400, tune=400, chains=2, cores=1, random_seed=42)
+misspec_ate = misspec.ate("Y", "X", values=(0.0, 1.0))
+misspec_ate.mean()
+```
+
+Structural g-computation has no route from `do(X)` to `Y` in that wrong `Y` equation, so the SCM ATE collapses toward zero even though the data still carry a real effect of `X` on `Y`.
+The adjustment model built from the **correct** DAG still fits `Y ~ X + Z` and recovers a nonzero ATE.
+
+```{python}
+pd.DataFrame({
+    "Estimator": [
+        "Correct SCM",
+        "Misspecified SCM",
+        "Regression adjustment (correct DAG)",
+    ],
+    "ATE mean": [
+        scm_ate.mean(),
+        misspec_ate.mean(),
+        adj_ate.mean(),
+    ],
+})
+```
+
+The lesson: a focused outcome regression can be more robust to misspecification **outside** the outcome equation, while a full SCM rewards correct mechanism writing everywhere.
+
+## What only the SCM can answer
+
+Total-effect ATE parity does not mean the two objects are interchangeable.
+The fitted SCM still supports path-specific queries and interventions on mediators.
+
+```{python}
+scm.effect("X -> M -> Y")
+scm.do(set={"M": 1.0})
+```
+
+`AdjustmentModel` is scoped to its designated `X -> Y` query.
+It has no `effect()` method and no way to intervene on `M` while retaining the full DAG semantics; path-specific and mediator interventions require the structural `PathModel`.
+
+::: {.callout-note}
+## Same `ate()`, different scope
+
+Both estimators expose `ate()` with the same `EstimandResult` accessors.
+The SCM answers any query the graph supports; the adjustment facade answers one treatment-outcome pair with a reduced likelihood.
+:::
+
+## Next steps
+
+The tradeoff table in [Estimation Approaches](estimation-approaches.qmd) summarizes assumptions versus scope at the conceptual level.
+This page showed the computation on one problem.
+
+For estimand definitions and the do-operator API, see [Causal Inference](causal-inference.qmd).
+For flexible GLM formulas and GAMs that pathmc does not own, [Bambi](https://bambinos.github.io/bambi/) remains a strong regression-adjustment backend once identification is settled.

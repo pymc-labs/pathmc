@@ -120,3 +120,5 @@ Rather than duplicate that functionality, pathmc focuses on what it uniquely pro
 
 What pathmc *does* provide to support the regression adjustment workflow is the **identification layer**: given a DAG, [`adjustment_sets()`](causal-inference.qmd) computes the minimal backdoor adjustment sets, [`is_identifiable()`](causal-inference.qmd) checks whether the effect is identified, and [`collider_warnings()`](causal-inference.qmd) flags problematic conditioning variables.
 These tools are useful regardless of which estimation approach you choose downstream.
+
+For a worked side-by-side comparison of structural `ate()` and native `adjustment_model().ate()` on one DAG and dataset, see [SCM vs Regression Adjustment](scm-vs-adjustment.qmd).
