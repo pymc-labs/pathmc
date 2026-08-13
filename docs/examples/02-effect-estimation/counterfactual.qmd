@@ -214,7 +214,7 @@ $$
 The counterfactual increase depends only on the direct $H \to Y$ coefficient. The other pathways ($X \to Y$, the $U$ terms) cancel out because they are unchanged by the intervention on $H$.
 :::
 
-### Bayesian counterfactual with posterior uncertainty
+### What's happening under the hood: manual implementation
 
 With real data, we don't know the true coefficients — we have posterior distributions over them. The three-step procedure extends naturally: for each posterior draw $d$, compute Joe's counterfactual using that draw's coefficient values.
 
@@ -260,6 +260,34 @@ print(f"  94% HDI:         [{y_cf_hdi[0]:.3f}, {y_cf_hdi[1]:.3f}]")
 
 The posterior mean lands close to the analytical result of 1.90. The HDI reflects uncertainty in the coefficient $c$ — with enough data, this interval shrinks around the true value.
 
+## The counterfactual API
+
+The manual implementation above shows exactly what pathmc does internally. The same computation is available as a single method call — no need to know parameter naming conventions or implement abduction yourself:
+
+```{python}
+cf_result = model.counterfactual(
+    evidence={"X": JOE_X, "H": JOE_H, "Y": JOE_Y},
+    do={"H": H_NEW},
+)
+print("Joe's counterfactual score (H → 2)")
+print(f"  Posterior mean:  {cf_result.mean('Y'):.3f}   (analytical = 1.90)")
+print(f"  94% HDI:         {cf_result.hdi('Y', prob=0.94)}")
+```
+
+The API returns a `DoResult` with the same `.mean()`, `.hdi()`, and contrast interface as `model.do()`.
+
+::: {.callout-note}
+This release supports fully observed, cross-sectional Gaussian linear SEMs. Panel models, latent variables, non-Gaussian families, and transform or lag terms are not yet supported.
+:::
+
+Counterfactual contrasts are valid only between counterfactuals computed from identical evidence; do not contrast a counterfactual with a population-level `do()` result.
+
+::: {.callout-warning}
+## This is not `pm.observe` + `pm.do`
+
+Counterfactuals operate across **two worlds** that share exogenous variables but differ in their structural equations. In the factual world, Joe's observed $Y = 1.5$ is *evidence* used to infer his $U_Y$. In the counterfactual world, $Y$ is the *output* we want to predict. You cannot express this as a single `pm.observe(Y=1.5)` + `pm.do(H=2)` call — observation conditions $Y$ in the generative model, but counterfactuals need the original equation for abduction and a modified equation for prediction. The `counterfactual()` method implements this two-pass logic directly on posterior draws.
+:::
+
 ## Population intervention vs individual counterfactual
 
 ```{python}
@@ -278,6 +306,8 @@ COLOR_JOE = "C0"
 
 do_val = do_result.mean("Y")
 do_hdi = do_result.hdi("Y", prob=0.94)
+y_cf_mean = cf_result.mean("Y")
+y_cf_hdi = cf_result.hdi("Y", prob=0.94)
 
 ax.errorbar(
     do_val,
@@ -324,7 +354,7 @@ The gap between the two estimates reflects the difference between asking about t
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.75))
 
-x_kde, y_kde, _ = az.kde(y_counterfactual)
+x_kde, y_kde, _ = az.kde(cf_result.draws("Y"))
 ax.plot(x_kde, y_kde, color=COLOR_JOE, lw=2)
 ax.fill_between(x_kde, y_kde, alpha=0.6, color=COLOR_JOE)
 ax.axvline(
@@ -378,7 +408,7 @@ The counterfactual change depends only on the **direct effect** of the intervene
 - **Counterfactuals** answer questions about specific individuals under hypothetical conditions — "what *would have happened* to this person?" — by conditioning on observed evidence before intervening [@pearl2016primer, §4.2.3].
 - **Pearl's three-step procedure** — abduction, action, prediction — turns a structural causal model into a counterfactual engine. The abduction step recovers the individual's $U$ values from their observed data; the prediction step holds those values fixed while simulating the hypothetical change.
 - **`do()` answers a different question**: the population-level average effect of an intervention, using $U \approx 0$ (the average person). For Joe, `do(H = 2)` predicts a score of $\approx 0.8$; the counterfactual predicts $\approx 1.9$ — the gap is entirely due to Joe's above-average $U$ values.
-- **In a Bayesian framework**, the three-step procedure yields a full posterior over the counterfactual, naturally propagating coefficient uncertainty into the individual prediction.
+- **`model.counterfactual()`** wraps the three-step procedure in a single call, returning a `DoResult` with the same interface as `do()`.
 - **In linear SEMs**, the counterfactual simplifies: the change in $Y$ equals the direct effect coefficient times the change in the intervened variable, because all other pathways cancel.
 
 ::: {.callout-note}

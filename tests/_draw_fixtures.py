@@ -119,6 +119,7 @@ def do_result_from_flat(
     n_chains: int | None = None,
     n_draws: int | None = None,
     n_units_per_var: dict[str, int] | None = None,
+    observed_by_time: dict[str, np.ndarray] | None = None,
 ) -> DoResult:
     """Construct a :class:`DoResult` from flat numpy dicts (tests only)."""
     return DoResult(
@@ -129,7 +130,8 @@ def do_result_from_flat(
             n_chains=n_chains,
             n_draws=n_draws,
             n_units_per_var=n_units_per_var,
-        )
+        ),
+        observed_by_time=observed_by_time,
     )
 
 

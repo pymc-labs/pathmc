@@ -107,6 +107,64 @@ class TestBlockVarDeterministics:
         assert "LKJCholeskyCov" in prior_str
 
 
+class TestBlockMemberDualWiring:
+    """Downstream equations split estimation vs generative block wiring (#217)."""
+
+    def test_likelihood_and_mu_det_use_different_block_inputs(
+        self, parallel_mediators_data
+    ):
+        """Y's likelihood mu uses observed M1/M2; mu_Y uses structural mu_M1/mu_M2."""
+        from pytensor.graph.traversal import ancestors
+
+        model = pathmc.model(PARALLEL_MEDIATORS_SPEC, data=parallel_mediators_data)
+        gen = model._gen_model
+
+        def named_ancestors(var: object) -> set[str]:
+            return {
+                name
+                for v in ancestors([var])
+                if (name := getattr(v, "name", None)) is not None
+            }
+
+        y_likelihood_mu = gen["Y"].owner.inputs[2]
+        mu_y_det = gen["mu_Y"]
+
+        assert y_likelihood_mu is not mu_y_det
+        assert "mu_M1" in named_ancestors(mu_y_det)
+        assert "mu_M2" in named_ancestors(mu_y_det)
+        assert "mu_M1" not in named_ancestors(y_likelihood_mu)
+        assert "mu_M2" not in named_ancestors(y_likelihood_mu)
+
+    def test_interaction_with_block_member_uses_observed_in_likelihood(self, rng):
+        """Interaction terms on block members also resolve via observed data."""
+        from pytensor.graph.traversal import ancestors
+
+        n = 80
+        t = rng.normal(size=n)
+        eps = rng.multivariate_normal([0, 0], [[0.16, 0.08], [0.08, 0.16]], size=n)
+        m1 = 0.6 * t + eps[:, 0]
+        m2 = 0.4 * t + eps[:, 1]
+        y = 0.3 * m1 * m2 + rng.normal(scale=0.5, size=n)
+        data = pd.DataFrame({"T": t, "M1": m1, "M2": m2, "Y": y})
+        spec = "M1 ~ T\nM2 ~ T\nY ~ M1:M2\nM1 ~~ M2"
+
+        model = pathmc.model(spec, data=data)
+        gen = model._gen_model
+
+        def named_ancestors(var: object) -> set[str]:
+            return {
+                name
+                for v in ancestors([var])
+                if (name := getattr(v, "name", None)) is not None
+            }
+
+        y_likelihood_mu = gen["Y"].owner.inputs[2]
+        mu_y_det = gen["mu_Y"]
+        assert y_likelihood_mu is not mu_y_det
+        assert "mu_M1" in named_ancestors(mu_y_det)
+        assert "mu_M1" not in named_ancestors(y_likelihood_mu)
+
+
 @pytest.mark.slow
 class TestResidualCovSampling:
     def test_residual_cov_model_samples(self, fitted_parallel_mediators):

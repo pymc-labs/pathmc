@@ -23,7 +23,7 @@ class ParseError(ValueError):
 
 
 class DuplicateEquationError(ParseError):
-    """Raised when a variable appears as LHS in more than one regression."""
+    """Raised when a regression or coefficient label is duplicated in the spec."""
 
 
 class CycleError(ValueError):

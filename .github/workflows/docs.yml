@@ -16,29 +16,23 @@ jobs:
     # Authors refresh the cache locally via `great-docs freeze <page>` (see the
     # "Building the docs" section of AGENTS.md, "Notebooks are frozen").
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0 # Full history for accurate page timestamps
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
       - name: Install package and dependencies
         # uv sync installs the locked dependency set from uv.lock (same as
         # `make setup`), so CI resolves the exact versions used in local dev.
         run: uv sync --all-extras
 
-      - name: Register `pathmc` Jupyter kernel
-        # `.qmd` files (and great-docs.yml) declare `jupyter: pathmc`, so the
-        # CI runner needs a kernelspec under that name pointing at the same
-        # Python interpreter the package was installed into above.
-        run: uv run python -m ipykernel install --user --name pathmc
-
       - name: Set up Quarto
-        uses: quarto-dev/quarto-actions/setup@v2
+        uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2
 
       - name: Build docs
-        run: uv run great-docs build
+        run: make docs
 
       - name: Verify agent-context files were generated
         # great-docs builds llms.txt / llms-full.txt / skill.md at build step 3,
@@ -57,7 +51,7 @@ jobs:
           done
 
       - name: Save docs artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: docs-html
           path: great-docs/_site
@@ -67,23 +61,78 @@ jobs:
     runs-on: ubuntu-latest
     needs: "build-docs"
     if: github.ref == 'refs/heads/main'
+    # Artifacts are scoped to the workflow run, not the attempt. A unique name
+    # per attempt lets "Re-run failed jobs" work after a deploy timeout.
+    env:
+      PAGES_ARTIFACT: github-pages-${{ github.run_attempt }}
     permissions:
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: >-
+        ${{ steps.deployment_try3.outputs.page_url ||
+        steps.deployment_try2.outputs.page_url ||
+        steps.deployment_try1.outputs.page_url }}
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: docs-html
           path: great-docs/_site
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: great-docs/_site
+          name: ${{ env.PAGES_ARTIFACT }}
 
+      # GitHub Pages deploys can fail transiently (queue stalls, "try again
+      # later"). Retry a few times before giving up; see actions/deploy-pages#406.
       - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+        id: deployment_try1
+        continue-on-error: true
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT }}
+          timeout: 180000 # fail fast; healthy deploys take ~1 min
+
+      - name: Wait before Pages deploy retry 2
+        if: steps.deployment_try1.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy to GitHub Pages (retry 2/3)
+        id: deployment_try2
+        if: steps.deployment_try1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT }}
+          timeout: 180000 # fail fast; healthy deploys take ~1 min
+
+      - name: Wait before Pages deploy retry 3
+        if: >-
+          steps.deployment_try1.outcome == 'failure' &&
+          steps.deployment_try2.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy to GitHub Pages (retry 3/3)
+        id: deployment_try3
+        if: >-
+          steps.deployment_try1.outcome == 'failure' &&
+          steps.deployment_try2.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT }}
+
+      - name: Require Pages deploy
+        if: always()
+        run: |
+          if [ "${{ steps.deployment_try1.outcome }}" = "success" ] || \
+             [ "${{ steps.deployment_try2.outcome }}" = "success" ] || \
+             [ "${{ steps.deployment_try3.outcome }}" = "success" ]; then
+            echo "Pages deploy succeeded"
+          else
+            echo "::error::GitHub Pages deploy failed after 3 attempts"
+            exit 1
+          fi
