@@ -236,4 +236,5 @@ The tradeoff table in [Estimation Approaches](estimation-approaches.qmd) summari
 This page showed the computation on one problem.
 
 For estimand definitions and the do-operator API, see [Causal Inference](causal-inference.qmd).
+For the shared `predictions()` / `comparisons()` / `slopes()` API on both estimators, see [Predictions, Comparisons, and Slopes](predictions-comparisons-slopes.qmd).
 For flexible GLM formulas and GAMs that pathmc does not own, [Bambi](https://bambinos.github.io/bambi/) remains a strong regression-adjustment backend once identification is settled.

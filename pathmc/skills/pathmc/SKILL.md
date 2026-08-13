@@ -88,6 +88,7 @@ The DSL is lavaan-inspired:
 | Interventional / associational predictions      | `m.predictions(outcome, set={...})`                    |
 | Interventional contrasts (structural model)     | `m.comparisons(outcome, variable, contrast=(0, 1))`    |
 | Marginal slopes under intervention              | `m.slopes(outcome, variable)`                          |
+| Same interpret API on adjustment model          | `adj.comparisons(...)`, `adj.slopes(...)`, etc.         |
 | Probability under intervention                    | `m.prob("Y > 0", set={"X": 1})`                        |
 | Manual intervention                               | `m.do(set={"X": 1})`                                   |
 | Counterfactual / time-forward (panel)             | `m.do(set={...}, kind="time-forward")`                 |
@@ -151,10 +152,15 @@ The DSL is lavaan-inspired:
    sets exist, pass `adjustment_set=` explicitly; pathmc does not pick
    among them. Pass `data=` when the parent structural model is
    data-free. Panel models are not supported on the adjustment path.
-10. **`predictions()` / `comparisons()` / `slopes()` are on `PathModel`
-   only.** They target the structural model. `AdjustmentModel` exposes
-   `ate()` / `cate()` / `att()` / `atu()` via the reduced outcome
-   equation; there is no `adj.comparisons()`.
+10. **`predictions()` / `comparisons()` / `slopes()` share one API on
+   `PathModel` and `AdjustmentModel`.** On the structural model they
+   use truncated-factorization g-computation; on
+   `adjustment_model()` they delegate to the reduced outcome equation
+   with `estimator="regression_adjustment"`. Read `result.causal`:
+   only queries on the designated treatment support a causal reading;
+   slopes or contrasts on adjustment covariates are interventional on
+   the fitted surface, not causal effects of those covariates. See the
+   user guide page *Predictions, Comparisons, and Slopes*.
 
 ## Capabilities and boundaries
 
@@ -170,7 +176,8 @@ The DSL is lavaan-inspired:
 - Fit a DAG-derived backdoor adjustment model via `adjustment_model()`
   when a single treatment-outcome query suffices.
 - Run `predictions()` / `comparisons()` / `slopes()` on structural
-  `PathModel` objects for interpret-style queries.
+  `PathModel` or fitted `AdjustmentModel` objects for interpret-style
+  queries (check `result.causal` on adjustment models).
 - Check identification (`adjustment_sets`, `is_identifiable`,
   `frontdoor_identifiable`, `collider_warnings`).
 - Test the DAG's conditional-independence implications against data
@@ -237,6 +244,8 @@ adj.adjustment_set                           # validated backdoor set
 adj.formula                                  # reduced outcome equation
 adj.fit(draws=1000, chains=2)
 adj.ate(values=(0, 1))                       # outcome-regression standardization
+adj.comparisons(comparison="lift")             # same API as PathModel
+adj.slopes(wrt="X")                            # defaults to designated treatment
 ```
 
 When several minimal adjustment sets exist, pass `adjustment_set=` explicitly.
