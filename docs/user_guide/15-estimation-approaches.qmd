@@ -2,79 +2,146 @@
 title: "Estimation Approaches"
 guide-section: "Concepts"
 subtitle: "Structural models vs. regression adjustment: when to use which"
+jupyter: pathmc
 ---
 
-There are two distinct approaches to estimating causal effects from observational data once you have a DAG: fit a **full structural model** and simulate interventions, or identify the right **adjustment set** and fit a single outcome regression.
-These approaches make different trade-offs and are suited to different questions.
-Understanding where each one shines, and where it stops, is key to choosing the right tool for the job.
+Once you have a causal DAG, two estimation strategies target the same total effect of treatment on outcome.
+They agree on **identification** (which covariates block backdoor paths) and diverge on **what you fit** afterward.
+This page walks both paths on one graph so the shared first step is visible, not buried under different toy formulas.
+
+## The causal question and DAG
+
+Suppose you want the **total effect** of `X` on `Y` when confounder `Z` opens a fork (`Z → X` and `Z → Y`), mediator `M` carries part of the effect (`X → M → Y`), and `X` also affects `Y` directly.
+The structural specification is:
+
+```
+X ~ Z
+M ~ X
+Y ~ M + X + Z
+```
+
+Build a data-free `PathModel` to inspect the graph before choosing an estimator.
+
+```{python}
+import pathmc
+
+spec = """
+X ~ Z
+M ~ X
+Y ~ M + X + Z
+"""
+
+m = pathmc.model(spec)
+m.graph()
+```
+
+`Z` is the only confounder on the fork.
+`M` lies on a causal path from `X` to `Y` and must not be treated as a covariate when estimating the total effect.
+The direct edge `X → Y` completes the system you will either fit in full or reduce for adjustment.
+
+## Shared identification
+
+Both estimators start from the same DAG and the same backdoor logic.
+Before fitting anything, ask which variables must enter an adjustment set for the effect of `X` on `Y`.
+
+```{python}
+m.adjustment_sets("X", "Y")
+```
+
+Here the only backdoor path runs through `Z`, so the unique minimal adjustment set is `{Z}`.
+`M` is a mediator on the causal route from `X` to `Y`; conditioning on it would block part of the effect you want to measure.
+
+The structural and regression-adjustment workflows differ **after** this step.
+One fits every equation and simulates interventions; the other fits a single outcome regression identified by `{Z}`.
+
+::: {.callout-warning}
+
+## The DAG is not optional for adjustment
+
+A regression of `Y` on `X` and every column in your dataframe is not a causal estimator.
+Without the DAG you cannot know to adjust for `Z` rather than `M`, or that the empty set is valid on a different graph.
+[`adjustment_sets()`](causal-inference.qmd) and [`adjustment_model()`](model-specification.qmd) exist so identification stays explicit.
+
+:::
 
 ## Full structural model (structural g-computation)
 
-```
-M ~ X + Z
-Y ~ M + X + W
-W ~ Z
+On this DAG, specify **all three** equations and fit them jointly as one Bayesian model.
+The structural model *is* the causal model: each line is a mechanism, and uncertainty propagates through the system.
+
+After `fit()`, intervene with `do()` or summarize a contrast with `ate()`:
+
+```python
+# | eval: false
+m.fit(draws=1000, chains=2)
+m.ate("Y", "X", values=(0.0, 1.0))
+m.do(set={"X": 1.0})
 ```
 
-Specify every equation in the system.
-Fit them jointly as a single Bayesian model.
-Intervene via the `do()` operator, which uses graph surgery to propagate posterior draws through the DAG under the intervention.
+`do()` applies graph surgery and **structural g-computation**: posterior draws are forwarded through the fitted equations for `X`, `M`, and `Y`.
+You do not hand-pick an adjustment set; the factorization encoded in the spec determines how an intervention on `X` propagates.
 
-This is pathmc's default structural workflow.
-The structural model *is* the causal model: every equation corresponds to a mechanism, and `do()` simulates what happens when you override one of those mechanisms.
-Under the hood, `do()` implements **structural g-computation**: posterior draws are forwarded through the fitted structural equations, so uncertainty propagates through the whole system.
+On this graph, path-specific queries are available because every mechanism is modeled, for example `effect("X -> M -> Y")` for the indirect route through `M`.
 
 **Strengths:**
 
-- Answers *any* causal query from one fitted model: ATE, path-specific effects, probabilistic queries, counterfactual scenarios
+- Answers any causal query from one fitted model: ATE, path-specific effects, probabilistic queries, counterfactual scenarios
 - Propagates uncertainty through the full DAG
-- Handles mediation, indirect effects, and multi-step causal chains naturally
-- No need to manually determine which variables to adjust for; the structural model encodes this
+- Handles mediation, indirect effects, and multi-step chains without a separate adjustment argument
+- Supports `do()` on mediators (for example `do(set={"M": 1.0})`) when the question requires it
 
 **Weaknesses:**
 
-- Requires correct specification of *all* equations, not just the one you care about. Misspecifying an intermediate equation can bias downstream `do()` estimates
-- Computationally heavier (fitting many equations when you may only need one)
-- Higher barrier to entry: you must think about the full system
+- Requires correct specification of **all** equations, not only `Y ~ …`. Misspecifying `M ~ X` can bias downstream `do()` estimates even when the total effect of `X` on `Y` is the estimand
+- Computationally heavier when you only need one treatment-outcome contrast
+- Higher barrier to entry: you must defend the full system, not a single outcome equation
 
 ## Regression adjustment (outcome-regression standardization)
 
+Start from the **same DAG** and the same adjustment set `{Z}`.
+`adjustment_model()` reads the graph for identification, then builds a reduced outcome equation.
+It does not discard the DAG; it uses the DAG to decide what belongs in the regression.
+
+A minimal data frame is enough to construct the adjustment facade (fitting is not shown here):
+
+```{python}
+import pandas as pd
+
+df = pd.DataFrame({"Z": [0.0], "X": [0.0], "M": [0.0], "Y": [0.0]})
+adjusted = m.adjustment_model("X -> Y", data=df)
+adjusted.adjustment_set
 ```
-Y ~ X + Z₁ + Z₂
+
+```{python}
+adjusted.formula
 ```
 
-Start from the same DAG, but use it only for **identification**: determine the adjustment set \{Z₁, Z₂\} that blocks all backdoor paths from treatment X to outcome Y.
-Then fit a single outcome regression and use **outcome-regression standardization** (a form of g-computation) to estimate causal effects.
+The reduced formula is `Y ~ X + Z`: treatment plus the backdoor blockers, with **no** `M` in the covariate set.
+Outcome-regression standardization then:
 
-Outcome-regression standardization does not just read off a coefficient.
-It predicts counterfactual outcomes for each unit under different treatment values and averages over the covariate distribution:
+1. Fits `Y ~ X + Z` (interactions and nonlinear terms are allowed on this equation)
+2. Predicts Ŷ at `X=1` and `X=0` for each unit, holding `Z` at observed values
+3. Averages the contrast to obtain ATE (and related estimands via `cate()`, `att()`, `atu()` after `fit()`)
 
-1. Fit `Y ~ f(X, Z₁, Z₂)` (can include interactions, nonlinear terms, any family)
-2. For each observation, predict Ŷ(X=1) and Ŷ(X=0) holding covariates at their observed values
-3. ATE = mean(Ŷ(X=1) − Ŷ(X=0))
-
-pathmc provides this workflow natively via [`adjustment_model()`](model-specification.qmd): given a structural DAG, it selects a valid backdoor adjustment set, builds the reduced outcome equation, and exposes `ate()`, `cate()`, `att()`, and `atu()` on the fitted adjustment model.
-For a worked comparison of structural `do()` versus native adjustment on the same DAG, see [SCM vs Regression Adjustment](scm-vs-adjustment.qmd).
+This is g-computation on **one** equation rather than on the full truncated factorization.
+For posterior draws and a numerical side-by-side with structural `ate()` on this same DAG, see [SCM vs Regression Adjustment](scm-vs-adjustment.qmd).
 
 [Bambi](https://bambinos.github.io/bambi/) remains a useful **external** option when you need modeling features pathmc does not own: GAMs, rich crossed or nested multilevel formulas, and distributional regression beyond pathmc's structural families.
-Bambi's `interpret` module (`comparisons`, `slopes`) performs outcome-regression standardization on a hand-specified formula when identification assumptions hold.
+Bambi's `interpret` module performs outcome-regression standardization on a hand-specified formula when identification assumptions hold.
 
 **Strengths:**
 
-- Requires fewer modeling assumptions (only the outcome equation must be correctly specified)
+- For the total effect of `X` on `Y`, only the outcome equation and adjustment set need to be right; misspecifying `M ~ X` does not enter the adjustment likelihood
 - Computationally cheaper (one regression vs. a system of equations)
-- Handles nonlinearities, interactions, and non-Gaussian outcomes via standardization, not limited to reading off a linear coefficient
-- Supports the full suite of causal estimands: ATE, CATE, ATT, ATU (by varying which units are averaged over or which subgroups are conditioned on)
-- More robust to misspecification of parts of the system you don't care about
-- Conceptually simpler: the familiar "fit outcome model, predict under intervention" workflow
+- Handles nonlinearities, interactions, and non-Gaussian outcomes via standardization, not only a linear coefficient
+- Supports ATE, CATE, ATT, and ATU from one reduced model
 
 **Weaknesses:**
 
-- Scoped to a single treatment-outcome pair. To study a different effect, you fit a different regression
-- Cannot decompose effects into direct/indirect paths (no path-specific effects)
-- Cannot intervene on intermediate variables (mediators); only the designated treatment
-- Doesn't model the mechanism: you get the total effect of X on Y, but not *how* it propagates through the system
-- Cannot answer arbitrary counterfactual "what if" queries about other variables in the DAG
+- Scoped to one treatment-outcome pair; a new query means a new adjustment model
+- Cannot decompose the effect through `M` (no `effect("X -> M -> Y")`)
+- Cannot intervene on `M`; only the designated treatment enters the standardization contrast
+- Does not encode the full generative story, only the total effect identified by the backdoor set
 
 ## Assumptions vs. scope
 
@@ -83,16 +150,18 @@ They occupy different points on an **assumptions-vs-scope** trade-off curve.
 
 | | Structural model | Regression adjustment |
 |---|---|---|
+| **DAG role** | The DAG is the full generative model | The DAG identifies the adjustment set; one equation is fit |
 | **What you specify** | All equations in the system | One outcome equation + adjustment set |
-| **What can go wrong** | Misspecifying *any* equation biases `do()` | Only the outcome equation matters |
+| **What can go wrong** | Misspecifying *any* equation biases `do()` | Only the outcome equation and adjustment set matter for the total effect |
 | **What you can query** | Any variable, any intervention, any path | One treatment → one outcome |
 | **Estimands** | ATE, CATE, ATT, ATU, path effects, P(Y \| do(X)) | ATE, CATE, ATT, ATU |
 | **Computational cost** | Fits N equations jointly | Fits 1 equation |
 | **pathmc entry point** | `pathmc.model()` + `do()` / `ate()` | `adjustment_model()` + `fit()` |
 
 The single-regression approach with outcome-regression standardization is a fully capable estimator for the effect of one treatment on one outcome.
-It handles nonlinearities, interactions, and non-Gaussian outcomes; it produces ATE, CATE, ATT, ATU with proper uncertainty.
-It is not a lesser tool. It is a more *focused* one.
+It handles nonlinearities, interactions, and non-Gaussian outcomes; it produces ATE, CATE, ATT, and ATU with proper uncertainty.
+It is not a lesser tool.
+It is a more *focused* one.
 
 The full structural model asks more of the analyst (specify all equations correctly) but rewards them with a richer object: path decomposition, multi-variable interventions, and the ability to query any variable under any combination of interventions.
 
@@ -137,10 +206,10 @@ pathmc is a DAG-aware Bayesian causal modeling package with two first-class esti
 
 Both estimators share the same identification layer: [`adjustment_sets()`](causal-inference.qmd), [`is_identifiable()`](causal-inference.qmd), and [`collider_warnings()`](causal-inference.qmd) work on the structural DAG regardless of which estimator you choose downstream.
 
-For a worked side-by-side comparison of structural `ate()` and native `adjustment_model().ate()` on one DAG and dataset, see [SCM vs Regression Adjustment](scm-vs-adjustment.qmd).
+For a worked side-by-side comparison of structural `ate()` and native `adjustment_model().ate()` on the confounder-mediator DAG above, see [SCM vs Regression Adjustment](scm-vs-adjustment.qmd).
 
 pathmc does not try to replicate Bambi's full regression modeling surface.
 When you need GAMs, rich multilevel formulas, or distributional regression beyond pathmc's structural families, Bambi remains the right external tool.
 pathmc focuses on what it uniquely provides: joint structural equations with residual covariance, graph surgery via `do()`, panel time-forward simulation, transforms with estimable parameters, and DAG-native identification plus native backdoor adjustment.
 
-For interpret-style queries (`predictions()`, `comparisons()`, `slopes()` on both `PathModel` and `AdjustmentModel`), see [Predictions, Comparisons, and Slopes](predictions-comparisons-slopes.qmd) and the [interpret examples](../examples/06-interpret/predictions.qmd).
+For `predictions()`, `comparisons()`, and `slopes()` on both `PathModel` and `AdjustmentModel`, see [Predictions, Comparisons, and Slopes](predictions-comparisons-slopes.qmd) and the [interpret examples](../examples/06-interpret/predictions.qmd).
