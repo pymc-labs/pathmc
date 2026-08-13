@@ -360,6 +360,16 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             else {}
         )
 
+    @property
+    def dataset(self) -> xr.Dataset:
+        """Labeled posterior draws as an :class:`xarray.Dataset`.
+
+        Cross-sectional results use dims ``("chain", "draw")``; panel
+        ``do(simulate_over="time")`` results add ``"time"``. For a flat
+        ``(n_samples,)`` numpy view, use :meth:`draws`.
+        """
+        return self._ds
+
     def draws(self, var: str) -> np.ndarray:
         """Return raw posterior draws for *var* under this intervention.
 
@@ -699,6 +709,15 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
     def identifiable(self) -> bool | None:
         """Whether the effect was identifiable; ``None`` when unknown."""
         return self._identifiable
+
+    @property
+    def dataset(self) -> xr.Dataset:
+        """Labeled contrast draws as an :class:`xarray.Dataset`.
+
+        Dims are ``("chain", "draw")``, plus ``"time"`` for panel estimands.
+        For a flat ``(n_samples,)`` numpy view, use :meth:`draws`.
+        """
+        return self._ds
 
     def _resolve(self, var: str | None) -> str:
         key = self._default_var if var is None else var

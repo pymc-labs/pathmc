@@ -62,6 +62,17 @@ def datagrid(data: IntoFrame, **cols: list[float] | list[int]) -> pd.DataFrame:
     -------
     pd.DataFrame
         One row per grid point.
+
+    Examples
+    --------
+    Hold unspecified columns at their mean or mode::
+
+        grid = pathmc.datagrid(df, X=[0.0, 1.0], Z=[-1.0, 0.0, 1.0])
+        m.predictions("Y", newdata=grid)
+
+    See Also
+    --------
+    pathmc.modeling.PathModel.datagrid : Same helper bound to a fitted model.
     """
     nw_df = nw.from_native(data, eager_only=True)
     native = nw_df.to_pandas()
@@ -172,6 +183,15 @@ class InterpretResult(_DrawStorageMixin, ResultReprMixin):
     def identifiable(self) -> bool | None:
         """Backdoor identifiability of the treatment-outcome pair, if defined."""
         return self._identifiable
+
+    @property
+    def dataset(self) -> xr.Dataset:
+        """Labeled draws as an :class:`xarray.Dataset`.
+
+        Variables use dims ``("chain", "draw", "unit")``. For a flat
+        ``(n_samples,)`` numpy view, use :meth:`draws` instead.
+        """
+        return self._ds
 
     def draws(self, var: str | None = None) -> np.ndarray:
         """Return flat posterior draws, defaulting to the outcome variable."""

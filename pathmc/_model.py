@@ -884,6 +884,11 @@ class PathModel:
         AdjustmentModel
             Facade with ``fit()`` and ``ate()`` / ``att()`` / ``atu()`` /
             ``cate()`` delegating to the inner outcome model.
+
+        See Also
+        --------
+        pathmc.adjustment.AdjustmentModel : The returned facade.
+        pathmc.interpret.datagrid : Build a covariate grid for interpret queries.
         """
         from pathmc.adjustment import AdjustmentModel
 

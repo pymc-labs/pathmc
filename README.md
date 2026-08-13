@@ -32,7 +32,7 @@ pathmc is a good fit when you want the interpretability of path / structural equ
 pip install pathmc
 ```
 
-pathmc requires Python ≥ 3.12 and PyMC ≥ 5.22.
+pathmc requires Python ≥ 3.12 and PyMC ≥ 6.0.
 
 ## Quickstart
 
@@ -53,6 +53,11 @@ m.fit(draws=1000, chains=2)
 m.effects_summary()             # labeled coefficients + defined parameters
 m.ate("Y", "X", values=(0, 1))  # average treatment effect via the do-operator
 m.adjustment_sets("X", "Y")     # what to condition on for identification
+m.comparisons("Y", "X")         # same estimand, or ratio/lift via comparison=
+
+adj = m.adjustment_model("X -> Y")  # DAG-derived backdoor outcome regression
+adj.fit(draws=1000, chains=2)
+adj.ate(values=(0, 1))
 ```
 
 The DSL mirrors lavaan: `~` defines a regression of an outcome on its parents, `label*var` attaches a name to a coefficient, and `:=` defines derived quantities (such as an indirect/mediated effect) that are tracked with full posterior uncertainty.
@@ -66,8 +71,10 @@ The DSL mirrors lavaan: `~` defines a regression of an outcome on its parents, `
 | Model specification | Write structural equations in a compact lavaan-style formula language, with labeled coefficients and derived quantities such as mediated effects. |
 | Bayesian estimation | Fit with full-posterior MCMC and get coefficient and effect summaries, including standardized effects, all with quantified uncertainty. |
 | Causal identification | Check whether an effect is identifiable from your DAG, find valid adjustment sets, and get warned about collider bias. |
+| Regression adjustment | Derive a backdoor adjustment set from the DAG, fit a single outcome equation via `adjustment_model()`, and estimate ATE/ATT/ATU/CATE by outcome-regression standardization. |
 | Graph falsification | Test the conditional independences your DAG implies against the data, including a whole-graph falsification test. |
 | Interventional queries | Ask "what if?" with the `do`-operator: average and conditional treatment effects and intervention probabilities. |
+| Predictions, comparisons, and slopes | Shared interpret layer on structural and adjustment models: response-scale grids, `diff`/`ratio`/`lift` contrasts, and local derivatives, with causal vs associational metadata. |
 | Sensitivity analysis | Stress-test causal conclusions against unmeasured confounding. |
 | Transforms & response curves | Apply nonlinear transforms such as adstock and saturation for marketing-mix and other media-response models. |
 | Panel & longitudinal data | Build lagged predictors and run interventions on time-series and panel structures. |
@@ -76,7 +83,7 @@ The DSL mirrors lavaan: `~` defines a regression of an outcome on its parents, `
 
 ## Documentation
 
-Documentation, concepts, and worked examples are available at [pathmc.pymc-labs.com](https://pathmc.pymc-labs.com/). The user guide covers the Bayesian workflow, model specification, transforms, identification and estimation approaches, standardized effects, and panel data, alongside runnable examples from foundations through applied models.
+Documentation, concepts, and worked examples are available at [pathmc.pymc-labs.com](https://pathmc.pymc-labs.com/). The user guide covers the Bayesian workflow, model specification, transforms, identification, estimation approaches (structural vs regression adjustment), predictions/comparisons/slopes, standardized effects, and panel data, alongside runnable examples from foundations through applied models and the interpret gallery.
 
 ## Contributing
 
@@ -84,7 +91,7 @@ Development setup, testing, and pull request guidance live in [CONTRIBUTING.md](
 
 ## Citation
 
-If you use pathmc in academic work, please cite the project using the metadata in the repository's [CITATION.cff](https://github.com/pymc-labs/pathmc/blob/main/CITATION.cff). The citation metadata will be updated before the final 0.1.0 release.
+If you use pathmc in academic work, please cite the project using the metadata in the repository's [CITATION.cff](https://github.com/pymc-labs/pathmc/blob/main/CITATION.cff).
 
 ## Thanks to our contributors
 

@@ -13,7 +13,7 @@ jupyter: pathmc
 On a logistic model the coefficient on ad spend is a log-odds slope; `slopes(wrt="ad_spend")` returns $\partial P(\text{converted}) / \partial \text{ad\_spend}$ via a finite difference under `do()`.
 With an `ad_spend:income` interaction, that derivative is a function of income, not a single number.
 
-Prerequisites: [Predictions, Comparisons, and Slopes](../../user_guide/predictions-comparisons-slopes.qmd); [Treatment Effects with Non-Linear Models](../02-effect-estimation/ate_estimation.qmd).
+Prerequisites: [Predictions, Comparisons, and Slopes](../../../user-guide/predictions-comparisons-slopes.qmd); [Treatment Effects with Non-Linear Models](../effect-estimation/ate_estimation.qmd).
 
 ## Setup
 
@@ -298,7 +298,7 @@ print(f"average_by=all:      {pop_slope.mean():.4f}")
 - Check `causal` on `AdjustmentModel` slopes before narrating adjustment variables as treatments.
 - `dydx` and `eyex` summarize different economic questions; pick deliberately.
 
-**Next steps:** [Conditional Predictions](predictions.qmd); [Interventional Contrasts](comparisons.qmd); [Predictions, Comparisons, and Slopes](../../user_guide/predictions-comparisons-slopes.qmd); [SCM vs Regression Adjustment](../../user_guide/scm-vs-adjustment.qmd).
+**Next steps:** [Conditional Predictions](predictions.qmd); [Interventional Contrasts](comparisons.qmd); [Predictions, Comparisons, and Slopes](../../../user-guide/predictions-comparisons-slopes.qmd); [SCM vs Regression Adjustment](../../../user-guide/scm-vs-adjustment.qmd).
 
 ::: {.callout-note}
 

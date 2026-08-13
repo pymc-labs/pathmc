@@ -254,6 +254,13 @@ class AdjustmentModel:
 
     Wraps a reduced ``PathModel`` built from ``Y ~ treatment + Z`` while
     retaining the original causal DAG for identification context.
+    Construct via :meth:`pathmc.modeling.PathModel.adjustment_model`, not
+    by calling this class directly.
+
+    After ``fit()``, query the designated treatment-outcome pair with
+    ``ate()``, ``att()``, ``atu()``, and ``cate()``, or use the shared
+    interpret methods ``predictions()``, ``comparisons()``, and
+    ``slopes()``.
 
     Parameters
     ----------
@@ -273,6 +280,22 @@ class AdjustmentModel:
         Original structural specification for DAG visualization.
     parent_families : dict[str, str]
         Outcome family inherited from the structural parent.
+
+    Examples
+    --------
+    Build from a fitted structural model::
+
+        adj = m.adjustment_model("X -> Y")
+        adj.adjustment_set
+        adj.formula
+        adj.fit(draws=1000, chains=4)
+        ate = adj.ate(values=(0, 1))
+        ate.mean()
+
+    See Also
+    --------
+    pathmc.modeling.PathModel.adjustment_model : Constructor on the structural model.
+    pathmc.interpret.InterpretResult : Unit-level interpret draws.
     """
 
     def __init__(
@@ -310,7 +333,12 @@ class AdjustmentModel:
         families: dict[str, str] | None = None,
         priors: dict[str, Any] | None = None,
     ) -> AdjustmentModel:
-        """Build an adjustment model from a structural :class:`PathModel`."""
+        """Build an adjustment model from a structural :class:`PathModel`.
+
+        This is the implementation behind
+        :meth:`pathmc.modeling.PathModel.adjustment_model`. Prefer that
+        method from user code.
+        """
         from pathmc._model import model as build_model
 
         if parent._panel_info is not None:

@@ -12,7 +12,7 @@ How does predicted conversion probability change with ad spend when customer inc
 `predictions()` evaluates the **response mean** (expected conversion probability for this Bernoulli model) on a `datagrid()` of covariate values.
 This notebook plots those curves with 94% HDI bands, overlays the planted truth from simulation, and contrasts associational fits with interventional `set={...}` queries on both a structural model and an `AdjustmentModel`.
 
-Prerequisites: [Predictions, Comparisons, and Slopes](../../user_guide/predictions-comparisons-slopes.qmd) for the draw contract, and [Treatment Effects with Non-Linear Models](../02-effect-estimation/ate_estimation.qmd) for why the log-odds coefficient is not the probability-scale effect.
+Prerequisites: [Predictions, Comparisons, and Slopes](../../../user-guide/predictions-comparisons-slopes.qmd) for the draw contract, and [Treatment Effects with Non-Linear Models](../effect-estimation/ate_estimation.qmd) for why the log-odds coefficient is not the probability-scale effect.
 
 ## Setup
 
@@ -326,7 +326,7 @@ pd.DataFrame(summary_rows).head(8)
 - On a Bernoulli outcome the response scale is probability, not log-odds.
 - Structural and adjustment estimators share the API; overlay them when teaching the two paths.
 
-**Next steps:** [Interventional Contrasts](comparisons.qmd) for `diff` / `ratio` / `lift`; [Local Slopes](slopes.qmd) when the effect of ad spend depends on income; [Predictions, Comparisons, and Slopes](../../user_guide/predictions-comparisons-slopes.qmd) for the contract; [Causal Inference](../../user_guide/causal-inference.qmd) for `ate()`.
+**Next steps:** [Interventional Contrasts](comparisons.qmd) for `diff` / `ratio` / `lift`; [Local Slopes](slopes.qmd) when the effect of ad spend depends on income; [Predictions, Comparisons, and Slopes](../../../user-guide/predictions-comparisons-slopes.qmd) for the contract; [Causal Inference](../../../user-guide/causal-inference.qmd) for `ate()`.
 
 ::: {.callout-note}
 

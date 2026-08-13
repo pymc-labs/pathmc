@@ -14,9 +14,9 @@ Every result carries causal metadata so you can see whether a query is intervent
 
 **Plots and worked figures live in the Examples gallery**, not here:
 
-- [Conditional Predictions](../examples/06-interpret/predictions.qmd)
-- [Interventional Contrasts](../examples/06-interpret/comparisons.qmd)
-- [Local Slopes on the Response Scale](../examples/06-interpret/slopes.qmd)
+- [Conditional Predictions](../docs/examples/interpret/predictions.qmd)
+- [Interventional Contrasts](../docs/examples/interpret/comparisons.qmd)
+- [Local Slopes on the Response Scale](../docs/examples/interpret/slopes.qmd)
 
 ## Why `ate()` is not enough
 
@@ -128,7 +128,7 @@ pred_do = adjusted.predictions(set={"ad_spend": 1.0})
 pred_do.estimator, pred_do.causal
 ```
 
-See [Conditional Predictions](../examples/06-interpret/predictions.qmd) for response-scale curves, HDI bands, and `datagrid()` plots.
+See [Conditional Predictions](../docs/examples/interpret/predictions.qmd) for response-scale curves, HDI bands, and `datagrid()` plots.
 
 ## `comparisons()`
 
@@ -162,7 +162,7 @@ np.isclose(adj_comp.mean(), adj_ate.mean())
 ```
 
 Set `average_by=None` when you need unit-level `InterpretResult` draws (for example, to inspect heterogeneity before averaging).
-See [Interventional Contrasts](../examples/06-interpret/comparisons.qmd) for grid contrasts, ratio/lift tables, and unit-level distributions.
+See [Interventional Contrasts](../docs/examples/interpret/comparisons.qmd) for grid contrasts, ratio/lift tables, and unit-level distributions.
 
 ## `slopes()`
 
@@ -186,7 +186,7 @@ adj_slope = adjusted.slopes(average_by="all")
 adj_slope.causal, adj_slope.estimator
 ```
 
-See [Local Slopes on the Response Scale](../examples/06-interpret/slopes.qmd) for response-scale derivatives on GLMs and the adjustment-covariate warning.
+See [Local Slopes on the Response Scale](../docs/examples/interpret/slopes.qmd) for response-scale derivatives on GLMs and the adjustment-covariate warning.
 
 ## Two estimators, one API
 
@@ -238,12 +238,12 @@ slope_z.causal, slope_z.interventional
 
 ## Next steps
 
-- [Conditional Predictions](../examples/06-interpret/predictions.qmd), [Interventional Contrasts](../examples/06-interpret/comparisons.qmd), and [Local Slopes](../examples/06-interpret/slopes.qmd) for figure-first worked examples.
+- [Conditional Predictions](../docs/examples/interpret/predictions.qmd), [Interventional Contrasts](../docs/examples/interpret/comparisons.qmd), and [Local Slopes](../docs/examples/interpret/slopes.qmd) for figure-first worked examples.
 - [Causal Inference](causal-inference.qmd) for the do-operator, `ate()` / `cate()` / `att()` / `atu()`, and identification helpers.
 - [Estimation Approaches](estimation-approaches.qmd) for when to fit the full structural model versus a reduced adjustment equation.
 - [SCM vs Regression Adjustment](scm-vs-adjustment.qmd) for a worked comparison of both estimators on one dataset.
-- [Treatment Effects with Non-Linear Models](../examples/02-effect-estimation/ate_estimation.qmd) for why a GLM coefficient is not the response-scale effect.
-- API reference for [`InterpretResult`](../reference/interpret.InterpretResult.qmd) and [`EstimandResult`](../reference/simulate.EstimandResult.qmd).
+- [Treatment Effects with Non-Linear Models](../docs/examples/effect-estimation/ate_estimation.qmd) for why a GLM coefficient is not the response-scale effect.
+- API reference for [`PathModel`](../reference/modeling.PathModel.qmd), [`AdjustmentModel`](../reference/adjustment.AdjustmentModel.qmd), [`InterpretResult`](../reference/interpret.InterpretResult.qmd), and [`EstimandResult`](../reference/simulate.EstimandResult.qmd).
 
 ::: {.callout-note}
 

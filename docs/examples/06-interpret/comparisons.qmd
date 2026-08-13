@@ -14,7 +14,7 @@ jupyter: pathmc
 On a Bernoulli GLM the contrast is a risk difference on the probability scale, not the log-odds coefficient.
 This notebook plots contrasts along a covariate grid, tabulates ratio and lift, checks agreement with `ate()`, and shows unit-level heterogeneity.
 
-Prerequisites: [Predictions, Comparisons, and Slopes](../../user_guide/predictions-comparisons-slopes.qmd); [Treatment Effects with Non-Linear Models](../02-effect-estimation/ate_estimation.qmd) for coefficient vs ATE.
+Prerequisites: [Predictions, Comparisons, and Slopes](../../../user-guide/predictions-comparisons-slopes.qmd); [Treatment Effects with Non-Linear Models](../effect-estimation/ate_estimation.qmd) for coefficient vs ATE.
 
 ## Setup
 
@@ -326,7 +326,7 @@ plt.show()
 - `comparisons(..., comparison="diff", average_by="all")` matches `ate()` on the same contrast.
 - On a GLM the contrast varies with effect modifiers; a single ATE number hides that structure.
 
-**Next steps:** [Local Slopes](slopes.qmd); [Conditional Predictions](predictions.qmd); [Predictions, Comparisons, and Slopes](../../user_guide/predictions-comparisons-slopes.qmd); [Estimation Approaches](../../user_guide/estimation-approaches.qmd).
+**Next steps:** [Local Slopes](slopes.qmd); [Conditional Predictions](predictions.qmd); [Predictions, Comparisons, and Slopes](../../../user-guide/predictions-comparisons-slopes.qmd); [Estimation Approaches](../../../user-guide/estimation-approaches.qmd).
 
 ::: {.callout-note}
 

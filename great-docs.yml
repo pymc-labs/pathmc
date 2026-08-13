@@ -85,12 +85,14 @@ reference:
   - title: Modeling
     desc: Build, fit, and query Bayesian path models.
     contents:
-      - _model.model
-      - _model.PathModel
+      - modeling.model
+      - modeling.PathModel
+      - adjustment.AdjustmentModel
+      - interpret.datagrid
   - title: Simulation
     desc: Time-forward and counterfactual simulation helpers.
     contents:
-      - _model.simulate
+      - modeling.simulate
   - title: DAG falsification
     desc: Whole-graph validation via a permutation-based test.
     contents:
@@ -109,7 +111,7 @@ reference:
       - transforms.ParamSpec
       - transforms.register_transform
   - title: Result objects
-    desc: Result containers returned by PathModel methods for programmatic inspection.
+    desc: Result containers returned by PathModel and AdjustmentModel methods.
     contents:
       - simulate.DoResult
       - simulate.EstimandResult
