@@ -413,3 +413,24 @@ class TestIsValidAdjustmentSet:
         g = build_graph(parse_spec("M ~ X\nY ~ M"))
         with pytest.raises(ValueError, match="descendant"):
             is_valid_adjustment_set(g, "X", "Y", {"M"})
+
+
+class TestResidualBlockValidation:
+    """``is_valid_adjustment_set`` must honor ``~~`` blocks like ``adjustment_sets``."""
+
+    IV_SPEC = "T ~ Z\nY ~ T\nT ~~ Y"
+
+    def test_explicit_set_rejected_when_unidentifiable(self, rng):
+        df = pd.DataFrame({
+            "T": rng.normal(size=80),
+            "Y": rng.normal(size=80),
+            "Z": rng.normal(size=80),
+        })
+        model = pathmc.model(self.IV_SPEC, data=df)
+        with pytest.raises(ValueError, match="not identifiable"):
+            model.adjustment_model("T -> Y")
+
+    def test_is_valid_adjustment_set_rejects_with_residual_block(self):
+        g = build_graph(parse_spec(self.IV_SPEC))
+        with pytest.raises(ValueError, match="does not block all backdoor"):
+            is_valid_adjustment_set(g, "T", "Y", {"Z"})

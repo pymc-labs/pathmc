@@ -206,16 +206,15 @@ def is_valid_adjustment_set(
     ValueError
         With a single actionable reason when *z* is invalid.
     """
-    dag = graph_info.contemporaneous_dag
-    latent = graph_info.latent
+    _require_nodes(graph_info.contemporaneous_dag, treatment=treatment, outcome=outcome)
 
-    _require_nodes(dag, treatment=treatment, outcome=outcome)
+    dag, latent = _with_residual_confounders(graph_info)
 
     for var in sorted(z):
         if var not in dag.nodes:
             raise ValueError(
                 f"Adjustment variable '{var}' is not a node in the DAG. "
-                f"Available nodes: {sorted(dag.nodes)}"
+                f"Available nodes: {sorted(graph_info.contemporaneous_dag.nodes)}"
             )
 
     if treatment in z:
