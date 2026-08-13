@@ -97,7 +97,13 @@ The returned `EstimandResult` is the shared result type for causal contrasts: po
 
 ```{python}
 scm_ate.mean()
+```
+
+```{python}
 scm_ate.hdi(prob=0.94)
+```
+
+```{python}
 scm_ate.prob("> 0")
 ```
 
@@ -109,6 +115,9 @@ It exposes the chosen set and formula before you sample.
 ```{python}
 adjusted = scm.adjustment_model("X -> Y")
 adjusted.adjustment_set
+```
+
+```{python}
 adjusted.formula
 ```
 
@@ -125,7 +134,13 @@ The stamped metadata records `estimator="regression_adjustment"`, but the access
 
 ```{python}
 adj_ate.mean()
+```
+
+```{python}
 adj_ate.hdi(prob=0.94)
+```
+
+```{python}
 adj_ate.prob("> 0")
 ```
 
@@ -199,6 +214,9 @@ The fitted SCM still supports path-specific queries and interventions on mediato
 
 ```{python}
 scm.effect("X -> M -> Y")
+```
+
+```{python}
 scm.do(set={"M": 1.0})
 ```
 
