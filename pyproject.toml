@@ -54,7 +54,17 @@ Issues = "https://github.com/pymc-labs/pathmc/issues"
 Contributing = "https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md"
 
 [dependency-groups]
-dev = ["build", "ipykernel", "mypy", "polars", "prek", "pytest", "pytest-cov", "ruff"]
+dev = [
+    "build",
+    "ipykernel",
+    "mypy",
+    "polars",
+    "prek",
+    "pytest",
+    "pytest-cov",
+    "pytest-xdist",
+    "ruff",
+]
 
 [project.optional-dependencies]
 docs = [
