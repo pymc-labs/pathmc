@@ -143,5 +143,4 @@ pathmc does not try to replicate Bambi's full regression modeling surface.
 When you need GAMs, rich multilevel formulas, or distributional regression beyond pathmc's structural families, Bambi remains the right external tool.
 pathmc focuses on what it uniquely provides: joint structural equations with residual covariance, graph surgery via `do()`, panel time-forward simulation, transforms with estimable parameters, and DAG-native identification plus native backdoor adjustment.
 
-For interpret-style queries on the **structural** model (`predictions()`, `comparisons()`, `slopes()` on `PathModel`), see the interpret tutorial (forthcoming).
-Those methods are not part of `AdjustmentModel`; use `ate()` / `cate()` / `att()` / `atu()` on the adjustment path.
+For interpret-style queries (`predictions()`, `comparisons()`, `slopes()` on both `PathModel` and `AdjustmentModel`), see [Predictions, Comparisons, and Slopes](predictions-comparisons-slopes.qmd) and the [interpret examples](../examples/06-interpret/predictions.qmd).

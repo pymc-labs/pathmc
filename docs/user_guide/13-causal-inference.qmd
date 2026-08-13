@@ -159,7 +159,7 @@ float(ate)  # posterior mean as a plain float
 ate.summary()  # one-row tidy DataFrame
 ```
 
-For ratio and lift contrasts, covariate grids, unit-level draws, and local slopes on continuous treatments, see [Predictions, Comparisons, and Slopes](predictions-comparisons-slopes.qmd).
+For ratio and lift contrasts, covariate grids, unit-level draws, and local slopes on continuous treatments, see [Predictions, Comparisons, and Slopes](predictions-comparisons-slopes.qmd) and the gallery notebooks [Conditional Predictions](../examples/06-interpret/predictions.qmd), [Interventional Contrasts](../examples/06-interpret/comparisons.qmd), and [Local Slopes](../examples/06-interpret/slopes.qmd).
 With `comparison="diff"` and `average_by="all"`, `comparisons()` returns the same estimand as `ate()` on the same contrast.
 
 ### Conditional average treatment effect

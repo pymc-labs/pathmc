@@ -1,0 +1,338 @@
+---
+title: "Interventional Contrasts"
+author:
+  - name: "Benjamin Vincent"
+description: "Draw-wise contrasts (diff, ratio, lift) vs conditional covariates, unit-level distributions, and agreement with ate() on a Bernoulli outcome."
+tags: [Interpret, Causal Inference, Treatment Effects, G-Computation]
+image: thumbnails/comparisons.png
+jupyter: pathmc
+---
+
+**Goal:** quantify how much conversion changes when ad spend moves from 0 to 1, and how that contrast varies with income and customer segment.
+
+`comparisons()` applies `diff`, `ratio`, or `lift` draw-wise at each unit before averaging.
+On a Bernoulli GLM the contrast is a risk difference on the probability scale, not the log-odds coefficient.
+This notebook plots contrasts along a covariate grid, tabulates ratio and lift, checks agreement with `ate()`, and shows unit-level heterogeneity.
+
+Prerequisites: [Predictions, Comparisons, and Slopes](../../user_guide/predictions-comparisons-slopes.qmd); [Treatment Effects with Non-Linear Models](../02-effect-estimation/ate_estimation.qmd) for coefficient vs ATE.
+
+## Setup
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.special import expit
+import pathmc
+
+FIG_WIDTH = 7
+FIG_HEIGHT = 4
+COLOR_STRUCTURAL = "#2171b5"
+COLOR_ADJUSTMENT = "#e6550d"
+COLOR_TRUE = "#333333"
+SEGMENT_COLORS = {0.0: "#2171b5", 1.0: "#e6550d", 2.0: "#31a354"}
+
+
+def plot_hdi_line(x, samples, ax, color, hdi_prob=0.94, alpha=0.2, label=None):
+    """Posterior mean with quantile band. samples shape (n_draws, n_points)."""
+    lo_q = (1 - hdi_prob) / 2
+    lower = np.quantile(samples, lo_q, axis=0)
+    upper = np.quantile(samples, 1 - lo_q, axis=0)
+    mean = samples.mean(axis=0)
+    ax.fill_between(x, lower, upper, color=color, alpha=alpha, linewidth=0)
+    ax.plot(x, mean, color=color, linewidth=2.5, label=label)
+    return mean
+
+
+TRUE_B0 = -0.3
+TRUE_B_DOSE = 0.9
+TRUE_B_INC = 0.5
+TRUE_B_INT = 0.4
+TRUE_B_SEG = 0.25
+
+rng = np.random.default_rng(42)
+n = 600
+```
+
+## Shared dose-response scenario
+
+```{dot}
+//| label: fig-comparisons-dag
+//| fig-cap: "Goal: contrast do(ad_spend=1) vs do(ad_spend=0) on converted, with income and segment as effect modifiers."
+//| fig-width: 4.5
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+  income -> ad_spend
+  income -> converted
+  ad_spend -> converted
+}
+```
+
+```{python}
+income = rng.normal(0, 1, n)
+ad_spend = 0.6 * income + rng.normal(0, 0.5, n)
+segment = np.where(income < -0.5, 0.0, np.where(income < 0.5, 1.0, 2.0))
+
+
+def true_contrast_diff(ad_lo, ad_hi, income_vals, segment_vals):
+    p_hi = expit(
+        TRUE_B0
+        + TRUE_B_DOSE * ad_hi
+        + TRUE_B_INC * income_vals
+        + TRUE_B_INT * ad_hi * income_vals
+        + TRUE_B_SEG * segment_vals
+    )
+    p_lo = expit(
+        TRUE_B0
+        + TRUE_B_DOSE * ad_lo
+        + TRUE_B_INC * income_vals
+        + TRUE_B_INT * ad_lo * income_vals
+        + TRUE_B_SEG * segment_vals
+    )
+    return p_hi - p_lo
+
+
+logit = (
+    TRUE_B0
+    + TRUE_B_DOSE * ad_spend
+    + TRUE_B_INC * income
+    + TRUE_B_INT * ad_spend * income
+    + TRUE_B_SEG * segment
+)
+converted = rng.binomial(1, expit(logit)).astype(float)
+df = pd.DataFrame({
+    "income": income,
+    "ad_spend": ad_spend,
+    "segment": segment,
+    "converted": converted,
+})
+
+spec = "ad_spend ~ income\nconverted ~ ad_spend + income + ad_spend:income + segment"
+scm = pathmc.model(spec, data=df, families={"converted": "bernoulli"})
+scm.fit(draws=400, tune=400, chains=2, cores=1, random_seed=42)
+adj = scm.adjustment_model("ad_spend -> converted")
+adj.fit(draws=400, tune=400, chains=2, cores=1, random_seed=42)
+```
+
+## Contrast vs income, grouped by segment
+
+`comparisons()` does not accept `newdata`, so we build contrasts on a `datagrid()` via two `predictions()` calls at the contrast levels.
+This is the same draw-wise logic `comparisons()` uses internally.
+
+```{python}
+income_grid = np.linspace(-2.0, 2.0, 25)
+contrast_rows = []
+
+for seg in [0.0, 1.0, 2.0]:
+    grid = pathmc.datagrid(df, income=income_grid, segment=[seg])
+    grid = grid.assign(ad_spend=0.0)
+    lo = scm.predictions("converted", set={"ad_spend": 0.0}, newdata=grid)
+    hi = scm.predictions("converted", set={"ad_spend": 1.0}, newdata=grid)
+    diff = hi.dataset["converted"] - lo.dataset["converted"]
+    contrast_rows.append((seg, grid, diff))
+```
+
+```{python}
+# | label: fig-comparisons-by-income
+# | fig-cap: "Risk difference P(converted|do(ad_spend=1)) - P(converted|do(ad_spend=0)) vs income, faceted by segment (0=low, 1=mid, 2=high), structural model, 94% HDI; true contrast black dashed."
+# | fig-width: 7
+# | fig-height: 5
+# | code-fold: true
+
+fig, axes = plt.subplots(1, 3, figsize=(FIG_WIDTH, FIG_HEIGHT * 1.2), sharey=True)
+seg_labels = {0.0: "low", 1.0: "mid", 2.0: "high"}
+
+for ax, (seg, grid, diff) in zip(axes, contrast_rows, strict=True):
+    x = grid["income"].values
+    samples = diff.stack(sample=("chain", "draw")).values.T
+    color = SEGMENT_COLORS[seg]
+    plot_hdi_line(x, samples, ax, color=color, alpha=0.2)
+    true_y = true_contrast_diff(0.0, 1.0, x, seg)
+    ax.plot(x, true_y, color=COLOR_TRUE, linestyle="--", linewidth=1.5)
+    ax.set_title(f"segment={seg_labels[seg]}", fontweight="bold")
+    ax.set_xlabel("income")
+    ax.set_ylim(0, 0.6)
+
+axes[0].set_ylabel("risk difference")
+plt.tight_layout()
+plt.show()
+```
+
+The contrast is **not constant** in income because of the `ad_spend:income` interaction on the logit scale.
+
+## Contrast table
+
+```{python}
+table_rows = []
+for seg in [0.0, 1.0, 2.0]:
+    for inc in [-1.0, 0.0, 1.0]:
+        comp = scm.comparisons(
+            "converted",
+            "ad_spend",
+            contrast=(0.0, 1.0),
+            comparison="diff",
+            conditional={"income": inc, "segment": seg},
+            average_by="all",
+        )
+        lo, hi = comp.hdi(prob=0.94)
+        table_rows.append({
+            "comparison": "diff",
+            "contrast": "0 vs 1",
+            "income": inc,
+            "segment": int(seg),
+            "mean": comp.mean(),
+            "hdi_low": lo,
+            "hdi_high": hi,
+        })
+
+pd.DataFrame(table_rows)
+```
+
+## Ratio and lift
+
+```{python}
+ratio_lift_rows = []
+for kind in ["diff", "ratio", "lift"]:
+    result = scm.comparisons(
+        "converted",
+        "ad_spend",
+        contrast=(0.0, 1.0),
+        comparison=kind,
+        average_by="all",
+    )
+    lo, hi = result.hdi(prob=0.94)
+    ratio_lift_rows.append({
+        "comparison": kind,
+        "mean": result.mean(),
+        "hdi_low": lo,
+        "hdi_high": hi,
+    })
+
+pd.DataFrame(ratio_lift_rows)
+```
+
+## Gold check: `comparisons()` matches `ate()`
+
+With `comparison="diff"` and `average_by="all"`, `comparisons()` and `ate()` share one implementation path.
+
+```{python}
+comp = scm.comparisons(
+    "converted",
+    "ad_spend",
+    contrast=(0.0, 1.0),
+    comparison="diff",
+    average_by="all",
+)
+ate = scm.ate("converted", "ad_spend", values=(0.0, 1.0))
+print(f"comparisons mean: {comp.mean():.4f}")
+print(f"ate mean:         {ate.mean():.4f}")
+print(f"match: {np.isclose(comp.mean(), ate.mean())}")
+```
+
+## Structural vs adjustment ATE
+
+```{python}
+# | label: fig-comparisons-estimators
+# | fig-cap: "Population risk difference do(ad_spend=1) vs do(ad_spend=0): posterior mean and 94% HDI for structural (blue) and adjustment (orange) estimators."
+# | fig-width: 7
+# | fig-height: 3.5
+# | code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.85))
+for model, color, label in [
+    (scm, COLOR_STRUCTURAL, "structural"),
+    (adj, COLOR_ADJUSTMENT, "adjustment"),
+]:
+    if label == "structural":
+        result = model.comparisons(
+            "converted",
+            "ad_spend",
+            comparison="diff",
+            average_by="all",
+        )
+    else:
+        result = model.comparisons(comparison="diff", average_by="all")
+    draws = result.draws()
+    lo, hi = result.hdi(prob=0.94)
+    ax.errorbar(
+        label,
+        result.mean(),
+        yerr=[[result.mean() - lo], [hi - result.mean()]],
+        fmt="o",
+        color=color,
+        markersize=10,
+        capsize=5,
+        linewidth=2,
+    )
+
+ax.set_ylabel("risk difference")
+ax.axhline(
+    true_contrast_diff(0, 1, income, segment).mean(),
+    color=COLOR_TRUE,
+    linestyle="--",
+    label="true ATE",
+)
+ax.legend(frameon=False)
+plt.tight_layout()
+plt.show()
+```
+
+## Unit-level contrasts
+
+Set `average_by=None` to keep the `unit` dimension.
+The histogram supplements the grid plot; it does not replace it.
+
+```{python}
+# | label: fig-comparisons-unit-hist
+# | fig-cap: "Unit-level risk differences do(ad_spend=1) minus do(ad_spend=0) before population averaging; posterior mean over units shown as vertical line."
+# | fig-width: 7
+# | fig-height: 3.5
+# | code-fold: true
+
+unit_comp = scm.comparisons(
+    "converted",
+    "ad_spend",
+    contrast=(0.0, 1.0),
+    comparison="diff",
+    average_by=None,
+)
+unit_draws = (
+    unit_comp.dataset["converted"].stack(sample=("chain", "draw")).values.flatten()
+)
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.85))
+ax.hist(
+    unit_draws, bins=40, density=True, alpha=0.7, color=COLOR_STRUCTURAL, edgecolor="k"
+)
+ax.axvline(
+    unit_comp.mean(),
+    color=COLOR_TRUE,
+    linestyle="--",
+    linewidth=2,
+    label="posterior mean",
+)
+ax.set_xlabel("unit-level risk difference")
+ax.set_ylabel("density")
+ax.legend(frameon=False)
+plt.tight_layout()
+plt.show()
+```
+
+## Summary
+
+- Grid contrasts come from paired `predictions()` at contrast levels when you need a covariate axis.
+- `diff`, `ratio`, and `lift` are draw-wise transforms before averaging.
+- `comparisons(..., comparison="diff", average_by="all")` matches `ate()` on the same contrast.
+- On a GLM the contrast varies with effect modifiers; a single ATE number hides that structure.
+
+**Next steps:** [Local Slopes](slopes.qmd); [Conditional Predictions](predictions.qmd); [Predictions, Comparisons, and Slopes](../../user_guide/predictions-comparisons-slopes.qmd); [Estimation Approaches](../../user_guide/estimation-approaches.qmd).
+
+::: {.callout-note}
+
+## Reflection
+
+Would your stakeholders report a single ATE or a curve of contrasts by customer segment?
+When would `ratio` or `lift` be more interpretable than a risk difference?
+
+:::

@@ -75,6 +75,7 @@ tags:
     Gaussian Process: waves
     HSGP: spline
     Nonparametric: trending-up
+    Interpret: line-chart
 
 # API Reference --------------------------------------------------------------
 # Public surface only: top-level constructors, PathModel methods, result/display

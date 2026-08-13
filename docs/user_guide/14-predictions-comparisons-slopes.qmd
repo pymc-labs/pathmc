@@ -12,6 +12,12 @@ That wrapper is enough for many binary-treatment studies, but real analyses ofte
 This page introduces the shared interpret layer on both `PathModel` and `AdjustmentModel`: `predictions()`, `comparisons()`, and `slopes()`.
 Every result carries causal metadata so you can see whether a query is interventional, identifiable, and safe to read as a treatment effect.
 
+**Plots and worked figures live in the Examples gallery**, not here:
+
+- [Conditional Predictions](../examples/06-interpret/predictions.qmd)
+- [Interventional Contrasts](../examples/06-interpret/comparisons.qmd)
+- [Local Slopes on the Response Scale](../examples/06-interpret/slopes.qmd)
+
 ## Why `ate()` is not enough
 
 Average treatment effects are one estimand in a larger vocabulary.
@@ -50,8 +56,21 @@ With `average_by=None`, they return an `InterpretResult` that keeps the `unit` d
 
 ## Shared example
 
-We use a fork confounder DAG throughout: `Z` affects both `X` and `Y`, and `X` affects `Y`.
-The same dataset and tiny MCMC budget keep the page runnable in CI.
+We use a fork confounder DAG throughout: `income` affects both `ad_spend` and `converted`, and `ad_spend` affects `converted`.
+The same dataset keeps the snippets runnable in CI.
+
+```{dot}
+//| label: fig-interpret-dag
+//| fig-cap: "Fork confounder DAG. income confounds ad_spend and converted; ad_spend is the designated treatment."
+//| fig-width: 4
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+  income -> ad_spend
+  income -> converted
+  ad_spend -> converted
+}
+```
 
 ```{python}
 import numpy as np
@@ -60,52 +79,56 @@ import pathmc
 
 rng = np.random.default_rng(42)
 n = 300
-z = rng.normal(size=n)
-x = 0.5 * z + rng.normal(scale=0.5, size=n)
-y = 0.4 * x + 0.6 * z + rng.normal(scale=0.5, size=n)
-df = pd.DataFrame({"X": x, "Y": y, "Z": z})
+income = rng.normal(size=n)
+ad_spend = 0.5 * income + rng.normal(scale=0.5, size=n)
+converted = (0.4 * ad_spend + 0.6 * income + rng.normal(scale=0.5, size=n) > 0).astype(
+    float
+)
+df = pd.DataFrame({"income": income, "ad_spend": ad_spend, "converted": converted})
 
-spec = "X ~ Z\nY ~ X + Z"
-m = pathmc.model(spec, data=df)
+spec = "ad_spend ~ income\nconverted ~ ad_spend + income"
+m = pathmc.model(spec, data=df, families={"converted": "bernoulli"})
 m.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
 
-adjusted = m.adjustment_model("X -> Y")
+adjusted = m.adjustment_model("ad_spend -> converted")
 adjusted.fit(draws=200, tune=200, chains=2, cores=1, random_seed=42)
 ```
 
-Identification for the total effect of `X` on `Y` requires adjusting for `Z`; see [`adjustment_sets()`](causal-inference.qmd#identification-helpers) on the causal inference page rather than re-deriving the backdoor argument here.
+Identification for the total effect of `ad_spend` on `converted` requires adjusting for `income`; see [`adjustment_sets()`](causal-inference.qmd#identification-helpers) on the causal inference page rather than re-deriving the backdoor argument here.
 
 ## `predictions()`
 
 `predictions(outcome, set=..., newdata=...)` evaluates the response mean for each unit in the fitted frame or on a covariate grid.
 
 On **`PathModel`**, omitting `set` yields **associational** predictions: the fitted structural equations evaluated at observed covariates, with no graph surgery.
-Passing `set={"X": 1.0}` applies `do(X=1)` while holding other endogenous mechanisms fixed at each unit's covariate profile.
+Passing `set={"ad_spend": 1.0}` applies `do(ad_spend=1)` while holding other endogenous mechanisms fixed at each unit's covariate profile.
 
 On **`AdjustmentModel`**, the same signature applies to the reduced outcome equation.
-Without `set`, predictions are associational fits of `Y ~ X + Z`.
-With `set={"X": 1.0}`, pathmc standardizes the outcome at the designated treatment value; `causal=True` only when the intervention targets that treatment alone.
+Without `set`, predictions are associational fits of `converted ~ ad_spend + income`.
+With `set={"ad_spend": 1.0}`, pathmc standardizes the outcome at the designated treatment value; `causal=True` only when the intervention targets that treatment alone.
 
 Build grids with `datagrid()` (re-exported from `pathmc` and available on both model types):
 
 ```python
-grid = pathmc.datagrid(df, X=[0.0, 1.0], Z=[-1.0, 0.0, 1.0])
-pred_grid = m.predictions("Y", newdata=grid)
+grid = pathmc.datagrid(df, ad_spend=[0.0, 1.0], income=[-1.0, 0.0, 1.0])
+pred_grid = m.predictions("converted", newdata=grid)
 ```
 
 Associational baseline on the structural model:
 
 ```{python}
-pred_obs = m.predictions("Y")
+pred_obs = m.predictions("converted")
 pred_obs.interventional, pred_obs.causal
 ```
 
-Interventional prediction at `X=1` on the adjustment model:
+Interventional prediction at `ad_spend=1` on the adjustment model:
 
 ```{python}
-pred_do = adjusted.predictions(set={"X": 1.0})
+pred_do = adjusted.predictions(set={"ad_spend": 1.0})
 pred_do.estimator, pred_do.causal
 ```
+
+See [Conditional Predictions](../examples/06-interpret/predictions.qmd) for response-scale curves, HDI bands, and `datagrid()` plots.
 
 ## `comparisons()`
 
@@ -123,12 +146,14 @@ With `comparison="diff"`, `contrast=(0.0, 1.0)`, and `average_by="all"`, `compar
 The convenience wrapper and the general method share one implementation path.
 
 ```{python}
-comp = m.comparisons("Y", "X", contrast=(0.0, 1.0), comparison="diff", average_by="all")
-ate = m.ate("Y", "X", values=(0.0, 1.0))
+comp = m.comparisons(
+    "converted", "ad_spend", contrast=(0.0, 1.0), comparison="diff", average_by="all"
+)
+ate = m.ate("converted", "ad_spend", values=(0.0, 1.0))
 np.isclose(comp.mean(), ate.mean())
 ```
 
-The adjustment model exposes the same call shape; outcome and treatment default to the designated `X -> Y` query.
+The adjustment model exposes the same call shape; outcome and treatment default to the designated `ad_spend -> converted` query.
 
 ```{python}
 adj_comp = adjusted.comparisons(comparison="diff", average_by="all")
@@ -136,26 +161,8 @@ adj_ate = adjusted.ate(values=(0.0, 1.0))
 np.isclose(adj_comp.mean(), adj_ate.mean())
 ```
 
-Ratio and lift on the structural model:
-
-```{python}
-import pandas as pd
-
-rows = []
-for label, kind in [("diff", "diff"), ("ratio", "ratio"), ("lift", "lift")]:
-    r = m.comparisons("Y", "X", comparison=kind, average_by="all")
-    lo, hi = r.hdi(prob=0.94)
-    rows.append({
-        "comparison": label,
-        "mean": r.mean(),
-        "hdi_low": lo,
-        "hdi_high": hi,
-        "estimator": r.estimator,
-    })
-pd.DataFrame(rows)
-```
-
 Set `average_by=None` when you need unit-level `InterpretResult` draws (for example, to inspect heterogeneity before averaging).
+See [Interventional Contrasts](../examples/06-interpret/comparisons.qmd) for grid contrasts, ratio/lift tables, and unit-level distributions.
 
 ## `slopes()`
 
@@ -168,7 +175,7 @@ Local positivity matters: if `wrt + eps` leaves the support of the data, the fin
 Structural model, treatment slope (matches an interventional local effect when the DAG is linear):
 
 ```{python}
-slope_x = m.slopes("Y", "X", average_by="all")
+slope_x = m.slopes("converted", "ad_spend", average_by="all")
 slope_x.mean(), slope_x.causal
 ```
 
@@ -179,13 +186,15 @@ adj_slope = adjusted.slopes(average_by="all")
 adj_slope.causal, adj_slope.estimator
 ```
 
+See [Local Slopes on the Response Scale](../examples/06-interpret/slopes.qmd) for response-scale derivatives on GLMs and the adjustment-covariate warning.
+
 ## Two estimators, one API
 
 The method names and arguments are identical; only the estimator backend and causal stamping differ.
 
 ```python
 # Structural g-computation (truncated factorization on the full DAG)
-m.comparisons("Y", "X", contrast=(0.0, 1.0), average_by="all")
+m.comparisons("converted", "ad_spend", contrast=(0.0, 1.0), average_by="all")
 
 # Outcome-regression standardization on the reduced equation
 adjusted.comparisons(contrast=(0.0, 1.0), average_by="all")
@@ -208,46 +217,32 @@ Each `InterpretResult` and stamped `EstimandResult` exposes metadata you should 
 | `estimator` | `"structural"` on `PathModel`, `"regression_adjustment"` on `AdjustmentModel` |
 
 On **`PathModel`**, any interventional query on the treatment-outcome pair sets `causal=True` when identification holds.
-On **`AdjustmentModel`**, `causal=True` only when the varied variable is the **designated treatment** from `adjustment_model("X -> Y")`.
+On **`AdjustmentModel`**, `causal=True` only when the varied variable is the **designated treatment** from `adjustment_model("ad_spend -> converted")`.
 Intervening on or taking slopes with respect to a covariate in the adjustment set is still interventional on the reduced equation, but it is **not** the total effect of that covariate.
 
 ::: {.callout-warning}
 
 ## Adjustment covariates are not treatments
 
-A slope or comparison with respect to `Z` on an `AdjustmentModel` answers a what-if on the fitted outcome surface; it does not identify the causal effect of `Z` on `Y`.
+A slope or comparison with respect to `income` on an `AdjustmentModel` answers a what-if on the fitted outcome surface; it does not identify the causal effect of `income` on `converted`.
 Check `result.causal` before narrating the number as an effect of the variable you varied.
 
 :::
 
-Confounder slope on the adjustment model (interventional fit, not a causal effect of `Z`):
+Confounder slope on the adjustment model (interventional fit, not a causal effect of `income`):
 
 ```{python}
-slope_z = adjusted.slopes(wrt="Z", average_by="all")
+slope_z = adjusted.slopes(wrt="income", average_by="all")
 slope_z.causal, slope_z.interventional
-```
-
-## Visualizing a result
-
-`InterpretResult.plot()` draws a histogram of the marginal posterior after averaging over `unit` when that dimension is present.
-Use it for a quick look at unit-level or grid predictions and contrasts.
-
-```{python}
-# | label: fig-comparison-draws
-# | fig-cap: "Posterior of unit-level comparison draws for do(X=1) versus do(X=0) on Y before population averaging."
-# | fig-width: 6
-# | fig-height: 4
-# | code-fold: true
-
-unit_comp = m.comparisons("Y", "X", contrast=(0.0, 1.0), average_by=None)
-unit_comp.plot()
 ```
 
 ## Next steps
 
+- [Conditional Predictions](../examples/06-interpret/predictions.qmd), [Interventional Contrasts](../examples/06-interpret/comparisons.qmd), and [Local Slopes](../examples/06-interpret/slopes.qmd) for figure-first worked examples.
 - [Causal Inference](causal-inference.qmd) for the do-operator, `ate()` / `cate()` / `att()` / `atu()`, and identification helpers.
 - [Estimation Approaches](estimation-approaches.qmd) for when to fit the full structural model versus a reduced adjustment equation.
 - [SCM vs Regression Adjustment](scm-vs-adjustment.qmd) for a worked comparison of both estimators on one dataset.
+- [Treatment Effects with Non-Linear Models](../examples/02-effect-estimation/ate_estimation.qmd) for why a GLM coefficient is not the response-scale effect.
 - API reference for [`InterpretResult`](../reference/interpret.InterpretResult.qmd) and [`EstimandResult`](../reference/simulate.EstimandResult.qmd).
 
 ::: {.callout-note}

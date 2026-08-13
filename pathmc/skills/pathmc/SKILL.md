@@ -285,6 +285,7 @@ m.sample_prior_predictive() # check the priors imply plausible data
 ## Resources
 
 - Docs site: <https://pathmc.pymc-labs.com/>
+- Interpret gallery: [Conditional Predictions](https://pathmc.pymc-labs.com/examples/06-interpret/predictions.html), [Interventional Contrasts](https://pathmc.pymc-labs.com/examples/06-interpret/comparisons.html), [Local Slopes](https://pathmc.pymc-labs.com/examples/06-interpret/slopes.html)
 - `llms.txt` — indexed API reference for LLMs
 - `llms-full.txt` — comprehensive API documentation for LLMs
 - GitHub: <https://github.com/pymc-labs/pathmc>

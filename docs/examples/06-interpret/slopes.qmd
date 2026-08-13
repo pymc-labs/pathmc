@@ -1,0 +1,310 @@
+---
+title: "Local Slopes on the Response Scale"
+author:
+  - name: "Benjamin Vincent"
+description: "Finite-difference slopes on the probability scale for a Bernoulli GLM with interaction, dydx vs eyex, and the adjustment-covariate warning."
+tags: [Interpret, Causal Inference, Treatment Effects, G-Computation]
+image: thumbnails/slopes.png
+jupyter: pathmc
+---
+
+**Goal:** visualize how the local effect of ad spend on conversion **changes with income** on the response scale.
+
+On a logistic model the coefficient on ad spend is a log-odds slope; `slopes(wrt="ad_spend")` returns $\partial P(\text{converted}) / \partial \text{ad\_spend}$ via a finite difference under `do()`.
+With an `ad_spend:income` interaction, that derivative is a function of income, not a single number.
+
+Prerequisites: [Predictions, Comparisons, and Slopes](../../user_guide/predictions-comparisons-slopes.qmd); [Treatment Effects with Non-Linear Models](../02-effect-estimation/ate_estimation.qmd).
+
+## Setup
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.special import expit
+import pathmc
+
+FIG_WIDTH = 7
+FIG_HEIGHT = 4
+COLOR_STRUCTURAL = "#2171b5"
+COLOR_ADJUSTMENT = "#e6550d"
+COLOR_TRUE = "#333333"
+COLOR_WARNING = "#d62728"
+
+
+def plot_hdi_line(x, samples, ax, color, hdi_prob=0.94, alpha=0.2, label=None):
+    """Posterior mean with quantile band. samples shape (n_draws, n_points)."""
+    lo_q = (1 - hdi_prob) / 2
+    lower = np.quantile(samples, lo_q, axis=0)
+    upper = np.quantile(samples, 1 - lo_q, axis=0)
+    mean = samples.mean(axis=0)
+    ax.fill_between(x, lower, upper, color=color, alpha=alpha, linewidth=0)
+    ax.plot(x, mean, color=color, linewidth=2.5, label=label)
+    return mean
+
+
+TRUE_B0 = -0.3
+TRUE_B_DOSE = 0.9
+TRUE_B_INC = 0.5
+TRUE_B_INT = 0.4
+TRUE_B_SEG = 0.25
+
+rng = np.random.default_rng(42)
+n = 600
+```
+
+## Shared dose-response scenario
+
+```{dot}
+//| label: fig-slopes-dag
+//| fig-cap: "Bernoulli dose-response with ad_spend:income interaction; local slope dP(converted)/d(ad_spend) varies with income."
+//| fig-width: 4.5
+digraph {
+  rankdir=LR
+  node [shape=box, style=rounded]
+  income -> ad_spend
+  income -> converted
+  ad_spend -> converted
+}
+```
+
+```{python}
+income = rng.normal(0, 1, n)
+ad_spend = 0.6 * income + rng.normal(0, 0.5, n)
+segment = np.where(income < -0.5, 0.0, np.where(income < 0.5, 1.0, 2.0))
+
+
+def true_dydx(ad_spend_val, income_val, segment_val=1.0):
+    logit = (
+        TRUE_B0
+        + TRUE_B_DOSE * ad_spend_val
+        + TRUE_B_INC * income_val
+        + TRUE_B_INT * ad_spend_val * income_val
+        + TRUE_B_SEG * segment_val
+    )
+    p = expit(logit)
+    return p * (1 - p) * (TRUE_B_DOSE + TRUE_B_INT * income_val)
+
+
+logit = (
+    TRUE_B0
+    + TRUE_B_DOSE * ad_spend
+    + TRUE_B_INC * income
+    + TRUE_B_INT * ad_spend * income
+    + TRUE_B_SEG * segment
+)
+converted = rng.binomial(1, expit(logit)).astype(float)
+df = pd.DataFrame({
+    "income": income,
+    "ad_spend": ad_spend,
+    "segment": segment,
+    "converted": converted,
+})
+
+spec = "ad_spend ~ income\nconverted ~ ad_spend + income + ad_spend:income + segment"
+scm = pathmc.model(spec, data=df, families={"converted": "bernoulli"})
+scm.fit(draws=400, tune=400, chains=2, cores=1, random_seed=42)
+adj = scm.adjustment_model("ad_spend -> converted")
+adj.fit(draws=400, tune=400, chains=2, cores=1, random_seed=42)
+```
+
+## Treatment slope vs income
+
+We evaluate slopes on a grid by finite-differencing interventional predictions (same logic as `slopes()`).
+
+```{python}
+income_grid = np.linspace(-2.0, 2.0, 25)
+dose_ref = 0.0
+eps = 1e-4
+grid = pathmc.datagrid(df, ad_spend=[dose_ref], income=income_grid, segment=[1.0])
+grid_hi = grid.assign(ad_spend=dose_ref + eps)
+
+lo = scm.predictions(
+    "converted", set={"ad_spend": grid["ad_spend"].values}, newdata=grid
+)
+hi = scm.predictions(
+    "converted", set={"ad_spend": grid_hi["ad_spend"].values}, newdata=grid_hi
+)
+slope_da = (hi.dataset["converted"] - lo.dataset["converted"]) / eps
+```
+
+```{python}
+# | label: fig-slopes-vs-income
+# | fig-cap: "Local slope dP(converted)/d(ad_spend) at ad_spend=0 vs income (segment=1), structural model, 94% HDI; true derivative black dashed."
+# | fig-width: 7
+# | fig-height: 4
+# | code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+x = grid["income"].values
+samples = slope_da.stack(sample=("chain", "draw")).values.T
+plot_hdi_line(x, samples, ax, color=COLOR_STRUCTURAL, alpha=0.2, label="posterior mean")
+ax.plot(
+    x,
+    true_dydx(dose_ref, x),
+    color=COLOR_TRUE,
+    linestyle="--",
+    linewidth=1.5,
+    label="true",
+)
+ax.set_xlabel("income")
+ax.set_ylabel("dP(converted)/d(ad_spend)")
+ax.legend(frameon=False)
+plt.tight_layout()
+plt.show()
+```
+
+If this curve were flat, the interaction would be doing no work on the response scale; the bend is the point of the notebook.
+
+## Slopes table
+
+```{python}
+slope_table = []
+for inc in [-1.0, 0.0, 1.0]:
+    result = scm.slopes(
+        "converted",
+        "ad_spend",
+        slope="dydx",
+        conditional={"income": inc, "segment": 1.0},
+        average_by="all",
+    )
+    lo, hi = result.hdi(prob=0.94)
+    slope_table.append({
+        "wrt": "ad_spend",
+        "income": inc,
+        "segment": 1,
+        "mean": result.mean(),
+        "hdi_low": lo,
+        "hdi_high": hi,
+        "causal": result.causal,
+    })
+
+pd.DataFrame(slope_table)
+```
+
+## `dydx` vs `eyex`
+
+```{python}
+dydx = scm.slopes("converted", "ad_spend", slope="dydx", average_by="all")
+eyex = scm.slopes("converted", "ad_spend", slope="eyex", average_by="all")
+pd.DataFrame([
+    {
+        "slope": "dydx",
+        "mean": dydx.mean(),
+        "hdi_low": dydx.hdi()[0],
+        "hdi_high": dydx.hdi()[1],
+    },
+    {
+        "slope": "eyex",
+        "mean": eyex.mean(),
+        "hdi_low": eyex.hdi()[0],
+        "hdi_high": eyex.hdi()[1],
+    },
+])
+```
+
+::: {.callout-warning}
+
+## Local positivity and `eps`
+
+`slopes()` uses a symmetric finite difference at `wrt` and `wrt + eps`.
+If `wrt + eps` leaves the support of the data or drives predicted probabilities to 0 or 1, the derivative can be unstable.
+Inspect slopes on a `datagrid()` when reporting derivatives far from the bulk of the data.
+
+:::
+
+## Adjustment covariate slope is not a treatment effect
+
+On `AdjustmentModel`, `slopes(wrt="income")` is interventional on the reduced equation but `causal=False` because income is an adjustment variable, not the designated treatment.
+
+```{python}
+# | label: fig-slopes-confounder-warning
+# | fig-cap: "AdjustmentModel slope wrt income (red): interventional fit on the outcome surface but causal=False; treatment slope wrt ad_spend (blue): causal=True."
+# | fig-width: 7
+# | fig-height: 3.5
+# | code-fold: true
+
+slope_treat = adj.slopes(slope="dydx", average_by="all")
+slope_conf = adj.slopes(wrt="income", slope="dydx", average_by="all")
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.85))
+bars = [
+    ("ad_spend (treatment)", slope_treat.mean(), slope_treat.causal, COLOR_STRUCTURAL),
+    ("income (adjustment)", slope_conf.mean(), slope_conf.causal, COLOR_WARNING),
+]
+for i, (label, mean, causal, color) in enumerate(bars):
+    ax.bar(i, mean, color=color, alpha=0.85)
+    ax.text(i, mean + 0.005, f"causal={causal}", ha="center", fontsize=9)
+
+ax.set_xticks(range(len(bars)))
+ax.set_xticklabels([b[0] for b in bars])
+ax.set_ylabel("dP(converted)/d(wrt)")
+plt.tight_layout()
+plt.show()
+```
+
+Do not report the red bar as the causal effect of income on conversion.
+
+## Structural vs adjustment treatment slopes
+
+```{python}
+# | label: fig-slopes-estimators
+# | fig-cap: "Population-average treatment slope dP(converted)/d(ad_spend): structural (blue) vs adjustment (orange) posterior means with 94% HDI error bars."
+# | fig-width: 7
+# | fig-height: 3.5
+# | code-fold: true
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.85))
+for model, color, label in [
+    (scm, COLOR_STRUCTURAL, "structural"),
+    (adj, COLOR_ADJUSTMENT, "adjustment"),
+]:
+    if label == "structural":
+        result = model.slopes("converted", "ad_spend", slope="dydx", average_by="all")
+    else:
+        result = model.slopes(slope="dydx", average_by="all")
+    lo, hi = result.hdi(prob=0.94)
+    ax.errorbar(
+        label,
+        result.mean(),
+        yerr=[[result.mean() - lo], [hi - result.mean()]],
+        fmt="o",
+        color=color,
+        markersize=10,
+        capsize=5,
+        linewidth=2,
+    )
+
+ax.set_ylabel("dP(converted)/d(ad_spend)")
+plt.tight_layout()
+plt.show()
+```
+
+## Unit-level slopes, then average
+
+```{python}
+unit_slopes = scm.slopes("converted", "ad_spend", slope="dydx", average_by=None)
+pop_slope = scm.slopes("converted", "ad_spend", slope="dydx", average_by="all")
+print(
+    f"mean of unit slopes: {unit_slopes.dataset['converted'].mean(dim=('chain', 'draw', 'unit')):.4f}"
+)
+print(f"average_by=all:      {pop_slope.mean():.4f}")
+```
+
+## Summary
+
+- On a GLM, `slopes()` answers on the **response** scale; the coefficient is not interchangeable.
+- Interactions make the slope a function of conditioning covariates.
+- Check `causal` on `AdjustmentModel` slopes before narrating adjustment variables as treatments.
+- `dydx` and `eyex` summarize different economic questions; pick deliberately.
+
+**Next steps:** [Conditional Predictions](predictions.qmd); [Interventional Contrasts](comparisons.qmd); [Predictions, Comparisons, and Slopes](../../user_guide/predictions-comparisons-slopes.qmd); [SCM vs Regression Adjustment](../../user_guide/scm-vs-adjustment.qmd).
+
+::: {.callout-note}
+
+## Reflection
+
+For a continuous price or dose lever in your work, is the local slope near typical values more actionable than a two-point ATE?
+Which covariates in your adjustment set would be dangerous to report as if they were treatments?
+
+:::
