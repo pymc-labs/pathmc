@@ -141,6 +141,18 @@ class TestRatioLift:
         assert np.all(np.isfinite(ratio.draws()))
         assert np.all(np.isfinite(lift.draws()))
 
+    def test_ratio_and_lift_contrast_before_average(self, fork_model):
+        from pathmc.interpret import _apply_comparison
+
+        lo = fork_model.predictions("Y", set={"X": 0.0}).dataset["Y"]
+        hi = fork_model.predictions("Y", set={"X": 1.0}).dataset["Y"]
+        ratio_manual = _apply_comparison(hi, lo, "ratio").mean("unit")
+        lift_manual = _apply_comparison(hi, lo, "lift").mean("unit")
+        ratio = fork_model.comparisons("Y", "X", comparison="ratio", average_by="all")
+        lift = fork_model.comparisons("Y", "X", comparison="lift", average_by="all")
+        xr.testing.assert_allclose(ratio.dataset["Y"], ratio_manual)
+        xr.testing.assert_allclose(lift.dataset["Y"], lift_manual)
+
 
 class TestBernoulliContrast:
     def test_response_scale_diff_not_coefficient(self, bernoulli_model):
@@ -205,20 +217,35 @@ class TestConditionalValidation:
 
 class TestPanelNotImplemented:
     def test_predictions_raises(self, mock_pymc_sample):
-        df = pd.DataFrame({
-            "region": ["A", "A", "B", "B"],
-            "week": [1, 2, 1, 2],
-            "spend": [1.0, 2.0, 3.0, 4.0],
-            "sales": [10.0, 11.0, 12.0, 13.0],
-        })
-        m = pathmc.model(
-            "sales ~ spend",
-            data=df,
-            panel={"unit": "region", "time": "week"},
-        )
-        m.fit(draws=20, tune=20, chains=1, random_seed=0)
+        m = _fit_panel_model()
         with pytest.raises(NotImplementedError, match="cross-sectional"):
             m.predictions("sales")
+
+    def test_comparisons_raises(self, mock_pymc_sample):
+        m = _fit_panel_model()
+        with pytest.raises(NotImplementedError, match="cross-sectional"):
+            m.comparisons("sales", "spend")
+
+    def test_slopes_raises(self, mock_pymc_sample):
+        m = _fit_panel_model()
+        with pytest.raises(NotImplementedError, match="cross-sectional"):
+            m.slopes("sales", "spend")
+
+
+def _fit_panel_model():
+    df = pd.DataFrame({
+        "region": ["A", "A", "B", "B"],
+        "week": [1, 2, 1, 2],
+        "spend": [1.0, 2.0, 3.0, 4.0],
+        "sales": [10.0, 11.0, 12.0, 13.0],
+    })
+    m = pathmc.model(
+        "sales ~ spend",
+        data=df,
+        panel={"unit": "region", "time": "week"},
+    )
+    m.fit(draws=20, tune=20, chains=1, random_seed=0)
+    return m
 
 
 class TestPlot:

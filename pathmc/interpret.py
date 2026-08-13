@@ -388,15 +388,17 @@ def _wrap_estimand(
     treatment: str,
     estimand: str,
     *,
+    interventional: bool,
     identifiable: bool | None,
 ) -> EstimandResult:
+    causal = interventional
     return EstimandResult(
         ds=xr.Dataset({outcome: da}),
         outcome=outcome,
         treatment=treatment,
         estimand=estimand,
-        interventional=True,
-        causal=True,
+        interventional=interventional,
+        causal=causal,
         identifiable=identifiable,
     )
 
@@ -505,6 +507,7 @@ def comparisons(
             outcome,
             variable,
             _COMPARISON_ESTIMANDS[comparison],
+            interventional=True,
             identifiable=identifiable,
         )
 
@@ -550,6 +553,7 @@ def slopes(
             outcome,
             wrt,
             slope,
+            interventional=True,
             identifiable=identifiable,
         )
 
