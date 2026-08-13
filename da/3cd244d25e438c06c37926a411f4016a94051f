@@ -1,0 +1,297 @@
+.agents/skills/THIRD_PARTY.md
+  s_30eefd89c502ac::t_300d7fec25e7fb 1-50
+.agents/skills/code-review/SKILL.md
+  s_30eefd89c502ac::t_d98e0bd99b3b31 1-87
+.agents/skills/domain-modeling/ADR-FORMAT.md
+  s_30eefd89c502ac::t_bab29b71ad8634 1-47
+.agents/skills/domain-modeling/CONTEXT-FORMAT.md
+  s_30eefd89c502ac::t_703bff995ff538 1-60
+.agents/skills/domain-modeling/SKILL.md
+  s_30eefd89c502ac::t_8b63053acbca19 1-74
+.agents/skills/fix-bug/SKILL.md
+  s_30eefd89c502ac::t_37dee83784e6d6 1-378
+.agents/skills/grill-with-docs/SKILL.md
+  s_30eefd89c502ac::t_b8049354404820 1-7
+.agents/skills/grilling/SKILL.md
+  s_30eefd89c502ac::t_2515a8e878766b 1-22
+.agents/skills/implement/SKILL.md
+  s_30eefd89c502ac::t_ee6589da9bb7a3 1-15
+.agents/skills/setup-matt-pocock-skills/SKILL.md
+  s_30eefd89c502ac::t_2950dc627a22c4 1-116
+.agents/skills/setup-matt-pocock-skills/domain.md
+  s_30eefd89c502ac::t_0f15f54a248bf5 1-51
+.agents/skills/setup-matt-pocock-skills/issue-tracker-github.md
+  s_30eefd89c502ac::t_6dcecf1ac6bbb5 1-45
+.agents/skills/setup-matt-pocock-skills/issue-tracker-gitlab.md
+  s_30eefd89c502ac::t_3e4c8e802947e7 1-46
+.agents/skills/setup-matt-pocock-skills/issue-tracker-local.md
+  s_30eefd89c502ac::t_c96c975b58fb9b 1-30
+.agents/skills/setup-matt-pocock-skills/triage-labels.md
+  s_30eefd89c502ac::t_cce96fb0237959 1-15
+.agents/skills/tdd/SKILL.md
+  s_30eefd89c502ac::t_a1751a5289e294 1-38
+.agents/skills/tdd/mocking.md
+  s_30eefd89c502ac::t_56511d2e898b6c 1-59
+.agents/skills/tdd/tests.md
+  s_30eefd89c502ac::t_9001105f7b44fa 1-77
+.agents/skills/to-spec/SKILL.md
+  s_30eefd89c502ac::t_cc06152f1d654a 1-75
+.agents/skills/work/SKILL.md
+  s_30eefd89c502ac::t_4398acc6ad1123 1-256
+.github/workflows/docs.yml
+  s_30eefd89c502ac::t_0a6446e2f06f5e 19,24,32,35,54,64-67,73-76,78,84,87,89-90,92-138
+.github/workflows/git-ai.yml
+  s_30eefd89c502ac::t_cbde5a9cc525ac 1-69
+AGENTS.md
+  s_30eefd89c502ac::t_3bb7101f9ac0a4 13-14,60,63-64,85-105
+CONTRIBUTING.md
+  s_30eefd89c502ac::t_8aaf6a9e89c1d5 30,34-74,154,157,177-178,192-195
+Makefile
+  s_30eefd89c502ac::t_758fe68f77a47c 7,14,19,22-24,41-42,44-46
+README.md
+  s_30eefd89c502ac::t_f573ba4849bc3a 3,6-7,92
+_freeze/docs/examples/01-foundations/causal_do_operator/execute-results/html.json
+  s_30eefd89c502ac::t_c4d3be53fa2f70 2,5,15
+_freeze/docs/examples/01-foundations/hsgp_1d/execute-results/html.json
+  s_30eefd89c502ac::t_07613e9edda00a 2,5,7,15
+_freeze/docs/examples/02-effect-estimation/counterfactual/execute-results/html.json
+  s_30eefd89c502ac::t_cb9757cc08920a 1-19
+_freeze/docs/examples/02-effect-estimation/mediation/execute-results/html.json
+  s_30eefd89c502ac::t_e13fc9dce7c097 5
+_freeze/docs/examples/03-identification/causal_identification/execute-results/html.json
+  s_30eefd89c502ac::t_a3e6b7afb51535 5
+_freeze/docs/examples/03-identification/dag_falsification/execute-results/html.json
+  s_30eefd89c502ac::t_3686670e47462c 5
+_freeze/docs/examples/04-panel-time/did/execute-results/html.json
+  s_30eefd89c502ac::t_fd3101ef0524a0 5
+_freeze/docs/examples/04-panel-time/panel_data/execute-results/html.json
+  s_30eefd89c502ac::t_563b120d6aff77 5
+_freeze/docs/examples/05-applied-models/dynamic_pricing/execute-results/html.json
+  s_30eefd89c502ac::t_a8f736d2871c1e 5,15
+_freeze/docs/examples/05-applied-models/dynamic_pricing/figure-html/cell-7-output-1.svg
+  s_30eefd89c502ac::t_cab3d02d646a11 4,8,15,21,28,35,41,48,54,61,67
+_freeze/docs/examples/05-applied-models/dynamic_pricing/figure-html/fig-pymc-graph-output-1.svg
+  s_30eefd89c502ac::t_f9e8aafdf7b90d 4,7-8,10,13-14,18-19,23-24,26,28-49,51-54,59-62,65,67-68,70-84,89-92,94-98,101,103-106,109,111-112,114,116-120,122-126,129,131-134,136-140,143,145-148,151,153-154,156-168,171,173-176,179,181-182,184-192,194-199,201-202,205,207-208,213-216,219,221-222
+_freeze/docs/examples/05-applied-models/mmm/execute-results/html.json
+  s_30eefd89c502ac::t_57e5ee41f52a3b 5,15
+_freeze/docs/examples/05-applied-models/mmm/figure-html/cell-22-output-1.svg
+  s_30eefd89c502ac::t_bf5aece02c64d4 4,8,15,21,28,34,41,47,65,72,79
+_freeze/docs/examples/05-applied-models/mmm/figure-html/cell-24-output-1.svg
+  s_30eefd89c502ac::t_f9c596cb2fac44 4,7-8,10,13-14,18-19,23-24,29-32,37-40,43,45-46,48,50-54,56-60,63,65-68,71,73-82,85,87-88,90-96,98-102,104-108,113-116,119,121-122,127-128,133-136,139,141-142,147-150,153,155-156,161-164,169-170,175-178,181,183-184
+_freeze/docs/examples/05-applied-models/mmm/figure-html/cell-47-output-1.svg
+  s_30eefd89c502ac::t_6361bfad1e5849 4,7-8,10,13-14,18-19,23-24,26,28-40,43,45-62,65,67-68,71,73-74,79-82,85,87-88,91,94-96,101-104,108-110,113,115-118,123-126,129,131-132,134-140,145-176,181-182,187-190,193,195-196,198,200-204,206-210,213,215-216,219,221-222,225,227-228,233-236,239,241-242
+_freeze/docs/examples/05-applied-models/mmm/figure-html/cell-5-output-2.svg
+  s_30eefd89c502ac::t_ef6ad12dac56aa 4,7-10,15,20-21,26-28,34,39-41,47,52-53
+_freeze/docs/examples/05-applied-models/mmm/figure-html/cell-7-output-1.svg
+  s_30eefd89c502ac::t_1426f214c335b7 4,7-8,10,13-14,18-19,23-24,27,29-32,37-40,43,45-46,49,51-54,57,59-60,62-68,71,73-76,78,80-82,85,87-90,95-96,98-110,113,115-118,121,123-124,126-132,134-140,142,144-148,150,152-154,157,159-162,165,167-188,193-196,199,201-202,205,207-208,213-216,219,221-222
+_freeze/docs/examples/05-applied-models/mmm_awareness/execute-results/html.json
+  s_30eefd89c502ac::t_00e44b7b59597c 5
+_freeze/docs/examples/05-applied-models/saas_funnel/execute-results/html.json
+  s_30eefd89c502ac::t_9d329e1ba862f0 5
+_freeze/docs/examples/applied-models/dynamic_pricing/execute-results/html.json
+  s_30eefd89c502ac::t_31a0de14b9f2ea 5,15
+_freeze/docs/examples/applied-models/dynamic_pricing/figure-html/cell-7-output-1.svg
+  s_30eefd89c502ac::t_33b9bc0f708333 4,7-10,14-15,20-21,26-28,33-35,40-41,46-48,53-54,59-61,66-67,72-73
+_freeze/docs/examples/applied-models/dynamic_pricing/figure-html/fig-pymc-graph-output-1.svg
+  s_30eefd89c502ac::t_48141d57a1e4c8 4,7-10,13-14,18-19,21-26,28-32,34-40,42-46,48,50-54,56-62,64-68,70-78,80-84,86,88-92,94-98,100,102-106,108,110-112,114,116-120,122-126,129,131-134,136-140,145-148,151,153-154,159-162,165,167-168,170,172-185,187-190,195-196,199,201-208,213-216,219,221-222
+_freeze/docs/examples/applied-models/mmm/execute-results/html.json
+  s_30eefd89c502ac::t_29a1dcc5fc1cae 5,15
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-22-output-1.svg
+  s_30eefd89c502ac::t_58ad1992be1122 4,7-10,14-15,20-21,26-28,33-34,39-41,46-47,52-53,58-59,64-65,70-72,77-79
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-24-output-1.svg
+  s_30eefd89c502ac::t_c3dbcaf2f5c404 4,7-15,18-19,23-24,29-32,35,37-40,42-46,49,51-54,59-60,62-70,72-76,78-82,84-88,93-96,101-102,104-128,133-136,139,141-142,145,147-150,153,155-170,175-178,181,183-184
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-47-output-1.svg
+  s_30eefd89c502ac::t_9b54945b123928 4,7-10,13-14,18-19,23-24,29-32,34,36-40,45-48,50,52-54,56,58-62,64-68,71,73-74,76,78-82,84-88,90,92-96,98-104,106-112,114-118,121,123-126,128-132,137-140,143,145-148,151,153-154,159-162,165,167-168,173-176,179,181-182,184,186-190,192-196,198,200-204,206-210,213,215-216,219,221-228,233-236,239,241-242
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-5-output-2.svg
+  s_30eefd89c502ac::t_442bc98350da2a 1-56
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-7-output-1.svg
+  s_30eefd89c502ac::t_0900c956ff378d 4,7-10,13-14,18-19,23-24,26,28-32,34-40,42-46,48,50-63,65-68,73-76,79,81-82,87-90,93,95-96,99,101-104,107,109-110,112-118,120-124,127,129-132,134-140,142-154,157,159-162,165,167-182,185,187-188,190,192-196,198,200-202,205,207-208,213-216,219,221-222
+_freeze/docs/examples/applied-models/mmm_awareness/execute-results/html.json
+  s_30eefd89c502ac::t_da01b63ff781c9 2,5,7,15
+_freeze/docs/examples/applied-models/mmm_awareness/figure-html/cell-13-output-1.svg
+  s_30eefd89c502ac::t_27ece993ad10f2 4,7-10,14-15,20-21,26-28,33-34,39-41,46-47,52-54,59-61,66-68,73-74,79-81
+_freeze/docs/examples/applied-models/mmm_awareness/figure-html/cell-15-output-1.svg
+  s_30eefd89c502ac::t_a79e7238d187cc 4,7-10,13-14,18-19,23-24,26-29,31-34,37,39-42,45,47-50,53,55-56,59,61-64,67,69-72,75,77-78,81,83-86,89,91-92,95,97-100,103,105-106,109,111-114,116-122,124-130,132-150,153,155-158,161,163-164,167,169-170,173,175-176,178-182,184-188,191,193-196,201-202,207-208,213-254,259-262,265,267-268,271,273-274,277,279-280,285-288,291,293-294,297,299-300,303,305-306,309,311-312,315,317-318
+_freeze/docs/examples/applied-models/mmm_awareness/figure-html/cell-7-output-1.svg
+  s_30eefd89c502ac::t_98b3c897dbb1a1 4,7-10,14-15,20-21,26-28,33-34,39-41,46-47,52-54,59-61,66-68
+_freeze/docs/examples/applied-models/saas_funnel/execute-results/html.json
+  s_30eefd89c502ac::t_0974fb5f6319be 5
+_freeze/docs/examples/effect-estimation/counterfactual/execute-results/html.json
+  s_30eefd89c502ac::t_268cfdecb492b3 2,5,7,15
+_freeze/docs/examples/effect-estimation/counterfactual/figure-html/cell-3-output-1.svg
+  s_30eefd89c502ac::t_35e2ad21c6547f 17,19,21,23,25,37,41,43-45,48
+_freeze/docs/examples/effect-estimation/mediation/execute-results/html.json
+  s_30eefd89c502ac::t_15499dbfe24826 2,5,7,15
+_freeze/docs/examples/effect-estimation/mediation/figure-html/cell-15-output-1.svg
+  s_30eefd89c502ac::t_616acf7a984ee7 4,7-10,14-15,20-21,26-28,33-34,39-41,46-47,52-54,59-62,67-69,74-76
+_freeze/docs/examples/effect-estimation/mediation/figure-html/cell-23-output-1.svg
+  s_30eefd89c502ac::t_83f7a784e14a08 4,7-8,10,14-15,20-21,26-28,33-34,39-41,46-48,53-54,59-61
+_freeze/docs/examples/effect-estimation/mediation/figure-html/cell-4-output-1.svg
+  s_30eefd89c502ac::t_6b589dd74cd9fb 7-8,10,17,19,21,23,25,33-34,37,39-41,43-48
+_freeze/docs/examples/foundations/causal_do_operator/execute-results/html.json
+  s_30eefd89c502ac::t_fc47a350a1d275 2,5,7,15
+_freeze/docs/examples/foundations/hsgp_1d/execute-results/html.json
+  s_30eefd89c502ac::t_cc6b909f8fcd46 2,5,7,15
+_freeze/docs/examples/identification/causal_identification/execute-results/html.json
+  s_30eefd89c502ac::t_a9335014078b5a 5
+_freeze/docs/examples/identification/placebo_refutation/execute-results/html.json
+  s_30eefd89c502ac::t_9f1209326df186 1-19
+_freeze/docs/examples/panel-time/did/execute-results/html.json
+  s_30eefd89c502ac::t_4b14754495bb12 5
+_freeze/docs/examples/panel-time/panel_data/execute-results/html.json
+  s_30eefd89c502ac::t_8f3b92d1c484cb 5
+_freeze/index/execute-results/html.json
+  s_30eefd89c502ac::t_c17a21b8dcf113 2,5
+_freeze/user-guide/bayesian-workflow/execute-results/html.json
+  s_30eefd89c502ac::t_fb066c19c6bda8 2,5,15
+_freeze/user-guide/bayesian-workflow/figure-html/cell-4-output-1.svg
+  s_30eefd89c502ac::t_37b3f049c14fa0 4,7-10,15,20-21,26-28,33-34,39-41,46-48
+_freeze/user-guide/panel-interventions/execute-results/html.json
+  s_30eefd89c502ac::t_c6c0bfb624023b 2,5,15
+docs/agents/domain.md
+  s_30eefd89c502ac::t_b79a9c7b9b5cbb 1-18
+docs/agents/issue-tracker.md
+  s_30eefd89c502ac::t_36f64c000f6897 1-28
+docs/agents/triage-labels.md
+  s_30eefd89c502ac::t_ade6c5fdb0dfa6 1-11
+docs/examples/01-foundations/causal_do_operator.qmd
+  s_30eefd89c502ac::t_7f4299ce1778ec 468
+docs/examples/02-effect-estimation/counterfactual.qmd
+  s_30eefd89c502ac::t_cdedf7db041663 217,263-290,309-310,357,411
+docs/examples/02-effect-estimation/mediation.qmd
+  s_30eefd89c502ac::t_c7f2242729c12e 486
+docs/examples/03-identification/dag_testing.qmd
+  s_30eefd89c502ac::t_f7a4620cbf6211 179-192
+docs/examples/03-identification/placebo_refutation.qmd
+  s_30eefd89c502ac::t_a4b1f65b5b6516 1-338
+docs/examples/05-applied-models/mmm_awareness.qmd
+  s_30eefd89c502ac::t_45471a0459076c 958
+docs/references.bib
+  s_30eefd89c502ac::t_d65b5e7e375905 87-113
+docs/user_guide/00-welcome.qmd
+  s_30eefd89c502ac::t_9bdf2e0c3652a3 104,110,147,153,167,180,194,226
+docs/user_guide/01-how-it-works.qmd
+  s_30eefd89c502ac::t_c06e7d78985f5b 127
+docs/user_guide/10-bayesian-workflow.qmd
+  s_30eefd89c502ac::t_a9a93bec2ea6a7 291
+docs/user_guide/11-model-specification.qmd
+  s_30eefd89c502ac::t_411cf1379739a3 138
+docs/user_guide/12-transforms-families.qmd
+  s_30eefd89c502ac::t_d24ecd23c896a3 96
+docs/user_guide/13-causal-inference.qmd
+  s_30eefd89c502ac::t_301ebd6e3bb725 269,320,347-352
+docs/user_guide/16-panel-data.qmd
+  s_30eefd89c502ac::t_bf6e6a83fcca3b 149
+docs/user_guide/17-panel-interventions.qmd
+  s_30eefd89c502ac::t_9171a26d5bdc03 257
+great-docs.yml
+  s_30eefd89c502ac::t_933e5735067878 38,66,115,174
+pathmc/__init__.py
+  s_30eefd89c502ac::t_500af4704d1d2d 40,59,69
+pathmc/_model.py
+  s_30eefd89c502ac::t_a31697925acbb9 20,33-39,67-74,81,114-181,245,267-269,275-277,350-361,548-553,631-635,641-645,664-666,669,750-757,762-764,787-791,818-822,892-897,922-926,1265-1267,1283-1284,1290-1297,1299-1301,1326-1336,1346,1352-1420,1768-1903,2007-2014
+pathmc/compile.py
+  s_30eefd89c502ac::t_0f62959cfa253f 54-74,91-145,187-234,243-246,254,260-265,271,302-307,330,386-392,428,445-450,454,532,540,551,577-579,593,653-655,662,671-672,674-693,700-702,705,708-709,711,713,784-801,811-813,822-828,832-840,842-843,866,942,1138-1178,1354-1384,1477,1481-1487,1496,1498,1503-1542,1544-1573,1665,1669,1676,1722-1724,1744-1746,1845,1850-1861,1868-1871,1874,1879-1895,1910-1948,1952,1955-1956,1974-1975,1984-1985,1989-1997,2019-2022,2026,2028-2029,2032-2033,2042,2045,2049-2052,2057,2060-2071,2077-2080,2086,2127-2166,2181-2185,2189-2199,2202-2203,2210,2221
+pathmc/effects.py
+  s_30eefd89c502ac::t_7e3f1f3b38daf7 22-23,43-84,187-191,198-217,265-267,273,282-283,295-297,307-308,312,318-320,356-365,373-398,403,407-421,430-432,443-445,448,474-494
+pathmc/exceptions.py
+  s_30eefd89c502ac::t_0bfba92761adcd 26
+pathmc/graph.py
+  s_30eefd89c502ac::t_efb83ef36b939c 158-167
+pathmc/identify.py
+  s_30eefd89c502ac::t_51a717d7ab2ce1 53-109,131-135,152,154,191-195,261-266,268,342-347,364,538-546,558,571
+pathmc/interpret.py
+  s_30eefd89c502ac::t_fb1d9bc9a204cb 1-588
+pathmc/introspect.py
+  s_30eefd89c502ac::t_4c2bd91ca385d5 36,64-95,100-104,111,115,226,229-230,350,408-411,418,421,455,470,500,504,507,527,530
+pathmc/panel.py
+  s_30eefd89c502ac::t_8832fcc2842260 18,22,81-218,227-232,238-245,249-250,252-258,260-298
+pathmc/parse.py
+  s_30eefd89c502ac::t_1128a2a5d17d9c 174-175,190,204-222,301-362,370,532
+pathmc/priors.py
+  s_30eefd89c502ac::t_c741b0a4c3cd18 22-23,28-30,42,80
+pathmc/simulate.py
+  s_30eefd89c502ac::t_a9b1afeb90201d 29-31,42,44,52-55,59-135,337-343,346-353,355-361,422-539,542-551,553-557,583,621-624,630-639,667-686,826-829,907-1131,1147-1181,1203,1238-1240,1271,1276-1277,1324,1333-1337,1341-1342,1371,1394,1421-1422,1435,1441-1444,1448-1458,1476-1487,1506-1508,1511,1519-1540,1562-1565
+pathmc/transforms.py
+  s_30eefd89c502ac::t_de9a9310e0e562 39-41,45-51,66-67,175,182-203,211-246,259-261,282-284,294-321
+pyproject.toml
+  s_30eefd89c502ac::t_5751f7fd4ce399 7,35,44
+scripts/refreeze_tex.py
+  s_30eefd89c502ac::t_e1eb9e68cdd996 1-185
+scripts/verify_refreeze_tex.py
+  s_30eefd89c502ac::t_488ad79e5b95f2 1-140
+skills-lock.json
+  s_30eefd89c502ac::t_e2d4a516fff829 9-14,20-25,31-48,54-71
+tests/_draw_fixtures.py
+  s_30eefd89c502ac::t_02116562a63375 122,133-134
+tests/conftest.py
+  s_30eefd89c502ac::t_ad61dc6524c0a2 134-135
+tests/test_adstock_parity.py
+  s_30eefd89c502ac::t_0dd9fd8aed972e 1-247
+tests/test_counterfactual.py
+  s_30eefd89c502ac::t_4e2659288b4350 1-393
+tests/test_do_plot.py
+  s_30eefd89c502ac::t_6acc4582677793 1-113
+tests/test_dsl_parse_golden.py
+  s_30eefd89c502ac::t_21e082f1710b40 1-359
+tests/test_effects_oracle.py
+  s_30eefd89c502ac::t_efc602c42bd2a5 1-409
+tests/test_graph.py
+  s_30eefd89c502ac::t_b5c846beac3e57 122-137
+tests/test_hsgp_compile.py
+  s_30eefd89c502ac::t_16615670dddf9b 116
+tests/test_identification.py
+  s_30eefd89c502ac::t_14b17004651123 22-27,187-314
+tests/test_identification_oracle.py
+  s_30eefd89c502ac::t_6e426017baf672 1-328
+tests/test_interpret.py
+  s_30eefd89c502ac::t_b747c5e5ab3617 1-300
+tests/test_introspection.py
+  s_30eefd89c502ac::t_4bde53779ed40a 20-23,25,28-34,38-56,121-234
+tests/test_non_gaussian_guards.py
+  s_30eefd89c502ac::t_3aff649fc451e1 1-164
+tests/test_panel_by_time.py
+  s_30eefd89c502ac::t_670ef0f6d79e2a 28,71-78
+tests/test_panel_do.py
+  s_30eefd89c502ac::t_801b9851ba0d83 16-17,21,50-55,63-72,76-89,122-160,195-196
+tests/test_panel_nan_handling.py
+  s_30eefd89c502ac::t_208fc90dc914b4 1-266
+tests/test_panel_oos_shape.py
+  s_30eefd89c502ac::t_7fd5cf9f54b7aa 1-181
+tests/test_panel_predict_carry.py
+  s_30eefd89c502ac::t_02d437286e4bb6 21-22,29,32-35,110-226
+tests/test_panel_shape_validation.py
+  s_30eefd89c502ac::t_ceb186bacc9be9 1-208
+tests/test_panel_smoke.py
+  s_30eefd89c502ac::t_cbd2c7bc1868a9 74,85,87-103,128-137
+tests/test_parse.py
+  s_30eefd89c502ac::t_df5a79c3a1a7e1 33,168-175
+tests/test_partial_pooling_warning.py
+  s_30eefd89c502ac::t_bc388caabbbefb 14,37-38,40,47,50-57,59,62-63,68,70-76,78-85,87-94,96-105,108-109,111-118,120,127
+tests/test_public_api.py
+  s_30eefd89c502ac::t_3df3b31bc26c3e 32,42,62
+tests/test_residual_cov.py
+  s_30eefd89c502ac::t_97e26aa82a713b 110-167
+tests/test_scan_intervention_oracle.py
+  s_30eefd89c502ac::t_36d3f226cec3db 1-246
+tests/test_scan_non_gaussian_mediators.py
+  s_30eefd89c502ac::t_844e62f3fbae91 1-354
+uv.lock
+  s_30eefd89c502ac::t_c1c70bf29183fe 155,162,164,169,177,179,184,190,192,197,203,205,1666,1679-1715,2261,2307,2318,2765,2779,2781,2820,2829,2831-2843
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "da3cd244d25e438c06c37926a411f4016a94051f",
+  "prompts": {},
+  "sessions": {
+    "s_30eefd89c502ac": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "f3a71aa2-f96e-4341-905f-e1ef69ef445b",
+        "model": "composer-2.5"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
