@@ -11,10 +11,25 @@
 #   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
-import numpy as np
-import pandas as pd
-import pymc as pm
-import pytest
+import os
+
+# xdist workers compile PyMC models concurrently; isolate PyTensor caches so
+# workers do not race on the default ~/.pytensor compiledir.
+_xdist_worker = os.environ.get("PYTEST_XDIST_WORKER")
+if _xdist_worker is not None:
+    _compile_root = os.path.join(
+        os.path.expanduser("~/.pytensor"),
+        f"compiledir_xdist_{_xdist_worker}",
+    )
+    os.makedirs(_compile_root, exist_ok=True)
+    _flag = f"compiledir={_compile_root}"
+    _existing = os.environ.get("PYTENSOR_FLAGS", "")
+    os.environ["PYTENSOR_FLAGS"] = f"{_existing},{_flag}" if _existing else _flag
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+import pymc as pm  # noqa: E402
+import pytest  # noqa: E402
 
 try:  # pragma: no cover - depends on the installed PyMC test helpers
     from pymc.testing import mock_sample_setup_and_teardown
