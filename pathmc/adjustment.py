@@ -15,10 +15,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import graphviz
 import narwhals.stable.v1 as nw
+import numpy as np
+import pandas as pd
 import pymc as pm
 import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame
@@ -26,6 +28,7 @@ from narwhals.stable.v1.typing import IntoFrame
 from pathmc.compile import _term_base_vars
 from pathmc.graph import GraphInfo
 from pathmc.identify import adjustment_sets, is_valid_adjustment_set
+from pathmc.interpret import InterpretResult
 from pathmc.introspect import build_dag_viz
 from pathmc.parse import Spec, parse_spec
 from pathmc.priors import default_priors, merge_priors
@@ -463,18 +466,155 @@ class AdjustmentModel:
             )
         return resolved_outcome, resolved_treatment
 
-    def _stamp(self, result: EstimandResult) -> EstimandResult:
-        """Stamp regression-adjustment metadata on an estimand result."""
-        return EstimandResult(
-            ds=result.dataset,
+    def _resolve_outcome(self, outcome: str | None) -> str:
+        """Resolve outcome, defaulting to the designated query outcome."""
+        resolved_outcome = outcome if outcome is not None else self._outcome
+        if resolved_outcome != self._outcome:
+            raise ValueError(
+                f"This AdjustmentModel answers {self._treatment} -> "
+                f"{self._outcome}. Got outcome='{resolved_outcome}'. "
+                f"Pass the designated outcome or omit outcome=."
+            )
+        return resolved_outcome
+
+    def _formula_predictors(self) -> set[str]:
+        """Predictor names in the reduced outcome regression."""
+        reg = self._outcome_model._spec.regressions[0]
+        predictors: set[str] = set()
+        for term in reg.terms:
+            predictors.update(_term_base_vars(term))
+        return predictors
+
+    def _validate_formula_variable(self, name: str, *, role: str) -> None:
+        """Raise when a query variable is absent from the reduced formula."""
+        predictors = self._formula_predictors()
+        if name not in predictors:
+            raise ValueError(
+                f"{role} '{name}' is not in the reduced outcome formula "
+                f"'{self._formula}'. Available predictors: "
+                f"{sorted(predictors)}."
+            )
+
+    def _stamp(
+        self,
+        result: EstimandResult | InterpretResult,
+        varied_variable: str | None = None,
+    ) -> EstimandResult | InterpretResult:
+        """Stamp regression-adjustment metadata on an interpret or estimand result."""
+        interventional = result.interventional
+        causal = interventional and varied_variable == self._treatment
+        ds = result.dataset.copy()
+        ds.attrs["adjustment_set"] = tuple(sorted(self._adjustment_set))
+
+        if isinstance(result, EstimandResult):
+            return EstimandResult(
+                ds=ds,
+                outcome=result.outcome,
+                treatment=result.treatment,
+                estimand=result._estimand,
+                estimator="regression_adjustment",
+                causal=causal,
+                interventional=interventional,
+                identifiable=True,
+            )
+
+        return InterpretResult(
+            ds=ds,
             outcome=result.outcome,
-            treatment=result.treatment,
-            estimand=result._estimand,
+            quantity=result.quantity,
+            variable=result.variable,
             estimator="regression_adjustment",
-            causal=True,
-            interventional=True,
+            causal=causal,
+            interventional=interventional,
             identifiable=True,
         )
+
+    def predictions(
+        self,
+        outcome: str | None = None,
+        *,
+        set: dict[str, float | np.ndarray] | None = None,
+        newdata: IntoFrame | None = None,
+    ) -> InterpretResult:
+        """Response-mean predictions on the reduced outcome model.
+
+        Defaults ``outcome`` to the designated query outcome. Without ``set``,
+        predictions are associational. ``causal`` is ``True`` only when
+        ``set`` intervenes on the designated treatment alone.
+        """
+        outcome_name = self._resolve_outcome(outcome)
+        set_dict = None if set is None else dict(set)
+        if set_dict is not None:
+            for key in set_dict:
+                self._validate_formula_variable(key, role="set key")
+        result = self._outcome_model.predictions(
+            outcome_name, set=set_dict, newdata=newdata
+        )
+        varied = next(iter(set_dict)) if set_dict and len(set_dict) == 1 else None
+        stamped = self._stamp(result, varied_variable=varied)
+        assert isinstance(stamped, InterpretResult)
+        return stamped
+
+    def comparisons(
+        self,
+        outcome: str | None = None,
+        variable: str | None = None,
+        *,
+        contrast: tuple[float, float] = (0.0, 1.0),
+        comparison: Literal["diff", "ratio", "lift"] = "diff",
+        conditional: dict[str, float] | None = None,
+        average_by: Literal["all"] | None = "all",
+    ) -> EstimandResult | InterpretResult:
+        """Interventional contrasts on the reduced outcome model.
+
+        Defaults ``outcome`` and ``variable`` to the designated query.
+        ``causal`` is ``True`` only when ``variable`` is the designated
+        treatment.
+        """
+        outcome_name = self._resolve_outcome(outcome)
+        variable_name = variable if variable is not None else self._treatment
+        self._validate_formula_variable(variable_name, role="variable")
+        result = self._outcome_model.comparisons(
+            outcome_name,
+            variable_name,
+            contrast=contrast,
+            comparison=comparison,
+            conditional=conditional,
+            average_by=average_by,
+        )
+        return self._stamp(result, varied_variable=variable_name)
+
+    def slopes(
+        self,
+        outcome: str | None = None,
+        wrt: str | None = None,
+        *,
+        slope: Literal["dydx", "eyex", "eydx", "dyex"] = "dydx",
+        eps: float = 1e-4,
+        conditional: dict[str, float] | None = None,
+        average_by: Literal["all"] | None = "all",
+    ) -> EstimandResult | InterpretResult:
+        """Finite-difference slopes on the reduced outcome model.
+
+        Defaults ``outcome`` and ``wrt`` to the designated query. ``causal`` is
+        ``True`` only when ``wrt`` is the designated treatment.
+        """
+        outcome_name = self._resolve_outcome(outcome)
+        wrt_name = wrt if wrt is not None else self._treatment
+        self._validate_formula_variable(wrt_name, role="wrt")
+        result = self._outcome_model.slopes(
+            outcome_name,
+            wrt_name,
+            slope=slope,
+            eps=eps,
+            conditional=conditional,
+            average_by=average_by,
+        )
+        return self._stamp(result, varied_variable=wrt_name)
+
+    def datagrid(self, **cols: list[float] | list[int]) -> pd.DataFrame:
+        """Build a covariate grid from the inner outcome model's data."""
+        return self._outcome_model.datagrid(**cols)
 
     def ate(
         self,
@@ -488,7 +628,9 @@ class AdjustmentModel:
         result = self._outcome_model.ate(
             outcome_name, treatment_name, values=values, **do_kwargs
         )
-        return self._stamp(result)
+        stamped = self._stamp(result, varied_variable=treatment_name)
+        assert isinstance(stamped, EstimandResult)
+        return stamped
 
     def cate(
         self,
@@ -507,7 +649,9 @@ class AdjustmentModel:
             condition=condition,
             **do_kwargs,
         )
-        return self._stamp(result)
+        stamped = self._stamp(result, varied_variable=treatment_name)
+        assert isinstance(stamped, EstimandResult)
+        return stamped
 
     def att(
         self,
@@ -526,7 +670,9 @@ class AdjustmentModel:
             treated_value=treated_value,
             kind=kind,
         )
-        return self._stamp(result)
+        stamped = self._stamp(result, varied_variable=treatment_name)
+        assert isinstance(stamped, EstimandResult)
+        return stamped
 
     def atu(
         self,
@@ -545,4 +691,6 @@ class AdjustmentModel:
             untreated_value=untreated_value,
             kind=kind,
         )
-        return self._stamp(result)
+        stamped = self._stamp(result, varied_variable=treatment_name)
+        assert isinstance(stamped, EstimandResult)
+        return stamped
