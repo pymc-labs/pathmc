@@ -37,6 +37,7 @@ The table below compares pathmc against five packages that Python practitioners 
 | **Transforms with estimable params** | ✅ adstock, saturation | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Panel / longitudinal data** | ✅ random intercepts + slopes | ❌ | ✅ time series focus | ❌ | ❌ | ✅ via groups |
 | **Causal identification checks** | ✅ backdoor, front-door, colliders | ✅ comprehensive | ❌ | ❌ | ❌ | ❌ |
+| **Backdoor regression adjustment** | ✅ `adjustment_model()` | ✅ many estimators | ❌ | ❌ | ❌ | ✅ formula + `interpret` |
 | **Implied independence tests** | ✅ `test_implications()` | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Sensitivity analysis** | ✅ `sensitivity()` | ✅ refutation tests | ❌ | ❌ | ❌ | ❌ |
 | **Heterogeneous treatment effects** | ✅ `cate()` | ❌ | ❌ | ❌ | ✅ core strength | ✅ via interactions |
@@ -102,10 +103,10 @@ pathmc requires you to specify the mechanism but rewards you with richer queries
 It shares pathmc's Bayesian foundation and formula-based model specification, and it is excellent for building individual regression models with complex random-effects structures.
 Using Bambi's `interpret` module, you can compute predictions, comparisons, and slopes that approximate causal quantities when identification assumptions hold.
 
-**Choose Bambi when** you need flexible single-equation Bayesian regression with sophisticated random effects (crossed, nested), GAMs, or distributional models.
+**Choose Bambi when** you need GAMs, distributional models, or sophisticated crossed or nested random-effects structures that pathmc does not provide, and you are willing to specify the adjustment formula by hand.
 
-**Choose pathmc when** you need to model a *system* of equations simultaneously, want residual covariance across equations, need a `do()` operator that propagates through the full causal graph, or want built-in identification checks.
-Bambi excels at one equation at a time; pathmc models the whole DAG.
+**Choose pathmc when** you need to model a *system* of equations simultaneously, want residual covariance across equations, need a `do()` operator that propagates through the full causal graph, want built-in identification checks, or want DAG-derived backdoor adjustment via `adjustment_model()` without leaving the pathmc API.
+Bambi excels at rich single-equation regression; pathmc models the whole DAG and can reduce it to a single identified outcome equation when that is all you need.
 
 ## When to use what
 
@@ -118,9 +119,10 @@ Bambi excels at one equation at a time; pathmc models the whole DAG.
 | You have a natural experiment (DiD, RDD, synthetic control) | **CausalPy** |
 | You need latent variable SEM with fit indices | **semopy** |
 | You have high-dimensional data and want nonparametric CATE | **EconML** |
-| You need a flexible single-equation Bayesian model | **Bambi** |
+| You need backdoor regression adjustment from a DAG | **pathmc** (`adjustment_model()`) |
+| You need a flexible single-equation Bayesian model (GAMs, rich multilevel) | **Bambi** |
 | You want an MMM with adstock/saturation and counterfactual simulation | **pathmc** |
-| You want to combine multiple tools in a workflow | Use **DoWhy** for identification, then **pathmc** or **Bambi** for estimation |
+| You want to combine multiple tools in a workflow | Use **DoWhy** for identification, then **pathmc** (structural or `adjustment_model()`) or **Bambi** for estimation |
 
 ## What pathmc does not do
 
@@ -138,7 +140,7 @@ These packages are not mutually exclusive. A mature causal analysis might combin
 
 1. **Specify the DAG** from domain knowledge
 2. **Check identification** with DoWhy's do-calculus or pathmc's `adjustment_sets()`
-3. **Estimate the structural model** with pathmc (Bayesian, full system) or Bambi (single equation, rich random effects)
+3. **Estimate** with pathmc (full structural model, native `adjustment_model()`, or Bambi for GAMs and rich multilevel formulas)
 4. **Validate with quasi-experiments** using CausalPy when natural experiments are available
 5. **Explore heterogeneity** with EconML for subgroup-level treatment effects
 

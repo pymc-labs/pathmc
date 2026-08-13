@@ -83,6 +83,11 @@ The DSL is lavaan-inspired:
 | **Average treatment effect**                      | `m.ate(outcome, treatment, values=(0, 1))`             |
 | **Conditional ATE** (effect modification)         | `m.cate(outcome, treatment, condition={"Z": z0})`      |
 | ATE on the treated / untreated                    | `m.att(...)` / `m.atu(...)`                            |
+| **Backdoor-adjusted outcome regression**        | `adj = m.adjustment_model("X -> Y")` then `adj.fit()`  |
+| Inspect adjustment set / formula before fit     | `adj.adjustment_set`, `adj.formula` (before `adj.fit()`) |
+| Interventional / associational predictions      | `m.predictions(outcome, set={...})`                    |
+| Interventional contrasts (structural model)     | `m.comparisons(outcome, variable, contrast=(0, 1))`    |
+| Marginal slopes under intervention              | `m.slopes(outcome, variable)`                          |
 | Probability under intervention                    | `m.prob("Y > 0", set={"X": 1})`                        |
 | Manual intervention                               | `m.do(set={"X": 1})`                                   |
 | Counterfactual / time-forward (panel)             | `m.do(set={...}, kind="time-forward")`                 |
@@ -138,6 +143,18 @@ The DSL is lavaan-inspired:
    by `model()`. You don't import it directly; you receive it. Type
    annotations can use `pathmc.PathModel` (it is reachable as an
    attribute) but the public entrypoint is the `model()` function.
+9. **`adjustment_model()` returns an `AdjustmentModel` facade.**
+   Inspect `adj.adjustment_set` and `adj.formula` before calling
+   `adj.fit()`. An empty set `{}` is valid when no covariates are
+   needed to block backdoors; if no valid set exists, construction
+   raises (effect not identifiable via backdoor). When several minimal
+   sets exist, pass `adjustment_set=` explicitly; pathmc does not pick
+   among them. Pass `data=` when the parent structural model is
+   data-free. Panel models are not supported on the adjustment path.
+10. **`predictions()` / `comparisons()` / `slopes()` are on `PathModel`
+   only.** They target the structural model. `AdjustmentModel` exposes
+   `ate()` / `cate()` / `att()` / `atu()` via the reduced outcome
+   equation; there is no `adj.comparisons()`.
 
 ## Capabilities and boundaries
 
@@ -150,6 +167,10 @@ The DSL is lavaan-inspired:
   the `samplers` extra).
 - Query `ate`/`cate`/`att`/`atu`/`prob`/`effect` with full posterior
   uncertainty.
+- Fit a DAG-derived backdoor adjustment model via `adjustment_model()`
+  when a single treatment-outcome query suffices.
+- Run `predictions()` / `comparisons()` / `slopes()` on structural
+  `PathModel` objects for interpret-style queries.
 - Check identification (`adjustment_sets`, `is_identifiable`,
   `frontdoor_identifiable`, `collider_warnings`).
 - Test the DAG's conditional-independence implications against data
@@ -206,6 +227,20 @@ m.ate("Y", "X", values=(0, 1))               # ATE
 m.cate("Y", "X", condition={"Z": 1})         # CATE | Z=1
 m.test_implications()                        # DAG vs data check
 ```
+
+### Backdoor adjustment model
+
+```python
+m = pathmc.model(spec, data=df)              # structural DAG + data
+adj = m.adjustment_model("X -> Y")           # inspect before fit
+adj.adjustment_set                           # validated backdoor set
+adj.formula                                  # reduced outcome equation
+adj.fit(draws=1000, chains=2)
+adj.ate(values=(0, 1))                       # outcome-regression standardization
+```
+
+When several minimal adjustment sets exist, pass `adjustment_set=` explicitly.
+When the structural model has no data, pass `data=` to `adjustment_model()`.
 
 ### Panel model
 
