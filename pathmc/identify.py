@@ -172,6 +172,98 @@ def adjustment_sets(
     return valid_sets
 
 
+def is_valid_adjustment_set(
+    graph_info: GraphInfo,
+    treatment: str,
+    outcome: str,
+    z: set[str],
+) -> bool:
+    """Check whether *z* is a valid backdoor adjustment set.
+
+    A set is valid when every member is an observed DAG node, excludes
+    treatment and outcome, contains no treatment descendants or latents,
+    introduces no collider bias, and blocks all backdoor paths. The set
+    need not be minimal; supersets of a valid set are accepted.
+
+    Parameters
+    ----------
+    graph_info : GraphInfo
+        DAG from the structural model.
+    treatment : str
+        Treatment variable name.
+    outcome : str
+        Outcome variable name.
+    z : set[str]
+        Proposed adjustment set.
+
+    Returns
+    -------
+    bool
+        ``True`` when *z* is valid.
+
+    Raises
+    ------
+    ValueError
+        With a single actionable reason when *z* is invalid.
+    """
+    dag = graph_info.contemporaneous_dag
+    latent = graph_info.latent
+
+    _require_nodes(dag, treatment=treatment, outcome=outcome)
+
+    for var in sorted(z):
+        if var not in dag.nodes:
+            raise ValueError(
+                f"Adjustment variable '{var}' is not a node in the DAG. "
+                f"Available nodes: {sorted(dag.nodes)}"
+            )
+
+    if treatment in z:
+        raise ValueError(
+            f"Adjustment set cannot include the treatment '{treatment}'. "
+            f"Remove '{treatment}' from adjustment_set=."
+        )
+
+    if outcome in z:
+        raise ValueError(
+            f"Adjustment set cannot include the outcome '{outcome}'. "
+            f"Remove '{outcome}' from adjustment_set=."
+        )
+
+    latent_in_z = sorted(z & latent)
+    if latent_in_z:
+        raise ValueError(
+            f"Adjustment set contains unobserved (latent) variable(s): "
+            f"{latent_in_z}. Latent nodes cannot be conditioned on — "
+            f"remove them from adjustment_set=."
+        )
+
+    descendants = nx.descendants(dag, treatment)
+    descendants_in_z = sorted(z & descendants)
+    if descendants_in_z:
+        raise ValueError(
+            f"Adjustment set contains descendant(s) of '{treatment}': "
+            f"{descendants_in_z}. Descendants of the treatment cannot be "
+            f"in an adjustment set — remove them from adjustment_set=."
+        )
+
+    warnings_list = collider_warnings(graph_info, z, treatment, outcome)
+    if warnings_list:
+        raise ValueError(warnings_list[0])
+
+    mutilated = dag.copy()
+    mutilated.remove_edges_from(list(dag.in_edges(treatment)))
+    if not _blocks_all_backdoor_paths(dag, mutilated, treatment, outcome, z):
+        raise ValueError(
+            f"Adjustment set {sorted(z)} does not block all backdoor paths "
+            f"from '{treatment}' to '{outcome}'. Call adjustment_sets() on "
+            f"the structural model to see valid sets, or pass a different "
+            f"adjustment_set=."
+        )
+
+    return True
+
+
 def is_identifiable(
     graph_info: GraphInfo,
     treatment: str,

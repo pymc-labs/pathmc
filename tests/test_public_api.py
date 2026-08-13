@@ -22,6 +22,7 @@ import pathmc
 
 def test_top_level_public_api_is_explicit() -> None:
     assert pathmc.__all__ == [
+        "AdjustmentModel",
         "TBFPC",
         "BuildModelFromDAG",
         "DoResult",

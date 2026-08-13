@@ -38,6 +38,7 @@ from pathmc.effects import EffectResult  # noqa: E402
 from pathmc.falsify import FalsificationResult  # noqa: E402
 from pathmc.identify import ImplicationTestResult  # noqa: E402
 from pathmc._model import PathModel, model, simulate  # noqa: E402
+from pathmc.adjustment import AdjustmentModel  # noqa: E402
 from pathmc.refute import PlaceboRefutationResult  # noqa: E402
 from pathmc.sensitivity import SensitivityResult  # noqa: E402
 from pathmc.simulate import DoResult, EstimandResult  # noqa: E402
@@ -48,6 +49,7 @@ from pathmc.transforms import ParamSpec, Transform, register_transform  # noqa: 
 from pymc_extras.prior import Prior  # noqa: E402
 
 __all__ = [
+    "AdjustmentModel",
     "TBFPC",
     "BuildModelFromDAG",
     "DoResult",

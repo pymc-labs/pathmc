@@ -19,7 +19,7 @@ import sys
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
 
 import arviz as az
 import graphviz
@@ -75,6 +75,9 @@ from pathmc.simulate import (
     run_do_panel_unified,
     run_do_pymc,
 )
+
+if TYPE_CHECKING:
+    from pathmc.adjustment import AdjustmentModel
 
 __all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
 
@@ -826,6 +829,68 @@ class PathModel:
             True if at least one valid adjustment set exists.
         """
         return _is_identifiable(self._graph_info, treatment, outcome)
+
+    def adjustment_model(
+        self,
+        query: str | None = None,
+        *,
+        treatment: str | None = None,
+        outcome: str | None = None,
+        adjustment_set: set[str] | None = None,
+        formula: str | None = None,
+        data: IntoFrame | None = None,
+        families: dict[str, str] | None = None,
+        priors: dict[str, Any] | None = None,
+    ) -> AdjustmentModel:
+        """Build a backdoor-adjusted single-equation outcome model.
+
+        Returns an :class:`~pathmc.adjustment.AdjustmentModel` facade around
+        a reduced ``Y ~ treatment + Z`` regression for the designated
+        treatment–outcome query on this structural DAG.
+
+        Parameters
+        ----------
+        query : str | None
+            Treatment–outcome query, e.g. ``"X -> Y"``. Exactly one of
+            *query* or both ``treatment=`` and ``outcome=`` must be passed.
+        treatment : str | None
+            Treatment variable name.
+        outcome : str | None
+            Outcome variable name.
+        adjustment_set : set[str] | None
+            Explicit backdoor adjustment set. Required when several minimal
+            sets exist; otherwise the unique minimal set is auto-selected.
+        formula : str | None
+            Custom reduced regression formula. Must include the treatment
+            and every member of the adjustment set.
+        data : IntoFrame | None
+            Observed data. Required when this model is data-free; overrides
+            the parent's data when both are present.
+        families : dict[str, str] | None
+            Per-variable families for the reduced model only.
+        priors : dict | None
+            Prior overrides for the reduced model, merged with inherited
+            outcome dispersion priors.
+
+        Returns
+        -------
+        AdjustmentModel
+            Facade with ``fit()`` and ``ate()`` / ``att()`` / ``atu()`` /
+            ``cate()`` delegating to the inner outcome model.
+        """
+        from pathmc.adjustment import AdjustmentModel
+
+        return AdjustmentModel.from_path_model(
+            self,
+            query=query,
+            treatment=treatment,
+            outcome=outcome,
+            adjustment_set=adjustment_set,
+            formula=formula,
+            data=data,
+            families=families,
+            priors=priors,
+        )
 
     def frontdoor_identifiable(
         self,
