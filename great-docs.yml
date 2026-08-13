@@ -112,6 +112,7 @@ reference:
     contents:
       - simulate.DoResult
       - simulate.EstimandResult
+      - interpret.InterpretResult
       - effects.EffectResult
       - identify.ImplicationTestResult
       - sensitivity.SensitivityResult
