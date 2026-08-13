@@ -131,6 +131,13 @@ class TestPredictions:
         assert pred.interventional is False
         assert pred.causal is False
 
+    def test_newdata_datagrid(self, fork_model):
+        assert fork_model._data is not None
+        grid = datagrid(fork_model._data.to_pandas(), X=[0, 1], Z=[0, 1, 2])
+        pred = fork_model.predictions("Y", newdata=grid)
+        assert isinstance(pred, InterpretResult)
+        assert pred.dataset["Y"].sizes["unit"] == len(grid)
+
 
 class TestRatioLift:
     def test_ratio_and_lift_finite(self, fork_model):
@@ -207,6 +214,10 @@ class TestDatagrid:
         df = pd.DataFrame({"X": [0.0, 2.0], "Z": [10.0, 20.0]})
         grid = datagrid(df, X=[0, 1])
         assert np.allclose(grid["Z"], 15.0)
+
+    def test_pathmodel_datagrid(self, fork_model):
+        grid = fork_model.datagrid(X=[0, 1], Z=[0, 1])
+        assert len(grid) == 4
 
 
 class TestConditionalValidation:

@@ -23,10 +23,10 @@ import matplotlib.axes
 import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
-import pymc as pm
 import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame
 
+from pathmc.compile import build_design_matrix, get_predictor_columns
 from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.idata import hdi as compute_hdi
 from pathmc.reprs import ReprSpec, ResultReprMixin
@@ -293,36 +293,57 @@ def _validate_conditional(conditional: dict[str, Any] | None) -> dict[str, float
     return validated
 
 
+def _rebuild_design_matrices(
+    model: PathModel, data: nw.DataFrame
+) -> dict[str, nw.DataFrame]:
+    """Rebuild design matrices for a query frame."""
+    design: dict[str, nw.DataFrame] = {}
+    for reg in model._spec.regressions:
+        missing: list[str] = []
+        for t in reg.terms:
+            if t.interaction_of is not None:
+                for v in t.interaction_of:
+                    if v not in data.columns and v not in missing:
+                        missing.append(v)
+            elif t.variable not in data.columns:
+                missing.append(t.variable)
+        if missing:
+            cols = get_predictor_columns(
+                reg, pooling=model._pooling, panel_info=model._panel_info
+            )
+            design[reg.lhs] = nw.from_dict(
+                {c: np.array([], dtype=float) for c in cols},
+                backend=data.implementation,
+            )
+        else:
+            design[reg.lhs] = build_design_matrix(
+                reg,
+                data,
+                pooling=model._pooling,
+                panel_info=model._panel_info,
+            )
+    return design
+
+
 @contextmanager
-def _temporary_query_data(model: PathModel, data: nw.DataFrame):
-    """Temporarily point exogenous ``pm.Data`` nodes at *data*."""
-    gen_model = model._gen_model
-    if gen_model is None:
-        yield
-        return
-
-    updates: dict[str, np.ndarray] = {}
-    for col in data.columns:
-        if col not in gen_model.named_vars:
-            continue
-        arr = np.asarray(data[col].to_numpy())
-        if arr.ndim != 1:
-            continue
-        updates[col] = arr.astype(float, copy=False)
-
-    if not updates:
-        yield
-        return
-
+def _temporary_query_frame(model: PathModel, data: nw.DataFrame):
+    """Recompile the generative model on *data*, restoring fit-time state."""
     assert model._data is not None
-    previous = {
-        name: np.asarray(model._data[name].to_numpy(), dtype=float) for name in updates
-    }
-    pm.set_data(updates, model=gen_model)
+    saved_data = model._data
+    saved_design = model._design_matrices
+    saved_idata = model._idata
+
+    model._data = data
+    model._design_matrices = _rebuild_design_matrices(model, data)
+    model._compile()
+    model._idata = saved_idata
     try:
         yield
     finally:
-        pm.set_data(previous, model=gen_model)
+        model._data = saved_data
+        model._design_matrices = saved_design
+        model._compile()
+        model._idata = saved_idata
 
 
 def _unit_prediction(
@@ -356,7 +377,7 @@ def _unit_prediction(
         return result.dataset[outcome]
 
     if swap_data:
-        with _temporary_query_data(model, data):
+        with _temporary_query_frame(model, data):
             return _run()
     return _run()
 
