@@ -64,6 +64,13 @@ from pathmc.introspect import (
     build_equations,
     build_priors,
 )
+from pathmc.interpret import (
+    InterpretResult,
+    comparisons as _interpret_comparisons,
+    datagrid as _datagrid,
+    predictions as _interpret_predictions,
+    slopes as _interpret_slopes,
+)
 from pathmc.panel import PanelInfo, build_panel_info, observed_means_by_time
 from pathmc.parse import Spec, parse_spec
 from pathmc.refute import PlaceboRefutationResult, refute_placebo as _refute_placebo
@@ -1757,6 +1764,142 @@ class PathModel:
         namespace["__builtins__"] = {}
         mask = eval(expr, namespace)  # noqa: S307
         return float(np.mean(mask))
+
+    def predictions(
+        self,
+        outcome: str,
+        *,
+        set: dict[str, float | np.ndarray] | None = None,
+        newdata: IntoFrame | None = None,
+    ) -> InterpretResult:
+        """Interventional or associational response-mean predictions.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name.
+        set : dict[str, float] or None
+            Intervention values. When omitted, predictions are
+            associational (no graph surgery).
+        newdata : IntoFrame or None
+            Covariate grid or frame to predict on. Defaults to the
+            fitted data.
+
+        Returns
+        -------
+        InterpretResult
+            Unit-level posterior draws for the outcome.
+        """
+        self._require_data("predictions")
+        return _interpret_predictions(self, outcome, set=set, newdata=newdata)
+
+    def comparisons(
+        self,
+        outcome: str,
+        variable: str,
+        *,
+        contrast: tuple[float, float] = (0.0, 1.0),
+        comparison: Literal["diff", "ratio", "lift"] = "diff",
+        conditional: dict[str, float] | None = None,
+        average_by: Literal["all"] | None = "all",
+    ) -> EstimandResult | InterpretResult:
+        """Interventional contrasts between two values of a variable.
+
+        With ``comparison="diff"`` and ``average_by="all"``, matches
+        :meth:`ate` on the same contrast.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name.
+        variable : str
+            Variable to vary under ``do()``.
+        contrast : tuple[float, float]
+            ``(lo, hi)`` intervention values.
+        comparison : str
+            ``"diff"``, ``"ratio"``, or ``"lift"``.
+        conditional : dict[str, float] or None
+            Additional variables held fixed at scalar values.
+        average_by : str or None
+            ``"all"`` collapses to :class:`EstimandResult`; ``None`` keeps
+            unit-level :class:`InterpretResult` draws.
+
+        Returns
+        -------
+        EstimandResult or InterpretResult
+        """
+        self._require_data("comparisons")
+        return _interpret_comparisons(
+            self,
+            outcome,
+            variable,
+            contrast=contrast,
+            comparison=comparison,
+            conditional=conditional,
+            average_by=average_by,
+        )
+
+    def slopes(
+        self,
+        outcome: str,
+        wrt: str,
+        *,
+        slope: Literal["dydx", "eyex", "eydx", "dyex"] = "dydx",
+        eps: float = 1e-4,
+        conditional: dict[str, float] | None = None,
+        average_by: Literal["all"] | None = "all",
+    ) -> EstimandResult | InterpretResult:
+        """Finite-difference interventional slopes.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name.
+        wrt : str
+            Variable to differentiate with respect to.
+        slope : str
+            Slope type: ``"dydx"``, ``"eyex"``, ``"eydx"``, or ``"dyex"``.
+        eps : float
+            Finite-difference step size.
+        conditional : dict[str, float] or None
+            Additional variables held fixed at scalar values.
+        average_by : str or None
+            ``"all"`` collapses to :class:`EstimandResult`; ``None`` keeps
+            unit-level draws.
+
+        Returns
+        -------
+        EstimandResult or InterpretResult
+        """
+        self._require_data("slopes")
+        return _interpret_slopes(
+            self,
+            outcome,
+            wrt,
+            slope=slope,
+            eps=eps,
+            conditional=conditional,
+            average_by=average_by,
+        )
+
+    def datagrid(self, **cols: list[float] | list[int]) -> pd.DataFrame:
+        """Build a covariate grid from the fitted data frame.
+
+        See :func:`pathmc.datagrid` for details.
+
+        Parameters
+        ----------
+        **cols
+            Column names mapped to lists of values to cross.
+
+        Returns
+        -------
+        pd.DataFrame
+            Cartesian product grid with unspecified columns held constant.
+        """
+        self._require_data("datagrid")
+        assert self._data is not None
+        return _datagrid(self._data, **cols)
 
 
 def model(

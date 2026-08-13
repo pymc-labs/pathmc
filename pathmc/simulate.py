@@ -618,11 +618,25 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
         outcome: str,
         treatment: str,
         estimand: str,
+        estimator: str = "structural",
+        causal: bool = True,
+        interventional: bool = True,
+        identifiable: bool | None = None,
     ) -> None:
         self._ds = ds
         self._default_var = outcome
         self._treatment = treatment
         self._estimand = estimand
+        self._estimator = estimator
+        self._causal = causal
+        self._interventional = interventional
+        self._identifiable = identifiable
+        self._ds.attrs.update({
+            "estimator": estimator,
+            "interventional": interventional,
+            "identifiable": identifiable,
+            "causal": causal,
+        })
 
     @classmethod
     def from_contrast(
@@ -649,6 +663,26 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
     def treatment(self) -> str:
         """The treatment variable that was intervened on."""
         return self._treatment
+
+    @property
+    def estimator(self) -> str:
+        """Estimator backend that produced this result."""
+        return self._estimator
+
+    @property
+    def causal(self) -> bool:
+        """Whether the result supports a causal interpretation."""
+        return self._causal
+
+    @property
+    def interventional(self) -> bool:
+        """Whether graph surgery / ``do()`` was used."""
+        return self._interventional
+
+    @property
+    def identifiable(self) -> bool | None:
+        """Backdoor identifiability of the treatment-outcome pair, if defined."""
+        return self._identifiable
 
     def _resolve(self, var: str | None) -> str:
         key = self._default_var if var is None else var
@@ -789,6 +823,10 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
             outcome=self._default_var,
             treatment=self._treatment,
             estimand=self._estimand,
+            estimator=self._estimator,
+            causal=self._causal,
+            interventional=self._interventional,
+            identifiable=self._identifiable,
         )
 
     def _repr_compact(self) -> str:
@@ -1106,6 +1144,41 @@ def _exogenous_fill(values: np.ndarray) -> float:
     return float(np.nanmean(arr))
 
 
+def _intervention_array(val: float | np.ndarray, n: int) -> np.ndarray:
+    """Broadcast a scalar or length-*n* vector to per-row intervention values."""
+    arr = np.asarray(val)
+    if arr.ndim == 0:
+        return np.full(n, float(arr))
+    flat = arr.reshape(-1)
+    if flat.shape[0] == n:
+        return flat.astype(float, copy=False)
+    if flat.shape[0] == 1:
+        return np.full(n, float(flat[0]))
+    raise ValueError(
+        f"Intervention value must be a scalar or a 1-D array of length "
+        f"{n}, got shape {arr.shape}."
+    )
+
+
+def _broadcast_intervention(
+    ones: xr.DataArray, val: float | np.ndarray, n: int
+) -> xr.DataArray:
+    """Broadcast an intervention value to ``(chain, draw[, unit])``."""
+    arr = _intervention_array(val, n)
+    if np.unique(arr).size == 1:
+        return ones * float(arr[0])
+    per_unit = xr.DataArray(arr, dims=["unit"], coords={"unit": np.arange(n)})
+    return ones * per_unit
+
+
+def _as_unit_dim(mu: xr.DataArray) -> xr.DataArray:
+    """Rename the first observation dim of *mu* to ``unit``."""
+    obs = _obs_dims(mu)
+    if not obs:
+        return mu
+    return mu.rename({obs[0]: "unit"})
+
+
 def _exog_value(
     var: str, data: nw.DataFrame, subgroup_indices: np.ndarray | None
 ) -> float:
@@ -1127,6 +1200,7 @@ def run_do_pymc(
     kind: str = "mean",
     families: dict[str, str] | None = None,
     subgroup_indices: np.ndarray | None = None,
+    average_units: bool = True,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -1161,6 +1235,9 @@ def run_do_pymc(
         provided, endogenous variable draws are averaged over only
         these rows (e.g., the treated subgroup for ATT). ``None``
         (default) uses all rows.
+    average_units : bool
+        When ``True`` (default), average response means over observation
+        rows for g-computation. When ``False``, keep a ``unit`` dim.
 
     Returns
     -------
@@ -1191,7 +1268,7 @@ def run_do_pymc(
     replacements: dict[str, Any] = {}
     for var, val in set.items():
         key = f"mu_{var}" if (var in latent or var in block_vars) else var
-        arr = np.full(N, val)
+        arr = _intervention_array(val, N)
         target_dtype = gen_model[key].dtype
         replacements[key] = arr.astype(target_dtype)
 
@@ -1244,7 +1321,7 @@ def run_do_pymc(
         data_vars: dict[str, xr.DataArray] = {}
         for var in graph_info.topological_order:
             if var in set:
-                data_vars[var] = ones * float(np.mean(set[var]))
+                data_vars[var] = _broadcast_intervention(ones, set[var], N)
             elif var in graph_info.exogenous:
                 data_vars[var] = ones * _exog_value(var, data, subgroup_indices)
             else:
@@ -1253,8 +1330,11 @@ def run_do_pymc(
                 )
                 if subgroup_indices is not None:
                     mu = mu.isel({_obs_dims(mu)[0]: subgroup_indices})
-                # Average over observation rows: g-computation standardization.
-                data_vars[var] = mu.mean(_obs_dims(mu))
+                if average_units:
+                    # Average over observation rows: g-computation standardization.
+                    data_vars[var] = mu.mean(_obs_dims(mu))
+                else:
+                    data_vars[var] = _as_unit_dim(mu)
 
         return DoResult(ds=xr.Dataset(data_vars))
 
@@ -1288,7 +1368,7 @@ def run_do_pymc(
     predictive_vars: dict[str, xr.DataArray] = {}
     for var in graph_info.topological_order:
         if var in set:
-            predictive_vars[var] = ones * float(np.mean(set[var]))
+            predictive_vars[var] = _broadcast_intervention(ones, set[var], N)
         elif var in graph_info.exogenous:
             predictive_vars[var] = ones * _exog_value(var, data, subgroup_indices)
         elif (src := _predictive_source(ppc, extra_det, var)) is not None:
