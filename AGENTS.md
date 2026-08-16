@@ -57,11 +57,10 @@ This package targets **PyMC ≥ 6.0, ArviZ ≥ 1.1, PyTensor ≥ 3.0, and NumPy 
 
 The site is built with [Great Docs](https://posit-dev.github.io/great-docs/) via `great-docs.yml`: `uv run great-docs build`. The output dir `great-docs/_site/` is ephemeral and gitignored — never edit it. Edit sources instead: `docs/user_guide/*.qmd`, `docs/examples/**/*.qmd`, `great-docs.yml`, and `pathmc/skills/pathmc/SKILL.md`.
 
-Notebooks are frozen (`freeze: true`): the committed `_freeze/` cache supplies cell outputs and CI never spawns a kernel, so **local previews show the last-frozen output, not in-progress edits.** After editing an executable page, refresh and commit the cache (local freezing needs the kernel once via `make jupyter-kernel`):
+Notebooks are frozen (`freeze: true`): the committed `_freeze/` cache supplies cell outputs and CI never spawns a kernel, so **local previews show the last-frozen output, not in-progress edits.** After editing an executable page, refresh and commit the cache:
 
 ```bash
-make jupyter-kernel
-JUPYTER_PATH=$PWD/.venv/share/jupyter uv run great-docs freeze docs/examples/01-foundations/my_page.qmd
+make freeze-page PAGE=docs/examples/01-foundations/my_page.qmd
 git add _freeze/
 ```
 
