@@ -1108,13 +1108,19 @@ class TestPlotValidation:
 
     @pytest.mark.parametrize("bins", [-1, 0])
     def test_non_positive_bin_count_rejected(self, result, bins):
-        with pytest.raises(ValueError, match="bins must be a positive integer"):
+        with pytest.raises(
+            ValueError, match=rf"^bins must be a positive integer, got {bins}\.$"
+        ):
             result.plot(bins=bins)
 
     @pytest.mark.parametrize("bins", [2.5, True, {1, 2}])
     def test_invalid_bins_type_rejected(self, result, bins):
         # bool subclasses int, so it needs an explicit reject.
-        with pytest.raises(ValueError, match="bins must be a positive integer"):
+        with pytest.raises(
+            ValueError,
+            match=r"^bins must be a positive integer, a binning strategy name, "
+            r"a sequence of bin edges, or None, got ",
+        ):
             result.plot(bins=bins)
 
     @pytest.mark.parametrize("bins", [None, 10, np.int64(10)])
