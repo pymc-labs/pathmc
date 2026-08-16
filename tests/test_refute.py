@@ -209,6 +209,10 @@ class TestPlaceboRefutationResult:
     def test_plot_strategy_and_edges_delegated(self, null_result, bins):
         assert null_result.plot(kind="null", bins=bins) is not None
 
+    @pytest.mark.parametrize("bins", [None, 50, np.int64(10)])
+    def test_plot_bin_count_accepted(self, null_result, bins):
+        assert null_result.plot(kind="null", bins=bins) is not None
+
 
 class TestRefutePlaceboErrorHandling:
     """Validation and guard conditions."""

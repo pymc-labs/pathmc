@@ -358,7 +358,7 @@ class PlaceboRefutationResult(ResultReprMixin):
         self,
         ax: matplotlib.axes.Axes | None = None,
         kind: str = "comparison",
-        bins: BinsLike = 50,
+        bins: BinsLike | None = 50,
     ) -> matplotlib.figure.Figure:
         """Plot the refutation result.
 
@@ -377,11 +377,11 @@ class PlaceboRefutationResult(ResultReprMixin):
               from it.
             - ``"null"`` — the placebo null-predictive distribution
               (histogram) with the observed ATE marked.
-        bins : BinsLike
+        bins : BinsLike or None
             Passed through to ``matplotlib.axes.Axes.hist``, used only when
             ``kind="null"``: a positive integer bin count, a binning
-            strategy name such as ``"auto"``, or a sequence of bin edges
-            (default 50).
+            strategy name such as ``"auto"``, or a sequence of bin edges.
+            ``None`` leaves the choice to matplotlib (default 50).
 
         Returns
         -------
@@ -450,7 +450,7 @@ class PlaceboRefutationResult(ResultReprMixin):
         )
         ax.legend(loc="best", fontsize="small")
 
-    def _plot_null(self, ax: matplotlib.axes.Axes, bins: BinsLike) -> None:
+    def _plot_null(self, ax: matplotlib.axes.Axes, bins: BinsLike | None) -> None:
         """Draw the placebo null-predictive distribution vs the observed ATE."""
         ax.hist(
             self.theta_new_draws,
