@@ -11,7 +11,7 @@ REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' !
 # COMMANDS                                                                      #
 #################################################################################
 
-.PHONY: setup lint check_lint test-fast test jupyter-kernel docs refreeze-docs cleandocs build check-build help
+.PHONY: setup lint check_lint test-fast test jupyter-kernel docs freeze-page refreeze-docs cleandocs build check-build help
 
 setup: ## Set up the complete development environment (uv)
 	uv sync --all-extras
@@ -40,6 +40,11 @@ test: ## Run all tests with coverage, including slow integration tests
 
 docs: jupyter-kernel ## Build the documentation site
 	JUPYTER_PATH=$(VENV_JUPYTER) uv run great-docs build
+
+freeze-page: jupyter-kernel ## Re-execute one doc page and refresh its _freeze/ cache (PAGE=docs/examples/.../my_page.qmd)
+	@test -n "$(PAGE)" || { echo "Usage: make freeze-page PAGE=docs/examples/01-foundations/my_page.qmd"; exit 1; }
+	JUPYTER_PATH=$(VENV_JUPYTER) uv run great-docs freeze "$(PAGE)"
+	@echo "Freeze cache refreshed. Commit with: git add _freeze/"
 
 refreeze-docs: jupyter-kernel ## Re-execute all doc notebooks and refresh the committed _freeze/ cache
 	JUPYTER_PATH=$(VENV_JUPYTER) uv run great-docs freeze --clean $(REFREEZE_QMD_PAGES)

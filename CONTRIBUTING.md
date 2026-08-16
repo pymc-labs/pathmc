@@ -151,7 +151,7 @@ make lint
 
 The documentation site is built with [Great Docs](https://posit-dev.github.io/great-docs/), with [Quarto](https://quarto.org/docs/get-started/) as the underlying renderer. Install Quarto separately before running the docs commands.
 
-The `pathmc` Jupyter kernel is registered automatically by `make setup`, `make docs`, and `make refreeze-docs` (executable pages declare `jupyter: pathmc`). To register it manually:
+The `pathmc` Jupyter kernel is registered automatically by `make setup`, `make docs`, `make freeze-page`, and `make refreeze-docs` (executable pages declare `jupyter: pathmc`). To register it manually:
 
 ```bash
 make jupyter-kernel
@@ -174,8 +174,7 @@ uv run great-docs preview
 The site uses `freeze: true` to cache notebook outputs in the committed `_freeze/` directory, so ordinary builds never spawn a Jupyter kernel. After editing a single executable page (or changing pathmc behavior that affects that page's rendered output), refresh its cache and commit it:
 
 ```bash
-make jupyter-kernel
-JUPYTER_PATH=$PWD/.venv/share/jupyter uv run great-docs freeze docs/examples/<notebook_name>.qmd
+make freeze-page PAGE=docs/examples/01-foundations/my_page.qmd
 git add _freeze/
 ```
 
