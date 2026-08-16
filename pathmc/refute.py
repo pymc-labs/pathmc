@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pymc as pm
 
+from pathmc._types import BinsLike, validate_bins
 from pathmc.idata import hdi, posterior
 from pathmc.reprs import ResultReprMixin
 
@@ -357,7 +358,7 @@ class PlaceboRefutationResult(ResultReprMixin):
         self,
         ax: matplotlib.axes.Axes | None = None,
         kind: str = "comparison",
-        bins: int = 50,
+        bins: BinsLike = 50,
     ) -> matplotlib.figure.Figure:
         """Plot the refutation result.
 
@@ -376,8 +377,10 @@ class PlaceboRefutationResult(ResultReprMixin):
               from it.
             - ``"null"`` — the placebo null-predictive distribution
               (histogram) with the observed ATE marked.
-        bins : int
-            Number of histogram bins, used only when ``kind="null"``
+        bins : BinsLike
+            Passed through to ``matplotlib.axes.Axes.hist``, used only when
+            ``kind="null"``: a positive integer bin count, a binning
+            strategy name such as ``"auto"``, or a sequence of bin edges
             (default 50).
 
         Returns
@@ -388,12 +391,12 @@ class PlaceboRefutationResult(ResultReprMixin):
         Raises
         ------
         ValueError
-            If *kind* is unknown or *bins* is not positive.
+            If *kind* is unknown, or if *bins* is neither one of the
+            accepted types nor, for an integer bin count, positive.
         """
         import matplotlib.pyplot as plt
 
-        if bins < 1:
-            raise ValueError(f"bins must be a positive integer, got {bins}.")
+        validate_bins(bins)
         if kind not in ("comparison", "null"):
             raise ValueError(
                 f"Unknown kind={kind!r}. Choose from 'comparison' or 'null'."
@@ -447,7 +450,7 @@ class PlaceboRefutationResult(ResultReprMixin):
         )
         ax.legend(loc="best", fontsize="small")
 
-    def _plot_null(self, ax: matplotlib.axes.Axes, bins: int) -> None:
+    def _plot_null(self, ax: matplotlib.axes.Axes, bins: BinsLike) -> None:
         """Draw the placebo null-predictive distribution vs the observed ATE."""
         ax.hist(
             self.theta_new_draws,
