@@ -131,6 +131,7 @@ module = [
     "patsy.*",
     "polars.*",
     "pymc.*",
+    "pymc_marketing.*",
     "pymc_extras.*",
     "pytensor.*",
     "graphviz.*",

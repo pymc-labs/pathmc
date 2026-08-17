@@ -1437,7 +1437,7 @@ def _has_temporal_deps(spec: Spec, graph_info: GraphInfo) -> bool:
 
     Detects temporal dependencies from:
     - ``lag()`` DSL syntax (``Term.lag_of``)
-    - ``adstock()`` transforms
+    - ``adstock()`` transforms (geometric only — triggers scan compilation)
     """
     for reg in spec.regressions:
         for term in reg.terms:
@@ -1447,6 +1447,33 @@ def _has_temporal_deps(spec: Spec, graph_info: GraphInfo) -> bool:
                 tc: TransformCall | None = term.transform
                 while tc is not None:
                     if tc.name == "adstock":
+                        return True
+                    tc = (
+                        tc.input_expr
+                        if isinstance(tc.input_expr, TransformCall)
+                        else None
+                    )
+    return False
+
+
+_CONV_ADSTOCK_TRANSFORMS = frozenset({"adstock", "delayed_adstock", "weibull_adstock"})
+
+
+def _requires_rectangular_panel(spec: Spec, graph_info: GraphInfo) -> bool:
+    """Return True if panel data must form a dense unit x time grid.
+
+    The scan compiler and vectorized convolution transforms both reshape
+    panel rows to ``(n_times, n_units)``; unbalanced panels must be
+    rejected for either path.
+    """
+    if _has_temporal_deps(spec, graph_info):
+        return True
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.transform is not None:
+                tc: TransformCall | None = term.transform
+                while tc is not None:
+                    if tc.name in _CONV_ADSTOCK_TRANSFORMS:
                         return True
                     tc = (
                         tc.input_expr
