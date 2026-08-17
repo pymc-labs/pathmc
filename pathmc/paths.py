@@ -11,14 +11,13 @@
 #   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
-"""Locate example datasets, locally or from the latest release on GitHub.
+"""Locate example datasets, locally or from the latest version on GitHub.
 
-Mirrors the API of ``pymc_marketing.paths``: :data:`data_dir` resolves to the
-local ``data/`` directory when this package lives inside the repository
-checkout (contributor/development use), and otherwise to a
-:class:`URLPath` pointing at ``data/`` on the ``main`` branch of the upstream
-GitHub repository. Either result can be combined with a filename and passed
-straight to ``pd.read_csv()``:
+:data:`data_dir` resolves to the local ``data/`` directory when this package
+lives inside the repository checkout (contributor/development use), and
+otherwise to a :class:`URLPath` pointing at ``data/`` on the ``main`` branch
+of the upstream GitHub repository. Either result can be combined with a
+filename and passed straight to ``pd.read_csv()``:
 
 .. code-block:: python
 
@@ -27,11 +26,11 @@ straight to ``pd.read_csv()``:
 
     df = pd.read_csv(data_dir / "mediation.csv")
 
-Unlike ``pymc_marketing.paths``, local discovery is based on the package
-location rather than the current working directory, and only a real
-``data/`` directory is used — a pip-installed user running inside their own
-project always falls back to GitHub instead of failing against a local
-directory that does not exist.
+Local discovery checks only the direct parent of the ``pathmc`` package
+directory and verifies it is the pathmc repository by looking for
+``pyproject.toml`` with ``name = "pathmc"``. A pip-installed user always
+falls back to GitHub — never to a stray ``data/`` folder in a neighbouring
+project.
 """
 
 from __future__ import annotations
@@ -88,12 +87,19 @@ def create_data_url(branch: str = "main") -> URLPath:
 
 
 def _find_local_data_dir() -> Path | None:
-    """Return the repository's ``data/`` directory, if this is a checkout."""
-    package_root = Path(__file__).resolve().parent.parent
-    for ancestor in (package_root, *package_root.parents):
-        data_dir = ancestor / "data"
-        if data_dir.is_dir():
-            return data_dir
+    """Return the repository's ``data/`` directory, if this is a checkout.
+
+    Checks only the direct parent of the ``pathmc/`` package directory
+    (i.e. the repo root in an editable install) and verifies the
+    ``pyproject.toml`` there belongs to pathmc before returning it.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    candidate = repo_root / "data"
+    if not candidate.is_dir():
+        return None
+    pyproject = repo_root / "pyproject.toml"
+    if pyproject.is_file() and 'name = "pathmc"' in pyproject.read_text():
+        return candidate
     return None
 
 
