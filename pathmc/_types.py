@@ -20,7 +20,7 @@ single module stays in that module, as :data:`pathmc.hsgp.TensorLike` does.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 import numpy as np
 
@@ -28,20 +28,33 @@ BinsLike: TypeAlias = int | str | Sequence[float] | np.ndarray
 """What a histogram ``bins`` argument accepts.
 
 Mirrors ``matplotlib.axes.Axes.hist``: a positive integer bin count, a
-binning strategy name such as ``"auto"``, or a sequence of bin edges.
+binning strategy name such as ``"auto"``, or a sequence of bin edges. Any
+object supporting the sequence protocol works as edges at runtime, pandas
+``Series`` and xarray ``DataArray`` included, which no static type spells
+out; the alias names the common cases.
 """
 
 
-def validate_bins(bins: BinsLike | None) -> None:
-    """Raise if *bins* is not something ``Axes.hist`` can use.
+def validate_bins(bins: BinsLike | None) -> Any:
+    """Check *bins* and hand it back for ``Axes.hist``.
 
     Only the bin count is validated. A strategy name or an edge sequence is
     left to matplotlib, which reports both more precisely.
+
+    The return is typed ``Any`` on purpose. matplotlib's stub declares
+    ``bins`` as ``int | Sequence[float] | str | None``, which excludes the
+    array-likes it accepts at runtime, so passing one through directly
+    fails type checking at every call site.
 
     Parameters
     ----------
     bins : BinsLike | None
         The value passed by the caller. ``None`` is always allowed.
+
+    Returns
+    -------
+    Any
+        *bins* unchanged.
 
     Raises
     ------
@@ -49,15 +62,17 @@ def validate_bins(bins: BinsLike | None) -> None:
         If *bins* is neither one of the accepted types nor, for an integer
         bin count, positive.
     """
-    if bins is None:
-        return
-    if isinstance(bins, bool) or not isinstance(
-        bins, (int, np.integer, Sequence, np.ndarray)
-    ):
-        raise ValueError(
-            f"bins must be a positive integer, a binning strategy name, "
-            f"a sequence of bin edges, or None, got {bins!r} "
-            f"of type {type(bins).__name__}."
-        )
-    if isinstance(bins, (int, np.integer)) and bins < 1:
-        raise ValueError(f"bins must be a positive integer, got {bins}.")
+    if bins is None or isinstance(bins, str):
+        return bins
+    if not isinstance(bins, bool):
+        if isinstance(bins, (int, np.integer)):
+            if bins < 1:
+                raise ValueError(f"bins must be a positive integer, got {bins}.")
+            return bins
+        if hasattr(bins, "__len__") and hasattr(bins, "__getitem__"):
+            return bins
+    raise ValueError(
+        f"bins must be a positive integer, a binning strategy name, "
+        f"a sequence of bin edges, or None, got {bins!r} "
+        f"of type {type(bins).__name__}."
+    )

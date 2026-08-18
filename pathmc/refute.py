@@ -396,7 +396,7 @@ class PlaceboRefutationResult(ResultReprMixin):
         """
         import matplotlib.pyplot as plt
 
-        validate_bins(bins)
+        hist_bins: Any = validate_bins(bins)
         if kind not in ("comparison", "null"):
             raise ValueError(
                 f"Unknown kind={kind!r}. Choose from 'comparison' or 'null'."
@@ -412,7 +412,7 @@ class PlaceboRefutationResult(ResultReprMixin):
         if kind == "comparison":
             self._plot_comparison(ax)
         else:
-            self._plot_null(ax, bins)
+            self._plot_null(ax, hist_bins)
         return fig
 
     def _plot_comparison(self, ax: matplotlib.axes.Axes) -> None:
@@ -450,7 +450,7 @@ class PlaceboRefutationResult(ResultReprMixin):
         )
         ax.legend(loc="best", fontsize="small")
 
-    def _plot_null(self, ax: matplotlib.axes.Axes, bins: BinsLike | None) -> None:
+    def _plot_null(self, ax: matplotlib.axes.Axes, bins: Any) -> None:
         """Draw the placebo null-predictive distribution vs the observed ATE."""
         ax.hist(
             self.theta_new_draws,

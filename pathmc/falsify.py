@@ -48,7 +48,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from itertools import permutations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import narwhals.stable.v1 as nw
 import networkx as nx
@@ -329,7 +329,7 @@ class FalsificationResult(ResultReprMixin):
                 "The DAG implies no testable conditional independences."
             )
 
-        validate_bins(bins)
+        hist_bins: Any = validate_bins(bins)
 
         if ax is None:
             fig, ax = plt.subplots(figsize=(8, 4))
@@ -340,7 +340,7 @@ class FalsificationResult(ResultReprMixin):
 
         ax.hist(
             [self.perm_lmc_violation_fractions, self.perm_tpa_violation_fractions],
-            bins=bins,
+            bins=hist_bins,
             alpha=0.5,
             color=["tab:blue", "tab:orange"],
             edgecolor="k",

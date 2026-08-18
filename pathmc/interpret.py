@@ -240,7 +240,7 @@ class InterpretResult(_DrawStorageMixin, ResultReprMixin):
         """
         import matplotlib.pyplot as plt
 
-        validate_bins(bins)
+        hist_bins: Any = validate_bins(bins)
         key = self._default_var if var is None else var
         da = self._ds[key]
         if "unit" in da.dims:
@@ -254,7 +254,7 @@ class InterpretResult(_DrawStorageMixin, ResultReprMixin):
 
             fig = cast("matplotlib.figure.Figure", ax.get_figure())
 
-        ax.hist(draws, bins=bins, density=True, alpha=0.7, edgecolor="k")
+        ax.hist(draws, bins=hist_bins, density=True, alpha=0.7, edgecolor="k")
         ax.set_xlabel(key)
         ax.set_ylabel("density")
         ax.set_title(f"{self._quantity}: {key}")
