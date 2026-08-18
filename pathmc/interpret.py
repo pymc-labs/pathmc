@@ -26,6 +26,7 @@ import pandas as pd
 import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame
 
+from pathmc._types import BinsLike, validate_bins
 from pathmc.compile import build_design_matrix, get_predictor_columns
 from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.idata import hdi as compute_hdi
@@ -211,7 +212,7 @@ class InterpretResult(_DrawStorageMixin, ResultReprMixin):
         ax: matplotlib.axes.Axes | None = None,
         *,
         var: str | None = None,
-        bins: int | None = None,
+        bins: BinsLike | None = None,
     ) -> matplotlib.figure.Figure:
         """Plot the marginal posterior of the outcome (mean over ``unit`` first).
 
@@ -221,16 +222,25 @@ class InterpretResult(_DrawStorageMixin, ResultReprMixin):
             Axes to plot on. Creates a new figure when ``None``.
         var : str or None
             Variable to plot. Defaults to the outcome.
-        bins : int or None
-            Histogram bin count.
+        bins : BinsLike or None
+            Passed through to ``matplotlib.axes.Axes.hist``: a positive
+            integer bin count, a binning strategy name such as ``"auto"``,
+            or a sequence of bin edges.
 
         Returns
         -------
         matplotlib.figure.Figure
             The figure containing the histogram.
+
+        Raises
+        ------
+        ValueError
+            If *bins* is neither one of the accepted types nor, for an
+            integer bin count, positive.
         """
         import matplotlib.pyplot as plt
 
+        hist_bins: Any = validate_bins(bins)
         key = self._default_var if var is None else var
         da = self._ds[key]
         if "unit" in da.dims:
@@ -244,7 +254,7 @@ class InterpretResult(_DrawStorageMixin, ResultReprMixin):
 
             fig = cast("matplotlib.figure.Figure", ax.get_figure())
 
-        ax.hist(draws, bins=bins, density=True, alpha=0.7, edgecolor="k")
+        ax.hist(draws, bins=hist_bins, density=True, alpha=0.7, edgecolor="k")
         ax.set_xlabel(key)
         ax.set_ylabel("density")
         ax.set_title(f"{self._quantity}: {key}")

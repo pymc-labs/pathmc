@@ -48,7 +48,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from itertools import permutations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import narwhals.stable.v1 as nw
 import networkx as nx
@@ -56,6 +56,7 @@ import numpy as np
 import pandas as pd
 
 from pathmc._ci import _PartialCorrelationTester
+from pathmc._types import BinsLike, validate_bins
 from pathmc.graph import GraphInfo
 from pathmc.reprs import ResultReprMixin
 
@@ -287,7 +288,7 @@ class FalsificationResult(ResultReprMixin):
     def plot(
         self,
         ax: matplotlib.axes.Axes | None = None,
-        bins: int | None = None,
+        bins: BinsLike | None = None,
     ) -> matplotlib.figure.Figure:
         """Plot histograms of permuted-baseline violation fractions.
 
@@ -300,8 +301,11 @@ class FalsificationResult(ResultReprMixin):
         ----------
         ax : matplotlib.axes.Axes | None
             Axes to plot on. Creates a new figure if ``None``.
-        bins : int | None
-            Number of histogram bins. Defaults to an automatic choice.
+        bins : BinsLike | None
+            Passed through to ``matplotlib.axes.Axes.hist``: a positive
+            integer bin count, a binning strategy name such as
+            ``"auto"``, or a sequence of bin edges. Defaults to an
+            automatic choice.
 
         Returns
         -------
@@ -312,6 +316,10 @@ class FalsificationResult(ResultReprMixin):
         ------
         RuntimeError
             If the result cannot be evaluated (no LMC tests).
+        ValueError
+            If *bins* is neither one of the accepted types nor, for an
+            integer bin count, positive. Strategy names and bin edges are
+            validated by matplotlib, which reports them more precisely.
         """
         import matplotlib.pyplot as plt
 
@@ -321,8 +329,7 @@ class FalsificationResult(ResultReprMixin):
                 "The DAG implies no testable conditional independences."
             )
 
-        if bins is not None and bins < 1:
-            raise ValueError(f"bins must be a positive integer or None, got {bins}.")
+        hist_bins: Any = validate_bins(bins)
 
         if ax is None:
             fig, ax = plt.subplots(figsize=(8, 4))
@@ -333,7 +340,7 @@ class FalsificationResult(ResultReprMixin):
 
         ax.hist(
             [self.perm_lmc_violation_fractions, self.perm_tpa_violation_fractions],
-            bins=bins,
+            bins=hist_bins,
             alpha=0.5,
             color=["tab:blue", "tab:orange"],
             edgecolor="k",
