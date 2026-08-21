@@ -652,6 +652,8 @@ class PathModel:
         """
         idata = self._require_fitted("plot_dist")
 
+        import matplotlib.pyplot as plt
+
         if isinstance(var, str):
             var = [var]
 
@@ -699,8 +701,6 @@ class PathModel:
         if isinstance(color, str):
             colors = [color] * len(var)
         elif color is None:
-            import matplotlib.pyplot as plt
-
             cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
             colors = [cycle[i % len(cycle)] for i in range(len(var))]
         else:
@@ -715,13 +715,9 @@ class PathModel:
             name, draws = draws_by_name[0]
             plot_density(draws, label=name, ref=refs[0], color=colors[0], ax=ax)
         else:
-            import matplotlib.pyplot as plt
-
             fig, ax = plt.subplots(figsize=(8, 4))
             for i, (name, draws) in enumerate(draws_by_name):
                 plot_density(draws, label=name, ref=refs[i], color=colors[i], ax=ax)
-
-        import matplotlib.pyplot as plt
 
         if plt.get_backend().lower() != "agg":
             plt.show()
