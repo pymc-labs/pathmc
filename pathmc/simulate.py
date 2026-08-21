@@ -47,6 +47,7 @@ from pathmc.idata import hdi as compute_hdi
 from pathmc.idata import hdi_label
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
+from pathmc.plotting import plot_density
 from pathmc.reprs import ReprSpec, ResultReprMixin
 
 if TYPE_CHECKING:
@@ -429,6 +430,62 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         """
         return self._by_time_draws(var)
 
+    def _select_var(self, var: str | None) -> str:
+        """Resolve the variable to plot, requiring selection when ambiguous."""
+        available = [str(v) for v in self._ds.data_vars]
+        if var is not None:
+            if var not in available:
+                raise KeyError(
+                    f"Unknown variable '{var}'. Available variables: {sorted(available)}"
+                )
+            return var
+        if len(available) == 1:
+            return available[0]
+        raise ValueError(
+            f"Multiple variables stored on this result: {sorted(available)}. "
+            "Pass var= to select one."
+        )
+
+    def plot_dist(
+        self,
+        var: str | None = None,
+        *,
+        ref: float | None = None,
+        color: str = "C0",
+        ax: matplotlib.axes.Axes | None = None,
+    ) -> None:
+        """Plot the posterior density of a stored variable.
+
+        A result holding a single variable may omit *var*; a result holding
+        multiple variables requires explicit selection.
+
+        Parameters
+        ----------
+        var : str | None
+            Variable to plot. Required when the result stores more than one
+            variable; defaults to the single stored variable otherwise.
+        ref : float | None
+            Reference value marked with a dashed vertical line. No line when
+            ``None``.
+        color : str
+            Line and fill color (default ``"C0"``).
+        ax : matplotlib.axes.Axes | None
+            Axes to plot on. Creates a new figure if ``None``.
+
+        Raises
+        ------
+        KeyError
+            If *var* is not stored on this result.
+        ValueError
+            If the result stores multiple variables and *var* is omitted.
+        """
+        key = self._select_var(var)
+        plot_density(self._draw(key), label=key, ref=ref, color=color, ax=ax)
+        import matplotlib.pyplot as plt
+
+        if plt.get_backend().lower() != "agg":
+            plt.show()
+
     def plot(
         self,
         var: str,
@@ -590,7 +647,7 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             title=f"DoResult — {n_samples} draws, {n_vars} variables",
             rows=rows,
             columns=["variable", "mean", hdi_label()],
-            footer="Methods: .draws() .mean() .hdi() .by_time() .plot() .dataset",
+            footer="Methods: .draws() .mean() .hdi() .by_time() .plot() .plot_dist() .dataset",
         )
 
 
@@ -846,6 +903,42 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
         """
         return self._by_time_draws(self._resolve(var))
 
+    def plot_dist(
+        self,
+        var: str | None = None,
+        *,
+        ref: float | None = None,
+        color: str = "C0",
+        ax: matplotlib.axes.Axes | None = None,
+    ) -> None:
+        """Plot the posterior density of a contrast variable.
+
+        Defaults to the outcome variable.
+
+        Parameters
+        ----------
+        var : str | None
+            Variable name. Defaults to the outcome.
+        ref : float | None
+            Reference value marked with a dashed vertical line (e.g. ``0`` for a
+            null contrast). No line when ``None``.
+        color : str
+            Line and fill color (default ``"C0"``).
+        ax : matplotlib.axes.Axes | None
+            Axes to plot on. Creates a new figure if ``None``.
+
+        Raises
+        ------
+        KeyError
+            If *var* is not stored on this result.
+        """
+        key = self._resolve(var)
+        plot_density(self._draw(key), label=key, ref=ref, color=color, ax=ax)
+        import matplotlib.pyplot as plt
+
+        if plt.get_backend().lower() != "agg":
+            plt.show()
+
     def __float__(self) -> float:
         """Posterior mean of the estimand (outcome variable)."""
         return self.mean()
@@ -889,7 +982,7 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
                 ["P(> 0)", f"{p_gt_0:.2f}"],
                 ["Draws", str(n_samples)],
             ],
-            footer="Methods: .hdi() .prob() .summary() .draws() .by_time() .dataset",
+            footer="Methods: .hdi() .prob() .summary() .draws() .by_time() .plot_dist() .dataset",
         )
 
 

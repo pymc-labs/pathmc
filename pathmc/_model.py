@@ -43,9 +43,12 @@ from pathmc.effects import (
     build_effects_summary,
     build_standardized_effects,
     compute_path_effect,
+    evaluate_defined_params,
+    extract_labeled_draws,
 )
 from pathmc.falsify import FalsificationResult, falsify_graph as _falsify_graph
 from pathmc.graph import GraphInfo, build_graph
+from pathmc.idata import posterior
 from pathmc.identify import (
     ConditionalIndependence,
     ImplicationTestResult,
@@ -73,6 +76,7 @@ from pathmc.interpret import (
 )
 from pathmc.panel import PanelInfo, build_panel_info, observed_means_by_time
 from pathmc.parse import Spec, parse_spec
+from pathmc.plotting import plot_density
 from pathmc.refute import PlaceboRefutationResult, refute_placebo as _refute_placebo
 from pathmc.sensitivity import SensitivityResult, compute_sensitivity
 from pathmc.simulate import (
@@ -84,6 +88,7 @@ from pathmc.simulate import (
 )
 
 if TYPE_CHECKING:
+    import matplotlib.axes
     from pathmc.adjustment import AdjustmentModel
 
 __all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
@@ -601,6 +606,125 @@ class PathModel:
                 stacklevel=2,
             )
         return build_effects_summary(self._spec, idata)
+
+    def plot_dist(
+        self,
+        var: list[str],
+        *,
+        coords: dict[str, str] | None = None,
+        ref: float | list[float] | None = None,
+        color: str | list[str] | None = None,
+        ax: matplotlib.axes.Axes | None = None,
+    ) -> None:
+        """Plot posterior densities for labeled coefficients and defined parameters.
+
+        Each name in *var* may be a labeled coefficient (``"a"``), a defined
+        parameter (``"indirect"``), or a raw posterior variable (``"sigma_Y"``).
+        Raw variables with multiple coordinates require *coords* to disambiguate.
+
+        Parameters
+        ----------
+        var : list[str]
+            Names to plot; labels and defined parameters resolve via the spec,
+            then raw posterior variables are selected from the posterior group.
+        coords : dict[str, str] | None
+            Coordinate selection for raw posterior variables (e.g.
+            ``{"Y_predictors": "X"}``).
+        ref : float | list[float] | None
+            Reference value(s) marked with a dashed vertical line. A scalar marks
+            every panel at the same value; a list aligns positionally with *var*.
+            No line when ``None``.
+        color : str | list[str] | None
+            Color(s) for the density lines and fills. A single string applies
+            the same color to all variables. A list aligns positionally with
+            *var*. Defaults to the matplotlib color cycle when ``None``.
+        ax : matplotlib.axes.Axes | None
+            Axes to plot on for a single *var* entry. Creates a new figure if
+            ``None``.
+
+        Raises
+        ------
+        RuntimeError
+            If the model was created without data, or called before ``.fit()``.
+        KeyError
+            If a name in *var* is not a known label, defined parameter, or
+            posterior variable.
+        """
+        idata = self._require_fitted("plot_dist")
+
+        if isinstance(var, str):
+            var = [var]
+
+        labeled = extract_labeled_draws(self._spec, idata)
+        named_draws = {**labeled, **evaluate_defined_params(self._spec, labeled)}
+        posterior_ds = posterior(idata)
+
+        refs: list[float | None]
+        if ref is None:
+            refs = [None] * len(var)
+        elif isinstance(ref, (int, float)):
+            refs = [float(ref)] * len(var)
+        else:
+            if len(ref) != len(var):
+                raise ValueError(
+                    f"ref must be a scalar or a list matching len(var)={len(var)}, "
+                    f"got {len(ref)} entries."
+                )
+            refs = [float(r) for r in ref]
+
+        draws_by_name: list[tuple[str, np.ndarray]] = []
+        for name in var:
+            if name in named_draws:
+                draws = named_draws[name]
+            else:
+                if name not in posterior_ds.data_vars:
+                    raise KeyError(
+                        f"Unknown name '{name}'. Available labels/defined params: "
+                        f"{sorted(named_draws)}; posterior variables: "
+                        f"{sorted(str(v) for v in posterior_ds.data_vars)}"
+                    )
+                selected = posterior_ds[name]
+                extra_dims = [d for d in selected.dims if d not in ("chain", "draw")]
+                if extra_dims and coords is None:
+                    raise ValueError(
+                        f"'{name}' has multiple coordinates ({extra_dims}). "
+                        f"Pass coords to select one, e.g. "
+                        f"coords={{{extra_dims[0]}: '<value>'}}."
+                    )
+                if coords:
+                    selected = selected.sel(coords)
+                draws = selected.to_numpy().flatten()
+            draws_by_name.append((name, draws))
+
+        if isinstance(color, str):
+            colors = [color] * len(var)
+        elif color is None:
+            import matplotlib.pyplot as plt
+
+            cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+            colors = [cycle[i % len(cycle)] for i in range(len(var))]
+        else:
+            if len(color) != len(var):
+                raise ValueError(
+                    f"color must be a string or a list matching len(var)={len(var)}, "
+                    f"got {len(color)} entries."
+                )
+            colors = color
+
+        if len(var) == 1:
+            name, draws = draws_by_name[0]
+            plot_density(draws, label=name, ref=refs[0], color=colors[0], ax=ax)
+        else:
+            import matplotlib.pyplot as plt
+
+            fig, ax = plt.subplots(figsize=(8, 4))
+            for i, (name, draws) in enumerate(draws_by_name):
+                plot_density(draws, label=name, ref=refs[i], color=colors[i], ax=ax)
+
+        import matplotlib.pyplot as plt
+
+        if plt.get_backend().lower() != "agg":
+            plt.show()
 
     def standardized(self) -> pd.DataFrame:
         """Return stdyx-standardized coefficients for labeled effects.
