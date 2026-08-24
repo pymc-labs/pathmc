@@ -556,10 +556,24 @@ def build_priors(
         isinstance(pooling, dict) and pooling.get("intercept", False)
     )
     slope_vars: list[str] = []
+
+    from pathmc.compile import _parse_by_var_pooling, get_free_predictor_columns
+
+    by_var_entries: dict[str, dict[str, object]] = {}
     if isinstance(pooling, dict):
         slope_vars = list(pooling.get("slopes", []))
+        try:
+            by_var_entries = _parse_by_var_pooling(pooling, spec, require_panel=False)
+        except ValueError:
+            # Introspection is display-only; a malformed config will be
+            # reported with full context when the model is compiled.
+            pass
 
-    from pathmc.compile import get_free_predictor_columns
+    coef_names = {
+        n
+        for n, e in by_var_entries.items()
+        if e["kind"] in ("coefficient", "none_coefficient")
+    }
 
     def _entry(key: str, default_str: str) -> str:
         if prior_config and key in prior_config:
@@ -569,7 +583,8 @@ def build_priors(
     entries: dict[str, str] = {}
     seen_transform_params: set[str] = set()
     for reg in spec.regressions:
-        if get_free_predictor_columns(reg):
+        free_cols = [c for c in get_free_predictor_columns(reg) if c not in coef_names]
+        if free_cols:
             entries[f"beta_{reg.lhs}"] = _entry(f"beta_{reg.lhs}", "Normal(0, 10)")
 
         family = families.get(reg.lhs, "gaussian")
@@ -629,6 +644,18 @@ def build_priors(
                     entries[f"beta_hsgp_{reg.lhs}_{var}"] = _entry(
                         f"beta_hsgp_{reg.lhs}_{var}", "Normal(0, 1)"
                     )
+
+    # --- by_var structured pooling ---
+    for name, entry in by_var_entries.items():
+        if entry["kind"] == "coefficient":
+            key = str(entry["key"])
+            entries[f"mu_{name}_{key}"] = _entry(f"mu_{name}_{key}", "Normal(0, 10)")
+            entries[f"sigma_{name}_{key}"] = _entry(
+                f"sigma_{name}_{key}", "HalfNormal(1)"
+            )
+            entries[f"beta_{name}"] = f"Normal(mu_{name}_{key}, sigma_{name}_{key})"
+        elif entry["kind"] == "none_coefficient":
+            entries[f"beta_{name}"] = _entry(f"beta_{name}", "Normal(0, 10)")
 
     if spec.residual_covs:
         import networkx as nx

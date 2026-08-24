@@ -98,6 +98,30 @@ model = pathmc.model(
 
 The data must be rectangular: every `geo × brand` combination shares the same set of `week` values. Non-rectangular panels raise an error naming the offending combinations. Under the hood the composite key (`"North|Acme"` style labels) becomes the unit coordinate, so each cell gets its own random intercept under `pooling="partial"` — the same machinery as single-column panels.
 
+## Structured pooling with `by_var`
+
+Different parameters often need different pooling structure — a channel coefficient that varies by geo, an adstock decay that is fully unpooled per cell. The `by_var` entry of `pooling` controls this per parameter:
+
+```python
+model = pathmc.model(
+    "sales ~ 0 + tv + radio",
+    data=df,
+    panel={"unit": ["geo", "brand"], "time": "week"},
+    pooling={
+        "intercept": True,
+        "by_var": {
+            # coefficient of 'tv' varies per cell, pooled across geos:
+            # beta_tv[c] ~ Normal(mu_tv_geo[geo(c)], sigma_tv_geo)
+            "tv": {"coefficient": ("geo",)},
+            # adstock decay is a separate parameter per panel cell
+            "theta_tv": "none",
+        },
+    },
+)
+```
+
+The tuple in `"coefficient"` names **panel dimensions** (the columns in `panel['unit']`) to pool over; a single string works for one dimension. Each pooled predictor gets a per-cell RV (`beta_{var}`) plus hyperpriors named after the requested dims (`mu_{var}_{dim}`, `sigma_{var}_{dim}`), and it replaces that predictor's flat entry in `beta_{lhs}`. A bare string `"none"` forces unpooled per-cell parameters instead — for a predictor this means one free coefficient per cell with no hierarchy, and for a transform parameter (e.g. `decay=theta_tv`) it upgrades the shared scalar to one value per cell.
+
 ## Posterior predictive checks with a lagged outcome
 
 When the outcome depends on its own past — `sales ~ lag(sales)` — there are two different things `predict()` could mean, so it takes a flag.

@@ -1616,7 +1616,13 @@ def model(
     pooling : str | dict | None
         ``"partial"`` for random intercepts per unit. A dict like
         ``{"intercept": True, "slopes": ["var"]}`` enables random slopes.
-        ``None`` (default) means complete pooling (cross-sectional).
+        An optional ``"by_var"`` entry adds structured pooling: a dict
+        mapping predictor names to ``{"coefficient": dims}`` (dims name
+        ``panel['unit']`` columns to pool over, emitting hyperpriors
+        ``mu_{var}_{dim}`` / ``sigma_{var}_{dim}``) or to the bare string
+        ``"none"`` (unpooled per-cell parameters, including transform
+        parameters such as adstock decay). ``None`` (default) means
+        complete pooling (cross-sectional).
     latent : list[str] | None
         Variables to treat as latent deterministic mediators. These must
         appear as LHS of a regression but need not have a data column.
@@ -1785,9 +1791,10 @@ def simulate(
         :func:`model`: ``"partial"`` for random intercepts per unit
         (then *params* must supply the ``alpha_{var}`` unit vectors,
         and their hierarchical means/scales even though they are
-        clamped), or ``None`` for complete pooling.
-    random_seed : int | np.random.Generator | None
-        Random seed for reproducibility.
+        clamped), a dict with ``"by_var"`` entries (then *params* must
+        supply the per-cell ``beta_{var}`` vectors and the dim-indexed
+        ``mu_{var}_{dim}`` / scalar ``sigma_{var}_{dim}`` hyperpriors),
+        or ``None`` for complete pooling.
 
     Returns
     -------
@@ -2104,8 +2111,9 @@ def simulate_params_template(
         ``lag()`` terms or partial pooling. Omitting it for a lagged
         spec raises the same error as :func:`model`.
     pooling : str | dict | None
-        Pooling configuration (e.g. ``"partial"``) forwarded to the
-        compiler so hierarchical parameters appear in the template.
+        Pooling configuration (e.g. ``"partial"`` or a dict with
+        ``"by_var"`` entries) forwarded to the compiler so hierarchical
+        parameters appear in the template.
     families : dict[str, str] | None
         Per-variable distribution families, same as :func:`simulate`.
     latent : list[str] | set[str] | None
