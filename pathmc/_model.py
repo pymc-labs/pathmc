@@ -33,6 +33,7 @@ from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 from pathmc.compile import (
     _build_lag_map,
     _identify_residual_blocks,
+    _term_base_vars,
     build_design_matrix,
     compile_to_pymc,
     get_predictor_columns,
@@ -68,6 +69,7 @@ from pathmc.panel import PanelInfo, build_panel_info
 from pathmc.parse import Spec, parse_spec
 from pathmc.refute import PlaceboRefutationResult, refute_placebo as _refute_placebo
 from pathmc.sensitivity import SensitivityResult, compute_sensitivity
+from pathmc.scaling import Scaling, ScalingFactors, fit_scaling, validate_scaling_config
 from pathmc.simulate import (
     DoResult,
     EstimandResult,
@@ -134,6 +136,9 @@ class PathModel:
     priors : dict | None
         Custom prior configuration mapping parameter names to ``Prior``
         objects from ``pymc_extras``. Overrides are merged with defaults.
+    scaling_factors : ScalingFactors | None
+        Fitted scale factors applied to the data before compilation (see
+        :class:`pathmc.Scaling`). Exposed via :attr:`fitted_scaling`.
     """
 
     def __init__(
@@ -146,6 +151,7 @@ class PathModel:
         pooling: str | dict | None = None,
         latent: set[str] | None = None,
         priors: dict[str, Any] | None = None,
+        scaling_factors: ScalingFactors | None = None,
     ) -> None:
         from pathmc.priors import default_priors, merge_priors
 
@@ -159,6 +165,7 @@ class PathModel:
         # Original model() arguments, recorded so refutation can faithfully
         # re-fit on perturbed data. Set by model(); None for direct
         # construction (in which case refute_placebo raises).
+        self._scaling_factors = scaling_factors
         self._construction: dict[str, Any] | None = None
 
         defaults = default_priors(
@@ -270,6 +277,15 @@ class PathModel:
         else:
             self._pymc_model = self._gen_model
         self._idata = None
+
+    @property
+    def fitted_scaling(self) -> ScalingFactors | None:
+        """Fitted scale factors when the model was built with ``scaling=``, else None.
+
+        Pass this object back as ``scaling=`` to :func:`pathmc.simulate`
+        to reuse the exact estimation-time scales.
+        """
+        return self._scaling_factors
 
     @property
     def pymc_model(self) -> pm.Model:
@@ -1003,6 +1019,10 @@ class PathModel:
             # Use the current merged priors (not the original model() argument)
             # so priors changed via set_priors() are honored on refit.
             priors=self._priors,
+            # NOTE: no scaling= here. self._data already holds the scaled
+            # columns, so the refit happens in the same internal units as
+            # the original fit; re-fitting factors from permuted data
+            # would change the scale mid-refutation.
         )
         # The per-fold seed is owned here so every fold is independent and the
         # whole refutation is reproducible; a random_seed in sample_kwargs would
@@ -1590,6 +1610,7 @@ def model(
     pooling: str | dict | None = None,
     latent: list[str] | None = None,
     priors: dict[str, Any] | None = None,
+    scaling: Scaling | ScalingFactors | None = None,
     **kwargs: Any,
 ) -> PathModel:
     """Parse a specification and compile a Bayesian path model.
@@ -1643,8 +1664,19 @@ def model(
                 priors={"beta_Y": Prior("Normal", mu=0, sigma=2)},
             )
 
-    **kwargs
-        Reserved for future options.
+    scaling : pathmc.Scaling | ScalingFactors | None
+        Scale heterogeneous columns onto a common internal scale before
+        compilation, so default priors stay calibrated across units of
+        different magnitude. ``Scaling.target`` configures endogenous
+        (outcome) columns and ``Scaling.channel`` exogenous (predictor)
+        columns; see :class:`pathmc.Scaling` for the spec format. The
+        fitted factors are stored on the returned model as
+        ``fitted_scaling``.
+
+        .. note:: This phase, outputs of ``predict()`` / ``do()`` on a
+           scaled model remain in *scaled* units. Pass the fitted factors
+           back to :func:`simulate` (as ``scaling=``) for business-unit
+           generation, or multiply by ``model.fitted_scaling`` manually.
 
     Returns
     -------
@@ -1692,6 +1724,27 @@ def model(
             )
         panel_info, nw_data = build_panel_info(nw_data, panel)
 
+    scaling_factors: ScalingFactors | None = None
+    if scaling is not None:
+        if nw_data is None:
+            raise ValueError(
+                "scaling= requires data. Provide data= alongside scaling=, "
+                "or omit scaling= for data-free DAG exploration."
+            )
+        endogenous_lhs = {reg.lhs for reg in spec.regressions}
+        term_vars: set[str] = set()
+        for reg in spec.regressions:
+            for t in reg.terms:
+                term_vars.update(_term_base_vars(t))
+        scaling_factors = fit_scaling(
+            scaling,
+            nw_data,
+            panel_info=panel_info,
+            target_columns=endogenous_lhs - latent_set,
+            channel_columns=term_vars - endogenous_lhs,
+        )
+        nw_data = scaling_factors.transform(nw_data)
+
     path_model = PathModel(
         spec=spec,
         graph_info=graph_info,
@@ -1701,6 +1754,7 @@ def model(
         pooling=pooling,
         latent=latent_set,
         priors=priors,
+        scaling_factors=scaling_factors,
     )
     path_model._construction = {
         "spec_string": spec_string,
@@ -1708,12 +1762,32 @@ def model(
         "panel": panel,
         "pooling": pooling,
         "latent": latent,
+        "scaling": scaling,
         # Recorded for completeness only. _refit_permuted intentionally
         # rebuilds with the current merged self._priors (not this original
         # arg) so priors changed via set_priors() are honored on refit.
         "priors": priors,
     }
     return path_model
+
+
+def _invert_generated_columns(
+    factors: ScalingFactors,
+    columns: dict[str, nw.Series],
+    backend: Any,
+) -> dict[str, nw.Series]:
+    """Multiply generated endogenous columns back into business units."""
+    out: dict[str, nw.Series] = {}
+    for var, series in columns.items():
+        if var in factors.factors:
+            out[var] = nw.new_series(
+                var,
+                factors.inverse_transform_column(series.to_numpy(), var),
+                backend=backend,
+            )
+        else:
+            out[var] = series
+    return out
 
 
 def simulate(
@@ -1724,6 +1798,7 @@ def simulate(
     latent: list[str] | set[str] | None = None,
     panel: dict[str, str] | None = None,
     pooling: str | dict | None = None,
+    scaling: Scaling | ScalingFactors | None = None,
     random_seed: int | np.random.Generator | None = None,
 ) -> IntoFrameT:
     """Simulate data from a pathmc model with known parameter values.
@@ -1795,6 +1870,19 @@ def simulate(
         supply the per-cell ``beta_{var}`` vectors and the dim-indexed
         ``mu_{var}_{dim}`` / scalar ``sigma_{var}_{dim}`` hyperpriors),
         or ``None`` for complete pooling.
+    scaling : pathmc.Scaling | ScalingFactors | None
+        Inverse-scaling hook mirroring the ``scaling=`` argument of
+        :func:`model`. When given, exogenous channel columns are divided
+        by the fitted factors before compilation — so *params* are
+        interpreted in the same scaled units estimation uses — and every
+        generated endogenous column is multiplied back by its factor, so
+        outputs land in business units. Omit *scaling* entirely (the
+        default) when your truth parameters already live in raw data
+        units: nothing is scaled or inverted. Target specs must be
+        grid-based (``"fixed"`` / ``"divide"``) here because outcome
+        values do not exist before simulation; for the exact
+        estimation-time scales of a ``"max"`` / ``"mean"`` fit, pass the
+        fitted model's ``fitted_scaling`` object directly.
 
     Returns
     -------
@@ -1844,6 +1932,25 @@ def simulate(
     # values with zeros so they cannot leak into the model (the scan
     # compiler seeds temporal carry state from data row 0).
     data_sim = nw_data.with_columns([nw.lit(0.0).alias(var) for var in endogenous_lhs])
+
+    scaling_factors: ScalingFactors | None = None
+    if scaling is not None:
+        term_vars: set[str] = set()
+        for reg in spec.regressions:
+            for t in reg.terms:
+                term_vars.update(_term_base_vars(t))
+        # Channel factors are fitted on the supplied exogenous columns;
+        # target factors must come from a grid (or the pre-fitted object)
+        # because outcomes do not exist before simulation.
+        scaling_factors = fit_scaling(
+            scaling,
+            nw_data,
+            panel_info=panel_info,
+            target_columns=endo_set - latent_set,
+            channel_columns=term_vars - endo_set,
+            roles_with_data=frozenset({"channel"}),
+        )
+        data_sim = scaling_factors.transform(data_sim)
 
     design_matrices: dict[str, nw.DataFrame] = {}
     for reg in spec.regressions:
@@ -1986,6 +2093,13 @@ def simulate(
             )
             new_columns[var] = nw.new_series(var, vals, backend=nw_data.implementation)
 
+        new_columns = (
+            _invert_generated_columns(
+                scaling_factors, new_columns, nw_data.implementation
+            )
+            if scaling_factors is not None
+            else new_columns
+        )
         result = nw_data.with_columns(list(new_columns.values()))
         return result.to_native()
 
@@ -2059,6 +2173,10 @@ def simulate(
                 var, block_mu_draws[var] + eps[:, j], backend=nw_data.implementation
             )
 
+    if scaling_factors is not None:
+        new_columns_xs = _invert_generated_columns(
+            scaling_factors, new_columns_xs, nw_data.implementation
+        )
     result = nw_data.with_columns(list(new_columns_xs.values()))
     return result.to_native()
 
@@ -2070,6 +2188,7 @@ def simulate_params_template(
     pooling: str | dict | None = None,
     families: dict[str, str] | None = None,
     latent: list[str] | set[str] | None = None,
+    scaling: Scaling | ScalingFactors | None = None,
 ) -> dict[str, Any]:
     """List every parameter ``simulate()`` requires for a specification.
 
@@ -2120,6 +2239,12 @@ def simulate_params_template(
         Variables to treat as latent (unobserved). Deterministic latent
         variables contribute no parameters; stochastic ones
         (``"latent_normal"``) contribute their ``sigma_{var}``.
+    scaling : pathmc.Scaling | ScalingFactors | None
+        Accepted for symmetry with :func:`simulate` and validated
+        structurally, but parameter shapes do not change with scaling:
+        random variables live in the model's internal (scaled) units
+        either way. Supply the same object you will pass to
+        :func:`simulate`.
 
     Returns
     -------
@@ -2148,6 +2273,7 @@ def simulate_params_template(
     {'kind': 'vector', 'shape': (3,), 'dtype': 'float64'}
     """
     spec = parse_spec(spec_string)
+    validate_scaling_config(scaling)
     latent_set = set(latent) if latent else set()
     graph_info = build_graph(spec, latent=latent_set)
 

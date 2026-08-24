@@ -186,3 +186,69 @@ Not always! If your panel model has only random intercepts, random slopes, or tr
 :::
 
 See the [Panel Data Models](/examples/04-panel-time/panel_data.qmd), [Difference-in-Differences](/examples/04-panel-time/did.qmd), and [Media Mix Models](/examples/05-applied-models/mmm.qmd) examples for panel mode in action.
+
+## Scaling heterogeneous units
+
+When geos (or brands, or countries) differ in magnitude by orders of
+magnitude — a national channel vs. a regional one — a single pooled
+coefficient has to bridge wildly different scales, and default priors
+calibrated for one unit are badly suited to another. The `scaling=`
+argument divides affected columns by fitted scale *factors* before the
+model is compiled, so estimation happens on a common internal scale.
+
+```python
+import xarray as xr
+
+# population per geo, used as an external divisor for the channel column
+population = xr.DataArray([10.0, 1.0], coords={"geo": ["north", "south"]}, dims=["geo"])
+
+model = pathmc.model(
+    spec,
+    data=df,
+    panel={"unit": "geo", "time": "week"},
+    scaling=pathmc.Scaling(
+        # divide each outcome by its per-geo maximum
+        target={"method": "max", "dims": ("geo",)},
+        # divide spend by population (like pymc-marketing's FixedScaling)
+        channel={"method": "divide", "by": population, "dims": ("geo",)},
+    ),
+)
+```
+
+Each role takes a spec with a `"method"`:
+
+- `"max"` / `"mean"`: divide by the group-wise maximum/mean of that same
+  column (groups defined by `"dims"`, which must name `panel["unit"]`
+  columns; omit `"dims"` for one global scale).
+- `"fixed"`: divide by a supplied constant or grid (`"value": ...`).
+- `"divide"`: divide by an external grid keyed by the unit dims
+  (`"by": ...`) — an `xarray.DataArray` whose coordinates carry the dim
+  names, or a dict mapping unit labels (or label tuples) to divisors.
+
+The correspondence with `pymc_marketing.mmm.scaling` is direct: the
+`target` / `channel` slots mirror pymc-marketing's identically-named MMM
+scaling slots, `"max"` with `dims=` matches `Scaling(method="max",
+dims=...)`, and `"divide"` / `"fixed"` with a grid match
+`FixedScaling(values=<DataArray>)`. pathmc just applies them to any
+panel outcome or predictor, not only MMM targets and media channels.
+
+Fitted factors live on the model as `model.fitted_scaling`. When you
+simulate from known parameters that are expressed in these scaled units,
+pass the scaling object (or the fitted factors themselves) to
+`simulate()`: exogenous columns are divided before compilation and every
+generated outcome is multiplied back into business units.
+
+```python
+sim = pathmc.simulate(
+    spec,
+    data=df,
+    params=params_in_scaled_units,
+    panel={"unit": "geo", "time": "week"},
+    scaling=model.fitted_scaling,  # reuse the exact estimation-time scales
+)
+```
+
+Omitting `scaling=` in `simulate()` changes nothing: parameters are then
+interpreted directly in raw data units. Note that `predict()` / `do()`
+outputs on a scaled model remain in scaled units; multiply by
+`model.fitted_scaling` manually if you need business units there.

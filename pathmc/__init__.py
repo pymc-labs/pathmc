@@ -45,6 +45,7 @@ from pathmc._model import (  # noqa: E402
 )
 from pathmc.refute import PlaceboRefutationResult  # noqa: E402
 from pathmc.sensitivity import SensitivityResult  # noqa: E402
+from pathmc.scaling import Scaling, ScalingFactors  # noqa: E402
 from pathmc.simulate import DoResult, EstimandResult  # noqa: E402
 from pathmc.transforms import ParamSpec, Transform, register_transform  # noqa: E402
 
@@ -64,6 +65,8 @@ __all__ = [
     "PathModel",
     "PlaceboRefutationResult",
     "Prior",
+    "Scaling",
+    "ScalingFactors",
     "SensitivityResult",
     "TestResult",
     "Transform",

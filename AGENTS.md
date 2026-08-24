@@ -38,6 +38,7 @@ pathmc/
   falsify.py      # Whole-DAG falsification (permutation test)
   sensitivity.py  # Unmeasured-confounding sensitivity analysis
   panel.py        # PanelInfo and panel validation
+  scaling.py      # Scaling layer for heterogeneous units (Scaling, ScalingFactors)
   priors.py       # default_priors(), merge_priors(); Prior-based config
   residuals.py    # Residual covariance structures (LKJ Cholesky, pluggable)
   idata.py        # Internal ArviZ InferenceData accessors
