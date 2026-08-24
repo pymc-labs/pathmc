@@ -393,6 +393,7 @@ class TestSimulatePanel:
             params={
                 "beta_M": [1.0, 0.8],
                 "sigma_M": 0.4,
+                "init_M": 0.0,
                 "theta": 0.6,
                 "beta_sales": [0.5, 1.2],
                 "sigma_sales": 0.3,

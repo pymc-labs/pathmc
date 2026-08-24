@@ -79,6 +79,16 @@ def default_priors(
 
     coef_names = {n for n, e in by_var_entries.items() if _is_coef_entry(e)}
 
+    # Estimated initial conditions (``init_{var}``) exist only for latent
+    # variables that feed a ``lag()`` term in scan-compiled panel models:
+    # those are the latents whose recursion actually reads its t=0 state.
+    lag_base_vars = {
+        term.lag_of
+        for reg in spec.regressions
+        for term in reg.terms
+        if term.lag_of is not None
+    }
+
     priors: PriorConfig = {}
     seen_transform_params: set[str] = set()
 
@@ -91,6 +101,8 @@ def default_priors(
         if reg.lhs in latent:
             if family == "latent_normal":
                 priors[f"sigma_{reg.lhs}"] = Prior("HalfNormal", sigma=1)
+            if reg.lhs in lag_base_vars:
+                priors[f"init_{reg.lhs}"] = Prior("Normal", mu=0, sigma=1)
         else:
             if family not in ("bernoulli", "poisson", "negbinomial"):
                 priors[f"sigma_{reg.lhs}"] = Prior("HalfNormal", sigma=1)

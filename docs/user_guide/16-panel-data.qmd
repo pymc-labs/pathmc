@@ -252,3 +252,84 @@ Omitting `scaling=` in `simulate()` changes nothing: parameters are then
 interpreted directly in raw data units. Note that `predict()` / `do()`
 outputs on a scaled model remain in scaled units; multiply by
 `model.fitted_scaling` manually if you need business units there.
+
+## Latent dynamics with sparse measurements
+
+Some quantities are never observed directly at every time step — brand
+awareness, true demand, sentiment. pathmc supports **latent variables** in
+panel models: declare them with `latent=[...]` and anchor them with a
+sparse measurement equation whose rows are `NaN` wherever no survey (or
+other measurement) exists:
+
+```python
+model = pathmc.model(
+    """
+    survey ~ 0 + 1*awareness
+    awareness ~ lag(awareness)
+    """,
+    data=df,  # 'survey' has NaN outside surveyed weeks
+    panel={"unit": "market", "time": "week"},
+    latent=["awareness"],
+    families={"awareness": "latent_normal"},
+)
+```
+
+The second line makes the latent state an AR(1) process: each week's
+`awareness` is a coefficient times the previous week's state plus process
+noise (`families={"awareness": "latent_normal"}`). Because latent variables
+have no data column, their initial condition cannot be read off the data —
+instead it is *estimated*: an `init_awareness` free parameter (one value per
+unit, default prior `Normal(0, 1)`) seeds the recursion. It is the state
+*preceding* the first observed period — the first latent value is computed
+as `intercept + phi * init_awareness` plus process noise. Override it
+like any other prior when you have prior knowledge about the starting level:
+
+```python
+from pathmc.priors import Prior
+
+model = pathmc.model(
+    spec,
+    data=df,
+    panel=panel,
+    latent=["awareness"],
+    families={"awareness": "latent_normal"},
+    priors={"init_awareness": Prior("Normal", mu=0.5, sigma=0.2)},
+)
+```
+
+After fitting, extract the inferred trajectory with `latent_trajectory()`:
+
+```python
+model.fit(draws=1000, tune=1000, chains=4)
+traj = model.latent_trajectory("awareness")
+traj.dims  # ('chain', 'draw', 'time', 'unit')
+mean_traj = traj.mean(dim=("chain", "draw"))  # (time, unit) posterior mean
+```
+
+The result is an `xarray.DataArray` with dimensions `(chain, draw, time,
+unit)` and coordinates taken from the model's panel structure. For
+stochastic latents it reads the realized state registered under the
+variable's own name; for deterministic latents it reads the `mu_{var}`
+deterministic.
+
+The same machinery works for forward simulation. `pathmc.simulate()` treats
+`init_{var}` as a required parameter alongside coefficients and scales — use
+`pathmc.simulate_params_template()` to discover every name and shape:
+
+```python
+params = {
+    "beta_awareness": [0.0, 0.9],  # intercept, AR coefficient
+    "sigma_awareness": 0.15,
+    "init_awareness": [0.5, 0.4],  # one per unit
+    "sigma_survey": 0.05,
+    "survey_unobserved": 0.0,
+}
+sim = pathmc.simulate(
+    spec,
+    data=df,
+    params=params,
+    panel=panel,
+    latent=["awareness"],
+    families={"awareness": "latent_normal"},
+)
+```

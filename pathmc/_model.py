@@ -666,6 +666,99 @@ class PathModel:
             return pp
         return idata
 
+    def latent_trajectory(self, var: str) -> xr.DataArray:
+        """Return the posterior latent state of a panel variable over time.
+
+        For scan-compiled panel models with latent variables
+        (``latent=[...]``), extracts the inferred latent trajectory from
+        the posterior.
+
+        Shape semantics
+        ---------------
+        The returned DataArray has dimensions
+        ``(chain, draw, time, unit)``:
+
+        - ``chain`` / ``draw``: posterior sampling dimensions.
+        - ``time``: sorted unique time values from the model's panel
+          structure (the ``time`` column values).
+        - ``unit``: unit labels (the ``unit`` column values).
+
+        The underlying posterior variable is the Deterministic registered
+        at compile time: for stochastic latents (``latent_normal``
+        family) the scan emits the realized state under the variable's
+        own name (``var``); for deterministic latents it is stored as
+        ``mu_{var}``. Each posterior slice is an ``(n_times, n_units)``
+        matrix in time-major sorted order; this method attaches the
+        matching time/unit coordinates.
+
+        Parameters
+        ----------
+        var : str
+            Name of a latent endogenous variable.
+
+        Returns
+        -------
+        xarray.DataArray
+            Posterior latent states with dims ``(chain, draw, time,
+            unit)`` and ``time``/``unit`` coordinates.
+
+        Raises
+        ------
+        RuntimeError
+            If the model has no data or has not been fitted yet.
+        ValueError
+            If *var* is not a latent variable, or the model is not a
+            scan-compiled panel model (no temporal terms).
+
+        Examples
+        --------
+        >>> traj = m.latent_trajectory("awareness")  # doctest: +SKIP
+        >>> traj.mean(dim=("chain", "draw"))  # doctest: +SKIP
+        """
+        idata = self._require_fitted("latent_trajectory")
+        if var not in self._latent:
+            raise ValueError(
+                f"latent_trajectory() requires a latent variable, but "
+                f"'{var}' is not a latent variable in this model. "
+                f"Latent variables: {sorted(self._latent)}"
+            )
+        assert self._gen_model is not None
+        scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        if scan_info is None:
+            raise ValueError(
+                f"latent_trajectory() requires a scan-compiled panel model "
+                f"(one with temporal terms such as lag() or adstock()), but "
+                f"'{var}' was compiled without temporal structure."
+            )
+        name = (
+            var
+            if self._families.get(var, "gaussian") == "latent_normal"
+            else f"mu_{var}"
+        )
+        posterior = idata.posterior
+        if name not in posterior:
+            raise RuntimeError(
+                f"Posterior has no variable '{name}' for latent '{var}'. "
+                "This indicates a compiler/extractor mismatch; please report it."
+            )
+        values = np.asarray(posterior[name].values)
+        n_times, n_units = scan_info.n_times, scan_info.n_units
+        if values.shape[-2:] != (n_times, n_units):
+            raise RuntimeError(
+                f"Latent '{var}' posterior shape {values.shape} does not end "
+                f"in ({n_times}, {n_units}); cannot attach panel coordinates."
+            )
+        time_coords = list(scan_info.time_values) or list(range(n_times))
+        return xr.DataArray(
+            values,
+            dims=("chain", "draw", "time", "unit"),
+            coords={
+                "time": time_coords,
+                "unit": list(scan_info.unit_labels),
+            },
+            name=name,
+        )
+
     def adjustment_sets(
         self,
         treatment: str,

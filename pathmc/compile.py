@@ -1882,7 +1882,9 @@ def _compile_scan_panel(
     needs_unit_coord = bool(coef_entries) or any(
         e["kind"] == "none_transform" for e in by_var_entries.values()
     )
-    if has_ri or needs_unit_coord:
+    if has_ri or needs_unit_coord or latent:
+        # Latents need the coord so ``init_{var}`` priors resolve to a
+        # per-unit (n_units,) shape via _ensure_dims.
         coords["unit"] = units
         for entry in coef_entries.values():
             if entry["kind"] != "coefficient":
@@ -2071,6 +2073,29 @@ def _compile_scan_panel(
                 f"carry_innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
 
+        # --- estimated latent initial conditions ---
+        # Latent variables have no data column, so their t=0 scan carry
+        # state cannot be seeded from data. Instead of defaulting to
+        # zeros, each latent that feeds a ``lag()`` term gets an
+        # ``init_{var}`` free parameter (one value per unit) used as the
+        # scan outputs_info initial value. The default prior is
+        # Normal(0, 1); override it via the priors config under the
+        # ``init_{var}`` name. Applies to both deterministic and
+        # stochastic (latent_normal) latents. Latents without a lag term
+        # never read their carry state, so no init parameter is emitted.
+        latent_init_rvs: dict[str, Any] = {}
+        for var in sorted(set(latent) & set(endo_lag_bases)):
+            if priors and f"init_{var}" in priors:
+                # _ensure_dims forces the per-unit (n_units,) shape even
+                # when the override was authored as a scalar prior.
+                latent_init_rvs[var] = _ensure_dims(
+                    priors[f"init_{var}"], ("unit",)
+                ).create_variable(f"init_{var}")
+            else:
+                latent_init_rvs[var] = pm.Normal(
+                    f"init_{var}", mu=0, sigma=1, shape=(n_units,)
+                )
+
         # Pre-compute lagged exogenous sequences from pm.Data nodes.
         #
         # PyTensor's scan-merge optimizer has a bug that fires when a sit_sot
@@ -2137,7 +2162,12 @@ def _compile_scan_panel(
             return pt.as_tensor_variable(arr)
 
         outputs_info = (
-            [_init_carry(init_endo[k]) for k in endo_keys]
+            [
+                latent_init_rvs[k]
+                if k in latent_init_rvs
+                else _init_carry(init_endo[k])
+                for k in endo_keys
+            ]
             + [_init_carry(init_adstock[k]) for k in adstock_keys]
             + [None for _ in stochastic_carry_vars]
         )
@@ -2304,6 +2334,11 @@ def _compile_scan_panel(
             sequences=sequences,
             outputs_info=outputs_info,
             non_sequences=non_seq_list,
+            # Pure latent dynamics (e.g. ``awareness ~ lag(awareness)``
+            # with no exogenous columns and a deterministic latent)
+            # leave the sequence list empty; scan then needs an explicit
+            # step count to know how long the recursion runs.
+            n_steps=n_times if not sequences else None,
             strict=True,
             return_updates=False,
         )

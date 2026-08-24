@@ -575,6 +575,16 @@ def build_priors(
         if e["kind"] in ("coefficient", "none_coefficient")
     }
 
+    # Estimated initial conditions (``init_{var}``) exist only for latent
+    # variables that feed a ``lag()`` term in scan-compiled panel models:
+    # those are the latents whose recursion actually reads its t=0 state.
+    lag_base_vars = {
+        term.lag_of
+        for reg in spec.regressions
+        for term in reg.terms
+        if term.lag_of is not None
+    }
+
     def _entry(key: str, default_str: str) -> str:
         if prior_config and key in prior_config:
             return _prior_to_str(prior_config[key])
@@ -593,6 +603,8 @@ def build_priors(
                 entries[f"sigma_{reg.lhs}"] = _entry(
                     f"sigma_{reg.lhs}", "HalfNormal(1)"
                 )
+            if reg.lhs in lag_base_vars:
+                entries[f"init_{reg.lhs}"] = _entry(f"init_{reg.lhs}", "Normal(0, 1)")
         else:
             if family not in ("bernoulli", "poisson", "negbinomial"):
                 entries[f"sigma_{reg.lhs}"] = _entry(
