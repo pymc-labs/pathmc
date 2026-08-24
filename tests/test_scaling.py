@@ -48,7 +48,7 @@ def _panel_info(panel: dict):
         base = make_panel()
     else:
         base = make_multi_dim_panel()
-    info, _ = build_panel_info(_nw(base), panel)
+    info = build_panel_info(_nw(base), panel)
     return info
 
 

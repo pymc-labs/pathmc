@@ -339,9 +339,15 @@ class TestWarningConditionalityWithByVar:
                 pooling={"by_var": {"tv": {"coefficient": ("geo",)}}},
             )
 
-    def test_by_var_with_intercept_still_warns(self):
-        with pytest.warns(UserWarning, match="PARTIAL POOLING"):
-            pathmc.model(
+    def test_by_var_with_intercept_auto_drops(self):
+        """Partial pooling auto-drops the redundant formula intercept (no
+        warning since the intercept-wiring fix); by_var entries still
+        compile alongside the dropped-intercept design."""
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            model = pathmc.model(
                 "sales ~ tv",
                 data=self.df,
                 panel={"unit": ["geo", "brand"], "time": "week"},
@@ -350,6 +356,9 @@ class TestWarningConditionalityWithByVar:
                     "by_var": {"tv": {"coefficient": ("geo",)}},
                 },
             )
+        names = {rv.name for rv in model.pymc_model.free_RVs}
+        # by_var machinery intact alongside the auto-dropped intercept
+        assert {"beta_tv", "mu_tv_geo", "sigma_tv_geo"} <= names
 
 
 def geo_frame(rng):

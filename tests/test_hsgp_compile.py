@@ -113,7 +113,7 @@ def test_panel_model_with_hsgp_raises(cross_sectional_df):
 def test_hsgp_in_residual_block_raises(cross_sectional_df):
     with pytest.raises(NotImplementedError, match="residual-covariance"):
         pathmc.model(
-            "y ~ hsgp(x, m=8, c=1.5)\ny ~~ z", data=cross_sectional_df
+            "z ~ x\ny ~ hsgp(x, m=8, c=1.5)\ny ~~ z", data=cross_sectional_df
         )._compile()
 
 

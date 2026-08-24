@@ -196,7 +196,7 @@ class TestMultiDimensionalPanel:
     """panel={'unit': [cols], 'time': col} builds a composite unit key."""
 
     def test_composite_unit_labels(self, geo_brand_data):
-        info, df_out = pathmc.panel.build_panel_info(
+        info = pathmc.panel.build_panel_info(
             nw.from_native(geo_brand_data, eager_only=True),
             {"unit": ["geo", "brand"], "time": "week"},
         )
@@ -209,13 +209,17 @@ class TestMultiDimensionalPanel:
             "South|Acme",
             "South|Bolt",
         ]
+        df_out = pathmc.panel.attach_composite_unit(
+            nw.from_native(geo_brand_data, eager_only=True), info
+        )
         assert "geo|brand" in df_out.columns
 
     def test_ragged_panel_rejected(self, geo_brand_data):
         bad = geo_brand_data[
             ~((geo_brand_data["geo"] == "South") & (geo_brand_data["week"] == 9))
         ]
-        with pytest.raises(ValueError, match="not rectangular"):
+        # main's validator checks balance first, so ragged panels may raise either message
+        with pytest.raises(ValueError, match="not rectangular|unbalanced"):
             pathmc.simulate(
                 "sales ~ tv",
                 data=bad,
@@ -264,7 +268,7 @@ class TestMultiDimensionalPanel:
         wide = geo_brand_data.assign(
             cell=geo_brand_data["geo"] + "|" + geo_brand_data["brand"]
         ).drop(columns=["geo", "brand"])
-        info, _ = pathmc.panel.build_panel_info(
+        info = pathmc.panel.build_panel_info(
             nw.from_native(wide, eager_only=True),
             {"unit": "cell", "time": "week"},
         )

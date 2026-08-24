@@ -1,0 +1,69 @@
+name: git-ai
+
+on:
+  pull_request:
+    types: [closed, synchronize]
+
+permissions: {}
+
+# refs/notes/ai is a single repo-global ref, and the final step pushes to it
+# without --force. Keying concurrency per-PR would still let two different PRs
+# push simultaneously, and the loser is rejected non-fast-forward. Serialise
+# repo-wide instead, and never cancel: a `closed` run is a one-shot,
+# irreversible consolidation that no later event ever retries.
+#
+# `queue: max` holds up to 100 pending runs FIFO instead of the default
+# `single`, which keeps one pending run and replaces it when the next arrives.
+# Without it, a merged PR's `closed` run can be evicted while waiting behind
+# another run, and nothing ever retries it. Requires cancel-in-progress: false.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+  queue: max
+
+env:
+  # Pinned deliberately; bump both together using the release's SHA256SUMS.
+  GIT_AI_VERSION: v1.6.21
+  GIT_AI_SHA256: 8465f82008707bd7f0d867908f0ccf6c591f0cef118f5991e1f245f14b17d3d7
+
+jobs:
+  attribution:
+    name: Consolidate AI attribution notes
+    # `closed` fires on every close; only merges carry attribution worth
+    # consolidating. `synchronize` covers force-pushed rebases of an open PR.
+    if: github.event.pull_request.merged == true || github.event.action == 'synchronize'
+    runs-on: ubuntu-latest
+    # A pull_request event from a fork gets a read-only GITHUB_TOKEN regardless
+    # of the permissions below, so the note push always 403s there. That is not
+    # the contributor's problem, and CONTRIBUTING.md promises git-ai will never
+    # block a pull request — so fork runs are advisory. Internal PRs stay
+    # fail-visible on purpose: they are where every actionable failure shows up,
+    # and a permanently-green broken job is how this instrumentation rots.
+    continue-on-error: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+    # Empirically 4-7 minutes upstream; without this it inherits the 360-minute
+    # default and a half-up endpoint burns six hours of runner time.
+    timeout-minutes: 15
+    permissions:
+      contents: write # push consolidated attribution notes to refs/notes/ai
+    steps:
+      # Pinned binary + checksum rather than `curl | bash`: this job carries a
+      # write-capable token, every other workflow here SHA-pins its actions, and
+      # CI needs only the binary — not the installer's agent hooks, shell rc
+      # edits, or background daemon. No token is exposed to this step.
+      - name: Install git-ai
+        run: |
+          mkdir -p "$RUNNER_TEMP/git-ai"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/git-ai/git-ai" \
+            "https://github.com/git-ai-project/git-ai/releases/download/${GIT_AI_VERSION}/git-ai-linux-x64"
+          echo "${GIT_AI_SHA256}  $RUNNER_TEMP/git-ai/git-ai" | sha256sum --check --strict
+          chmod +x "$RUNNER_TEMP/git-ai/git-ai"
+          echo "$RUNNER_TEMP/git-ai" >> "$GITHUB_PATH"
+      # No actions/checkout: `git-ai ci github run` clones the repository itself
+      # into a temp dir and needs the notes history, not the PR working tree.
+      - name: Consolidate attribution notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git-ai ci github run

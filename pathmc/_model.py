@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import sys
 import warnings
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
 
 import arviz as az
 import graphviz
@@ -32,11 +32,13 @@ from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
 from pathmc.compile import (
     _build_lag_map,
+    _has_temporal_deps,
     _identify_residual_blocks,
     _term_base_vars,
     build_design_matrix,
     compile_to_pymc,
     get_predictor_columns,
+    validate_panel_scan_shape,
 )
 from pathmc.effects import (
     EffectResult,
@@ -65,7 +67,19 @@ from pathmc.introspect import (
     build_equations,
     build_priors,
 )
-from pathmc.panel import PanelInfo, build_panel_info
+from pathmc.interpret import (
+    InterpretResult,
+    comparisons as _interpret_comparisons,
+    datagrid as _datagrid,
+    predictions as _interpret_predictions,
+    slopes as _interpret_slopes,
+)
+from pathmc.panel import (
+    PanelInfo,
+    attach_composite_unit,
+    build_panel_info,
+    observed_means_by_time,
+)
 from pathmc.parse import Spec, parse_spec
 from pathmc.refute import PlaceboRefutationResult, refute_placebo as _refute_placebo
 from pathmc.sensitivity import SensitivityResult, compute_sensitivity
@@ -73,9 +87,13 @@ from pathmc.scaling import Scaling, ScalingFactors, fit_scaling, validate_scalin
 from pathmc.simulate import (
     DoResult,
     EstimandResult,
+    run_counterfactual,
     run_do_panel_unified,
     run_do_pymc,
 )
+
+if TYPE_CHECKING:
+    from pathmc.adjustment import AdjustmentModel
 
 __all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
 
@@ -103,6 +121,74 @@ def _observed_carry(pymc_model: pm.Model, enabled: bool) -> Iterator[None]:
         yield
     finally:
         flag.set_value(previous)
+
+
+def _reject_hsgp_out_of_bounds(
+    spec: Spec,
+    data: nw.DataFrame,
+    interventions: Mapping[str, float | np.ndarray],
+) -> None:
+    """Raise when an intervention falls outside an HSGP basis boundary."""
+    from pathmc.hsgp import hsgp_intervention_bounds
+
+    hsgp_bounds = hsgp_intervention_bounds(spec, data)
+    for var, val in interventions.items():
+        if var not in hsgp_bounds:
+            continue
+        lo, hi = hsgp_bounds[var]
+        if isinstance(val, np.ndarray):
+            outside = float(val.min()) < lo or float(val.max()) > hi
+            val_desc = f"[{float(val.min()):.2f}, {float(val.max()):.2f}]"
+        else:
+            outside = val < lo or val > hi
+            val_desc = f"{val:.2f}"
+        if outside:
+            raise ValueError(
+                f"Intervention value {val_desc} for '{var}' is outside "
+                f"the HSGP basis boundary [{lo:.2f}, {hi:.2f}] frozen "
+                f"from the fitted data. Beyond this boundary the basis "
+                f"eigenfunctions alias, so the result would be "
+                f"meaningless rather than an extrapolation. Refit with "
+                f"a larger c or an explicit L to widen the valid "
+                f"region."
+            )
+
+
+def _warn_extrapolation(
+    data: nw.DataFrame, interventions: Mapping[str, float | np.ndarray]
+) -> None:
+    """Warn when an intervention is outside its observed data range."""
+    for var, val in interventions.items():
+        if var not in data.columns:
+            continue
+        col_min = data[var].min()
+        col_max = data[var].max()
+        if col_min is None or col_max is None:
+            continue
+        lo = float(col_min)
+        hi = float(col_max)
+        try:
+            values = np.asarray(val, dtype=float)
+        except (TypeError, ValueError):
+            continue
+        if values.ndim != 0:
+            if values.size == 0:
+                continue
+            val_lo, val_hi = float(values.min()), float(values.max())
+            out_of_range = val_lo < lo or val_hi > hi
+            val_desc = f"[{val_lo:.2f}, {val_hi:.2f}]"
+        else:
+            value = float(values)
+            out_of_range = value < lo or value > hi
+            val_desc = f"{value:.2f}"
+        if out_of_range:
+            warnings.warn(
+                f"Intervention value {val_desc} for '{var}' is outside "
+                f"the observed data range [{lo:.2f}, {hi:.2f}]. Results are "
+                "extrapolations and should be interpreted with caution.",
+                UserWarning,
+                stacklevel=3,
+            )
 
 
 class PathModel:
@@ -173,6 +259,7 @@ class PathModel:
             families=self._families,
             pooling=pooling,
             latent=self._latent,
+            panel_info=panel_info,
         )
         self._priors = merge_priors(defaults, priors)
 
@@ -194,13 +281,17 @@ class PathModel:
                 elif t.variable not in data.columns:
                     missing.append(t.variable)
             if missing:
-                cols = get_predictor_columns(reg)
+                cols = get_predictor_columns(
+                    reg, pooling=pooling, panel_info=panel_info
+                )
                 self._design_matrices[reg.lhs] = nw.from_dict(
                     {c: np.array([], dtype=float) for c in cols},
                     backend=data.implementation,
                 )
             else:
-                self._design_matrices[reg.lhs] = build_design_matrix(reg, data)
+                self._design_matrices[reg.lhs] = build_design_matrix(
+                    reg, data, pooling=pooling, panel_info=panel_info
+                )
 
         self._compile()
 
@@ -271,11 +362,20 @@ class PathModel:
 
         if observations:
             self._pymc_model = pm.observe(self._gen_model, observations)
-            if _OBSERVED_CARRY_FLAG in self._pymc_model.named_vars:
-                with self._pymc_model:
-                    pm.set_data({_OBSERVED_CARRY_FLAG: np.array(1, dtype="int8")})
         else:
             self._pymc_model = self._gen_model
+
+        # Enable the observed carry unconditionally, not only when
+        # ``observations`` is non-empty. A variable with any NaN is skipped
+        # above (its likelihood is already masked inside the compiled model),
+        # so a model whose every outcome carries a NaN -- exactly the
+        # ``y ~ lag(y)`` with missing outcomes case this branch exists to
+        # unlock -- would otherwise leave the flag at 0 and fit a
+        # free-running scan, silently using simulated instead of observed
+        # previous values for the timesteps that *are* observed.
+        if _OBSERVED_CARRY_FLAG in self._pymc_model.named_vars:
+            with self._pymc_model:
+                pm.set_data({_OBSERVED_CARRY_FLAG: np.array(1, dtype="int8")})
         self._idata = None
 
     @property
@@ -471,7 +571,12 @@ class PathModel:
         """
         self._require_data("sample_prior_predictive")
         assert self._gen_model is not None
-        with self._gen_model:
+        # Prior predictive is free-running by definition: the scan must carry
+        # its own simulated previous values, never the observed ones. The
+        # generative model can be the same object as the observation model
+        # (when every outcome was skipped as NaN), so force the flag rather
+        # than relying on it still being 0.
+        with self._gen_model, _observed_carry(self._gen_model, False):
             return pm.sample_prior_predictive(**kwargs)
 
     def summary(self) -> pd.DataFrame:
@@ -549,11 +654,20 @@ class PathModel:
             )
         assert self._data is not None
         return build_standardized_effects(
-            self._spec, idata, self._data, latent=self._latent
+            self._spec,
+            idata,
+            self._data,
+            latent=self._latent,
+            families=self._families,
         )
 
     def effect(self, path: str) -> EffectResult:
         """Compute the effect along a causal path in the DAG.
+
+        Uses the product-of-coefficients method, which assumes linear
+        structural equations (identity link). For multi-edge paths that
+        cross non-Gaussian link scales, use :meth:`simulate` with
+        ``do()`` interventions instead.
 
         Parameters
         ----------
@@ -573,9 +687,12 @@ class PathModel:
             ``.fit()``.
         ValueError
             If a node is not endogenous or an edge does not exist.
+        NotImplementedError
+            If a multi-edge path includes a non-Gaussian edge target
+            whose coefficient would be multiplied across link scales.
         """
         idata = self._require_fitted("effect")
-        return compute_path_effect(path, self._spec, idata)
+        return compute_path_effect(path, self._spec, idata, families=self._families)
 
     def fit(
         self,
@@ -656,10 +773,21 @@ class PathModel:
         RuntimeError
             If the model was created without data, or called before
             ``.fit()``.
+        ValueError
+            For panel models with a temporal dependency (``lag()`` or
+            ``adstock()``), if ``pm.set_data()`` was used to swap in a
+            differently-shaped panel first. ``n_units``/``n_times`` are
+            baked into the scan graph at model-compile time, so
+            out-of-sample prediction on a new panel shape is not
+            supported here: build a new model with ``pathmc.model(...,
+            data=new_data, panel=...)`` on the new data instead.
         """
         idata = self._require_fitted("predict")
         assert self._pymc_model is not None
         kwargs.setdefault("extend_inferencedata", True)
+        scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        if scan_info is not None:
+            validate_panel_scan_shape(self._pymc_model, scan_info)
         with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
             pp = pm.sample_posterior_predictive(idata, **kwargs)
         if not kwargs["extend_inferencedata"]:
@@ -775,6 +903,11 @@ class PathModel:
             ``test_implications()`` to check whether the DAG's structural
             assumptions are consistent with observed data.
 
+            A ``~~`` residual covariance block is a declaration of an
+            unobserved common cause of its members, so it is expanded
+            into a latent confounder node before the criterion is
+            applied: no adjustment set can block it.
+
         Parameters
         ----------
         treatment : str
@@ -801,6 +934,11 @@ class PathModel:
             ``test_implications()`` to check whether the DAG's structural
             assumptions are consistent with observed data.
 
+            A ``~~`` residual covariance block is a declaration of an
+            unobserved common cause of its members, so it is expanded
+            into a latent confounder node before the criterion is
+            applied: no adjustment set can block it.
+
         Parameters
         ----------
         treatment : str
@@ -814,6 +952,73 @@ class PathModel:
             True if at least one valid adjustment set exists.
         """
         return _is_identifiable(self._graph_info, treatment, outcome)
+
+    def adjustment_model(
+        self,
+        query: str | None = None,
+        *,
+        treatment: str | None = None,
+        outcome: str | None = None,
+        adjustment_set: set[str] | None = None,
+        formula: str | None = None,
+        data: IntoFrame | None = None,
+        families: dict[str, str] | None = None,
+        priors: dict[str, Any] | None = None,
+    ) -> AdjustmentModel:
+        """Build a backdoor-adjusted single-equation outcome model.
+
+        Returns an :class:`~pathmc.adjustment.AdjustmentModel` facade around
+        a reduced ``Y ~ treatment + Z`` regression for the designated
+        treatment–outcome query on this structural DAG.
+
+        Parameters
+        ----------
+        query : str | None
+            Treatment–outcome query, e.g. ``"X -> Y"``. Exactly one of
+            *query* or both ``treatment=`` and ``outcome=`` must be passed.
+        treatment : str | None
+            Treatment variable name.
+        outcome : str | None
+            Outcome variable name.
+        adjustment_set : set[str] | None
+            Explicit backdoor adjustment set. Required when several minimal
+            sets exist; otherwise the unique minimal set is auto-selected.
+        formula : str | None
+            Custom reduced regression formula. Must include the treatment
+            and every member of the adjustment set.
+        data : IntoFrame | None
+            Observed data. Required when this model is data-free; overrides
+            the parent's data when both are present.
+        families : dict[str, str] | None
+            Per-variable families for the reduced model only.
+        priors : dict | None
+            Prior overrides for the reduced model, merged with inherited
+            outcome dispersion priors.
+
+        Returns
+        -------
+        AdjustmentModel
+            Facade with ``fit()`` and ``ate()`` / ``att()`` / ``atu()`` /
+            ``cate()`` delegating to the inner outcome model.
+
+        See Also
+        --------
+        pathmc.adjustment.AdjustmentModel : The returned facade.
+        pathmc.interpret.datagrid : Build a covariate grid for interpret queries.
+        """
+        from pathmc.adjustment import AdjustmentModel
+
+        return AdjustmentModel.from_path_model(
+            self,
+            query=query,
+            treatment=treatment,
+            outcome=outcome,
+            adjustment_set=adjustment_set,
+            formula=formula,
+            data=data,
+            families=families,
+            priors=priors,
+        )
 
     def frontdoor_identifiable(
         self,
@@ -870,6 +1075,12 @@ class PathModel:
             ``test_implications()`` to check whether the DAG's structural
             assumptions are consistent with observed data.
 
+            A ``~~`` residual covariance block is a declaration of an
+            unobserved common cause of its members, so it is expanded
+            into a latent confounder node before colliders are searched
+            for: a variable with only one declared parent can still
+            become a collider once that synthetic confounder is added.
+
         Parameters
         ----------
         adjustment_vars : set[str]
@@ -893,6 +1104,11 @@ class PathModel:
         statement with the conditioning set derived from the basis set
         method (Shipley, 2000). Works before sampling — only the graph
         structure is needed.
+
+        A ``~~`` residual covariance block declares an unobserved common
+        cause of its members, so d-separation is checked with that
+        confounder made explicit: two variables joined only by a
+        declared ``~~`` edge are never reported as independent.
 
         Returns
         -------
@@ -1236,8 +1452,9 @@ class PathModel:
             ``"mean"`` for deterministic propagation via mu Deterministics,
             ``"predictive"`` to include residual noise.
         simulate_over : str | None
-            ``"time"`` to activate time-forward panel simulation.
-            Requires the model to have been fitted with ``panel=``.
+            ``"time"`` to activate time-forward panel simulation. Required
+            for models with ``lag()`` or ``adstock()``, which also require
+            the model to have been fitted with ``panel=``.
 
         Returns
         -------
@@ -1253,61 +1470,25 @@ class PathModel:
             If ``simulate_over="time"`` without panel, or if an intervention
             on an ``hsgp()`` input falls outside the basis boundary
             ``[mid - L, mid + L]`` frozen from the fitted data (beyond it
-            the basis aliases instead of extrapolating).
+            the basis aliases instead of extrapolating), or if a temporal
+            scan model is simulated without ``simulate_over="time"``.
         """
         idata = self._require_fitted("do")
         assert self._data is not None
         assert self._gen_model is not None
 
-        if set:
-            from pathmc.hsgp import hsgp_intervention_bounds
+        scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        if scan_info is not None and simulate_over != "time":
+            raise ValueError(
+                "This model has temporal dependencies (lag() or adstock()), so "
+                "interventions must be simulated forward in time. Pass "
+                "simulate_over='time' directly to do(), or as a keyword to "
+                "ate(), cate(), prob(), or sensitivity()."
+            )
 
-            hsgp_bounds = hsgp_intervention_bounds(self._spec, self._data)
-            for var, val in set.items():
-                if var not in hsgp_bounds:
-                    continue
-                lo, hi = hsgp_bounds[var]
-                if isinstance(val, np.ndarray):
-                    outside = float(val.min()) < lo or float(val.max()) > hi
-                    val_desc = f"[{float(val.min()):.2f}, {float(val.max()):.2f}]"
-                else:
-                    outside = val < lo or val > hi
-                    val_desc = f"{val:.2f}"
-                if outside:
-                    raise ValueError(
-                        f"Intervention value {val_desc} for '{var}' is outside "
-                        f"the HSGP basis boundary [{lo:.2f}, {hi:.2f}] frozen "
-                        f"from the fitted data. Beyond this boundary the basis "
-                        f"eigenfunctions alias, so the result would be "
-                        f"meaningless rather than an extrapolation. Refit with "
-                        f"a larger c or an explicit L to widen the valid "
-                        f"region."
-                    )
-            for var, val in set.items():
-                if var not in self._data.columns:
-                    continue
-                col_min = self._data[var].min()
-                col_max = self._data[var].max()
-                if col_min is None or col_max is None:
-                    continue
-                lo = float(col_min)
-                hi = float(col_max)
-                if isinstance(val, np.ndarray):
-                    val_lo, val_hi = float(val.min()), float(val.max())
-                    out_of_range = val_lo < lo or val_hi > hi
-                    val_desc = f"[{val_lo:.2f}, {val_hi:.2f}]"
-                else:
-                    out_of_range = val < lo or val > hi
-                    val_desc = f"{val:.2f}"
-                if out_of_range:
-                    warnings.warn(
-                        f"Intervention value {val_desc} for '{var}' is outside "
-                        f"the observed data range [{lo:.2f}, {hi:.2f}]. "
-                        f"Results are extrapolations and should be interpreted "
-                        f"with caution.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
+        if set:
+            _reject_hsgp_out_of_bounds(self._spec, self._data, set)
+            _warn_extrapolation(self._data, set)
 
         if simulate_over == "time":
             if self._panel_info is None:
@@ -1316,7 +1497,6 @@ class PathModel:
                     "Pass panel={...} to model()."
                 )
 
-            scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
             n_times = (
                 scan_info.n_times
                 if scan_info is not None
@@ -1333,6 +1513,17 @@ class PathModel:
                         )
 
             if scan_info is not None:
+                time_idx = (
+                    np.array(scan_info.time_values)
+                    if scan_info.time_values
+                    else np.arange(scan_info.n_times)
+                )
+                observed_by_time = observed_means_by_time(
+                    self._data,
+                    self._panel_info,
+                    time_idx,
+                    list(self._graph_info.topological_order),
+                )
                 return run_do_panel_unified(
                     gen_model=self._gen_model,
                     graph_info=self._graph_info,
@@ -1342,10 +1533,80 @@ class PathModel:
                     set=set,
                     kind=kind,
                     families=self._families,
+                    observed_by_time=observed_by_time,
                 )
             # Non-scan panel models fall through to the cross-sectional path.
 
         return self._run_do(set, kind)
+
+    def counterfactual(
+        self,
+        evidence: dict[str, float],
+        do: dict[str, float],
+        allow_partial_evidence: bool = False,
+    ) -> DoResult:
+        """Compute unit-level counterfactual outcomes.
+
+        Implements Pearl's three-step procedure (abduction → action →
+        prediction) using posterior draws. Unlike :meth:`do`, which answers
+        population-level questions with exogenous terms at their means,
+        counterfactuals infer individual-specific exogenous values from
+        *evidence* before simulating the intervention in *do*.
+
+        Parameters
+        ----------
+        evidence : dict[str, float]
+            Observed values for a specific individual. Used in the
+            abduction step to recover their exogenous (U) terms.
+        do : dict[str, float]
+            Intervention values (same format as ``do(set=...)``).
+        allow_partial_evidence : bool
+            If ``True``, missing evidence is assigned its population mean
+            (U = 0) with a warning. By default, all model variables must be
+            supplied so a counterfactual cannot silently mix individual and
+            population information.
+
+        Returns
+        -------
+        DoResult
+            Posterior over counterfactual outcomes with ``.mean(var)``,
+            ``.hdi(var)``, and contrast arithmetic.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``.fit()``.
+        ValueError
+            If *evidence* or *do* keys are invalid, an intervention on an
+            ``hsgp()`` input falls outside the basis boundary frozen from
+            the fitted data, or the model uses non-Gaussian families.
+        NotImplementedError
+            If the model is a panel model.
+        """
+        idata = self._require_fitted("counterfactual")
+        if self._panel_info is not None:
+            raise NotImplementedError(
+                "counterfactual() is not yet supported for panel models."
+            )
+        if self._graph_info.latent:
+            latent = ", ".join(f"'{var}'" for var in sorted(self._graph_info.latent))
+            raise NotImplementedError(
+                "counterfactual() is not yet supported for models with latent "
+                f"variables ({latent}). Abduction requires observed values for "
+                "every structural variable."
+            )
+        assert self._data is not None
+        _reject_hsgp_out_of_bounds(self._spec, self._data, do)
+        _warn_extrapolation(self._data, do)
+        return run_counterfactual(
+            spec=self._spec,
+            graph_info=self._graph_info,
+            idata=idata,
+            evidence=evidence,
+            do=do,
+            families=self._families,
+            allow_partial_evidence=allow_partial_evidence,
+        )
 
     def ate(
         self,
@@ -1694,6 +1955,142 @@ class PathModel:
         mask = eval(expr, namespace)  # noqa: S307
         return float(np.mean(mask))
 
+    def predictions(
+        self,
+        outcome: str,
+        *,
+        set: dict[str, float | np.ndarray] | None = None,
+        newdata: IntoFrame | None = None,
+    ) -> InterpretResult:
+        """Interventional or associational response-mean predictions.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name.
+        set : dict[str, float] or None
+            Intervention values. When omitted, predictions are
+            associational (no graph surgery).
+        newdata : IntoFrame or None
+            Covariate grid or frame to predict on. Defaults to the
+            fitted data.
+
+        Returns
+        -------
+        InterpretResult
+            Unit-level posterior draws for the outcome.
+        """
+        self._require_data("predictions")
+        return _interpret_predictions(self, outcome, set=set, newdata=newdata)
+
+    def comparisons(
+        self,
+        outcome: str,
+        variable: str,
+        *,
+        contrast: tuple[float, float] = (0.0, 1.0),
+        comparison: Literal["diff", "ratio", "lift"] = "diff",
+        conditional: dict[str, float] | None = None,
+        average_by: Literal["all"] | None = "all",
+    ) -> EstimandResult | InterpretResult:
+        """Interventional contrasts between two values of a variable.
+
+        With ``comparison="diff"`` and ``average_by="all"``, matches
+        :meth:`ate` on the same contrast.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name.
+        variable : str
+            Variable to vary under ``do()``.
+        contrast : tuple[float, float]
+            ``(lo, hi)`` intervention values.
+        comparison : str
+            ``"diff"``, ``"ratio"``, or ``"lift"``.
+        conditional : dict[str, float] or None
+            Additional variables held fixed at scalar values.
+        average_by : str or None
+            ``"all"`` collapses to :class:`EstimandResult`; ``None`` keeps
+            unit-level :class:`InterpretResult` draws.
+
+        Returns
+        -------
+        EstimandResult or InterpretResult
+        """
+        self._require_data("comparisons")
+        return _interpret_comparisons(
+            self,
+            outcome,
+            variable,
+            contrast=contrast,
+            comparison=comparison,
+            conditional=conditional,
+            average_by=average_by,
+        )
+
+    def slopes(
+        self,
+        outcome: str,
+        wrt: str,
+        *,
+        slope: Literal["dydx", "eyex", "eydx", "dyex"] = "dydx",
+        eps: float = 1e-4,
+        conditional: dict[str, float] | None = None,
+        average_by: Literal["all"] | None = "all",
+    ) -> EstimandResult | InterpretResult:
+        """Finite-difference interventional slopes.
+
+        Parameters
+        ----------
+        outcome : str
+            Outcome variable name.
+        wrt : str
+            Variable to differentiate with respect to.
+        slope : str
+            Slope type: ``"dydx"``, ``"eyex"``, ``"eydx"``, or ``"dyex"``.
+        eps : float
+            Finite-difference step size.
+        conditional : dict[str, float] or None
+            Additional variables held fixed at scalar values.
+        average_by : str or None
+            ``"all"`` collapses to :class:`EstimandResult`; ``None`` keeps
+            unit-level draws.
+
+        Returns
+        -------
+        EstimandResult or InterpretResult
+        """
+        self._require_data("slopes")
+        return _interpret_slopes(
+            self,
+            outcome,
+            wrt,
+            slope=slope,
+            eps=eps,
+            conditional=conditional,
+            average_by=average_by,
+        )
+
+    def datagrid(self, **cols: list[float] | list[int]) -> pd.DataFrame:
+        """Build a covariate grid from the fitted data frame.
+
+        See :func:`pathmc.datagrid` for details.
+
+        Parameters
+        ----------
+        **cols
+            Column names mapped to lists of values to cross.
+
+        Returns
+        -------
+        pd.DataFrame
+            Cartesian product grid with unspecified columns held constant.
+        """
+        self._require_data("datagrid")
+        assert self._data is not None
+        return _datagrid(self._data, **cols)
+
 
 def model(
     spec_string: str,
@@ -1815,7 +2212,15 @@ def model(
                 "panel= requires data. Provide data= alongside panel=, "
                 "or omit panel= for data-free DAG exploration."
             )
-        panel_info, nw_data = build_panel_info(nw_data, panel)
+        # Only the scan compiler reshapes rows to a dense (n_times,
+        # n_units) grid, so only it needs a rectangular panel. Non-temporal
+        # panel models take the row-wise compiler and may be unbalanced.
+        panel_info = build_panel_info(
+            nw_data,
+            panel,
+            require_rectangular=_has_temporal_deps(spec, graph_info),
+        )
+        nw_data = attach_composite_unit(nw_data, panel_info)
 
     scaling_factors: ScalingFactors | None = None
     if scaling is not None:
@@ -2019,7 +2424,8 @@ def simulate(
 
     panel_info: PanelInfo | None = None
     if panel is not None:
-        panel_info, nw_data = build_panel_info(nw_data, panel)
+        panel_info = build_panel_info(nw_data, panel)
+        nw_data = attach_composite_unit(nw_data, panel_info)
 
     # Endogenous columns are simulation outputs: overwrite any supplied
     # values with zeros so they cannot leak into the model (the scan
@@ -2383,7 +2789,8 @@ def simulate_params_template(
 
     panel_info: PanelInfo | None = None
     if panel is not None:
-        panel_info, nw_data = build_panel_info(nw_data, panel)
+        panel_info = build_panel_info(nw_data, panel)
+        nw_data = attach_composite_unit(nw_data, panel_info)
 
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)

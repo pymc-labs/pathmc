@@ -6,7 +6,6 @@ description: "Fit a flexible 1-D nonparametric smooth with the hsgp() term — a
 tags: [Gaussian Process, HSGP, Nonparametric]
 image: thumbnails/hsgp_1d.png
 jupyter: pathmc
-bibliography: ../../../docs/references.bib
 ---
 
 Most pathmc terms are linear in their coefficients. Sometimes the relationship between a predictor and an outcome is smooth but *not* linear — a dose–response curve, a trend over a continuous index, a smooth confounder adjustment. The `hsgp()` term adds such a smooth via a **Hilbert Space Gaussian Process** approximation [@riutort2023practical], the same scalable construction exposed by [Bambi's `hsgp()`](https://bambinos.github.io/bambi/notebooks/hsgp_1d.html).

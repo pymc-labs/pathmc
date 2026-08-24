@@ -21,7 +21,7 @@ html[data-bs-theme="dark"] .gd-hero-logo-dark { display: inline; }
 
 Specify your causal assumptions as equations. Fit with full Bayesian inference. Simulate interventions and ask "what if?"
 
-pathmc compiles a concise formula language into a generative Bayesian model where every variable is wired through its structural parents in the DAG. Call `model()` to build and inspect, then `fit()` to run MCMC — one object handles estimation, introspection, causal queries, identification checking, and sensitivity analysis, all with full posterior uncertainty.
+pathmc compiles a concise formula language into a generative Bayesian model where every variable is wired through its structural parents in the DAG. Call `model()` to build and inspect, then `fit()` to run MCMC. One object handles estimation, introspection, causal queries, identification checking, native regression adjustment, and sensitivity analysis, all with full posterior uncertainty.
 
 ```python
 import pathmc
@@ -38,6 +38,11 @@ m.fit(draws=1000, chains=2)
 m.effects_summary()  # labeled coefficients + defined params
 m.ate("Y", "X", values=(0, 1))  # average treatment effect via do-operator
 m.adjustment_sets("X", "Y")  # check identification from the DAG
+m.comparisons("Y", "X")  # interpret-layer contrast (diff, or ratio/lift)
+
+adj = m.adjustment_model("X -> Y")  # backdoor-adjusted outcome regression
+adj.fit()
+adj.ate(values=(0, 1))
 ```
 
 ```{python}
@@ -97,17 +102,17 @@ m = pathmc.model(spec, data=df)
 m.fit(draws=1000)
 ```
 
-## One spec, five capabilities
+## One spec, six capabilities
 
 A single spec string unlocks the full causal analysis toolkit.
 
-**Introspection** — inspect the model before spending any time on MCMC. Render the causal DAG, display structural equations with LaTeX, review default priors, and refine priors iteratively. All of these work with or without data.
+**Introspection** — inspect the model before spending any time on MCMC. Render the causal DAG, display structural equations with LaTeX, review default priors, and refine priors iteratively. `graph()`, `equations()`, and `set_priors()` work with or without data; `sample_prior_predictive()` requires a data-bound model to set sample size and exogenous inputs.
 
 ```python
 m.graph()  # causal DAG plot
 m.equations()  # structural equations + priors
 m.set_priors({"beta_Y": Prior(...)})  # refine priors
-m.sample_prior_predictive()  # simulate data from priors (requires data)
+m.sample_prior_predictive()  # check priors generate plausible data (requires data)
 ```
 
 **Estimation** — fit the structural model with MCMC. Get posterior summaries, labeled coefficients with uncertainty, path-specific effects, and stdyx-standardized coefficients for comparing effect sizes across variables on different scales.
@@ -119,12 +124,14 @@ m.standardized()  # stdyx-standardized effects
 m.effect("X -> M -> Y")  # indirect effect through M
 ```
 
-**Causal queries** — simulate interventions via the do-operator and ask counterfactual questions. pathmc uses g-computation: it forward-simulates through the structural model under the intervention, propagating full posterior uncertainty through the causal chain.
+**Causal queries** — simulate interventions via the do-operator and ask counterfactual questions. pathmc uses g-computation: it forward-simulates through the structural model under the intervention, propagating full posterior uncertainty through the causal chain. The shared interpret layer (`predictions()`, `comparisons()`, `slopes()`) generalizes two-point `ate()` to grids, ratio/lift contrasts, and local derivatives.
 
 ```python
 m.ate("Y", "X", values=(0, 1))  # average treatment effect
 m.cate("Y", "X", condition={"Z": 2})  # conditional ATE given Z=2
 m.prob("Y > 0", set={"X": 1})  # P(Y > 0) under intervention
+m.comparisons("Y", "X", comparison="lift")  # percent change on the response scale
+m.slopes("Y", "X")  # local derivative under intervention
 ```
 
 **Identification** — before trusting a causal estimate, verify it is identifiable. pathmc finds valid adjustment sets, checks for collider bias, and tests the DAG's conditional independence claims against your data. Structural checks work without data; `test_implications()` requires data.
@@ -133,6 +140,16 @@ m.prob("Y > 0", set={"X": 1})  # P(Y > 0) under intervention
 m.adjustment_sets("X", "Y")  # valid backdoor adjustment sets
 m.collider_warnings({"C"}, "X", "Y")
 m.test_implications()  # check DAG against data
+```
+
+**Regression adjustment** — when the question is the total effect of one treatment on one outcome, `adjustment_model()` uses the DAG only for identification, then fits a single reduced outcome equation and standardizes predictions. Same `ate()` / `comparisons()` / `slopes()` names as the structural model. See [Estimation Approaches](user-guide/estimation-approaches.qmd) and [SCM vs Regression Adjustment](user-guide/scm-vs-adjustment.qmd).
+
+```python
+adj = m.adjustment_model("X -> Y")
+adj.formula  # e.g. "Y ~ X + Z"
+adj.fit()
+adj.ate(values=(0, 1))
+adj.comparisons(comparison="diff")
 ```
 
 **Sensitivity analysis** — causal conclusions rest on untestable assumptions about unmeasured confounding. pathmc quantifies how strong an unmeasured confounder would need to be to overturn your finding.
@@ -144,13 +161,13 @@ m.sensitivity("Y", "X")  # tipping point analysis
 
 ## Applied use cases
 
-pathmc isn't just for textbook examples. The [examples gallery](/examples/index.qmd) covers real problems across industries.
+pathmc isn't just for textbook examples. The [examples gallery](docs/examples/index.qmd) covers real problems across industries.
 
 ::: {.panel-tabset}
 
 ### Marketing mix modeling
 
-Estimate channel-level ROI with adstock and saturation transforms that capture carry-over effects and diminishing returns. Panel mode handles geo-level data with hierarchical random effects. [Full example &rarr;](/examples/05-applied-models/mmm.qmd)
+Estimate channel-level ROI with adstock and saturation transforms that capture carry-over effects and diminishing returns. Panel mode handles geo-level data with hierarchical random effects. [Full example &rarr;](docs/examples/applied-models/mmm.qmd)
 
 ```python
 spec = """
@@ -164,7 +181,7 @@ sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
 
 ### Vaccine surrogates
 
-Assess whether a biomarker is a valid surrogate for clinical outcomes using mediation analysis and the do-operator. Quantify what fraction of the treatment effect flows through the measured pathway. [Full example &rarr;](/examples/05-applied-models/vaccine_surrogates.qmd)
+Assess whether a biomarker is a valid surrogate for clinical outcomes using mediation analysis and the do-operator. Quantify what fraction of the treatment effect flows through the measured pathway. [Full example &rarr;](docs/examples/applied-models/vaccine_surrogates.qmd)
 
 ```python
 spec = """
@@ -177,7 +194,7 @@ Labeled coefficients (`a*`, `b*`, `c*`) let you decompose the total effect into 
 
 ### SaaS conversion funnels
 
-Model a multi-stage funnel as a causal chain to find which stage has the highest leverage on paid conversion. Simulate "what if we improve onboarding?" scenarios that respect the full causal structure. [Full example &rarr;](/examples/05-applied-models/saas_funnel.qmd)
+Model a multi-stage funnel as a causal chain to find which stage has the highest leverage on paid conversion. Simulate "what if we improve onboarding?" scenarios that respect the full causal structure. [Full example &rarr;](docs/examples/applied-models/saas_funnel.qmd)
 
 ```python
 spec = """
@@ -191,7 +208,7 @@ Each equation models one stage. Multiple equations form the causal chain — eff
 
 ### Dynamic pricing
 
-Estimate true price elasticity from observational data where price and demand are confounded. Panel structure with regional hierarchical effects separates the causal signal from common-cause noise. [Full example &rarr;](/examples/05-applied-models/dynamic_pricing.qmd)
+Estimate true price elasticity from observational data where price and demand are confounded. Panel structure with regional hierarchical effects separates the causal signal from common-cause noise. [Full example &rarr;](docs/examples/applied-models/dynamic_pricing.qmd)
 
 ```python
 spec = """
@@ -223,7 +240,9 @@ The goal is responsible causal inference: make it easy to ask hard questions abo
 - [Bayesian workflow](user-guide/bayesian-workflow.qmd) — the iterative cycle of inspect, check, refine, fit, and query
 - [Model specification](user-guide/model-specification.qmd) — DSL syntax: `~`, `~~`, `:=`, labels, transforms
 - [Causal inference](user-guide/causal-inference.qmd) — the do-operator, g-computation, identification
-- [Examples](/examples/index.qmd) — worked notebooks across mediation, MMM, panel data, and more
+- [Estimation approaches](user-guide/estimation-approaches.qmd) — structural `do()` vs native `adjustment_model()`
+- [Predictions, comparisons, and slopes](user-guide/predictions-comparisons-slopes.qmd) — shared interpret API
+- [Examples](docs/examples/index.qmd) — worked notebooks across mediation, MMM, panel data, interpret queries, and more
 
 ::: {.callout-tip}
 ## Coming from lavaan?

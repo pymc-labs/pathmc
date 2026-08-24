@@ -22,6 +22,7 @@ import pathmc
 
 def test_top_level_public_api_is_explicit() -> None:
     assert pathmc.__all__ == [
+        "AdjustmentModel",
         "TBFPC",
         "BuildModelFromDAG",
         "DoResult",
@@ -29,6 +30,7 @@ def test_top_level_public_api_is_explicit() -> None:
         "EstimandResult",
         "FalsificationResult",
         "ImplicationTestResult",
+        "InterpretResult",
         "ParamSpec",
         "PathModel",
         "PlaceboRefutationResult",
@@ -40,6 +42,7 @@ def test_top_level_public_api_is_explicit() -> None:
         "Transform",
         "__version__",
         "dag_to_spec",
+        "datagrid",
         "model",
         "register_transform",
         "same_markov_equivalence_class",
@@ -60,6 +63,7 @@ def test_public_submodule_exports_are_intentional() -> None:
         "pathmc.graph": [],
         "pathmc.identify": ["ImplicationTestResult"],
         "pathmc.idata": [],
+        "pathmc.interpret": ["InterpretResult", "datagrid"],
         "pathmc.introspect": [],
         "pathmc.panel": ["PanelInfo"],
         "pathmc.parse": [],

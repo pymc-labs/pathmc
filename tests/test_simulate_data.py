@@ -286,7 +286,7 @@ class TestSimulatePanel:
     def test_mmm_transform_moments_match_numpy_reference(self, panel_exog):
         """Adstock + saturation DGP moments reproduce a NumPy reference."""
         params = {
-            "beta_sales": [1.0, 2.5],
+            "beta_sales": [2.5],  # intercept auto-dropped under partial pooling
             "theta_tv": 0.7,
             "lam_tv": 0.3,
             "alpha_sales": [55.0, 50.0, 60.0],  # sorted units: East,North,South
@@ -307,7 +307,9 @@ class TestSimulatePanel:
         )
         assert list(out.columns) == ["region", "week", "tv", "sales"]
 
-        intercept_map = {"East": 56.0, "North": 51.0, "South": 61.0}
+        # no fixed intercept under partial pooling (auto-dropped): the
+        # per-unit alpha IS the intercept
+        intercept_map = {"East": 55.0, "North": 50.0, "South": 60.0}
         for region in ["North", "South", "East"]:
             sub = panel_exog[panel_exog.region == region].sort_values("week")
             adstocked = 0.0
@@ -330,7 +332,7 @@ class TestSimulatePanel:
             "decay=theta_tv), lam=lam_tv)",
             data=panel_exog,
             params={
-                "beta_sales": [1.0, 2.5],
+                "beta_sales": [2.5],
                 "theta_tv": 0.7,
                 "lam_tv": 0.3,
                 "alpha_sales": [55.0, 50.0, 60.0],
@@ -412,7 +414,7 @@ class TestSimulatePanel:
                 "lam=lam_tv)",
                 data=panel_exog,
                 params={
-                    "beta_sales": [2.5],  # needs (Intercept, b_tv)
+                    "beta_sales": [2.5, 1.0],  # model requires just (b_tv,)
                     "theta_tv": 0.7,
                     "lam_tv": 0.3,
                     "alpha_sales": [55.0, 50.0, 60.0],

@@ -50,6 +50,63 @@ def _require_nodes(dag: nx.DiGraph, **named: str) -> None:
             )
 
 
+def _with_residual_confounders(
+    graph_info: GraphInfo,
+) -> tuple[nx.DiGraph, set[str]]:
+    """Return the contemporaneous DAG with ``~~`` blocks made explicit.
+
+    A residual covariance block (``X ~~ Y``) declares that the two
+    equations share an *unobserved* common cause. The DAG stored in
+    :class:`~pathmc.graph.GraphInfo` has no node for that cause, so
+    graphical criteria that only read directed edges are blind to it and
+    will happily report an effect as identifiable when the user has
+    explicitly declared endogeneity.
+
+    This is the standard latent projection: each residual block gets one
+    synthetic latent node with an edge to every block member. Because the
+    node is latent it can never enter an adjustment set, so the backdoor
+    path it opens is unblockable, which is the correct answer.
+
+    Returns
+    -------
+    tuple[nx.DiGraph, set[str]]
+        The augmented DAG and the latent set including the synthetic
+        confounders.
+    """
+    dag = graph_info.contemporaneous_dag
+    latent = set(graph_info.latent)
+
+    if not graph_info.residual_blocks:
+        return dag, latent
+
+    dag = dag.copy()
+    used_names = set(dag.nodes)
+    for i, block in enumerate(graph_info.residual_blocks):
+        if len(block) < 2:
+            continue
+        u = _fresh_latent_name(i, used_names)
+        used_names.add(u)
+        dag.add_node(u)
+        latent.add(u)
+        for var in sorted(block):
+            dag.add_edge(u, var)
+
+    return dag, latent
+
+
+def _fresh_latent_name(index: int, used_names: set[str]) -> str:
+    """Return a synthetic latent name that collides with no real node.
+
+    Real variables are user-supplied and may themselves be named
+    ``_u_resid_<i>`` by coincidence; if that name is already taken, keep
+    appending an underscore until it is not.
+    """
+    name = f"_u_resid_{index}"
+    while name in used_names:
+        name += "_"
+    return name
+
+
 def adjustment_sets(
     graph_info: GraphInfo,
     treatment: str,
@@ -71,6 +128,11 @@ def adjustment_sets(
         ``test_implications()`` to check whether the DAG's structural
         assumptions are consistent with observed data.
 
+        A ``~~`` residual covariance block is a declaration of an
+        unobserved common cause of its members, so it is expanded into
+        a latent confounder node before the criterion is applied: no
+        adjustment set can block the backdoor path it opens.
+
     Parameters
     ----------
     graph_info : GraphInfo
@@ -87,10 +149,9 @@ def adjustment_sets(
         alphabetically. Empty list if no valid set exists or if
         the effect is already identified without adjustment.
     """
-    dag = graph_info.contemporaneous_dag
-    latent = graph_info.latent
+    _require_nodes(graph_info.contemporaneous_dag, treatment=treatment, outcome=outcome)
 
-    _require_nodes(dag, treatment=treatment, outcome=outcome)
+    dag, latent = _with_residual_confounders(graph_info)
 
     descendants = nx.descendants(dag, treatment)
     candidates = set(dag.nodes) - {treatment, outcome} - descendants - latent
@@ -111,6 +172,97 @@ def adjustment_sets(
     return valid_sets
 
 
+def is_valid_adjustment_set(
+    graph_info: GraphInfo,
+    treatment: str,
+    outcome: str,
+    z: set[str],
+) -> bool:
+    """Check whether *z* is a valid backdoor adjustment set.
+
+    A set is valid when every member is an observed DAG node, excludes
+    treatment and outcome, contains no treatment descendants or latents,
+    introduces no collider bias, and blocks all backdoor paths. The set
+    need not be minimal; supersets of a valid set are accepted.
+
+    Parameters
+    ----------
+    graph_info : GraphInfo
+        DAG from the structural model.
+    treatment : str
+        Treatment variable name.
+    outcome : str
+        Outcome variable name.
+    z : set[str]
+        Proposed adjustment set.
+
+    Returns
+    -------
+    bool
+        ``True`` when *z* is valid.
+
+    Raises
+    ------
+    ValueError
+        With a single actionable reason when *z* is invalid.
+    """
+    _require_nodes(graph_info.contemporaneous_dag, treatment=treatment, outcome=outcome)
+
+    dag, latent = _with_residual_confounders(graph_info)
+
+    for var in sorted(z):
+        if var not in dag.nodes:
+            raise ValueError(
+                f"Adjustment variable '{var}' is not a node in the DAG. "
+                f"Available nodes: {sorted(graph_info.contemporaneous_dag.nodes)}"
+            )
+
+    if treatment in z:
+        raise ValueError(
+            f"Adjustment set cannot include the treatment '{treatment}'. "
+            f"Remove '{treatment}' from adjustment_set=."
+        )
+
+    if outcome in z:
+        raise ValueError(
+            f"Adjustment set cannot include the outcome '{outcome}'. "
+            f"Remove '{outcome}' from adjustment_set=."
+        )
+
+    latent_in_z = sorted(z & latent)
+    if latent_in_z:
+        raise ValueError(
+            f"Adjustment set contains unobserved (latent) variable(s): "
+            f"{latent_in_z}. Latent nodes cannot be conditioned on — "
+            f"remove them from adjustment_set=."
+        )
+
+    descendants = nx.descendants(dag, treatment)
+    descendants_in_z = sorted(z & descendants)
+    if descendants_in_z:
+        raise ValueError(
+            f"Adjustment set contains descendant(s) of '{treatment}': "
+            f"{descendants_in_z}. Descendants of the treatment cannot be "
+            f"in an adjustment set — remove them from adjustment_set=."
+        )
+
+    warnings_list = collider_warnings(graph_info, z, treatment, outcome)
+    if warnings_list:
+        raise ValueError(warnings_list[0])
+
+    mutilated = dag.copy()
+    mutilated.remove_edges_from(list(dag.in_edges(treatment)))
+    if not _blocks_all_backdoor_paths(dag, mutilated, treatment, outcome, z):
+        raise ValueError(
+            f"Adjustment set {sorted(z)} does not block all backdoor paths "
+            f"from '{treatment}' to '{outcome}'. Call adjustment_sets() on "
+            f"the structural model to see valid sets, or pass a different "
+            f"adjustment_set=."
+        )
+
+    return True
+
+
 def is_identifiable(
     graph_info: GraphInfo,
     treatment: str,
@@ -126,6 +278,11 @@ def is_identifiable(
         edges, or other forms of misspecification. Use
         ``test_implications()`` to check whether the DAG's structural
         assumptions are consistent with observed data.
+
+        A ``~~`` residual covariance block is a declaration of an
+        unobserved common cause of its members, so it is expanded into
+        a latent confounder node before the criterion is applied: no
+        adjustment set can block the backdoor path it opens.
 
     Parameters
     ----------
@@ -192,9 +349,14 @@ def frontdoor_identifiable(
         ``(identifiable, message)`` where *message* explains the result
         or describes which condition fails.
     """
-    dag = graph_info.contemporaneous_dag
+    _require_nodes(
+        graph_info.contemporaneous_dag,
+        treatment=treatment,
+        mediator=mediator,
+        outcome=outcome,
+    )
 
-    _require_nodes(dag, treatment=treatment, mediator=mediator, outcome=outcome)
+    dag, _ = _with_residual_confounders(graph_info)
 
     if treatment == mediator or mediator == outcome or treatment == outcome:
         raise ValueError(
@@ -268,6 +430,12 @@ def collider_warnings(
         ``test_implications()`` to check whether the DAG's structural
         assumptions are consistent with observed data.
 
+        A ``~~`` residual covariance block is a declaration of an
+        unobserved common cause of its members, so it is expanded into
+        a latent confounder node before colliders are searched for: a
+        variable that only has one parent in the declared DAG can still
+        become a collider once the synthetic confounder is added.
+
     Parameters
     ----------
     graph_info : GraphInfo
@@ -284,8 +452,7 @@ def collider_warnings(
     list[str]
         Human-readable warning strings. Empty if no issues found.
     """
-    dag = graph_info.contemporaneous_dag
-    latent = graph_info.latent
+    dag, latent = _with_residual_confounders(graph_info)
     warnings_list: list[str] = []
 
     for var in adjustment_vars:
@@ -459,6 +626,15 @@ def implied_independences(
     the *basis set* approach (Shipley, 2000): one testable implication per
     missing edge.
 
+    A ``~~`` residual covariance block is a declaration of an unobserved
+    common cause of its members, so d-separation is checked on the DAG
+    with that confounder made explicit: two variables joined only by a
+    declared ``~~`` edge (directly, or through a chain of blocks) are
+    d-connected through the synthetic latent and are correctly never
+    reported as independent, even though neither the candidate pair nor
+    the conditioning set can include the latent itself (it has no
+    observed data column to test against).
+
     Parameters
     ----------
     graph_info : GraphInfo
@@ -470,6 +646,7 @@ def implied_independences(
         Implied independence statements, sorted by (x, y) alphabetically.
     """
     dag = graph_info.contemporaneous_dag
+    dag_aug, _ = _with_residual_confounders(graph_info)
     nodes = sorted(dag.nodes)
     result: list[ConditionalIndependence] = []
 
@@ -482,7 +659,7 @@ def implied_independences(
             parents_y = set(dag.predecessors(y))
             conditioning = (parents_x | parents_y) - {x, y}
 
-            if nx.is_d_separator(dag, {x}, {y}, conditioning):
+            if nx.is_d_separator(dag_aug, {x}, {y}, conditioning):
                 result.append(
                     ConditionalIndependence(
                         x=x,

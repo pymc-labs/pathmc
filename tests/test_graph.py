@@ -119,6 +119,22 @@ class TestResidualBlocks:
         info = build_graph(spec)
         assert len(info.residual_blocks) == 0
 
+    @pytest.mark.parametrize(
+        "spec_str",
+        [
+            "T ~ Z\nY ~ T\nT ~~ Nonexistent",
+            "T ~ Z\nY ~ T\nNonexistent ~~ Y",
+        ],
+    )
+    def test_unknown_residual_endpoint_raises(self, spec_str):
+        """A ~~ declaration referencing a variable that appears nowhere
+        else in the model must fail loudly at graph construction, not
+        silently add a phantom node that identification later reasons
+        about."""
+        spec = parse_spec(spec_str)
+        with pytest.raises(ValueError, match="[Uu]nknown"):
+            build_graph(spec)
+
 
 class TestCycleDetection:
     def test_cycle_raises_error(self):
