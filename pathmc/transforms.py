@@ -29,7 +29,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 
@@ -189,35 +188,15 @@ class Adstock(Transform):
         panel_info: Any | None = None,
         data: Any | None = None,
     ) -> Any:
-        decay = params["decay"]
-
-        if panel_info is not None and data is not None:
-            return self._apply_pymc_panel(x, decay, panel_info, data)
-        return _geometric_adstock(x, alpha=decay, l_max=self.l_max)
-
-    def _apply_pymc_panel(self, x: Any, decay: Any, panel_info: Any, data: Any) -> Any:
-        """Apply adstock per unit via matrix reshaping, not per-unit scans."""
-        unit_col = panel_info.unit
-        time_col = panel_info.time
-        units = panel_info.unit_labels
-        n_units = len(units)
-        n_time = len(data) // n_units
-
-        sorted_idx = (
-            data
-            .with_row_index("__nw_row_pos__")
-            .sort([unit_col, time_col])["__nw_row_pos__"]
-            .to_numpy()
-        )
-        reverse_idx = np.argsort(sorted_idx)
-
-        x_sorted = x[sorted_idx]
-        x_matrix = x_sorted.reshape((n_units, n_time)).T  # (time, units)
-
-        adstocked = _geometric_adstock(x_matrix, alpha=decay, l_max=self.l_max)
-
-        result_flat = adstocked.T.flatten()  # back to unit-major order
-        return result_flat[reverse_idx]
+        if panel_info is not None:
+            raise NotImplementedError(
+                "Panel models with adstock are scan-compiled via "
+                "Adstock.step(); apply_pymc is cross-sectional-only by "
+                "contract. If you registered an Adstock subclass under a "
+                "name other than 'adstock', extend the scan routing in "
+                "compile._has_temporal_deps to cover it."
+            )
+        return _geometric_adstock(x, alpha=params["decay"], l_max=self.l_max)
 
     @property
     def has_state(self) -> bool:

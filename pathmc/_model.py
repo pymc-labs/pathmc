@@ -1755,9 +1755,11 @@ def simulate(
         columns share the correlated residuals, and descendant
         equations see their mean structure (``mu_{var}``), not the
         noisy realized values — mirroring estimation. For ``hsgp()``
-        terms,
-        supply ``"ell_{lhs}_{var}"``, ``"eta_{lhs}_{var}"``, and
-        ``"beta_hsgp_{lhs}_{var}"`` (length ``m``). Use
+        terms, supply ``"ell_{lhs}_{var}"``, ``"eta_{lhs}_{var}"``, and
+        ``"beta_hsgp_{lhs}_{var}"`` (length ``m``). Transform
+        parameters are keyed by their user-chosen DSL names, e.g.
+        ``adstock(tv, decay=theta_tv)`` expects ``"theta_tv"``, and
+        nested chains honor each link's parameter. Use
         ``pathmc.model(...).equations()`` on a dummy dataset to discover
         expected names and shapes.
     families : dict[str, str] | None

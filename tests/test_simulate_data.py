@@ -424,6 +424,221 @@ class TestSimulatePanel:
             )
 
 
+class TestSimulatePanelTransforms:
+    """Transform chains (adstock + logistic_saturation) through simulate() on panels.
+
+    The NumPy reference DGP uses pathmc's exact saturation kernel
+    ``(1 - exp(-lam*x)) / (1 + exp(-lam*x))`` (== ``tanh(lam*x/2)``).
+    Specs are intercept-free under ``pooling="partial"`` so
+    ``mu_alpha_<lhs>`` serves as the effective intercept (avoids the
+    known partial-pooling non-identifiability warning).
+    """
+
+    SPEC = (
+        "sales ~ 0 + b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)"
+    )
+
+    @staticmethod
+    def _reference(tv, theta, lam):
+        """NumPy reference: geometric adstock recursion + pathmc saturation."""
+        adstocked = 0.0
+        saturated = []
+        for x in tv:
+            adstocked = x + theta * adstocked
+            saturated.append(
+                (1 - np.exp(-lam * adstocked)) / (1 + np.exp(-lam * adstocked))
+            )
+        return np.asarray(saturated)
+
+    def _panel_params(self, alphas, sigma=0.0):
+        return {
+            "beta_sales": [2.5],
+            "theta_tv": 0.7,
+            "lam_tv": 0.3,
+            "alpha_sales": list(alphas),
+            "mu_alpha_sales": 55.0,
+            "sigma_alpha_sales": 2.0,
+            "sigma_sales": sigma,
+        }
+
+    def _simulate(self, df, params, seed):
+        return pathmc.simulate(
+            self.SPEC,
+            data=df,
+            params=params,
+            panel={"unit": "region", "time": "week"},
+            pooling="partial",
+            random_seed=seed,
+        )
+
+    def test_zero_noise_series_matches_numpy_reference(self, panel_exog):
+        """With sigma=0 the scan recursion must reproduce the reference loop."""
+        intercepts = {"North": 50.0, "South": 60.0, "East": 55.0}
+        # sorted unit labels: East, North, South
+        params = self._panel_params([55.0, 50.0, 60.0])
+        out = self._simulate(panel_exog, params, seed=5)
+        assert list(out.columns) == ["region", "week", "tv", "sales"]
+        for region, intercept in intercepts.items():
+            tv = (
+                panel_exog[panel_exog.region == region]
+                .sort_values("week")["tv"]
+                .to_numpy()
+            )
+            expected = intercept + 2.5 * self._reference(tv, theta=0.7, lam=0.3)
+            actual = out[out.region == region].sort_values("week")["sales"].to_numpy()
+            np.testing.assert_allclose(actual, expected, atol=1e-8)
+
+    def test_nested_chain_params_honored(self, panel_exog):
+        """Varying theta_tv / lam_tv changes output and matches its own reference."""
+        tv = (
+            panel_exog[panel_exog.region == "North"]
+            .sort_values("week")["tv"]
+            .to_numpy()
+        )
+        base = {"theta_tv": 0.7, "lam_tv": 0.3}
+
+        def run(theta, lam):
+            params = {**self._panel_params([55.0, 50.0, 60.0]), **base}
+            params["theta_tv"], params["lam_tv"] = theta, lam
+            return self._simulate(panel_exog, params, seed=5)
+
+        out_base = run(0.7, 0.3)
+        out_theta = run(0.4, 0.3)
+        out_lam = run(0.7, 0.6)
+
+        north_base = (
+            out_base[out_base.region == "North"].sort_values("week")["sales"]
+        ).to_numpy()
+        north_theta = (
+            out_theta[out_theta.region == "North"].sort_values("week")["sales"]
+        ).to_numpy()
+        north_lam = (
+            out_lam[out_lam.region == "North"].sort_values("week")["sales"]
+        ).to_numpy()
+        assert not np.allclose(north_theta, north_base)
+        assert not np.allclose(north_lam, north_base)
+
+        expected_theta = 50.0 + 2.5 * self._reference(tv, theta=0.4, lam=0.3)
+        np.testing.assert_allclose(north_theta, expected_theta, atol=1e-8)
+        expected_lam = 50.0 + 2.5 * self._reference(tv, theta=0.7, lam=0.6)
+        np.testing.assert_allclose(north_lam, expected_lam, atol=1e-8)
+
+    def test_noisy_moments_within_sampling_error(self, panel_exog):
+        """With sigma>0, per-unit demeaned sales track the reference mean."""
+        params = self._panel_params([55.0, 50.0, 60.0], sigma=0.5)
+        out = self._simulate(panel_exog, params, seed=17)
+        intercepts = {"East": 55.0, "North": 50.0, "South": 60.0}
+        for region, intercept in intercepts.items():
+            tv = (
+                panel_exog[panel_exog.region == region]
+                .sort_values("week")["tv"]
+                .to_numpy()
+            )
+            ref_mean = (2.5 * self._reference(tv, 0.7, 0.3)).mean()
+            sim = out[out.region == region].sort_values("week")
+            centered = (sim["sales"].to_numpy() - intercept).mean()
+            # se ~= 0.5/sqrt(25) = 0.1; allow 4 se
+            assert abs(centered - ref_mean) < 0.4, region
+
+    def test_multi_dim_panel_geo_brand(self):
+        """Adstock recurses within each geo|brand composite unit (#430)."""
+        rng = np.random.default_rng(8)
+        rows = [
+            {"geo": g, "brand": b, "week": w, "tv": rng.uniform(5, 30)}
+            for g in ["North", "South"]
+            for b in ["Acme", "Zen"]
+            for w in range(1, 21)
+        ]
+        df = pd.DataFrame(rows)
+        params = self._panel_params([51.0, 52.0, 53.0, 54.0])
+        out = pathmc.simulate(
+            self.SPEC,
+            data=df,
+            params=params,
+            panel={"unit": ["geo", "brand"], "time": "week"},
+            pooling="partial",
+            random_seed=9,
+        )
+        # composite unit key column added by build_panel_info
+        assert list(out.columns) == [
+            "geo",
+            "brand",
+            "week",
+            "tv",
+            "geo|brand",
+            "sales",
+        ]
+        intercepts = {
+            ("North", "Acme"): 51.0,
+            ("North", "Zen"): 52.0,
+            ("South", "Acme"): 53.0,
+            ("South", "Zen"): 54.0,
+        }
+        for (geo, brand), intercept in intercepts.items():
+            tv = (
+                df[(df.geo == geo) & (df.brand == brand)]
+                .sort_values("week")["tv"]
+                .to_numpy()
+            )
+            expected = intercept + 2.5 * self._reference(tv, theta=0.7, lam=0.3)
+            mask = (out.geo == geo) & (out.brand == brand)
+            actual = out[mask].sort_values("week")["sales"].to_numpy()
+            np.testing.assert_allclose(actual, expected, atol=1e-8)
+
+    @pytest.mark.slow
+    def test_recover_transform_params(self):
+        """Fit the same transform spec; posterior means land near truth.
+
+        Pooled (no random intercepts) so the sampler only has to explore
+        ``beta_sales``, ``theta_tv``, ``lam_tv``, ``sigma_sales``. The
+        conftest autouse fixture forces every ``pm.sample()`` call down
+        to 50 draws / 50 tune / 1 chain, which is too short for HDI-level
+        precision on a scan model — so recovery is asserted on posterior
+        means with tolerances ~5x the observed seed-to-seed spread, and
+        the DGP uses low noise (sigma=0.25) to keep the likelihood sharp.
+        """
+        import arviz as az
+
+        rng = np.random.default_rng(11)
+        n_units, n_times = 8, 60
+        exog = pd.DataFrame([
+            {"unit": f"u{u}", "time": t, "tv": rng.uniform(1, 6)}
+            # spend in the responsive saturation regime: adstocked tv
+            # stays where tanh(lam*x/2) still varies with the params
+            for u in range(n_units)
+            for t in range(n_times)
+        ])
+        params = {
+            "beta_sales": [2.5],
+            "theta_tv": 0.7,
+            "lam_tv": 0.3,
+            "sigma_sales": 0.25,
+        }
+        sim = pathmc.simulate(
+            self.SPEC,
+            data=exog,
+            params=params,
+            panel={"unit": "unit", "time": "time"},
+            random_seed=2024,
+        )
+        model = pathmc.model(
+            self.SPEC,
+            data=sim,
+            panel={"unit": "unit", "time": "time"},
+        )
+        idata = model.fit(random_seed=42)
+        summary = az.summary(
+            idata, var_names=["beta_sales", "theta_tv", "lam_tv"], round_to="none"
+        )
+        means = {"b_tv": summary.loc["beta_sales[tv]", "mean"]}
+        means.update({v: summary.loc[v, "mean"] for v in ["theta_tv", "lam_tv"]})
+        truth = {"b_tv": 2.5, "theta_tv": 0.7, "lam_tv": 0.3}
+        for name, value in truth.items():
+            assert abs(means[name] - value) < 0.2, (
+                f"{name}: mean {means[name]:.3f} vs truth {value}"
+            )
+
+
 @pytest.mark.slow
 class TestSimulatePanelRecovery:
     """Simulate-and-recover through the full panel pipeline."""
