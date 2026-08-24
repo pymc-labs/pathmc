@@ -31,6 +31,7 @@ import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
 from pathmc.compile import (
+    _build_lag_map,
     _identify_residual_blocks,
     build_design_matrix,
     compile_to_pymc,
@@ -1715,6 +1716,8 @@ def simulate(
     params: dict[str, Any],
     families: dict[str, str] | None = None,
     latent: list[str] | set[str] | None = None,
+    panel: dict[str, str] | None = None,
+    pooling: str | dict | None = None,
     random_seed: int | np.random.Generator | None = None,
 ) -> IntoFrameT:
     """Simulate data from a pathmc model with known parameter values.
@@ -1768,6 +1771,19 @@ def simulate(
         in the output. Deterministic latent nodes have no ``sigma``
         parameter; stochastic latent nodes (``families={"M":
         "latent_normal"}``) do.
+    panel : dict[str, str] | None
+        Panel structure ``{"unit": ..., "time": ...}`` mapping to column
+        names, activating panel mode. Required when the spec uses
+        ``lag()`` terms (an error is raised otherwise, mirroring
+        :func:`model`). With *panel*, temporal state starts cold:
+        lagged endogenous terms and adstock carry begin at zero at each
+        unit's first time step, matching the compiler's init semantics.
+    pooling : str | dict | None
+        Pooling configuration forwarded to the compiler, identical to
+        :func:`model`: ``"partial"`` for random intercepts per unit
+        (then *params* must supply the ``alpha_{var}`` unit vectors,
+        and their hierarchical means/scales even though they are
+        clamped), or ``None`` for complete pooling.
     random_seed : int | np.random.Generator | None
         Random seed for reproducibility.
 
@@ -1780,8 +1796,10 @@ def simulate(
     Raises
     ------
     ValueError
-        If required parameter values are missing from *params*, or if a
-        ``chol_{block_name}`` vector has the wrong length for its block.
+        If required parameter values are missing from *params*, if a
+        ``chol_{block_name}`` vector has the wrong length for its block,
+        or if the spec contains ``lag()`` terms but ``panel=`` was
+        omitted.
 
     Examples
     --------
@@ -1809,27 +1827,66 @@ def simulate(
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
 
-    data_sim = nw_data
-    zero_cols = [var for var in endogenous_lhs if var not in data_sim.columns]
-    if zero_cols:
-        data_sim = data_sim.with_columns([nw.lit(0.0).alias(var) for var in zero_cols])
+    # Endogenous columns are simulation outputs: overwrite any supplied
+    # values with zeros so they cannot leak into the model (the scan
+    # compiler seeds temporal carry state from data row 0).
+    data_sim = nw_data.with_columns([nw.lit(0.0).alias(var) for var in endogenous_lhs])
 
     design_matrices: dict[str, nw.DataFrame] = {}
     for reg in spec.regressions:
         design_matrices[reg.lhs] = build_design_matrix(reg, data_sim)
+
+    has_lag_terms = any(
+        term.lag_of is not None for reg in spec.regressions for term in reg.terms
+    )
+    if has_lag_terms and panel is None:
+        raise ValueError(
+            "lag() terms require a panel model. Pass panel={'unit': ..., "
+            "'time': ...} to simulate()."
+        )
+
+    panel_info: PanelInfo | None = None
+    if panel is not None:
+        panel_info = build_panel_info(nw_data, panel)
 
     gen_model = compile_to_pymc(
         spec,
         data_sim,
         design_matrices,
         families=families,
+        panel_info=panel_info,
+        pooling=pooling,
         graph_info=graph_info,
         latent=latent_set,
     )
 
     all_rv_names = {rv.name for rv in gen_model.free_RVs}
     endo_rv_names = endo_set & all_rv_names
-    param_rv_names = all_rv_names - endo_rv_names
+
+    scan_info = getattr(gen_model, "_pathmc_panel_scan", None)
+    families_eff = families or {}
+    stochastic_latent_vars = {
+        v for v in latent_set if families_eff.get(v, "gaussian") == "latent_normal"
+    }
+    stochastic_carry_vars: set[str] = set()
+    innovation_rv_names: set[str] = set()
+    if scan_info is not None:
+        endo_lag_bases = {
+            base for base in _build_lag_map(spec).values() if base in endo_set
+        }
+        stochastic_carry_vars = {
+            v
+            for v in endo_lag_bases
+            if v not in latent_set
+            and families_eff.get(v, "gaussian") in ("gaussian", "studentt")
+        }
+        innovation_rv_names = {f"innovations_{v}" for v in stochastic_latent_vars} | {
+            f"carry_innovations_{v}" for v in stochastic_carry_vars
+        }
+
+    # Innovation sequences drive the scan recursion itself; they are
+    # simulation noise, not user-supplied parameters.
+    param_rv_names = all_rv_names - endo_rv_names - innovation_rv_names
 
     missing = param_rv_names - set(params.keys())
     if missing:
@@ -1848,8 +1905,80 @@ def simulate(
             stacklevel=2,
         )
 
-    do_dict = {k: v for k, v in params.items() if k in param_rv_names}
+    do_dict: dict[str, Any] = {}
+    for name in param_rv_names:
+        rv = gen_model[name]
+        arr = np.asarray(params[name])
+        shape = tuple(int(d) for d in rv.shape.eval())
+        if arr.shape != shape:
+            if arr.ndim == 0:
+                arr = np.full(shape, arr)
+            else:
+                raise ValueError(
+                    f"Parameter '{name}' has shape {arr.shape}, but the model "
+                    f"requires {shape}. Scalar values are broadcast to the "
+                    "required shape; arrays must match it exactly. Use "
+                    "pathmc.simulate_params_template() to discover names and "
+                    "shapes."
+                )
+        do_dict[name] = arr.astype(rv.dtype)
     fixed_model = pm.do(gen_model, do_dict)
+
+    if scan_info is not None:
+        # Scan-compiled panel model: draw the temporal recursion in one pass.
+        # The recursion consumes its own ``carry_innovations`` sequences, so
+        # for gaussian/studentT lag-carry variables the realized state that
+        # fed downstream equations is ``mu_{var} + sigma_{var} *
+        # carry_innovations_{var}`` -- reconstructed here rather than drawn
+        # from the (conditionally independent) observation RV.
+        def _to_rows(mat: np.ndarray) -> np.ndarray:
+            """Unsort an (n_times, n_units) matrix into original row order."""
+            return mat.T.reshape(-1)[scan_info.reverse_idx]
+
+        entries: list[tuple[str, str, list[Any]]] = []
+        for var in graph_info.topological_order:
+            if var not in endo_set:
+                continue
+            if var in latent_set:
+                if var in stochastic_latent_vars:
+                    entries.append(("latent", var, [fixed_model[var]]))
+                else:
+                    entries.append(("mu", var, [fixed_model[f"mu_{var}"]]))
+            elif var in stochastic_carry_vars:
+                # The realized state that fed downstream equations is
+                # mu + sigma * carry_innovations; reconstruct it from the
+                # drawn pieces instead of drawing the observation RV.
+                entries.append((
+                    "carry",
+                    var,
+                    [
+                        fixed_model[f"mu_{var}"],
+                        fixed_model[f"sigma_{var}"],
+                        fixed_model[f"carry_innovations_{var}"],
+                    ],
+                ))
+            else:
+                entries.append(("obs", var, [fixed_model[var]]))
+
+        flat = [t for _, _, ts in entries for t in ts]
+        drawn_scan = pm.draw(flat, random_seed=random_seed)
+        if not isinstance(drawn_scan, list):
+            drawn_scan = [drawn_scan]
+
+        new_columns: dict[str, nw.Series] = {}
+        pos = 0
+        for kind, var, ts in entries:
+            pieces = [np.asarray(v) for v in drawn_scan[pos : pos + len(ts)]]
+            pos += len(ts)
+            vals = (
+                _to_rows(pieces[0] + pieces[1] * pieces[2])
+                if kind == "carry"
+                else _to_rows(pieces[0])
+            )
+            new_columns[var] = nw.new_series(var, vals, backend=nw_data.implementation)
+
+        result = nw_data.with_columns(list(new_columns.values()))
+        return result.to_native()
 
     endo_order = [v for v in graph_info.topological_order if v in endo_rv_names]
 
@@ -1875,13 +2004,13 @@ def simulate(
 
     n_endo = len(endo_order)
     n_latent_det = len(latent_det_vars)
-    new_columns: dict[str, nw.Series] = {}
+    new_columns_xs: dict[str, nw.Series] = {}
     for var, values in zip(endo_order, drawn[:n_endo]):
-        new_columns[var] = nw.new_series(
+        new_columns_xs[var] = nw.new_series(
             var, np.asarray(values), backend=nw_data.implementation
         )
     for var, values in zip(latent_det_vars, drawn[n_endo : n_endo + n_latent_det]):
-        new_columns[var] = nw.new_series(
+        new_columns_xs[var] = nw.new_series(
             var, np.asarray(values), backend=nw_data.implementation
         )
 
@@ -1917,11 +2046,11 @@ def simulate(
         chol_mat[np.tril_indices(k)] = packed
         eps = rng.standard_normal((n_obs, k)) @ chol_mat.T
         for j, var in enumerate(block_sorted):
-            new_columns[var] = nw.new_series(
+            new_columns_xs[var] = nw.new_series(
                 var, block_mu_draws[var] + eps[:, j], backend=nw_data.implementation
             )
 
-    result = nw_data.with_columns(list(new_columns.values()))
+    result = nw_data.with_columns(list(new_columns_xs.values()))
     return result.to_native()
 
 
@@ -2053,8 +2182,13 @@ def simulate_params_template(
     template: dict[str, Any] = {}
     for rv in gen_model.free_RVs:
         # Stochastic endogenous RVs (observed outcomes / stochastic
-        # latents) are simulation outputs, not params entries.
-        if rv.name in endo_set:
+        # latents) are simulation outputs, not params entries. The
+        # ``innovations_*`` / ``carry_innovations_*`` sequences drive the
+        # scan recursion itself: simulate() draws them internally.
+        if rv.name in endo_set or rv.name.startswith((
+            "innovations_",
+            "carry_innovations_",
+        )):
             continue
         shape = tuple(int(d) for d in rv.shape.eval())
         if len(shape) == 0:

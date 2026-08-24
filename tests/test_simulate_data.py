@@ -207,3 +207,260 @@ class TestSimulateNoIntercept:
         )
         assert "Y" in df.columns
         assert len(df) == len(exog_df)
+
+
+@pytest.fixture
+def panel_exog():
+    """Panel exogenous data: 3 regions x 25 weeks of TV spend."""
+    rng = np.random.default_rng(42)
+    regions = ["North", "South", "East"]
+    rows = []
+    for region in regions:
+        for week in range(1, 26):
+            rows.append({"region": region, "week": week, "tv": rng.uniform(5, 30)})
+    return pd.DataFrame(rows)
+
+
+class TestSimulatePanel:
+    """simulate() with panel= — scan forward pass in time order per unit."""
+
+    def test_lag_without_panel_raises(self):
+        with pytest.raises(ValueError, match="panel"):
+            pathmc.simulate(
+                "Y ~ X + lag(Y)",
+                data=pd.DataFrame({"X": [1.0, 2.0]}),
+                params={"beta_Y": [0.0, 1.0], "sigma_Y": 1.0},
+            )
+
+    def test_lag_cold_start_exact_ar(self):
+        """With sigma=0 the recursion is deterministic: Y_t = b0 + b1*Y_{t-1}.
+
+        Cold start at zero means Y_0 = b0 exactly, and each unit's
+        recursion is independent.
+        """
+        rng = np.random.default_rng(0)
+        df = pd.DataFrame([
+            {"unit": f"u{u}", "time": t, "X": rng.normal()}
+            for u in range(3)
+            for t in range(20)
+        ])
+        b0, b1 = 0.8, 0.5
+        out = pathmc.simulate(
+            "Y ~ X + lag(Y)",
+            data=df,
+            params={"beta_Y": [b0, 0.0, b1], "sigma_Y": 0.0},
+            panel={"unit": "unit", "time": "time"},
+            random_seed=1,
+        )
+        for _, sub in out.groupby("unit"):
+            y = sub.sort_values("time")["Y"].to_numpy()
+            expected = [b0]
+            for _ in range(1, len(y)):
+                expected.append(b0 + b1 * expected[-1])
+            np.testing.assert_allclose(y, expected, atol=1e-10)
+
+    def test_existing_endogenous_column_poisoned_and_ignored(self):
+        """Supplied endogenous values must not seed the temporal carry."""
+        rng = np.random.default_rng(0)
+        df = pd.DataFrame([
+            {"unit": f"u{u}", "time": t, "X": rng.normal(), "Y": 999.0}
+            for u in range(3)
+            for t in range(20)
+        ])
+        b0, b1 = 3.0, 0.5
+        out = pathmc.simulate(
+            "Y ~ X + lag(Y)",
+            data=df,
+            params={"beta_Y": [b0, 0.0, b1], "sigma_Y": 0.0},
+            panel={"unit": "unit", "time": "time"},
+            random_seed=1,
+        )
+        assert not (out["Y"] == 999.0).any()
+        for _, sub in out.groupby("unit"):
+            y = sub.sort_values("time")["Y"].to_numpy()
+            expected = [b0]
+            for _ in range(1, len(y)):
+                expected.append(b0 + b1 * expected[-1])
+            np.testing.assert_allclose(y, expected, atol=1e-10)
+
+    def test_mmm_transform_moments_match_numpy_reference(self, panel_exog):
+        """Adstock + saturation DGP moments reproduce a NumPy reference."""
+        params = {
+            "beta_sales": [1.0, 2.5],
+            "theta_tv": 0.7,
+            "lam_tv": 0.3,
+            "alpha_sales": [55.0, 50.0, 60.0],  # sorted units: East,North,South
+            "mu_alpha_sales": 0.0,
+            "sigma_alpha_sales": 1.0,
+            "sigma_sales": 0.5,
+        }
+        spec = (
+            "sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)"
+        )
+        out = pathmc.simulate(
+            spec,
+            data=panel_exog,
+            params=params,
+            panel={"unit": "region", "time": "week"},
+            pooling="partial",
+            random_seed=123,
+        )
+        assert list(out.columns) == ["region", "week", "tv", "sales"]
+
+        intercept_map = {"East": 56.0, "North": 51.0, "South": 61.0}
+        for region in ["North", "South", "East"]:
+            sub = panel_exog[panel_exog.region == region].sort_values("week")
+            adstocked = 0.0
+            saturated = []
+            for tv in sub["tv"]:
+                adstocked = tv + 0.7 * adstocked
+                saturated.append(1 - np.exp(-0.3 * adstocked))
+            ref_centered = (2.5 * np.array(saturated)).mean()
+            sim = out[out.region == region].sort_values("week")
+            sim_centered = (sim["sales"].to_numpy() - intercept_map[region]).mean()
+            # sd=0.5 over 25 obs -> se ~= 0.1; allow 3.5 se.
+            assert abs(sim_centered - ref_centered) < 0.35, region
+
+        means = out.groupby("region")["sales"].mean()
+        assert means["South"] > means["North"] > 50  # alphas differ as supplied
+
+    def test_reproducible_with_seed(self, panel_exog):
+        kwargs = dict(
+            spec_string="sales ~ b_tv*logistic_saturation(adstock(tv, "
+            "decay=theta_tv), lam=lam_tv)",
+            data=panel_exog,
+            params={
+                "beta_sales": [1.0, 2.5],
+                "theta_tv": 0.7,
+                "lam_tv": 0.3,
+                "alpha_sales": [55.0, 50.0, 60.0],
+                "mu_alpha_sales": 0.0,
+                "sigma_alpha_sales": 1.0,
+                "sigma_sales": 0.5,
+            },
+            panel={"unit": "region", "time": "week"},
+            pooling="partial",
+        )
+        first = pathmc.simulate(**kwargs, random_seed=99)["sales"].to_numpy()
+        second = pathmc.simulate(**kwargs, random_seed=99)["sales"].to_numpy()
+        np.testing.assert_array_equal(first, second)
+
+        gen_a = pathmc.simulate(**kwargs, random_seed=np.random.default_rng(7))[
+            "sales"
+        ].to_numpy()
+        gen_b = pathmc.simulate(**kwargs, random_seed=np.random.default_rng(7))[
+            "sales"
+        ].to_numpy()
+        np.testing.assert_array_equal(gen_a, gen_b)
+        assert not np.allclose(first, gen_a)
+
+    def test_row_order_preserved_for_unsorted_input(self):
+        rng = np.random.default_rng(5)
+        rows = [
+            {"unit": f"u{u}", "time": t, "X": rng.normal()}
+            for u in range(3)
+            for t in range(12)
+        ]
+        interleaved = pd.DataFrame(rows).sample(frac=1.0, random_state=0)
+        sorted_df = interleaved.sort_values(["unit", "time"]).reset_index(drop=True)
+        params = {"beta_Y": [0.5, 0.2, 0.4], "sigma_Y": 0.8}
+        out_i = pathmc.simulate(
+            "Y ~ X + lag(Y)",
+            data=interleaved,
+            params=params,
+            panel={"unit": "unit", "time": "time"},
+            random_seed=11,
+        )
+        out_s = pathmc.simulate(
+            "Y ~ X + lag(Y)",
+            data=sorted_df,
+            params=params,
+            panel={"unit": "unit", "time": "time"},
+            random_seed=11,
+        )
+        merged = interleaved.reset_index(drop=True)[["unit", "time"]].copy()
+        merged["Y_interleaved"] = out_i["Y"].to_numpy()
+        merged = merged.merge(
+            sorted_df[["unit", "time"]].assign(Y_sorted=out_s["Y"].to_numpy()),
+            on=["unit", "time"],
+        )
+        np.testing.assert_allclose(merged["Y_interleaved"], merged["Y_sorted"])
+
+    def test_stochastic_latent_in_scan_model(self, panel_exog):
+        out = pathmc.simulate(
+            "M ~ adstock(tv, decay=theta)\nsales ~ M",
+            data=panel_exog,
+            params={
+                "beta_M": [1.0, 0.8],
+                "sigma_M": 0.4,
+                "theta": 0.6,
+                "beta_sales": [0.5, 1.2],
+                "sigma_sales": 0.3,
+            },
+            latent=["M"],
+            families={"M": "latent_normal"},
+            panel={"unit": "region", "time": "week"},
+            random_seed=4,
+        )
+        assert list(out.columns) == ["region", "week", "tv", "M", "sales"]
+
+    def test_param_shape_mismatch_raises(self, panel_exog):
+        with pytest.raises(ValueError, match="beta_sales"):
+            pathmc.simulate(
+                "sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), "
+                "lam=lam_tv)",
+                data=panel_exog,
+                params={
+                    "beta_sales": [2.5],  # needs (Intercept, b_tv)
+                    "theta_tv": 0.7,
+                    "lam_tv": 0.3,
+                    "alpha_sales": [55.0, 50.0, 60.0],
+                    "mu_alpha_sales": 0.0,
+                    "sigma_alpha_sales": 1.0,
+                    "sigma_sales": 0.5,
+                },
+                panel={"unit": "region", "time": "week"},
+                pooling="partial",
+            )
+
+
+@pytest.mark.slow
+class TestSimulatePanelRecovery:
+    """Simulate-and-recover through the full panel pipeline."""
+
+    def test_lag_ar_coefficient_recovered(self):
+        rng = np.random.default_rng(3)
+        n_units, n_times = 8, 40
+        exog = pd.DataFrame([
+            {"unit": f"u{u}", "time": t} for u in range(n_units) for t in range(n_times)
+        ])
+        truth = {"intercept": 0.5, "phi": 0.5, "sigma": 0.4}
+        sim = pathmc.simulate(
+            "Y ~ lag(Y)",
+            data=exog,
+            params={
+                "beta_Y": [truth["intercept"], truth["phi"]],
+                "sigma_Y": truth["sigma"],
+            },
+            panel={"unit": "unit", "time": "time"},
+            random_seed=2024,
+        )
+        assert not sim["Y"].isna().any()
+
+        import arviz as az
+
+        model = pathmc.model(
+            "Y ~ lag(Y)",
+            data=sim,
+            panel={"unit": "unit", "time": "time"},
+        )
+        idata = model.fit(draws=400, tune=500, chains=2, cores=1, random_seed=42)
+        summary = az.summary(idata, var_names=["beta_Y"], round_to="none")
+        phi_mean = summary["mean"].iloc[1]
+        hdi = az.hdi(idata.posterior["beta_Y"].isel({"Y_predictors": 1}))
+        assert abs(phi_mean - truth["phi"]) < 0.15, phi_mean
+        assert (
+            float(hdi.sel(ci_bound="lower"))
+            < truth["phi"]
+            < float(hdi.sel(ci_bound="upper"))
+        )
