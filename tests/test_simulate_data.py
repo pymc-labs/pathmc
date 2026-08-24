@@ -680,3 +680,109 @@ class TestSimulatePanelRecovery:
             < truth["phi"]
             < float(hdi.sel(ci_bound="upper"))
         )
+
+
+class TestSimulateFunnelDGP:
+    """Upper-funnel funnel DGP (#433): x2/x3 <- x1, x4 <- x2 + x3,
+
+    and y through adstock + logistic saturation of the mid-funnel x4.
+    Runs on a panel so the adstock recursion carries state within units.
+    """
+
+    SPEC = """
+    x2 ~ x1
+    x3 ~ x1
+    x4 ~ x2 + x3
+    y ~ 0 + b*logistic_saturation(adstock(x4, decay=theta), lam=lam) + ctrl
+    """
+
+    PARAMS = {
+        "beta_x2": [0.0, 0.8],
+        "sigma_x2": 0.5,
+        "beta_x3": [0.0, 0.6],
+        "sigma_x3": 0.5,
+        "beta_x4": [0.0, 1.0, 0.9],
+        "sigma_x4": 0.5,
+        "theta": 0.7,
+        "lam": 0.5,
+        "beta_y": [1.2, 0.3],
+        "sigma_y": 0.0,
+    }
+
+    @staticmethod
+    def _exog(n_units=2, n_times=40, seed=42):
+        rng = np.random.default_rng(seed)
+        return pd.DataFrame([
+            {"unit": f"u{u}", "time": t, "x1": rng.normal(), "ctrl": rng.normal()}
+            for u in range(n_units)
+            for t in range(1, n_times + 1)
+        ])
+
+    def _simulate(self, exog, params=None, seed=7):
+        return pathmc.simulate(
+            self.SPEC,
+            data=exog,
+            params=params or self.PARAMS,
+            panel={"unit": "unit", "time": "time"},
+            random_seed=seed,
+        )
+
+    @staticmethod
+    def _reference(x4, theta, lam):
+        """NumPy adstock recursion + pathmc saturation kernel (tanh form)."""
+        adstocked = 0.0
+        out = []
+        for v in x4:
+            adstocked = v + theta * adstocked
+            out.append((1 - np.exp(-lam * adstocked)) / (1 + np.exp(-lam * adstocked)))
+        return np.asarray(out)
+
+    def test_funnel_propagates_through_chain(self):
+        out = self._simulate(self._exog())
+        assert list(out.columns) == [
+            "unit",
+            "time",
+            "x1",
+            "ctrl",
+            "x2",
+            "x3",
+            "x4",
+            "y",
+        ]
+        corr = out[["x1", "x2", "x3", "x4"]].corr()
+        assert corr.loc["x1", "x2"] > 0.5
+        assert corr.loc["x1", "x3"] > 0.5
+        assert corr.loc["x2", "x4"] > 0.3
+        assert corr.loc["x3", "x4"] > 0.3
+
+    def test_outcome_matches_numpy_reference_with_zero_noise(self):
+        """With sigma_y=0, y must equal b*saturation(adstock(x4)) + c*ctrl.
+
+        Descendant equations consume the *mean structure* of upstream
+        endogenous variables (mirroring estimation), so the reference
+        propagates x1 through exact coefficient chains instead of the
+        noisy realized x2/x3/x4 columns.
+        """
+        exog = self._exog()
+        out = self._simulate(exog)
+        for unit in sorted(exog["unit"].unique()):
+            rows = (
+                out[out.unit == unit]
+                .sort_values("time")[["x1", "ctrl", "y"]]
+                .reset_index(drop=True)
+            )
+            x1 = rows["x1"].to_numpy()
+            x4_mu = (
+                self.PARAMS["beta_x4"][1] * self.PARAMS["beta_x2"][1] * x1
+                + self.PARAMS["beta_x4"][2] * self.PARAMS["beta_x3"][1] * x1
+            )
+            expected = (
+                self.PARAMS["beta_y"][0]
+                * self._reference(
+                    x4_mu,
+                    theta=self.PARAMS["theta"],
+                    lam=self.PARAMS["lam"],
+                )
+                + self.PARAMS["beta_y"][1] * rows["ctrl"].to_numpy()
+            )
+            np.testing.assert_allclose(rows["y"].to_numpy(), expected, atol=1e-8)

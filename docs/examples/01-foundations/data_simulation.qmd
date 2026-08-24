@@ -8,11 +8,17 @@ image: thumbnails/data_simulation.png
 jupyter: pathmc
 ---
 
-Every example in these docs simulates data with NumPy — explicit array code that anyone can audit. But pathmc can also generate data directly from a specified model, guaranteeing that the simulated dataset is perfectly consistent with the model's generative structure.
+Most foundational examples in these docs build their datasets with explicit NumPy array code that anyone can audit. But pathmc can also generate data directly from a specified model, guaranteeing that the simulated dataset is perfectly consistent with the model's generative structure.
 
 This is useful for **simulate-and-recover** workflows: choose true parameter values, generate a dataset, fit the model, and verify that the posterior concentrates around truth. It is also a quick way to prototype a model before collecting real data.
 
 The `pathmc.simulate()` function builds a generative PyMC model from the specification, fixes all parameters at user-provided values via `pm.do()`, and draws one simulated dataset.
+
+:::: {.callout-note}
+## MMM examples run on `simulate()`
+
+The applied-models notebooks are moving to `pathmc.simulate()` for their ground-truth DGPs: [MMM with Latent Brand Awareness](/examples/05-applied-models/mmm_awareness.qmd) simulates a latent AR(1) mediator via the `latent=` and `families=` arguments, and pairs with [Media Mix Models](/examples/05-applied-models/mmm.qmd), which walks through panel adstock/saturation structures under partial pooling. Everything shown on this page extends to those settings through the same `params` interface.
+::::
 
 ```{python}
 import numpy as np

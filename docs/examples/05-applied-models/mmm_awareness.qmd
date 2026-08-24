@@ -67,11 +67,9 @@ digraph {
 
 ### Simulate data
 
-We generate a national-level time series of 50 weeks with a known DGP so we can verify the model recovers the true parameters.
+We generate a national-level time series of 50 weeks with a known DGP so we can verify the model recovers the true parameters. Instead of hand-writing the AR(1) recursion with NumPy, we generate the dataset with `pathmc.simulate()`: awareness is declared `latent` with the `"latent_normal"` family, and `init_awareness` seeds the scan carry at week 1.
 
 ```{python}
-rng = np.random.default_rng(42)
-
 n_weeks = 50
 
 true_a = 0.5  # upper_funnel → awareness
@@ -81,30 +79,48 @@ true_c = 0.2  # upper_funnel → sales (direct)
 true_d = 0.5  # lower_funnel → sales
 true_sigma = 1.0
 
-rows = []
-awareness = 0.0
-for week in range(1, n_weeks + 1):
-    uf = rng.uniform(5, 25)
-    lf = rng.uniform(5, 20)
-    awareness = true_a * uf + true_rho * awareness
-    sales = (
-        true_b * awareness + true_c * uf + true_d * lf + rng.normal(scale=true_sigma)
-    )
-    rows.append({
-        "country": "national",
-        "week": week,
-        "upper_funnel": uf,
-        "lower_funnel": lf,
-        "sales": sales,
-    })
+rng = np.random.default_rng(42)
+exog = pd.DataFrame({
+    "country": "national",
+    "week": range(1, n_weeks + 1),
+    "upper_funnel": rng.uniform(5, 25, size=n_weeks),
+    "lower_funnel": rng.uniform(5, 20, size=n_weeks),
+})
 
-df = pd.DataFrame(rows)
+df = pathmc.simulate(
+    """
+    awareness ~ a_uf*upper_funnel + rho*lag(awareness)
+    sales ~ b_aw*awareness + c_uf*upper_funnel + d_lf*lower_funnel
+    """,
+    data=exog,
+    params={
+        "beta_awareness": [0.0, true_a, true_rho],
+        # zero process noise keeps awareness deterministic, as in Part 1
+        "sigma_awareness": 0.0,
+        "init_awareness": [0.0],
+        "beta_sales": [0.0, true_b, true_c, true_d],
+        "sigma_sales": true_sigma,
+    },
+    panel={"unit": "country", "time": "week"},
+    latent=["awareness"],
+    families={"awareness": "latent_normal"},
+    random_seed=42,
+)
 
 true_awareness_channel = true_a * true_b / (1 - true_rho)
 true_total_uf = true_c + true_awareness_channel
 
 df.head()
 ```
+
+The simulated DataFrame now carries the latent `awareness` trajectory alongside sales — ground truth we would never observe in reality, which makes it easy to eyeball what the model should recover later.
+
+:::: {.callout-note collapse="true"}
+## Why `"latent_normal"` with zero process noise?
+
+Part 1 treats awareness as an exact function of its parents (deterministic), while Part 2 adds process noise. The `"latent_normal"` family is what gives a latent variable its own `sigma` and `init_` parameters in `simulate()`; setting `sigma_awareness = 0.0` recovers the deterministic recursion of this part while exercising the same API used throughout.
+::::
+
 
 If we make the simplifying assumption of a linear model with no interactions, then we can approximate the effects as below.
 ```{python}
@@ -149,7 +165,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-### The attribution trap:hy naive regression undervalues upper-funnel
+### The attribution trap: why naive regression undervalues upper-funnel
 
 Regressing `sales ~ upper_funnel + lower_funnel` estimates the *total contemporaneous association*, confounding the direct effect with the awareness-mediated effect.
 But worse: because awareness is latent and autocorrelated, a flat regression cannot separate the persistent component from the immediate one.
