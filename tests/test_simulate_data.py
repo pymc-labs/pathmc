@@ -152,16 +152,35 @@ class TestSimulateValidation:
                 random_seed=42,
             )
 
-    def test_residual_cov_raises(self, exog_df):
+    def test_residual_cov_round_trip(self, exog_df):
+        """Correlated residuals: empirical corr of block members matches the
+        target encoded in ``chol_Y1_Y2``, and both columns are simulated."""
         exog = exog_df.copy()
         exog["Y1"] = 0.0
         exog["Y2"] = 0.0
-        with pytest.raises(NotImplementedError, match="residual covariances"):
-            pathmc.simulate(
-                "Y1 ~ X\nY2 ~ X\nY1 ~~ Y2",
-                data=exog,
-                params={},
-            )
+        params = {
+            "beta_Y1": [0.0, 0.5],
+            "beta_Y2": [0.0, -0.5],
+            # L = [[1.0, 0.0], [0.8, 0.6]] -> corr 0.8, unit variances.
+            "chol_Y1_Y2": [1.0, 0.8, 0.6],
+        }
+        df = pathmc.simulate(
+            "Y1 ~ X\nY2 ~ X\nY1 ~~ Y2",
+            data=exog,
+            params=params,
+            random_seed=42,
+        )
+        assert {"Y1", "Y2"} <= set(df.columns)
+        # Residualize out the mean structure so the shared X term does not
+        # contaminate the empirical residual correlation.
+        x = df["X"].to_numpy()
+        design = np.column_stack([np.ones_like(x), x])
+        resid = np.empty_like(df[["Y1", "Y2"]].to_numpy())
+        for j, col in enumerate(["Y1", "Y2"]):
+            coef, *_ = np.linalg.lstsq(design, df[col].to_numpy(), rcond=None)
+            resid[:, j] = df[col].to_numpy() - design @ coef
+        emp_corr = np.corrcoef(resid[:, 0], resid[:, 1])[0, 1]
+        assert emp_corr == pytest.approx(0.8, abs=0.05)
 
     def test_endogenous_in_data_ignored(self, exog_df):
         """If the user passes Y in data, it should be ignored."""

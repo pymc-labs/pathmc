@@ -30,7 +30,12 @@ import pymc as pm
 import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
-from pathmc.compile import build_design_matrix, compile_to_pymc, get_predictor_columns
+from pathmc.compile import (
+    _identify_residual_blocks,
+    build_design_matrix,
+    compile_to_pymc,
+    get_predictor_columns,
+)
 from pathmc.effects import (
     EffectResult,
     _has_labeled_terms,
@@ -1740,8 +1745,18 @@ def simulate(
     params : dict[str, Any]
         True parameter values keyed by PyMC variable name. Typical
         keys are ``"beta_{var}"`` (coefficient vector) and
-        ``"sigma_{var}"`` (residual std). Use ``pathmc.model(...).equations()``
-        on a dummy dataset to discover expected names and shapes.
+        ``"sigma_{var}"`` (residual std). For residual covariances
+        (``~~``), supply ``"chol_{block_name}"`` as the packed
+        lower-triangular Cholesky vector of length ``k(k+1)/2``
+        (PyMC ``LKJCholeskyCov`` packing); block members' simulated
+        columns share the correlated residuals, and descendant
+        equations see their mean structure (``mu_{var}``), not the
+        noisy realized values — mirroring estimation. For ``hsgp()``
+        terms,
+        supply ``"ell_{lhs}_{var}"``, ``"eta_{lhs}_{var}"``, and
+        ``"beta_hsgp_{lhs}_{var}"`` (length ``m``). Use
+        ``pathmc.model(...).equations()`` on a dummy dataset to discover
+        expected names and shapes.
     families : dict[str, str] | None
         Per-variable distribution families (default ``"gaussian"``).
         Supports the same families as :func:`model`: ``"gaussian"``,
@@ -1765,9 +1780,8 @@ def simulate(
     Raises
     ------
     ValueError
-        If required parameter values are missing from *params*.
-    NotImplementedError
-        If the spec contains residual covariances (``~~``).
+        If required parameter values are missing from *params*, or if a
+        ``chol_{block_name}`` vector has the wrong length for its block.
 
     Examples
     --------
@@ -1787,19 +1801,7 @@ def simulate(
     """
     spec = parse_spec(spec_string)
     latent_set = set(latent) if latent else set()
-
-    if spec.residual_covs:
-        raise NotImplementedError(
-            "simulate() does not yet support residual covariances (~~). "
-            "Use numpy-based simulation for models with correlated residuals."
-        )
-
-    if any(t.hsgp is not None for reg in spec.regressions for t in reg.terms):
-        raise NotImplementedError(
-            "simulate() does not yet support hsgp() terms. Build the model with "
-            "model(), fit(), and use .do() for interventional draws instead."
-        )
-
+    block_var_set, blocks = _identify_residual_blocks(spec)
     graph_info = build_graph(spec, latent=latent_set)
 
     nw_data = nw.from_native(data, eager_only=True)
@@ -1858,24 +1860,66 @@ def simulate(
         if v in latent_set and v not in endo_rv_names and f"mu_{v}" in det_names
     ]
 
+    # Block members are observed MvNormal components (not free RVs): draw
+    # their ``mu_{var}`` deterministics, then add correlated Cholesky noise.
+    block_members = [v for v in graph_info.topological_order if v in block_var_set]
+
     vars_to_draw = [fixed_model[var] for var in endo_order]
     latent_det_tensors = [fixed_model[f"mu_{v}"] for v in latent_det_vars]
+    block_mu_tensors = [fixed_model[f"mu_{v}"] for v in block_members]
 
-    all_to_draw = vars_to_draw + latent_det_tensors
+    all_to_draw = vars_to_draw + latent_det_tensors + block_mu_tensors
     drawn = pm.draw(all_to_draw, random_seed=random_seed)
     if not isinstance(drawn, list):
         drawn = [drawn]
 
     n_endo = len(endo_order)
+    n_latent_det = len(latent_det_vars)
     new_columns: dict[str, nw.Series] = {}
     for var, values in zip(endo_order, drawn[:n_endo]):
         new_columns[var] = nw.new_series(
             var, np.asarray(values), backend=nw_data.implementation
         )
-    for var, values in zip(latent_det_vars, drawn[n_endo:]):
+    for var, values in zip(latent_det_vars, drawn[n_endo : n_endo + n_latent_det]):
         new_columns[var] = nw.new_series(
             var, np.asarray(values), backend=nw_data.implementation
         )
+
+    n_tail = n_endo + n_latent_det
+    block_mu_draws = {
+        var: np.asarray(values) for var, values in zip(block_members, drawn[n_tail:])
+    }
+
+    rng = (
+        random_seed
+        if isinstance(random_seed, np.random.Generator)
+        else np.random.default_rng(random_seed)
+    )
+    n_obs = len(nw_data)
+    for block in blocks:
+        # Split the Cholesky noise across members in sorted(block) order --
+        # the MvNormal column order used at compile time.
+        block_sorted = sorted(block)
+        k = len(block_sorted)
+        packed = np.asarray(
+            params[f"chol_{'_'.join(block_sorted)}"], dtype=float
+        ).ravel()
+        expected = k * (k + 1) // 2
+        if packed.size != expected:
+            raise ValueError(
+                f"chol_{'_'.join(block_sorted)} has length {packed.size}, but "
+                f"the residual block {block_sorted} requires a packed "
+                f"lower-triangular Cholesky vector of length {expected}. "
+                "Provide the PyMC LKJCholeskyCov packing of a (k, k) lower-"
+                "triangular matrix."
+            )
+        chol_mat = np.zeros((k, k))
+        chol_mat[np.tril_indices(k)] = packed
+        eps = rng.standard_normal((n_obs, k)) @ chol_mat.T
+        for j, var in enumerate(block_sorted):
+            new_columns[var] = nw.new_series(
+                var, block_mu_draws[var] + eps[:, j], backend=nw_data.implementation
+            )
 
     result = nw_data.with_columns(list(new_columns.values()))
     return result.to_native()

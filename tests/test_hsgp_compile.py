@@ -132,6 +132,37 @@ def test_exogenous_hsgp_input_alongside_other_equations_allowed(cross_sectional_
     assert "f_y_x" in _gen_model(model).named_vars
 
 
-def test_simulate_with_hsgp_raises(cross_sectional_df):
-    with pytest.raises(NotImplementedError, match="hsgp"):
-        pathmc.simulate("y ~ hsgp(x, m=8, c=1.5)", data=cross_sectional_df, params={})
+def test_simulate_with_hsgp(cross_sectional_df):
+    """simulate() draws hsgp() models: y is simulated and the smooth
+    contribution changes when the basis weights change (fixed seed)."""
+    params = {
+        "beta_y": [0.0],
+        "ell_y_x": 1.0,
+        "eta_y_x": 1.0,
+        "beta_hsgp_y_x": np.linspace(-1.0, 1.0, 8),
+        "sigma_y": 0.01,
+    }
+    df1 = pathmc.simulate(
+        "y ~ hsgp(x, m=8, c=1.5)",
+        data=cross_sectional_df,
+        params=params,
+        random_seed=42,
+    )
+    assert "y" in df1.columns
+    # zero-noise run: y reproduces the smooth contribution exactly, so
+    # the drawn basis weights (not just "some change") drive the output
+    df_smooth = pathmc.simulate(
+        "y ~ hsgp(x, m=8, c=1.5)",
+        data=cross_sectional_df,
+        params={**params, "sigma_y": 1e-8},
+        random_seed=42,
+    )
+    resid_sd = float(np.std(df1["y"].to_numpy() - df_smooth["y"].to_numpy()))
+    assert resid_sd < 0.05
+    df2 = pathmc.simulate(
+        "y ~ hsgp(x, m=8, c=1.5)",
+        data=cross_sectional_df,
+        params={**params, "beta_hsgp_y_x": np.linspace(1.0, -1.0, 8)},
+        random_seed=42,
+    )
+    assert not np.allclose(df1["y"].to_numpy(), df2["y"].to_numpy())
