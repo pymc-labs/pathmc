@@ -1684,7 +1684,7 @@ def model(
                 "panel= requires data. Provide data= alongside panel=, "
                 "or omit panel= for data-free DAG exploration."
             )
-        panel_info = build_panel_info(nw_data, panel)
+        panel_info, nw_data = build_panel_info(nw_data, panel)
 
     path_model = PathModel(
         spec=spec,
@@ -1827,6 +1827,10 @@ def simulate(
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
 
+    panel_info: PanelInfo | None = None
+    if panel is not None:
+        panel_info, nw_data = build_panel_info(nw_data, panel)
+
     # Endogenous columns are simulation outputs: overwrite any supplied
     # values with zeros so they cannot leak into the model (the scan
     # compiler seeds temporal carry state from data row 0).
@@ -1844,10 +1848,6 @@ def simulate(
             "lag() terms require a panel model. Pass panel={'unit': ..., "
             "'time': ...} to simulate()."
         )
-
-    panel_info: PanelInfo | None = None
-    if panel is not None:
-        panel_info = build_panel_info(nw_data, panel)
 
     gen_model = compile_to_pymc(
         spec,
@@ -2154,7 +2154,7 @@ def simulate_params_template(
 
     panel_info: PanelInfo | None = None
     if panel is not None:
-        panel_info = build_panel_info(nw_data, panel)
+        panel_info, nw_data = build_panel_info(nw_data, panel)
 
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)

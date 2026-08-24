@@ -83,6 +83,21 @@ model = pathmc.model(
 )
 ```
 
+## Multi-dimensional units
+
+Marketing and longitudinal data often have more than one identifier per row — geo × brand, country × channel, store × product. Pass a list of columns as `unit` and pathmc pools over their Cartesian product:
+
+```python
+model = pathmc.model(
+    "sales ~ adstock(tv, decay=theta_tv)",
+    data=df,
+    panel={"unit": ["geo", "brand"], "time": "week"},
+    pooling="partial",
+)
+```
+
+The data must be rectangular: every `geo × brand` combination shares the same set of `week` values. Non-rectangular panels raise an error naming the offending combinations. Under the hood the composite key (`"North|Acme"` style labels) becomes the unit coordinate, so each cell gets its own random intercept under `pooling="partial"` — the same machinery as single-column panels.
+
 ## Posterior predictive checks with a lagged outcome
 
 When the outcome depends on its own past — `sales ~ lag(sales)` — there are two different things `predict()` could mean, so it takes a flag.

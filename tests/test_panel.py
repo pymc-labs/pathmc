@@ -17,7 +17,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import narwhals.stable.v1 as nw
+
 import pathmc
+import pathmc.panel
 
 
 @pytest.fixture(scope="module")
@@ -170,3 +173,101 @@ class TestMultipleEndogenous:
         rv_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert "alpha_M" in rv_names
         assert "alpha_Y" in rv_names
+
+
+@pytest.fixture(scope="module")
+def geo_brand_data():
+    """2 geos x 2 brands x 10 weeks rectangular panel."""
+    rng = np.random.default_rng(0)
+    rows = []
+    for geo in ["North", "South"]:
+        for brand in ["Acme", "Bolt"]:
+            for week in range(10):
+                rows.append({
+                    "geo": geo,
+                    "brand": brand,
+                    "week": week,
+                    "tv": rng.uniform(5.0, 30.0),
+                })
+    return pd.DataFrame(rows)
+
+
+class TestMultiDimensionalPanel:
+    """panel={'unit': [cols], 'time': col} builds a composite unit key."""
+
+    def test_composite_unit_labels(self, geo_brand_data):
+        info, df_out = pathmc.panel.build_panel_info(
+            nw.from_native(geo_brand_data, eager_only=True),
+            {"unit": ["geo", "brand"], "time": "week"},
+        )
+        assert info.is_multi_dim
+        assert info.unit == "geo|brand"
+        assert info.unit_columns == ("geo", "brand")
+        assert info.unit_labels == [
+            "North|Acme",
+            "North|Bolt",
+            "South|Acme",
+            "South|Bolt",
+        ]
+        assert "geo|brand" in df_out.columns
+
+    def test_ragged_panel_rejected(self, geo_brand_data):
+        bad = geo_brand_data[
+            ~((geo_brand_data["geo"] == "South") & (geo_brand_data["week"] == 9))
+        ]
+        with pytest.raises(ValueError, match="not rectangular"):
+            pathmc.simulate(
+                "sales ~ tv",
+                data=bad,
+                params={"beta_sales": [1.0, 2.0], "sigma_sales": 1.0},
+                panel={"unit": ["geo", "brand"], "time": "week"},
+            )
+
+    def test_simulate_multi_dim_honors_cell_intercepts(self, geo_brand_data):
+        out = pathmc.simulate(
+            "sales ~ 0 + logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)",
+            data=geo_brand_data,
+            params={
+                "beta_sales": [2.5],
+                "theta_tv": 0.7,
+                "lam_tv": 0.3,
+                "sigma_sales": 1e-8,
+                "alpha_sales": [46.0, 51.0, 56.0, 61.0],
+                "mu_alpha_sales": 53.0,
+                "sigma_alpha_sales": 5.0,
+            },
+            panel={"unit": ["geo", "brand"], "time": "week"},
+            pooling="partial",
+            random_seed=42,
+        )
+        out_nw = nw.from_native(out, eager_only=True)
+        means = (
+            out_nw
+            .group_by(["geo", "brand"])
+            .agg(nw.col("sales").mean().alias("mean_sales"))
+            .to_native()
+            .set_index(["geo", "brand"])["mean_sales"]
+        )
+        got = means.to_dict()
+        truth = {
+            ("North", "Acme"): 46.0,
+            ("North", "Bolt"): 51.0,
+            ("South", "Acme"): 56.0,
+            ("South", "Bolt"): 61.0,
+        }
+        for cell, intercept in truth.items():
+            # zero-noise run: mean = intercept + saturation lift (> 0)
+            assert got[cell] > intercept
+            assert got[cell] < intercept + 4.0
+
+    def test_single_column_panel_unchanged(self, geo_brand_data):
+        wide = geo_brand_data.assign(
+            cell=geo_brand_data["geo"] + "|" + geo_brand_data["brand"]
+        ).drop(columns=["geo", "brand"])
+        info, _ = pathmc.panel.build_panel_info(
+            nw.from_native(wide, eager_only=True),
+            {"unit": "cell", "time": "week"},
+        )
+        assert not info.is_multi_dim
+        assert info.unit == "cell"
+        assert len(info.unit_labels) == 4
