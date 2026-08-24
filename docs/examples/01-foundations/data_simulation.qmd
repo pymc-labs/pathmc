@@ -329,6 +329,21 @@ tmp = pathmc.model(spec, data=placeholder)
 tmp.equations()
 ```
 
+### `simulate_params_template()`
+
+`pathmc.simulate_params_template()` replaces this manual step: it compiles the same zero-filled placeholder generative model that `simulate()` builds internally and returns every required parameter name with its expected shape and dtype — without drawing any data.
+
+```{python}
+template = pathmc.simulate_params_template(
+    "M ~ X\nY ~ M + X",
+    data=pd.DataFrame({"X": [0.0]}),
+)
+for name, desc in sorted(template.items()):
+    print(f"{name:>8}: {desc['kind']:>6} {str(desc['shape']):>5} ({desc['dtype']})")
+```
+
+Each value describes how to fill `params`: `"kind"` is `"scalar"`, `"vector"`, or `"matrix"`, `"shape"` lists the axis lengths, and `"dtype"` gives the NumPy dtype. Panel models accept `panel=` and `pooling=` exactly as `model()` does; under `pooling="partial"`, unit-indexed hierarchical parameters are reported with concrete shapes derived from the placeholder data (e.g. `alpha_{var}` has one entry per panel unit), and transform terms contribute their named hyperparameters (e.g. the adstock `decay=theta_tv` argument appears as `theta_tv`).
+
 
 ## Summary
 
@@ -337,6 +352,7 @@ tmp.equations()
 - The returned DataFrame contains the original exogenous columns plus simulated endogenous columns.
 - Supported for all families (`gaussian`, `bernoulli`, `poisson`, `negbinomial`, `studentt`) and multi-equation models.
 - Use `equations()` on a placeholder model to discover both the structural equations and expected parameter names.
+- **`pathmc.simulate_params_template()`** lists every parameter name, shape, and dtype a spec requires — including hierarchical, transform, residual-covariance, and hsgp parameters — so `params` can be authored without trial and error.
 
 ::: {.callout-tip collapse="true"}
 ## When to use numpy simulation instead

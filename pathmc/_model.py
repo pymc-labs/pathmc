@@ -1923,3 +1923,151 @@ def simulate(
 
     result = nw_data.with_columns(list(new_columns.values()))
     return result.to_native()
+
+
+def simulate_params_template(
+    spec_string: str,
+    data: IntoFrame,
+    panel: dict[str, str] | None = None,
+    pooling: str | dict | None = None,
+    families: dict[str, str] | None = None,
+    latent: list[str] | set[str] | None = None,
+) -> dict[str, Any]:
+    """List every parameter ``simulate()`` requires for a specification.
+
+    Compiles the same zero-filled placeholder generative model that
+    :func:`simulate` builds internally and reports, for each free
+    parameter random variable, its name, shape, and dtype — without
+    drawing any data or running MCMC. Use it to author the ``params``
+    dictionary for simulate-and-recover workflows instead of inspecting
+    a throwaway ``model().equations()`` printout.
+
+    Each entry maps a parameter name to a descriptor dictionary with:
+
+    - ``"kind"``: ``"scalar"``, ``"vector"``, ``"matrix"``, or
+      ``"{n}-d array"`` for higher-rank values.
+    - ``"shape"``: tuple of axis lengths (empty for scalars).
+    - ``"dtype"``: NumPy dtype string of the underlying tensor.
+
+    Shapes are concrete: under ``pooling="partial"`` with a ``panel=``,
+    unit-indexed hierarchical parameters are reported as
+    ``(n_units,)`` vectors (e.g. ``alpha_Y``), with their hierarchical
+    means and scales as scalars (e.g. ``mu_alpha_Y``,
+    ``sigma_alpha_Y``). Residual covariances (``~~``) report the packed
+    Cholesky vector ``chol_{block}`` of length ``k(k+1)/2``, and
+    ``hsgp()`` terms report ``ell_{lhs}_{var}`` and ``eta_{lhs}_{var}``
+    scalars plus ``beta_hsgp_{lhs}_{var}`` of length ``m``.
+
+    Parameters
+    ----------
+    spec_string : str
+        Model specification in the pathmc DSL, exactly as passed to
+        :func:`simulate`.
+    data : IntoFrame
+        Placeholder DataFrame. Column names and dtypes must be real
+        (missing exogenous predictors raise the same errors as
+        :func:`model`), but values are irrelevant — missing endogenous
+        columns are zero-filled just as in :func:`simulate`.
+    panel : dict[str, str] | None
+        Panel metadata ``{"unit": ..., "time": ...}`` when the spec uses
+        ``lag()`` terms or partial pooling. Omitting it for a lagged
+        spec raises the same error as :func:`model`.
+    pooling : str | dict | None
+        Pooling configuration (e.g. ``"partial"``) forwarded to the
+        compiler so hierarchical parameters appear in the template.
+    families : dict[str, str] | None
+        Per-variable distribution families, same as :func:`simulate`.
+    latent : list[str] | set[str] | None
+        Variables to treat as latent (unobserved). Deterministic latent
+        variables contribute no parameters; stochastic ones
+        (``"latent_normal"``) contribute their ``sigma_{var}``.
+
+    Returns
+    -------
+    dict[str, Any]
+        Parameter name -> descriptor dictionary (see above). Every key
+        is required by ``params`` in a subsequent :func:`simulate`
+        call; no other keys are accepted.
+
+    Raises
+    ------
+    ValueError
+        If the spec contains ``lag()`` terms but ``panel=`` was omitted,
+        or if required exogenous columns are missing from *data*.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> import pathmc
+    >>> template = pathmc.simulate_params_template(
+    ...     "M ~ X\\nY ~ M + X",
+    ...     data=pd.DataFrame({"X": [0.0]}),
+    ... )
+    >>> sorted(template)
+    ['beta_M', 'beta_Y', 'sigma_M', 'sigma_Y']
+    >>> template["beta_Y"]
+    {'kind': 'vector', 'shape': (3,), 'dtype': 'float64'}
+    """
+    spec = parse_spec(spec_string)
+    latent_set = set(latent) if latent else set()
+    graph_info = build_graph(spec, latent=latent_set)
+
+    nw_data = nw.from_native(data, eager_only=True)
+
+    has_lag_terms = any(
+        term.lag_of is not None for reg in spec.regressions for term in reg.terms
+    )
+    if has_lag_terms and panel is None:
+        raise ValueError(
+            "lag() terms require a panel model. Pass panel={'unit': ..., "
+            "'time': ...} to simulate_params_template()."
+        )
+
+    panel_info: PanelInfo | None = None
+    if panel is not None:
+        panel_info = build_panel_info(nw_data, panel)
+
+    endogenous_lhs = [reg.lhs for reg in spec.regressions]
+    endo_set = set(endogenous_lhs)
+
+    zero_cols = [var for var in endogenous_lhs if var not in nw_data.columns]
+    data_sim = nw_data
+    if zero_cols:
+        data_sim = nw_data.with_columns([nw.lit(0.0).alias(var) for var in zero_cols])
+
+    design_matrices: dict[str, nw.DataFrame] = {}
+    for reg in spec.regressions:
+        design_matrices[reg.lhs] = build_design_matrix(reg, data_sim)
+
+    gen_model = compile_to_pymc(
+        spec,
+        data_sim,
+        design_matrices,
+        families=families,
+        panel_info=panel_info,
+        pooling=pooling,
+        latent=latent_set,
+        graph_info=graph_info,
+    )
+
+    template: dict[str, Any] = {}
+    for rv in gen_model.free_RVs:
+        # Stochastic endogenous RVs (observed outcomes / stochastic
+        # latents) are simulation outputs, not params entries.
+        if rv.name in endo_set:
+            continue
+        shape = tuple(int(d) for d in rv.shape.eval())
+        if len(shape) == 0:
+            kind = "scalar"
+        elif len(shape) == 1:
+            kind = "vector"
+        elif len(shape) == 2:
+            kind = "matrix"
+        else:
+            kind = f"{len(shape)}-d array"
+        template[rv.name] = {
+            "kind": kind,
+            "shape": shape,
+            "dtype": str(rv.dtype),
+        }
+    return template

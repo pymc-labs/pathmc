@@ -42,6 +42,7 @@ def test_top_level_public_api_is_explicit() -> None:
         "register_transform",
         "same_markov_equivalence_class",
         "simulate",
+        "simulate_params_template",
     ]
 
 
