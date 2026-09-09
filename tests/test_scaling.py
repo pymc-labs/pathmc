@@ -99,7 +99,8 @@ class TestFactorMath:
             _nw(raw),
             target_columns={"Y"},
         )
-        np.testing.assert_allclose(factors.factors["Y"], raw["Y"].max())
+        nw_df = _nw(raw)
+        np.testing.assert_allclose(factors._per_row(nw_df, "Y"), raw["Y"].max())
 
     def test_mean_per_group(self):
         raw = make_panel()
@@ -109,8 +110,9 @@ class TestFactorMath:
             panel_info=_panel_info(PANEL),
             target_columns={"Y"},
         )
+        nw_df = _nw(raw)
         expected = raw.groupby("geo")["Y"].transform("mean").to_numpy()
-        np.testing.assert_allclose(factors.factors["Y"], expected)
+        np.testing.assert_allclose(factors._per_row(nw_df, "Y"), expected)
 
     def test_max_per_group_matches_manual_prescale(self):
         raw = make_panel()
@@ -132,7 +134,8 @@ class TestFactorMath:
             _nw(make_panel()),
             channel_columns={"X"},
         )
-        np.testing.assert_allclose(factors.factors["X"], 25.0)
+        nw_df = _nw(make_panel())
+        np.testing.assert_allclose(factors._per_row(nw_df, "X"), 25.0)
 
     def test_fixed_grid_dict(self):
         raw = make_panel()
@@ -148,8 +151,9 @@ class TestFactorMath:
             panel_info=_panel_info(PANEL),
             target_columns={"Y"},
         )
+        nw_df = _nw(raw)
         np.testing.assert_allclose(
-            factors.factors["Y"], raw["geo"].map(TARGET_SCALES).to_numpy()
+            factors._per_row(nw_df, "Y"), raw["geo"].map(TARGET_SCALES).to_numpy()
         )
 
     def test_divide_by_xarray_coords_align(self):
@@ -166,8 +170,9 @@ class TestFactorMath:
             panel_info=_panel_info(PANEL),
             channel_columns={"X"},
         )
+        nw_df = _nw(raw)
         np.testing.assert_allclose(
-            factors.factors["X"], raw["geo"].map(POPULATIONS).to_numpy()
+            factors._per_row(nw_df, "X"), raw["geo"].map(POPULATIONS).to_numpy()
         )
 
     def test_divide_multi_dim_composite_alignment(self):
@@ -190,8 +195,9 @@ class TestFactorMath:
             panel_info=_panel_info(MULTI_PANEL),
             channel_columns={"spend"},
         )
+        nw_df = _nw(raw)
         np.testing.assert_allclose(
-            factors.factors["spend"], raw["geo"].map(POPULATIONS).to_numpy()
+            factors._per_row(nw_df, "spend"), raw["geo"].map(POPULATIONS).to_numpy()
         )
 
     def test_divide_dict_tuple_and_joined_keys(self):
@@ -239,9 +245,62 @@ class TestFactorMath:
             ("big", "bolt"): 2.0,
             ("small", "acme"): 16.0,
         }
+        nw_df = _nw(raw)
         expected = [lookup[k] for k in zip(raw["geo"], raw["brand"])]
-        np.testing.assert_allclose(f_t.factors["spend"], expected)
-        np.testing.assert_allclose(f_j.factors["spend"], expected)
+        np.testing.assert_allclose(f_t._per_row(nw_df, "spend"), expected)
+        np.testing.assert_allclose(f_j._per_row(nw_df, "spend"), expected)
+
+    def test_reordered_frame_uses_unit_keys_not_position(self):
+        """Factors keyed by unit survive row reordering."""
+        raw = make_panel()
+        factors = fit_scaling(
+            Scaling(channel={"method": "max", "dims": ("geo",)}),
+            _nw(raw),
+            panel_info=_panel_info(PANEL),
+            channel_columns={"X"},
+        )
+        reversed_native = raw.iloc[::-1].reset_index(drop=True)
+        scaled = factors.transform(_nw(reversed_native))
+        divisor = reversed_native.groupby("geo")["X"].transform("max").to_numpy()
+        np.testing.assert_allclose(
+            scaled["X"].to_numpy(), reversed_native["X"] / divisor
+        )
+
+    def test_subset_frame_uses_matching_unit_keys(self):
+        raw = make_panel()
+        factors = fit_scaling(
+            Scaling(channel={"method": "max", "dims": ("geo",)}),
+            _nw(raw),
+            panel_info=_panel_info(PANEL),
+            channel_columns={"X"},
+        )
+        subset = raw[raw["geo"] == "big"].reset_index(drop=True)
+        scaled = factors.transform(_nw(subset))
+        divisor = subset.groupby("geo")["X"].transform("max").to_numpy()
+        np.testing.assert_allclose(scaled["X"].to_numpy(), subset["X"] / divisor)
+
+    def test_unseen_unit_raises_key_error(self):
+        raw = make_panel()
+        factors = fit_scaling(
+            Scaling(channel={"method": "max", "dims": ("geo",)}),
+            _nw(raw),
+            panel_info=_panel_info(PANEL),
+            channel_columns={"X"},
+        )
+        extra = pd.concat(
+            [
+                raw,
+                pd.DataFrame({
+                    "geo": ["unknown"],
+                    "week": [99],
+                    "X": [1.0],
+                    "Y": [1.0],
+                }),
+            ],
+            ignore_index=True,
+        )
+        with pytest.raises(KeyError, match="no entry"):
+            factors.transform(_nw(extra))
 
     def test_transform_inverse_round_trip(self):
         raw = make_panel()
@@ -250,8 +309,9 @@ class TestFactorMath:
             _nw(raw),
             target_columns={"Y"},
         )
-        scaled = factors.transform(_nw(raw))
-        recovered = factors.inverse_transform_column(scaled["Y"].to_numpy(), "Y")
+        nw_df = _nw(raw)
+        scaled = factors.transform(nw_df)
+        recovered = factors.inverse_transform_column(scaled["Y"].to_numpy(), "Y", nw_df)
         np.testing.assert_allclose(recovered, raw["Y"].to_numpy())
 
 
@@ -403,7 +463,9 @@ class TestSimulateRoundTrip:
 
     def test_prefitted_factors_object_accepted(self):
         raw = make_panel()
-        factors = ScalingFactors(factors={"Y": np.full(len(raw), 10.0)})
+        factors = ScalingFactors(
+            factors={"Y": (("geo",), {("big",): 10.0, ("small",): 10.0})}
+        )
         out = pathmc.simulate(
             SPEC, data=raw, params=self.PARAMS, panel=PANEL, scaling=factors
         )
@@ -520,6 +582,44 @@ class TestValidationErrors:
                 SPEC,
                 data=make_panel(),
                 scaling="max",  # type: ignore[arg-type]
+            )
+
+    def test_fixed_negative_value_rejected(self):
+        with pytest.raises(ValueError, match="non-positive"):
+            fit_scaling(
+                Scaling(channel={"method": "fixed", "value": -2.0}),
+                _nw(make_panel()),
+                channel_columns={"X"},
+            )
+
+    def test_divide_grid_nan_rejected(self):
+        with pytest.raises(ValueError, match="non-positive"):
+            fit_scaling(
+                Scaling(
+                    channel={
+                        "method": "divide",
+                        "by": {"big": 100.0, "small": float("nan")},
+                        "dims": ("geo",),
+                    }
+                ),
+                _nw(make_panel()),
+                panel_info=_panel_info(PANEL),
+                channel_columns={"X"},
+            )
+
+    def test_divide_grid_inf_rejected(self):
+        with pytest.raises(ValueError, match="non-positive"):
+            fit_scaling(
+                Scaling(
+                    channel={
+                        "method": "divide",
+                        "by": {"big": float("inf"), "small": 10.0},
+                        "dims": ("geo",),
+                    }
+                ),
+                _nw(make_panel()),
+                panel_info=_panel_info(PANEL),
+                channel_columns={"X"},
             )
 
 

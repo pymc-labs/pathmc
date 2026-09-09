@@ -2272,6 +2272,7 @@ def model(
 def _invert_generated_columns(
     factors: ScalingFactors,
     columns: dict[str, nw.Series],
+    df: nw.DataFrame,
     backend: Any,
 ) -> dict[str, nw.Series]:
     """Multiply generated endogenous columns back into business units."""
@@ -2280,7 +2281,7 @@ def _invert_generated_columns(
         if var in factors.factors:
             out[var] = nw.new_series(
                 var,
-                factors.inverse_transform_column(series.to_numpy(), var),
+                factors.inverse_transform_column(series.to_numpy(), var, df),
                 backend=backend,
             )
         else:
@@ -2594,7 +2595,7 @@ def simulate(
 
         new_columns = (
             _invert_generated_columns(
-                scaling_factors, new_columns, nw_data.implementation
+                scaling_factors, new_columns, nw_data, nw_data.implementation
             )
             if scaling_factors is not None
             else new_columns
@@ -2674,7 +2675,7 @@ def simulate(
 
     if scaling_factors is not None:
         new_columns_xs = _invert_generated_columns(
-            scaling_factors, new_columns_xs, nw_data.implementation
+            scaling_factors, new_columns_xs, nw_data, nw_data.implementation
         )
     result = nw_data.with_columns(list(new_columns_xs.values()))
     return result.to_native()

@@ -101,20 +101,38 @@ class Scaling:
 
 @dataclass
 class ScalingFactors:
-    """Fitted per-row scale factors, as returned by ``model.fitted_scaling``.
+    """Fitted scale factors keyed by unit, as returned by ``model.fitted_scaling``.
 
-    Each entry maps a scaled data column to a divisor array with one
-    element per data row (a constant grid broadcasts to a constant
-    array). Forward scaling divides by these values; the inverse
-    transform multiplies by them.
+    Each entry maps a scaled data column to ``(dims, table)`` where
+    *dims* names the panel unit columns the table is keyed over (empty
+    for a single global scale) and *table* maps unit-key tuples to
+    divisors. Factors are materialized per data row on demand so the
+    same object can be reused on reordered or subset frames.
 
     Pass a fitted instance back as ``scaling=`` to
     :func:`pathmc.simulate` (or :func:`pathmc.model`) to reuse the exact
     estimation-time scales instead of refitting from data.
     """
 
-    #: Column name -> per-row divisor array.
-    factors: dict[str, np.ndarray] = field(default_factory=dict)
+    #: column -> (dims, {unit_key_tuple: divisor})
+    factors: dict[str, tuple[tuple[str, ...], dict[tuple[str, ...], float]]] = field(
+        default_factory=dict
+    )
+
+    def _per_row(self, df: nw.DataFrame, column: str) -> np.ndarray:
+        """Expand unit-keyed divisors to one value per row of *df*."""
+        dims, table = self.factors[column]
+        keys = _row_keys(df, dims)
+        missing = sorted({k for k in keys if k not in table})
+        if missing:
+            fitted = sorted(table)[:5]
+            raise KeyError(
+                f"Scaling factors for column {column!r} have no entry for "
+                f"unit(s) {missing[:5]}. The factors were fitted on units "
+                f"{fitted}...; pass a frame whose {dims or 'global'} values are "
+                "a subset of the estimation-time units, or refit the scaling."
+            )
+        return np.array([table[k] for k in keys])
 
     def transform(self, df: nw.DataFrame) -> nw.DataFrame:
         """Divide the fitted columns of *df* by their scale factors.
@@ -123,18 +141,22 @@ class ScalingFactors:
         simulated outcomes) are skipped.
         """
         new_cols: list[nw.Series] = []
-        for col, factor in self.factors.items():
+        for col in self.factors:
             if col not in df.columns:
                 continue
             vals = df[col].to_numpy().astype(float)
             new_cols.append(
-                nw.new_series(col, vals / factor, backend=df.implementation)
+                nw.new_series(
+                    col, vals / self._per_row(df, col), backend=df.implementation
+                )
             )
         return df.with_columns(new_cols) if new_cols else df
 
-    def inverse_transform_column(self, values: np.ndarray, column: str) -> np.ndarray:
-        """Multiply *values* by the fitted factor of *column* (the inverse transform)."""
-        return np.asarray(values, dtype=float) * self.factors[column]
+    def inverse_transform_column(
+        self, values: np.ndarray, column: str, df: nw.DataFrame
+    ) -> np.ndarray:
+        """Multiply *values* by the fitted factor of *column* (inverse transform)."""
+        return np.asarray(values, dtype=float) * self._per_row(df, column)
 
 
 def _validate_spec(role: str, cfg: dict[str, Any] | None) -> dict[str, Any]:
@@ -247,35 +269,45 @@ def _check_dims(dims: tuple[str, ...], panel_info: Any) -> None:
         )
 
 
-def _group_stat(
+def _require_positive_finite(
+    table: dict[tuple[str, ...], float],
+    *,
+    role: str,
+    method: str,
+    where: str,
+) -> None:
+    """Raise unless every divisor in *table* is positive and finite."""
+    if not table:
+        return
+    arr = np.array(list(table.values()))
+    bad = ~(np.isfinite(arr) & (arr > 0))
+    if bad.any():
+        raise ValueError(
+            f"Scaling.{role} method {method!r} produced non-positive or "
+            f"non-finite divisor(s) {np.unique(arr[bad])[:5].tolist()} for "
+            f"{where}. Every scale factor must be positive and finite."
+        )
+
+
+def _group_stat_table(
     values: np.ndarray, keys: list[tuple[str, ...]], method: str
-) -> np.ndarray:
-    """Per-row group max/mean of *values* grouped by *keys*."""
+) -> dict[tuple[str, ...], float]:
+    """Group max/mean statistics keyed by unit."""
     stats: dict[tuple[str, ...], float] = {}
     buckets: dict[tuple[str, ...], list[int]] = {}
     for i, key in enumerate(keys):
         buckets.setdefault(key, []).append(i)
     for key, rows in buckets.items():
         subset = values[rows]
-        stat = float(np.max(subset) if method == "max" else np.mean(subset))
-        if not np.isfinite(stat) or stat <= 0:
-            raise ValueError(
-                f"Cannot scale by method {method!r}: the group(s) {key!r} "
-                f"have a non-positive or non-finite column statistic "
-                f"({stat}). Scales must be positive and finite; use "
-                "'fixed' or 'divide' with explicit scales instead."
-            )
-        stats[key] = stat
-    return np.array([stats[key] for key in keys])
+        stats[key] = float(np.max(subset) if method == "max" else np.mean(subset))
+    return stats
 
 
-def _grid_factors(
-    grid: DataArray | dict[str, Any],
-    dims: tuple[str, ...],
+def _ensure_grid_covers_keys(
+    table: dict[tuple[str, ...], float],
     row_keys: list[tuple[str, ...]],
-) -> np.ndarray:
-    """Per-row divisors looked up in an external grid."""
-    table = _as_grid(grid, dims)
+) -> None:
+    """Raise if any observed unit key is absent from a scaling grid."""
     missing = sorted({key for key in row_keys if key not in table})
     if missing:
         shown = ", ".join(repr(m) for m in missing[:5])
@@ -285,15 +317,6 @@ def _grid_factors(
             f"Grid covers {len(table)} unit(s); every observed combination "
             "of the configured dims must have an entry."
         )
-    factors_ = np.array([table[key] for key in row_keys])
-    if np.any(factors_ == 0):
-        zeroed = sorted({key for key, val in zip(row_keys, factors_) if val == 0})
-        raise ValueError(
-            f"Scaling grid contains zero entries for unit(s) {zeroed[:5]}: "
-            "dividing by zero would produce inf/nan. Every divisor must be "
-            "non-zero."
-        )
-    return factors_
 
 
 def _row_keys(df: nw.DataFrame, dims: tuple[str, ...]) -> list[tuple[str, ...]]:
@@ -320,8 +343,8 @@ def _fit_role(
     panel_info: Any,
     candidates: set[str],
     has_data: bool,
-) -> dict[str, np.ndarray]:
-    """Fit per-row divisors for one role's columns."""
+) -> dict[str, tuple[tuple[str, ...], dict[tuple[str, ...], float]]]:
+    """Fit unit-keyed divisors for one role's columns."""
     method = cfg["method"]
     dims = tuple(cfg.get("dims") or ())
     _check_dims(dims, panel_info)
@@ -354,22 +377,31 @@ def _fit_role(
                     "only numeric columns can be scaled."
                 )
 
+    keys = _row_keys(df, dims)
+
     if method in ("max", "mean"):
-        factors: dict[str, np.ndarray] = {}
+        factors: dict[str, tuple[tuple[str, ...], dict[tuple[str, ...], float]]] = {}
         for col in columns:
-            keys = _row_keys(df, dims)
-            factors[col] = _group_stat(df[col].to_numpy().astype(float), keys, method)
+            table = _group_stat_table(df[col].to_numpy().astype(float), keys, method)
+            _require_positive_finite(
+                table, role=role, method=method, where=f"column {col!r}"
+            )
+            factors[col] = (dims, table)
         return factors
 
     if method == "fixed":
         value = cfg["value"]
-        keys = _row_keys(df, dims)
         if np.isscalar(value) and not hasattr(value, "dims"):
             factor = float(value)  # type: ignore[arg-type]
-            if factor == 0:
-                raise ValueError("Scaling 'fixed' value must be non-zero.")
-            return {col: np.full(len(keys), factor) for col in columns}
-        return {col: _grid_factors(value, dims, keys) for col in columns}
+            table = {(): factor} if not dims else {key: factor for key in set(keys)}
+            _require_positive_finite(
+                table, role=role, method=method, where="fixed value"
+            )
+            return {col: (dims, table) for col in columns}
+        table = _as_grid(value, dims)
+        _ensure_grid_covers_keys(table, keys)
+        _require_positive_finite(table, role=role, method=method, where="fixed grid")
+        return {col: (dims, table) for col in columns}
 
     # method == "divide"
     if not dims:
@@ -377,9 +409,10 @@ def _fit_role(
             'Scaling method "divide" requires "dims" naming the panel unit '
             "columns the external grid is keyed by."
         )
-    keys = _row_keys(df, dims)
-    grid_factors = _grid_factors(cfg["by"], dims, keys)
-    return {col: grid_factors.copy() for col in columns}
+    table = _as_grid(cfg["by"], dims)
+    _ensure_grid_covers_keys(table, keys)
+    _require_positive_finite(table, role=role, method=method, where="divide grid")
+    return {col: (dims, table) for col in columns}
 
 
 def fit_scaling(
@@ -427,7 +460,7 @@ def fit_scaling(
             f"pathmc.ScalingFactors, got {type(scaling).__name__}."
         )
 
-    factors: dict[str, np.ndarray] = {}
+    factors: dict[str, tuple[tuple[str, ...], dict[tuple[str, ...], float]]] = {}
     for role, candidates in (
         ("target", target_columns or set()),
         ("channel", channel_columns or set()),
