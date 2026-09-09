@@ -58,6 +58,25 @@ class PanelInfo:
 _SEPARATOR = "|"
 
 
+def _reject_separator_in_unit_values(
+    df: nw.DataFrame, unit_columns: tuple[str, ...]
+) -> None:
+    """Raise if any multi-dim unit column value contains the composite separator."""
+    if len(unit_columns) <= 1:
+        return
+    for col in unit_columns:
+        vals = df[col].cast(nw.String).unique().to_list()
+        bad = sorted({v for v in vals if v is not None and _SEPARATOR in v})
+        if bad:
+            raise ValueError(
+                f"Panel unit column {col!r} contains the composite-key separator "
+                f"{_SEPARATOR!r} in value(s) {bad[:5]}. Multi-dimensional panels "
+                f"join panel['unit'] columns with {_SEPARATOR!r}, so these values "
+                "would make distinct units indistinguishable. Recode the column "
+                "(e.g. replace the separator) before passing it as a unit column."
+            )
+
+
 def _require_column(df: nw.DataFrame, col: str, label: str) -> None:
     """Raise ``KeyError`` if *col* is absent from *df*."""
     if col not in df.columns:
@@ -227,8 +246,8 @@ def build_panel_info(
     PanelInfo
         Panel metadata for use by compiler and simulator. For
         multi-dimensional panels call :func:`attach_composite_unit` to
-        add the derived composite key column (``"|".join(unit_columns)``
-        named in ``PanelInfo.unit``) to the working frame before
+        add the derived composite key column (unit columns joined with
+        ``"|"``, named in ``PanelInfo.unit``) to the working frame before
         compiling; all downstream unit indexing reads that column.
 
     Raises
@@ -257,10 +276,12 @@ def build_panel_info(
     for col in (*unit_columns, time_col):
         _require_column(df, col, "Panel column")
 
+    _reject_separator_in_unit_values(df, unit_columns)
+
     if len(unit_columns) == 1:
         unit_col = unit_columns[0]
     else:
-        unit_col = "|".join(unit_columns)
+        unit_col = _SEPARATOR.join(unit_columns)
         if unit_col in df.columns:
             raise ValueError(
                 f"The derived composite unit key {unit_col!r} collides with "
@@ -301,7 +322,8 @@ def attach_composite_unit(df: nw.DataFrame, panel_info: PanelInfo) -> nw.DataFra
     """Add the derived composite unit key column to *df* when needed.
 
     Multi-dimensional panels (``panel={"unit": ["geo", "brand"], ...}``)
-    index units by a ``"|".join(unit_columns)`` key column that all
+    index units by a composite key column (unit columns joined with
+    ``"|"``) that all
     downstream unit indexing reads; single-column panels are returned
     unchanged.
     """
@@ -318,7 +340,7 @@ def _composite_unit_column(
     """Join the unit columns row-wise into one composite-key series."""
     keys = df[unit_columns[0]].cast(nw.String)
     for col in unit_columns[1:]:
-        keys = keys + "|" + df[col].cast(nw.String)
+        keys = keys + _SEPARATOR + df[col].cast(nw.String)
     return keys
 
 

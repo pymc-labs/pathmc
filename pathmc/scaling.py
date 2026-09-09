@@ -37,6 +37,8 @@ from typing import TYPE_CHECKING, Any
 import narwhals.stable.v1 as nw
 import numpy as np
 
+from pathmc.panel import _SEPARATOR
+
 if TYPE_CHECKING:
     from xarray import DataArray
 
@@ -217,8 +219,8 @@ def _as_grid(
     out: dict[tuple[str, ...], float] = {}
     normed: tuple[str, ...]
     for key, val in grid.items():
-        if isinstance(key, str) and "|" in key and len(dims) > 1:
-            normed = tuple(key.split("|"))
+        if isinstance(key, str) and _SEPARATOR in key and len(dims) > 1:
+            normed = tuple(key.split(_SEPARATOR))
         elif isinstance(key, (list, tuple)):
             normed = tuple(str(k) for k in key)
         else:

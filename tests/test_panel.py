@@ -195,6 +195,20 @@ def geo_brand_data():
 class TestMultiDimensionalPanel:
     """panel={'unit': [cols], 'time': col} builds a composite unit key."""
 
+    def test_separator_in_unit_values_rejected(self):
+        """Distinct units must not collapse when labels contain the join char."""
+        rows = [
+            {"geo": "A|B", "brand": "C", "week": 0, "tv": 1.0},
+            {"geo": "A", "brand": "B|C", "week": 0, "tv": 2.0},
+        ]
+        df = nw.from_native(pd.DataFrame(rows), eager_only=True)
+        with pytest.raises(ValueError, match="composite-key separator|separator"):
+            pathmc.panel.build_panel_info(
+                df,
+                {"unit": ["geo", "brand"], "time": "week"},
+                require_rectangular=False,
+            )
+
     def test_composite_unit_labels(self, geo_brand_data):
         info = pathmc.panel.build_panel_info(
             nw.from_native(geo_brand_data, eager_only=True),
