@@ -182,6 +182,64 @@ class TestSimulateValidation:
         emp_corr = np.corrcoef(resid[:, 0], resid[:, 1])[0, 1]
         assert emp_corr == pytest.approx(0.8, abs=0.05)
 
+    def test_residual_cov_terminal_block_numpy_reference(self):
+        """Terminal ~~ block: residual corr and Y1 variance match hand computation."""
+        rng = np.random.default_rng(0)
+        n = 5000
+        x = rng.normal(size=n)
+        exog = pd.DataFrame({"X": x})
+        params = {
+            "beta_Y1": [0.0, 0.5],
+            "beta_Y2": [0.0, -0.5],
+            "chol_Y1_Y2": [1.0, 0.8, 0.6],
+        }
+        df = pathmc.simulate(
+            "Y1 ~ X\nY2 ~ X\nY1 ~~ Y2",
+            data=exog,
+            params=params,
+            random_seed=42,
+        )
+        design = np.column_stack([np.ones(n), x])
+        resid = np.empty((n, 2))
+        for j, col in enumerate(["Y1", "Y2"]):
+            coef, *_ = np.linalg.lstsq(design, df[col].to_numpy(), rcond=None)
+            resid[:, j] = df[col].to_numpy() - design @ coef
+        assert np.corrcoef(resid[:, 0], resid[:, 1])[0, 1] == pytest.approx(
+            0.8, abs=0.05
+        )
+        expected_var_y1 = 0.25 * np.var(x) + 1.0
+        assert np.var(df["Y1"]) == pytest.approx(expected_var_y1, rel=0.1)
+
+    def test_residual_cov_descendant_raises(self, exog_df):
+        with pytest.raises(NotImplementedError, match="downstream"):
+            pathmc.simulate(
+                "Y1 ~ X\nY2 ~ X\nZ ~ Y1\nY1 ~~ Y2",
+                data=exog_df,
+                params={
+                    "beta_Y1": [0.0, 0.5],
+                    "beta_Y2": [0.0, -0.5],
+                    "beta_Z": [0.0, 3.0],
+                    "sigma_Z": 0.1,
+                    "chol_Y1_Y2": [1.0, 0.8, 0.6],
+                },
+                random_seed=42,
+            )
+
+    def test_residual_cov_scan_panel_raises(self, panel_exog):
+        df = panel_exog.rename(columns={"tv": "X"})
+        with pytest.raises(NotImplementedError, match="residual covariances"):
+            pathmc.simulate(
+                "Y1 ~ X + lag(Y1)\nY2 ~ X\nY1 ~~ Y2",
+                data=df,
+                panel={"unit": "region", "time": "week"},
+                params={
+                    "beta_Y1": [0.0, 0.5, 0.1],
+                    "beta_Y2": [0.0, -0.5],
+                    "chol_Y1_Y2": [1.0, 0.8, 0.6],
+                },
+                random_seed=42,
+            )
+
     def test_endogenous_in_data_ignored(self, exog_df):
         """If the user passes Y in data, it should be ignored."""
         exog_with_y = exog_df.copy()

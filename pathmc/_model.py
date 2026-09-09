@@ -34,6 +34,7 @@ from pathmc.compile import (
     _build_lag_map,
     _has_temporal_deps,
     _identify_residual_blocks,
+    _scan_term_base_vars,
     _term_base_vars,
     build_design_matrix,
     compile_to_pymc,
@@ -2289,6 +2290,20 @@ def _invert_generated_columns(
     return out
 
 
+def _prepare_simulation_frame(
+    spec: Spec,
+    nw_data: nw.DataFrame,
+    panel_info: PanelInfo | None,
+    scaling_factors: ScalingFactors | None,
+) -> nw.DataFrame:
+    """Zero-fill endogenous columns and apply scaling for simulate paths."""
+    endogenous_lhs = [reg.lhs for reg in spec.regressions]
+    data_sim = nw_data.with_columns([nw.lit(0.0).alias(var) for var in endogenous_lhs])
+    if scaling_factors is not None:
+        data_sim = scaling_factors.transform(data_sim)
+    return data_sim
+
+
 def simulate(
     spec_string: str,
     data: IntoFrameT,
@@ -2332,9 +2347,10 @@ def simulate(
         (``~~``), supply ``"chol_{block_name}"`` as the packed
         lower-triangular Cholesky vector of length ``k(k+1)/2``
         (PyMC ``LKJCholeskyCov`` packing); block members' simulated
-        columns share the correlated residuals, and descendant
-        equations see their mean structure (``mu_{var}``), not the
-        noisy realized values — mirroring estimation. For ``hsgp()``
+        columns share the correlated residuals. ``~~`` simulation
+        supports blocks whose members are terminal in the DAG; a
+        descendant of a block member raises ``NotImplementedError``.
+        For ``hsgp()``
         terms, supply ``"ell_{lhs}_{var}"``, ``"eta_{lhs}_{var}"``, and
         ``"beta_hsgp_{lhs}_{var}"`` (length ``m``). Transform
         parameters are keyed by their user-chosen DSL names, e.g.
@@ -2418,20 +2434,51 @@ def simulate(
     block_var_set, blocks = _identify_residual_blocks(spec)
     graph_info = build_graph(spec, latent=latent_set)
 
-    nw_data = nw.from_native(data, eager_only=True)
-
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
+
+    if (
+        spec.residual_covs
+        and panel is not None
+        and _has_temporal_deps(spec, graph_info)
+    ):
+        raise NotImplementedError(
+            "simulate() does not yet support residual covariances (~~) with "
+            "scan-compiled panel models (lag() or adstock()). Fit or simulate "
+            "the ~~ block without lag()/adstock(), or drop the ~~ clause."
+        )
+
+    if block_var_set:
+        consumers = {
+            reg.lhs
+            for reg in spec.regressions
+            if reg.lhs not in block_var_set
+            and block_var_set & {v for t in reg.terms for v in _scan_term_base_vars(t)}
+        }
+        if consumers:
+            block_deps = block_var_set & {
+                v
+                for reg in spec.regressions
+                if reg.lhs in consumers
+                for t in reg.terms
+                for v in _scan_term_base_vars(t)
+            }
+            raise NotImplementedError(
+                f"simulate() cannot yet generate {sorted(consumers)}: they are "
+                f"downstream of residual-covariance block member(s) "
+                f"{sorted(block_deps)}. "
+                "The generative graph wires block members through their mean "
+                "structure, so the realized correlated residuals would not reach "
+                "the descendant. Simulate the block in one call, then simulate "
+                "descendants in a second call using the returned columns."
+            )
+
+    nw_data = nw.from_native(data, eager_only=True)
 
     panel_info: PanelInfo | None = None
     if panel is not None:
         panel_info = build_panel_info(nw_data, panel)
         nw_data = attach_composite_unit(nw_data, panel_info)
-
-    # Endogenous columns are simulation outputs: overwrite any supplied
-    # values with zeros so they cannot leak into the model (the scan
-    # compiler seeds temporal carry state from data row 0).
-    data_sim = nw_data.with_columns([nw.lit(0.0).alias(var) for var in endogenous_lhs])
 
     scaling_factors: ScalingFactors | None = None
     if scaling is not None:
@@ -2450,7 +2497,8 @@ def simulate(
             channel_columns=term_vars - endo_set,
             roles_with_data=frozenset({"channel"}),
         )
-        data_sim = scaling_factors.transform(data_sim)
+
+    data_sim = _prepare_simulation_frame(spec, nw_data, panel_info, scaling_factors)
 
     design_matrices: dict[str, nw.DataFrame] = {}
     for reg in spec.regressions:
@@ -2723,8 +2771,8 @@ def simulate_params_template(
     data : IntoFrame
         Placeholder DataFrame. Column names and dtypes must be real
         (missing exogenous predictors raise the same errors as
-        :func:`model`), but values are irrelevant — missing endogenous
-        columns are zero-filled just as in :func:`simulate`.
+        :func:`model`), but values are irrelevant — endogenous columns
+        are zero-filled and scaling is applied just as in :func:`simulate`.
     panel : dict[str, str] | None
         Panel metadata ``{"unit": ..., "time": ...}`` when the spec uses
         ``lag()`` terms or partial pooling. Omitting it for a lagged
@@ -2796,10 +2844,22 @@ def simulate_params_template(
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
 
-    zero_cols = [var for var in endogenous_lhs if var not in nw_data.columns]
-    data_sim = nw_data
-    if zero_cols:
-        data_sim = nw_data.with_columns([nw.lit(0.0).alias(var) for var in zero_cols])
+    scaling_factors: ScalingFactors | None = None
+    if scaling is not None:
+        term_vars: set[str] = set()
+        for reg in spec.regressions:
+            for t in reg.terms:
+                term_vars.update(_term_base_vars(t))
+        scaling_factors = fit_scaling(
+            scaling,
+            nw_data,
+            panel_info=panel_info,
+            target_columns=endo_set - latent_set,
+            channel_columns=term_vars - endo_set,
+            roles_with_data=frozenset({"channel"}),
+        )
+
+    data_sim = _prepare_simulation_frame(spec, nw_data, panel_info, scaling_factors)
 
     design_matrices: dict[str, nw.DataFrame] = {}
     for reg in spec.regressions:
