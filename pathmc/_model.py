@@ -2224,7 +2224,7 @@ def model(
         panel_info = build_panel_info(
             nw_data,
             panel,
-            require_rectangular=_has_temporal_deps(spec, graph_info),
+            require_rectangular=_has_temporal_deps(spec),
         )
         nw_data = attach_composite_unit(nw_data, panel_info)
 
@@ -2442,11 +2442,7 @@ def simulate(
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
 
-    if (
-        spec.residual_covs
-        and panel is not None
-        and _has_temporal_deps(spec, graph_info)
-    ):
+    if spec.residual_covs and panel is not None and _has_temporal_deps(spec):
         raise NotImplementedError(
             "simulate() does not yet support residual covariances (~~) with "
             "scan-compiled panel models (lag() or adstock()). Fit or simulate "
@@ -2454,23 +2450,17 @@ def simulate(
         )
 
     if block_var_set:
-        consumers = {
-            reg.lhs
-            for reg in spec.regressions
-            if reg.lhs not in block_var_set
-            and block_var_set & {v for t in reg.terms for v in _scan_term_base_vars(t)}
-        }
+        consumers: dict[str, set[str]] = {}
+        for reg in spec.regressions:
+            read_vars = {v for term in reg.terms for v in _scan_term_base_vars(term)}
+            block_deps = (block_var_set & read_vars) - {reg.lhs}
+            if block_deps:
+                consumers[reg.lhs] = block_deps
         if consumers:
-            block_deps = block_var_set & {
-                v
-                for reg in spec.regressions
-                if reg.lhs in consumers
-                for t in reg.terms
-                for v in _scan_term_base_vars(t)
-            }
+            block_deps = set().union(*consumers.values())
             raise NotImplementedError(
                 f"simulate() cannot yet generate {sorted(consumers)}: they are "
-                f"downstream of residual-covariance block member(s) "
+                "downstream of and read residual-covariance block member(s) "
                 f"{sorted(block_deps)}. "
                 "The generative graph wires block members through their mean "
                 "structure, so the realized correlated residuals would not reach "

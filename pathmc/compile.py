@@ -84,7 +84,6 @@ class PanelScanInfo:
     reverse_idx: np.ndarray
     n_units: int
     n_times: int
-    n_steps: int
     unit_labels: list[str] = field(default_factory=list)
     time_values: list = field(default_factory=list)
 
@@ -1832,7 +1831,7 @@ def _build_lag_map(spec: Spec) -> dict[str, str]:
     return lag_map
 
 
-def _has_temporal_deps(spec: Spec, graph_info: GraphInfo | None = None) -> bool:
+def _has_temporal_deps(spec: Spec) -> bool:
     """Return True if the model has adstock transforms or any lag terms.
 
     Detects temporal dependencies from:
@@ -2773,7 +2772,6 @@ def _compile_scan_panel(
         reverse_idx=reverse_idx,
         n_units=n_units,
         n_times=n_times,
-        n_steps=n_times,
         unit_labels=units,
         time_values=time_values,
     )

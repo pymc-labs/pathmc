@@ -393,11 +393,11 @@ def _fit_role(
         value = cfg["value"]
         if np.isscalar(value) and not hasattr(value, "dims"):
             factor = float(value)  # type: ignore[arg-type]
-            table = {(): factor} if not dims else {key: factor for key in set(keys)}
+            table = {(): factor}
             _require_positive_finite(
                 table, role=role, method=method, where="fixed value"
             )
-            return {col: (dims, table) for col in columns}
+            return {col: ((), table) for col in columns}
         table = _as_grid(value, dims)
         _ensure_grid_covers_keys(table, keys)
         _require_positive_finite(table, role=role, method=method, where="fixed grid")

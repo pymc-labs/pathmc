@@ -64,18 +64,6 @@ def _mu_fn(pm_model):
     return fn, value_vars
 
 
-def test_scan_panel_records_explicit_n_steps():
-    """Scan panels must bound recursion with n_steps == n_times."""
-    model = pathmc.model(
-        "sales ~ lag(spend)",
-        data=_panel_data(["spend"]),
-        panel=_PANEL,
-        pooling=None,
-    )
-    scan_info = model._gen_model._pathmc_panel_scan
-    assert scan_info.n_steps == scan_info.n_times
-
-
 def test_missing_lag_base_compiles_without_keyerror():
     """``lag(spend)`` with no ``spend`` column must build, not raise KeyError.
 

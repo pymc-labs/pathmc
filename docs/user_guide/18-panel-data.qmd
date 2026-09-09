@@ -96,7 +96,7 @@ model = pathmc.model(
 )
 ```
 
-The data must be rectangular: every `geo × brand` combination shares the same set of `week` values. Non-rectangular panels raise an error naming the offending combinations. Under the hood the composite key (`"North|Acme"` style labels) becomes the unit coordinate, so each cell gets its own random intercept under `pooling="partial"` — the same machinery as single-column panels.
+The data must be rectangular: every `geo × brand` combination shares the same set of `week` values. Non-rectangular panels raise an error naming the offending combinations. Under the hood the composite key (`"North|Acme"` style labels) becomes the unit coordinate, so each cell gets its own random intercept under `pooling="partial"` — the same machinery as single-column panels. Because `|` separates the source labels, values in multi-dimensional unit columns cannot themselves contain `|`; recode those values before building the model.
 
 ## Structured pooling with `by_var`
 
@@ -121,6 +121,8 @@ model = pathmc.model(
 ```
 
 The tuple in `"coefficient"` names **panel dimensions** (the columns in `panel['unit']`) to pool over; a single string works for one dimension. Each pooled predictor gets a per-cell RV (`beta_{var}`) plus hyperpriors named after the requested dims (`mu_{var}_{dim}`, `sigma_{var}_{dim}`), and it replaces that predictor's flat entry in `beta_{lhs}`. A bare string `"none"` forces unpooled per-cell parameters instead — for a predictor this means one free coefficient per cell with no hierarchy, and for a transform parameter (e.g. `decay=theta_tv`) it upgrades the shared scalar to one value per cell.
+
+Use multiple names to pool over a dimension combination, for example `"tv": {"coefficient": ("geo", "brand")}` creates `mu_tv_geo_brand[geo, brand]`. If the observed panel omits some combinations, those unused hyperprior cells remain prior-only; use a rectangular panel when every cell should be informed by data.
 
 ## Posterior predictive checks with a lagged outcome
 
@@ -252,6 +254,10 @@ Omitting `scaling=` in `simulate()` changes nothing: parameters are then
 interpreted directly in raw data units. Note that `predict()` / `do()`
 outputs on a scaled model remain in scaled units; multiply by
 `model.fitted_scaling` manually if you need business units there.
+
+## Residual covariance simulation
+
+Cross-sectional residual-covariance blocks (`Y1 ~~ Y2`) can be simulated only when no equation reads a block member. Until correlated residual draws are represented inside the generative graph, `simulate()` rejects descendants—including directed edges between members of the same block—instead of silently generating a different DAG. Scan-compiled panel models cannot yet combine `simulate()` with residual covariances.
 
 ## Latent dynamics with sparse measurements
 

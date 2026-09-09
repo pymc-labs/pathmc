@@ -27,6 +27,7 @@ import warnings
 import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
+import pymc as pm
 import pytest
 
 import pathmc
@@ -46,6 +47,24 @@ def geo_brand_data():
                     "week": week,
                     "tv": rng.uniform(2.0, 20.0),
                     "radio": rng.uniform(0.5, 8.0),
+                })
+    return pd.DataFrame(rows)
+
+
+@pytest.fixture(scope="module")
+def three_geo_two_brand_data():
+    """Non-square panel that exposes transposed rank-2 indexing."""
+    rng = np.random.default_rng(8)
+    rows = []
+    for geo in ["East", "North", "South"]:
+        for brand in ["Acme", "Bolt"]:
+            for week in range(4):
+                rows.append({
+                    "geo": geo,
+                    "brand": brand,
+                    "week": week,
+                    "tv": rng.uniform(2.0, 20.0),
+                    "sales": rng.normal(),
                 })
     return pd.DataFrame(rows)
 
@@ -379,72 +398,40 @@ def geo_frame(rng):
 class TestByVarTwoDimCoefficient:
     """Rank-2 coefficient pooling over (geo, brand)."""
 
-    def test_by_var_coefficient_two_dims_compiles(self, geo_brand_data):
+    @staticmethod
+    def _assert_hyperprior_maps_to_cells(model):
+        pm_model = model.pymc_model
+        mu = np.arange(1.0, 7.0).reshape(3, 2)
+        fixed = pm.do(
+            pm_model,
+            {"mu_tv_geo_brand": mu, "sigma_tv_geo_brand": 1e-8},
+        )
+        beta = pm.draw(fixed["beta_tv"], random_seed=0)
+        geo_idx = {name: i for i, name in enumerate(pm_model.coords["geo"])}
+        brand_idx = {name: i for i, name in enumerate(pm_model.coords["brand"])}
+        expected = [
+            mu[geo_idx[geo], brand_idx[brand]]
+            for geo, brand in (label.split("|") for label in pm_model.coords["unit"])
+        ]
+        np.testing.assert_allclose(beta, expected, atol=1e-6)
+
+    def test_vectorized_hyperprior_maps_to_cells(self, three_geo_two_brand_data):
         model = pathmc.model(
             "sales ~ 0 + tv",
-            data=geo_brand_data.assign(
-                sales=np.random.default_rng(4).normal(size=len(geo_brand_data))
-            ),
+            data=three_geo_two_brand_data,
             panel={"unit": ["geo", "brand"], "time": "week"},
             pooling={"by_var": {"tv": {"coefficient": ("geo", "brand")}}},
         )
-        assert tuple(model.pymc_model["mu_tv_geo_brand"].shape.eval()) == (2, 2)
-        assert tuple(model.pymc_model["beta_tv"].shape.eval()) == (4,)
+        self._assert_hyperprior_maps_to_cells(model)
 
-    def test_by_var_two_dims_simulate_recovers_cell_slopes(self):
-        """NumPy-reference check: per-cell slopes match params (not pathmc DGP)."""
-        slopes = {
-            ("North", "Acme"): 1.0,
-            ("North", "Bolt"): 2.0,
-            ("South", "Acme"): 3.0,
-            ("South", "Bolt"): 4.0,
-        }
-        rng = np.random.default_rng(0)
-        rows = []
-        for geo in ["North", "South"]:
-            for brand in ["Acme", "Bolt"]:
-                for week in range(12):
-                    rows.append({
-                        "geo": geo,
-                        "brand": brand,
-                        "week": week,
-                        "tv": rng.uniform(1.0, 5.0),
-                    })
-        exog = pd.DataFrame(rows)
-        beta_tv = [
-            slopes[("North", "Acme")],
-            slopes[("North", "Bolt")],
-            slopes[("South", "Acme")],
-            slopes[("South", "Bolt")],
-        ]
-        out = pathmc.simulate(
-            "sales ~ 0 + tv",
-            data=exog,
-            params={
-                "beta_tv": beta_tv,
-                "sigma_sales": 1e-8,
-                "mu_tv_geo_brand": np.zeros((2, 2)),
-                "sigma_tv_geo_brand": 1.0,
-            },
-            panel={"unit": ["geo", "brand"], "time": "week"},
-            pooling={"by_var": {"tv": {"coefficient": ("geo", "brand")}}},
-            random_seed=1,
-        )
-        for (geo, brand), truth in slopes.items():
-            mask = (out["geo"] == geo) & (out["brand"] == brand)
-            slope = np.polyfit(out.loc[mask, "tv"], out.loc[mask, "sales"], 1)[0]
-            assert abs(slope - truth) < 1e-3
-
-    def test_scan_two_dim_hyperprior_shape(self, geo_brand_data):
+    def test_scan_hyperprior_maps_to_cells(self, three_geo_two_brand_data):
         model = pathmc.model(
             "sales ~ 0 + tv + lag(sales)",
-            data=geo_brand_data.assign(
-                sales=np.random.default_rng(5).normal(size=len(geo_brand_data))
-            ),
+            data=three_geo_two_brand_data,
             panel={"unit": ["geo", "brand"], "time": "week"},
             pooling={"by_var": {"tv": {"coefficient": ("geo", "brand")}}},
         )
-        assert tuple(model.pymc_model["mu_tv_geo_brand"].shape.eval()) == (2, 2)
+        self._assert_hyperprior_maps_to_cells(model)
 
 
 @pytest.mark.slow

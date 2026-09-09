@@ -137,6 +137,17 @@ class TestFactorMath:
         nw_df = _nw(make_panel())
         np.testing.assert_allclose(factors._per_row(nw_df, "X"), 25.0)
 
+    def test_fixed_constant_with_dims_reuses_on_unseen_units(self):
+        raw = make_panel()
+        factors = fit_scaling(
+            Scaling(channel={"method": "fixed", "value": 25.0, "dims": ("geo",)}),
+            _nw(raw),
+            panel_info=_panel_info(PANEL),
+            channel_columns={"X"},
+        )
+        future = raw.assign(geo="new")
+        np.testing.assert_allclose(factors._per_row(_nw(future), "X"), 25.0)
+
     def test_fixed_grid_dict(self):
         raw = make_panel()
         factors = fit_scaling(

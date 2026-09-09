@@ -225,6 +225,21 @@ class TestSimulateValidation:
                 random_seed=42,
             )
 
+    def test_residual_cov_within_block_edge_raises(self, exog_df):
+        with pytest.raises(
+            NotImplementedError, match="residual-covariance block member"
+        ):
+            pathmc.simulate(
+                "Y1 ~ X\nY2 ~ X + Y1\nY1 ~~ Y2",
+                data=exog_df,
+                params={
+                    "beta_Y1": [0.0, 0.5],
+                    "beta_Y2": [0.0, -0.5, 3.0],
+                    "chol_Y1_Y2": [1.0, 0.8, 0.6],
+                },
+                random_seed=42,
+            )
+
     def test_residual_cov_scan_panel_raises(self, panel_exog):
         df = panel_exog.rename(columns={"tv": "X"})
         with pytest.raises(NotImplementedError, match="residual covariances"):
