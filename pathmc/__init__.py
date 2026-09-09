@@ -40,6 +40,7 @@ from pathmc.identify import ImplicationTestResult  # noqa: E402
 from pathmc.interpret import InterpretResult, datagrid  # noqa: E402
 from pathmc._model import PathModel, model, simulate  # noqa: E402
 from pathmc.adjustment import AdjustmentModel  # noqa: E402
+from pathmc.plotting import plot_density  # noqa: E402
 from pathmc.refute import PlaceboRefutationResult  # noqa: E402
 from pathmc.sensitivity import SensitivityResult  # noqa: E402
 from pathmc.simulate import DoResult, EstimandResult  # noqa: E402
@@ -70,6 +71,7 @@ __all__ = [
     "dag_to_spec",
     "datagrid",
     "model",
+    "plot_density",
     "register_transform",
     "same_markov_equivalence_class",
     "simulate",

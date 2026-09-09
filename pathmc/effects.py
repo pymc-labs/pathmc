@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 import warnings
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import narwhals.stable.v1 as nw
 import numpy as np
@@ -30,7 +31,11 @@ import xarray as xr
 
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi, hdi_label
 from pathmc.parse import Spec
+from pathmc.plotting import plot_density
 from pathmc.reprs import ReprSpec, ResultReprMixin
+
+if TYPE_CHECKING:
+    import matplotlib.axes
 
 __all__ = ["EffectResult"]
 
@@ -108,6 +113,31 @@ class EffectResult(ResultReprMixin):
         """Highest density interval for the effect."""
         return hdi(self.draws, prob=prob)
 
+    def plot_dist(
+        self,
+        *,
+        ref: float | None = None,
+        color: str = "C0",
+        ax: matplotlib.axes.Axes | None = None,
+    ) -> None:
+        """Plot the posterior density of the effect.
+
+        Parameters
+        ----------
+        ref : float | None
+            Reference value marked with a dashed vertical line (e.g. ``0`` for a
+            null effect). No line when ``None``.
+        color : str
+            Line and fill color (default ``"C0"``).
+        ax : matplotlib.axes.Axes | None
+            Axes to plot on. Creates a new figure if ``None``.
+        """
+        plot_density(self.draws, label=self.name, ref=ref, color=color, ax=ax)
+        import matplotlib.pyplot as plt
+
+        if plt.get_backend().lower() != "agg":
+            plt.show()
+
     def _repr_compact(self) -> str:
         lo, hi = self.hdi()
         label = hdi_label()
@@ -129,7 +159,7 @@ class EffectResult(ResultReprMixin):
                 ["P(> 0)", f"{self.prob_gt_zero:.4f}"],
                 ["Draws", str(n)],
             ],
-            footer="Methods: .hdi() &nbsp;·&nbsp; Attributes: .mean .sd .prob_gt_zero .draws",
+            footer="Methods: .hdi() .plot_dist() &nbsp;·&nbsp; Attributes: .mean .sd .prob_gt_zero .draws",
         )
 
 
