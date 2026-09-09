@@ -13,26 +13,18 @@
 #   limitations under the License.
 """Behaviour of the exogenous-lag scan builder when the base column is missing.
 
-The exog-lag fix (the #316 follow-up) builds the lagged sequence directly from
-the ``pm.Data`` nodes::
-
-    lagged_exog_sequences[base] = pt.concatenate(
-        [init_row, exog_data_nodes[base][:-1]], axis=0
-    )
-
-But ``exog_lag_bases`` is filtered only on ``base not in endo_set`` while
+Exogenous lags use scan carry state (restored in #395 after pytensor#2252).
+``exog_lag_bases`` is filtered only on ``base not in endo_set`` while
 ``exog_data_nodes`` *additionally* requires ``base in data_sorted.columns``.
 So a ``lag(x)`` term whose contemporaneous column ``x`` is absent from the data
 lands in ``exog_lag_bases`` **without** a corresponding entry in
-``exog_data_nodes`` — and a direct index there raises ``KeyError``.
+``exog_data_nodes``.
 
-``_compile_scan_panel`` already treats that as a reachable state (the
-``init_exog_lag`` ``else`` branch falls back to zeros), and the carry path that
-this code replaced tolerated it via ``exog_t.get(k, pt.zeros(n_units))`` —
-resolving the lag to the init row at ``t=0`` and zeros for ``t>=1``.  These
-tests pin that behaviour: the model must compile, take the missing-base
-``else`` branch, stay graph-consistent, and contribute exactly zero from the
-absent lag regressor.
+``_compile_scan_panel`` treats that as a reachable state (the ``init_exog_lag``
+``else`` branch falls back to zeros), and the carry path resolves it via
+``exog_t.get(k, pt.zeros(n_units))`` — the init row at ``t=0`` and zeros for
+``t>=1``.  These tests pin that behaviour: the model must compile, stay
+graph-consistent, and contribute exactly zero from the absent lag regressor.
 """
 
 from __future__ import annotations
@@ -70,6 +62,18 @@ def _mu_fn(pm_model):
     value_vars = pm_model.value_vars
     fn = pytensor.function(value_vars, mu_node, on_unused_input="ignore")
     return fn, value_vars
+
+
+def test_scan_panel_records_explicit_n_steps():
+    """Scan panels must bound recursion with n_steps == n_times."""
+    model = pathmc.model(
+        "sales ~ lag(spend)",
+        data=_panel_data(["spend"]),
+        panel=_PANEL,
+        pooling=None,
+    )
+    scan_info = model._gen_model._pathmc_panel_scan
+    assert scan_info.n_steps == scan_info.n_times
 
 
 def test_missing_lag_base_compiles_without_keyerror():

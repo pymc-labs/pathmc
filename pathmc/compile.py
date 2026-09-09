@@ -84,6 +84,7 @@ class PanelScanInfo:
     reverse_idx: np.ndarray
     n_units: int
     n_times: int
+    n_steps: int
     unit_labels: list[str] = field(default_factory=list)
     time_values: list = field(default_factory=list)
 
@@ -2383,50 +2384,7 @@ def _compile_scan_panel(
                     f"init_{var}", mu=0, sigma=1, shape=(n_units,)
                 )
 
-        # Pre-compute lagged exogenous sequences from pm.Data nodes.
-        #
-        # PyTensor's scan-merge optimizer has a bug that fires when a sit_sot
-        # carry update is trivially ``inner_out = current_seq_slice`` (i.e., the
-        # carry merely echoes the input sequence one step behind). That structure
-        # appeared in the original exog-lag carry: ``out[i] = exog_t[base]``.
-        # When two scan computations sharing the same inner function are compiled
-        # together (as happens when ``pytensor.function`` receives both
-        # ``mu_valued`` and ``logp``), the optimizer merges the two scans but
-        # incorrectly permutes the carry channels, producing a wrong logp graph
-        # that ``pm.sample`` then optimizes — causing the zeroed-out lag-effect
-        # posteriors reported in issue #316.
-        # Upstream bug: https://github.com/pymc-devs/pytensor/issues/2252
-        # TODO: once pytensor/issues/2252 is fixed and released, revert to a
-        # scan carry here and remove this workaround (see pathmc issue #333).
-        #
-        # Fix: build the lagged tensor directly from the existing pm.Data nodes
-        # (so pm.set_data / do() interventions still propagate automatically)
-        # and pass it as a plain scan *sequence* rather than carry state.  This
-        # eliminates the trivial-echo carry that triggered the merge bug.
-        lagged_exog_sequences: dict[str, Any] = {}
-        for base in exog_lag_bases:
-            init_row = pt.as_tensor_variable(
-                init_exog_lag[base][None, :]
-            )  # (1, n_units)
-            if base in exog_data_nodes:
-                lagged_exog_sequences[base] = pt.concatenate(
-                    [init_row, exog_data_nodes[base][:-1]], axis=0
-                )  # (n_times, n_units)
-            else:
-                # No contemporaneous exog data node for this lag base — e.g. a
-                # ``lag(x)`` term whose base column is absent from the data (the
-                # same case ``init_exog_lag`` handles with its zeros/lag1
-                # fallback above).  ``exog_lag_bases`` filters only on
-                # ``base not in endo_set`` while ``exog_data_nodes`` additionally
-                # requires ``base in data_sorted.columns``, so the two key sets
-                # can diverge.  The old carry path resolved such bases to the
-                # init row at t=0 and zeros for t>=1 (via
-                # ``exog_t.get(k, pt.zeros(n_units))``); reproduce that here
-                # rather than raising KeyError on a direct index.
-                zeros_tail = pt.zeros((n_times - 1, n_units))
-                lagged_exog_sequences[base] = pt.concatenate(
-                    [init_row, zeros_tail], axis=0
-                )  # (n_times, n_units)
+        # Exog lags use scan carry state (restored in #395 after pytensor#2252 / #333).
 
         discrete_uniform_nodes: dict[str, Any] = {}
         for var in discrete_bernoulli_vars:
@@ -2744,11 +2702,7 @@ def _compile_scan_panel(
             sequences=sequences,
             outputs_info=outputs_info,
             non_sequences=non_seq_list,
-            # Pure latent dynamics (e.g. ``awareness ~ lag(awareness)``
-            # with no exogenous columns and a deterministic latent)
-            # leave the sequence list empty; scan then needs an explicit
-            # step count to know how long the recursion runs.
-            n_steps=n_times if not sequences else None,
+            n_steps=n_times,
             strict=True,
             return_updates=False,
         )
@@ -2809,6 +2763,7 @@ def _compile_scan_panel(
         reverse_idx=reverse_idx,
         n_units=n_units,
         n_times=n_times,
+        n_steps=n_times,
         unit_labels=units,
         time_values=time_values,
     )
