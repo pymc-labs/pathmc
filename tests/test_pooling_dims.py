@@ -376,6 +376,77 @@ def geo_frame(rng):
     return pd.DataFrame(rows)
 
 
+class TestByVarTwoDimCoefficient:
+    """Rank-2 coefficient pooling over (geo, brand)."""
+
+    def test_by_var_coefficient_two_dims_compiles(self, geo_brand_data):
+        model = pathmc.model(
+            "sales ~ 0 + tv",
+            data=geo_brand_data.assign(
+                sales=np.random.default_rng(4).normal(size=len(geo_brand_data))
+            ),
+            panel={"unit": ["geo", "brand"], "time": "week"},
+            pooling={"by_var": {"tv": {"coefficient": ("geo", "brand")}}},
+        )
+        assert tuple(model.pymc_model["mu_tv_geo_brand"].shape.eval()) == (2, 2)
+        assert tuple(model.pymc_model["beta_tv"].shape.eval()) == (4,)
+
+    def test_by_var_two_dims_simulate_recovers_cell_slopes(self):
+        """NumPy-reference check: per-cell slopes match params (not pathmc DGP)."""
+        slopes = {
+            ("North", "Acme"): 1.0,
+            ("North", "Bolt"): 2.0,
+            ("South", "Acme"): 3.0,
+            ("South", "Bolt"): 4.0,
+        }
+        rng = np.random.default_rng(0)
+        rows = []
+        for geo in ["North", "South"]:
+            for brand in ["Acme", "Bolt"]:
+                for week in range(12):
+                    rows.append({
+                        "geo": geo,
+                        "brand": brand,
+                        "week": week,
+                        "tv": rng.uniform(1.0, 5.0),
+                    })
+        exog = pd.DataFrame(rows)
+        beta_tv = [
+            slopes[("North", "Acme")],
+            slopes[("North", "Bolt")],
+            slopes[("South", "Acme")],
+            slopes[("South", "Bolt")],
+        ]
+        out = pathmc.simulate(
+            "sales ~ 0 + tv",
+            data=exog,
+            params={
+                "beta_tv": beta_tv,
+                "sigma_sales": 1e-8,
+                "mu_tv_geo_brand": np.zeros((2, 2)),
+                "sigma_tv_geo_brand": 1.0,
+            },
+            panel={"unit": ["geo", "brand"], "time": "week"},
+            pooling={"by_var": {"tv": {"coefficient": ("geo", "brand")}}},
+            random_seed=1,
+        )
+        for (geo, brand), truth in slopes.items():
+            mask = (out["geo"] == geo) & (out["brand"] == brand)
+            slope = np.polyfit(out.loc[mask, "tv"], out.loc[mask, "sales"], 1)[0]
+            assert abs(slope - truth) < 1e-3
+
+    def test_scan_two_dim_hyperprior_shape(self, geo_brand_data):
+        model = pathmc.model(
+            "sales ~ 0 + tv + lag(sales)",
+            data=geo_brand_data.assign(
+                sales=np.random.default_rng(5).normal(size=len(geo_brand_data))
+            ),
+            panel={"unit": ["geo", "brand"], "time": "week"},
+            pooling={"by_var": {"tv": {"coefficient": ("geo", "brand")}}},
+        )
+        assert tuple(model.pymc_model["mu_tv_geo_brand"].shape.eval()) == (2, 2)
+
+
 @pytest.mark.slow
 class TestParameterRecovery:
     """Synthetic 2-geo x 2-brand MMM: recover geo-level coefficient means."""

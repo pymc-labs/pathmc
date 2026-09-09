@@ -609,7 +609,7 @@ def compile_to_pymc(
         for entry in coef_entries.values():
             if entry["kind"] != "coefficient":
                 continue
-            entry["group_idx"], levels = _build_cell_group_index(
+            entry["dim_idx"], levels = _build_cell_group_index(
                 data, panel_info, entry["dims"]
             )
             for dim_name, level_list in levels.items():
@@ -650,7 +650,7 @@ def compile_to_pymc(
 
         if unit_idx is not None:
             for pname, entry in by_var_entries.items():
-                if entry["kind"] == "none_transform" and pname in transform_param_rvs:
+                if entry["kind"] == "none_transform" and pname in priors:
                     # Expand per-cell values to unsorted data rows.
                     transform_param_rvs[pname] = transform_param_rvs[pname][unit_idx]
 
@@ -761,7 +761,8 @@ def compile_to_pymc(
                 mu_gen = mu_gen + rs
                 mu_est = mu_est + rs
 
-            if pooled_by_lhs.get(var) and unit_idx is not None:
+            if pooled_by_lhs.get(var):
+                assert unit_idx is not None, "by_var pooling requires a unit index"
                 contribution = _compile_by_var_coefficients(
                     reg,
                     {n: coef_entries[n] for n in sorted(pooled_by_lhs[var])},
@@ -1020,7 +1021,7 @@ def _parse_by_var_pooling(
 
     - ``{"kind": "coefficient", "dims": (...), "key": "geo"}`` --
       hierarchical coefficient pooled over the requested panel dims
-      (``group_idx`` is filled in later by the compiler once data is at hand).
+      (``dim_idx`` is filled in later by the compiler once data is at hand).
     - ``{"kind": "none_coefficient"}`` -- unpooled per-cell coefficient.
     - ``{"kind": "none_transform"}`` -- unpooled per-cell transform parameter.
 
@@ -1216,12 +1217,13 @@ def _build_cell_group_index(
     data: nw.DataFrame,
     panel_info: PanelInfo,
     dims: tuple[str, ...],
-) -> tuple[np.ndarray, dict[str, list[Any]]]:
-    """Map each panel cell to its group index for dim-subset pooling.
+) -> tuple[tuple[np.ndarray, ...], dict[str, list[Any]]]:
+    """Map each panel cell to per-dim indices for dim-subset pooling.
 
-    Returns ``(group_idx, levels)`` where *group_idx* has one entry per
-    cell, aligned with ``panel_info.unit_labels``, indexing into the
-    raveled Cartesian product of the sorted level lists in *levels*.
+    Returns ``(dim_idx, levels)`` where *dim_idx* is a tuple of index
+    arrays (one per dim in *dims*), each aligned with
+    ``panel_info.unit_labels``, suitable for advanced indexing into a
+    rank-N hyperprior tensor.
     """
     cols = [panel_info.unit] + [d for d in dims if d != panel_info.unit]
     combos = data.select(cols).unique(maintain_order=True)
@@ -1233,18 +1235,27 @@ def _build_cell_group_index(
 
     levels = {d: sorted(data[d].unique().to_list()) for d in dims}
     level_idx = {d: {v: i for i, v in enumerate(levels[d])} for d in dims}
-    shape = tuple(len(levels[d]) for d in dims)
 
-    group_idx = np.empty(len(panel_info.unit_labels), dtype=np.int64)
+    dim_idx_arrays = [
+        np.empty(len(panel_info.unit_labels), dtype=np.int64) for _ in dims
+    ]
     for ci, lab in enumerate(panel_info.unit_labels):
         if lab not in label_to_vals:
             raise ValueError(
                 f"Panel unit {lab!r} has no rows in the data; cannot derive "
                 f"its ({', '.join(dims)}) group membership for by_var pooling."
             )
-        idxs = tuple(level_idx[d][v] for d, v in zip(dims, label_to_vals[lab]))
-        group_idx[ci] = np.ravel_multi_index(idxs, shape)
-    return group_idx, levels
+        vals = label_to_vals[lab]
+        for di, d in enumerate(dims):
+            dim_idx_arrays[di][ci] = level_idx[d][vals[di]]
+    return tuple(dim_idx_arrays), levels
+
+
+def _index_hyperprior(mu_hp: Any, dim_idx: tuple[np.ndarray, ...]) -> Any:
+    """Index a rank-N hyperprior with per-dim unit index arrays."""
+    if len(dim_idx) > 1:
+        return mu_hp[dim_idx]
+    return mu_hp[dim_idx[0]]
 
 
 def _exclude_pooled_from_flat_beta(
@@ -1253,8 +1264,9 @@ def _exclude_pooled_from_flat_beta(
 ) -> dict[str, MuSpec]:
     """Zero out flat-beta slots replaced by ``by_var`` coefficients.
 
-    Mutates *mu_specs* in place (slot lists are rebuilt) and returns it.
-    The hierarchical contribution is added separately by the compiler,
+    Replaces ``mu_specs[lhs]`` with ``dataclasses.replace`` copies (the
+    dict is mutated; the original ``MuSpec`` objects are not). The
+    hierarchical contribution is added separately by the compiler,
     mirroring how random slopes bypass the flat beta vector.
     """
     for lhs, names in pooled_by_lhs.items():
@@ -1300,7 +1312,7 @@ def _compile_by_var_coefficients(
             )
             beta = pm.Normal(
                 f"beta_{name}",
-                mu=mu_hp[entry["group_idx"]],
+                mu=_index_hyperprior(mu_hp, entry["dim_idx"]),
                 sigma=sigma_hp,
                 dims="unit",
             )
@@ -2069,7 +2081,7 @@ def _compile_scan_panel(
             pooled_by_lhs[reg_.lhs] = names
     for entry in coef_entries.values():
         if entry["kind"] == "coefficient":
-            entry["group_idx"], entry["levels"] = _build_cell_group_index(
+            entry["dim_idx"], entry["levels"] = _build_cell_group_index(
                 data, panel_info, entry["dims"]
             )
     _exclude_pooled_from_flat_beta(mu_specs, pooled_by_lhs)
@@ -2235,7 +2247,7 @@ def _compile_scan_panel(
                 )
                 byvar_rvs[name] = pm.Normal(
                     f"beta_{name}",
-                    mu=mu_hp[entry["group_idx"]],
+                    mu=_index_hyperprior(mu_hp, entry["dim_idx"]),
                     sigma=sigma_hp,
                     dims="unit",
                 )
