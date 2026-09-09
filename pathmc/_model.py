@@ -2777,7 +2777,10 @@ def simulate_params_template(
         Placeholder DataFrame. Column names and dtypes must be real
         (missing exogenous predictors raise the same errors as
         :func:`model`), but values are irrelevant — endogenous columns
-        are zero-filled and scaling is applied just as in :func:`simulate`.
+        are zero-filled just as in :func:`simulate`. *scaling* is
+        validated structurally but not fitted here (data-derived target
+        scales require :func:`simulate` or a pre-fitted
+        :class:`~pathmc.scaling.ScalingFactors`).
     panel : dict[str, str] | None
         Panel metadata ``{"unit": ..., "time": ...}`` when the spec uses
         ``lag()`` terms or partial pooling. Omitting it for a lagged
@@ -2846,25 +2849,9 @@ def simulate_params_template(
         panel_info = build_panel_info(nw_data, panel)
         nw_data = attach_composite_unit(nw_data, panel_info)
 
-    endogenous_lhs = [reg.lhs for reg in spec.regressions]
-    endo_set = set(endogenous_lhs)
+    endo_set = {reg.lhs for reg in spec.regressions}
 
-    scaling_factors: ScalingFactors | None = None
-    if scaling is not None:
-        term_vars: set[str] = set()
-        for reg in spec.regressions:
-            for t in reg.terms:
-                term_vars.update(_term_base_vars(t))
-        scaling_factors = fit_scaling(
-            scaling,
-            nw_data,
-            panel_info=panel_info,
-            target_columns=endo_set - latent_set,
-            channel_columns=term_vars - endo_set,
-            roles_with_data=frozenset({"channel"}),
-        )
-
-    data_sim = _prepare_simulation_frame(spec, nw_data, panel_info, scaling_factors)
+    data_sim = _prepare_simulation_frame(spec, nw_data, panel_info, None)
 
     design_matrices: dict[str, nw.DataFrame] = {}
     for reg in spec.regressions:
