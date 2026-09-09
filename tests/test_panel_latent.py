@@ -75,8 +75,24 @@ def _build_model(df: pd.DataFrame, **kwargs) -> pathmc.PathModel:
 # ---------------------------------------------------------------------------
 
 
+def test_init_prior_absent_without_panel():
+    from pathmc.parse import parse_spec
+    from pathmc.priors import default_priors
+
+    priors = default_priors(
+        parse_spec("a ~ lag(a) + x\ny ~ a"),
+        latent={"a"},
+        families={"a": "latent_normal"},
+    )
+    assert "init_a" not in priors
+
+
 class TestLatentInitCompilation:
     """Latent variables get an ``init_{var}`` free parameter as scan seed."""
+
+    def test_init_rv_uses_unit_coord(self):
+        m = _build_model(_ar1_survey_panel())
+        assert m.pymc_model.named_vars_to_dims.get("init_awareness") == ("unit",)
 
     def test_stochastic_latent_has_init_rv(self):
         m = _build_model(_ar1_survey_panel())

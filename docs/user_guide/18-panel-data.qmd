@@ -281,8 +281,7 @@ have no data column, their initial condition cannot be read off the data —
 instead it is *estimated*: an `init_awareness` free parameter (one value per
 unit, default prior `Normal(0, 1)`) seeds the recursion. It is the state
 *preceding* the first observed period — the first latent value is computed
-as `intercept + phi * init_awareness` plus process noise. Override it
-like any other prior when you have prior knowledge about the starting level:
+as `intercept + phi * init_awareness` plus process noise. The default `Normal(0, 1)` prior is not scale-free — override it when the latent is not O(1), otherwise t=0 is pinned near zero and early-period trajectories are biased. Override it like any other prior when you have prior knowledge about the starting level:
 
 ```python
 from pathmc.priors import Prior

@@ -551,7 +551,8 @@ def compile_to_pymc(
     _reject_endogenous_hsgp_inputs(spec)
     _reject_nan_predictors(data, graph_info)
 
-    if panel_info is not None and _has_temporal_deps(spec, graph_info):
+    if _is_scan_panel(spec, panel_info):
+        assert panel_info is not None
         return _compile_scan_panel(
             spec=spec,
             data=data,
@@ -643,9 +644,7 @@ def compile_to_pymc(
                     ).create_variable(pname)
 
         transform_param_rvs.update(
-            _emit_transform_priors(
-                spec, transform_map, priors, existing=transform_param_rvs
-            )
+            _emit_transform_priors(spec, priors, existing=transform_param_rvs)
         )
 
         if unit_idx is not None:
@@ -1342,7 +1341,6 @@ def _split_by_var_entries(
 
 def _emit_transform_priors(
     spec: Spec,
-    transform_map: dict[str, TransformCall],
     priors: dict[str, Any] | None = None,
     existing: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -1834,7 +1832,7 @@ def _build_lag_map(spec: Spec) -> dict[str, str]:
     return lag_map
 
 
-def _has_temporal_deps(spec: Spec, graph_info: GraphInfo) -> bool:
+def _has_temporal_deps(spec: Spec, graph_info: GraphInfo | None = None) -> bool:
     """Return True if the model has adstock transforms or any lag terms.
 
     Detects temporal dependencies from:
@@ -1856,6 +1854,11 @@ def _has_temporal_deps(spec: Spec, graph_info: GraphInfo) -> bool:
                         else None
                     )
     return False
+
+
+def _is_scan_panel(spec: Spec, panel_info: PanelInfo | None) -> bool:
+    """True when compile_to_pymc will take the scan-panel path."""
+    return panel_info is not None and _has_temporal_deps(spec)
 
 
 def _transform_base_vars(tc: TransformCall) -> list[str]:
@@ -2385,16 +2388,11 @@ def _compile_scan_panel(
         # never read their carry state, so no init parameter is emitted.
         latent_init_rvs: dict[str, Any] = {}
         for var in sorted(set(latent) & set(endo_lag_bases)):
-            if priors and f"init_{var}" in priors:
-                # _ensure_dims forces the per-unit (n_units,) shape even
-                # when the override was authored as a scalar prior.
-                latent_init_rvs[var] = _ensure_dims(
-                    priors[f"init_{var}"], ("unit",)
-                ).create_variable(f"init_{var}")
-            else:
-                latent_init_rvs[var] = pm.Normal(
-                    f"init_{var}", mu=0, sigma=1, shape=(n_units,)
-                )
+            # _ensure_dims forces the per-unit (n_units,) shape even when
+            # the override was authored as a scalar prior.
+            latent_init_rvs[var] = _ensure_dims(
+                priors[f"init_{var}"], ("unit",)
+            ).create_variable(f"init_{var}")
 
         # Exog lags use scan carry state (restored in #395 after pytensor#2252 / #333).
 

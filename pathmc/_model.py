@@ -506,6 +506,7 @@ class PathModel:
             pooling=self._pooling,
             latent=self._latent,
             prior_config=self._priors,
+            panel_info=self._panel_info,
         )
 
     def priors(self) -> PriorTable:
@@ -819,6 +820,10 @@ class PathModel:
         ``mu_{var}``. Each posterior slice is an ``(n_times, n_units)``
         matrix in time-major sorted order; this method attaches the
         matching time/unit coordinates.
+
+        The default ``init_{var}`` prior is ``Normal(0, 1)`` and is not
+        scale-free: override it when the latent is not O(1), otherwise
+        t=0 is pinned near zero and early-period trajectories are biased.
 
         Parameters
         ----------

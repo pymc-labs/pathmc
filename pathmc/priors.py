@@ -59,7 +59,11 @@ def default_priors(
     PriorConfig
         Mapping from parameter name to default ``Prior``.
     """
-    from pathmc.compile import _parse_by_var_pooling, get_free_predictor_columns
+    from pathmc.compile import (
+        _is_scan_panel,
+        _parse_by_var_pooling,
+        get_free_predictor_columns,
+    )
 
     if families is None:
         families = {}
@@ -86,12 +90,16 @@ def default_priors(
     # Estimated initial conditions (``init_{var}``) exist only for latent
     # variables that feed a ``lag()`` term in scan-compiled panel models:
     # those are the latents whose recursion actually reads its t=0 state.
-    lag_base_vars = {
-        term.lag_of
-        for reg in spec.regressions
-        for term in reg.terms
-        if term.lag_of is not None
-    }
+    lag_base_vars = (
+        {
+            term.lag_of
+            for reg in spec.regressions
+            for term in reg.terms
+            if term.lag_of is not None
+        }
+        if _is_scan_panel(spec, panel_info)
+        else set()
+    )
 
     priors: PriorConfig = {}
     seen_transform_params: set[str] = set()
