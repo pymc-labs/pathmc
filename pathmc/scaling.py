@@ -26,7 +26,9 @@ MMM targets and media channels.
 The fitted factors are stored on the returned :class:`~pathmc.PathModel`
 (accessible as ``model.fitted_scaling``) so that
 :func:`pathmc.simulate` can apply the inverse transform and return
-generated columns in their original business units.
+generated columns in their original business units, and so that
+:meth:`~pathmc.PathModel.do` can divide ``set`` values from business
+units into the internal scale.
 """
 
 from __future__ import annotations

@@ -70,6 +70,27 @@ class TestSimulateBasic:
         df2 = pathmc.simulate("Y ~ X", data=exog_df, params=params, random_seed=2)
         assert not np.allclose(df1["Y"].values, df2["Y"].values)
 
+    def test_multidim_panel_simulate_round_trips_into_model(self):
+        """simulate() must not leak the internal composite unit column (G1)."""
+        rng = np.random.default_rng(0)
+        rows = [
+            {"geo": g, "brand": b, "week": w, "X": float(rng.normal())}
+            for g in ["N", "S"]
+            for b in ["A", "B"]
+            for w in range(4)
+        ]
+        df = pd.DataFrame(rows)
+        panel = {"unit": ["geo", "brand"], "time": "week"}
+        out = pathmc.simulate(
+            "Y ~ X",
+            data=df,
+            params={"beta_Y": [0.0, 1.0], "sigma_Y": 0.1},
+            panel=panel,
+            random_seed=0,
+        )
+        assert list(out.columns) == list(df.columns) + ["Y"]
+        pathmc.model("Y ~ X", data=out, panel=panel)
+
 
 class TestSimulateMultiEquation:
     """Multi-equation (mediation) models."""
@@ -635,13 +656,12 @@ class TestSimulatePanelTransforms:
             pooling="partial",
             random_seed=9,
         )
-        # composite unit key column added by build_panel_info
+        # public return drops the internal composite unit key
         assert list(out.columns) == [
             "geo",
             "brand",
             "week",
             "tv",
-            "geo|brand",
             "sales",
         ]
         intercepts = {

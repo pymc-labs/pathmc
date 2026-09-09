@@ -388,6 +388,7 @@ def _unit_prediction(
             kind="mean",
             families=model._families,
             average_units=False,
+            scaling_factors=model._scaling_factors,
         )
         if outcome not in result.dataset:
             raise KeyError(

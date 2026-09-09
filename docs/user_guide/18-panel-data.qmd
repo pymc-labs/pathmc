@@ -250,10 +250,9 @@ sim = pathmc.simulate(
 )
 ```
 
-Omitting `scaling=` in `simulate()` changes nothing: parameters are then
-interpreted directly in raw data units. Note that `predict()` / `do()`
-outputs on a scaled model remain in scaled units; multiply by
-`model.fitted_scaling` manually if you need business units there.
+Omitting `scaling=` in `simulate()` changes nothing: parameters are then interpreted directly in raw data units.
+
+`do(set=)` values are in business units and are divided by the fitted factor (including per-unit factors) before graph surgery, so `do(set={"tv": 500})` means 500 of the original column. `predict()` / `do()` *outputs* remain in scaled units when the target role was scaled; multiply by `model.fitted_scaling` if you need business-unit outcomes.
 
 ## Residual covariance simulation
 

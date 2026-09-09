@@ -635,6 +635,98 @@ class TestValidationErrors:
 
 
 # ---------------------------------------------------------------------------
+# do() interventions are in business units
+# ---------------------------------------------------------------------------
+
+
+def _beta_mean(model: pathmc.PathModel, lhs: str, term: str) -> float:
+    """Posterior mean of ``beta_{lhs}``'s coefficient whose index contains *term*."""
+    summary = model.summary()
+    rows = summary[summary.index.str.startswith(f"beta_{lhs}")]
+    hit = rows[rows.index.str.contains(term, regex=False)]
+    if hit.empty:
+        raise AssertionError(
+            f"no beta_{lhs} row matching {term!r} in {list(rows.index)}"
+        )
+    return float(hit["mean"].iloc[0])
+
+
+class TestDoBusinessUnits:
+    def test_global_channel_scale_set_is_business_units(self, mock_pymc_sample):
+        """do(set={"tv": 500}) means 500 raw units, not 500 scaled units (G2)."""
+        rng = np.random.default_rng(0)
+        tv = rng.uniform(0, 1000, 80)
+        df = pd.DataFrame({
+            "tv": tv,
+            "sales": 2.0 * (tv / 1000.0) + 0.01 * rng.normal(size=80),
+        })
+        m = pathmc.model(
+            "sales ~ tv", data=df, scaling=Scaling(channel={"method": "max"})
+        )
+        m.fit()
+        assert m.fitted_scaling is not None
+        factor = next(iter(m.fitted_scaling.factors["tv"][1].values()))
+        raw = 500.0
+        got = float(m.do(set={"tv": raw}, kind="mean").mean("sales"))
+        intercept = _beta_mean(m, "sales", "Intercept")
+        slope = _beta_mean(m, "sales", "tv")
+        expected = intercept + slope * (raw / factor)
+        assert got == pytest.approx(expected, rel=1e-5)
+        unscaled_wrong = intercept + slope * raw
+        assert abs(got - expected) < abs(got - unscaled_wrong)
+
+    def test_per_geo_channel_scale_set_is_business_units(self, mock_pymc_sample):
+        """Per-unit factors: the same raw spend is a different scaled value per geo."""
+        raw = make_panel()
+        scaling = Scaling(
+            channel={"method": "divide", "by": POPULATIONS, "dims": ("geo",)}
+        )
+        m = pathmc.model(SPEC, data=raw, panel=PANEL, scaling=scaling)
+        m.fit()
+        spend = 5.0
+        got = float(m.do(set={"X": spend}, kind="mean").mean("Y"))
+        intercept = _beta_mean(m, "Y", "Intercept")
+        slope = _beta_mean(m, "Y", "X")
+        scaled_mean = float(np.mean([spend / POPULATIONS[g] for g in raw["geo"]]))
+        expected = intercept + slope * scaled_mean
+        assert got == pytest.approx(expected, rel=1e-5)
+
+    def test_scan_panel_do_scales_set(self, mock_pymc_sample):
+        """Time-forward do() divides channel interventions before the scan."""
+        rng = np.random.default_rng(1)
+        n_units, n_times = 3, 8
+        df = pd.DataFrame([
+            {
+                "geo": f"g{u}",
+                "week": t,
+                "tv": rng.uniform(10, 100),
+                "sales": rng.normal(),
+            }
+            for u in range(n_units)
+            for t in range(n_times)
+        ])
+        factor = 10.0
+        m = pathmc.model(
+            "sales ~ lag(sales) + tv",
+            data=df,
+            panel=PANEL,
+            scaling=Scaling(channel={"method": "fixed", "value": factor}),
+        )
+        m.fit()
+        spend = 50.0
+        result = m.do(set={"tv": spend}, simulate_over="time", kind="mean")
+        intercept = _beta_mean(m, "sales", "Intercept")
+        slope = _beta_mean(m, "sales", "tv")
+        # Cold start is not a clean intercept + beta*tv identity (lag carry
+        # and unit-averaging add a small residual), so check the scale
+        # convention: 50 raw must be closer to tv=5 internal than to tv=50.
+        first = float(result.by_time("sales")[0].mean())
+        scaled = intercept + slope * (spend / factor)
+        unscaled = intercept + slope * spend
+        assert abs(first - scaled) < abs(first - unscaled)
+
+
+# ---------------------------------------------------------------------------
 # Slow MCMC tests: estimation equivalence and recovery
 # ---------------------------------------------------------------------------
 

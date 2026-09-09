@@ -48,6 +48,7 @@ from pathmc.idata import hdi_label
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
 from pathmc.reprs import ReprSpec, ResultReprMixin
+from pathmc.scaling import ScalingFactors
 
 if TYPE_CHECKING:
     import matplotlib.axes
@@ -1195,6 +1196,35 @@ def _intervention_array(val: float | np.ndarray, n: int) -> np.ndarray:
     )
 
 
+def _scale_cross_section_intervention(
+    var: str,
+    arr: np.ndarray,
+    data: nw.DataFrame,
+    scaling_factors: ScalingFactors | None,
+) -> np.ndarray:
+    """Divide a length-n intervention by the column's per-row scale factors."""
+    if scaling_factors is None or var not in scaling_factors.factors:
+        return arr
+    return arr / scaling_factors._per_row(data, var)
+
+
+def _scale_scan_intervention(
+    var: str,
+    mat: np.ndarray,
+    data: nw.DataFrame,
+    scan_info: Any,
+    scaling_factors: ScalingFactors | None,
+) -> np.ndarray:
+    """Divide a ``(n_times, n_units)`` intervention by scan-aligned factors."""
+    if scaling_factors is None or var not in scaling_factors.factors:
+        return mat
+    per_row = scaling_factors._per_row(data, var)
+    factor_mat = (
+        per_row[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
+    )
+    return mat / factor_mat
+
+
 def _broadcast_intervention(
     ones: xr.DataArray, val: float | np.ndarray, n: int
 ) -> xr.DataArray:
@@ -1236,6 +1266,7 @@ def run_do_pymc(
     families: dict[str, str] | None = None,
     subgroup_indices: np.ndarray | None = None,
     average_units: bool = True,
+    scaling_factors: ScalingFactors | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -1273,6 +1304,10 @@ def run_do_pymc(
     average_units : bool
         When ``True`` (default), average response means over observation
         rows for g-computation. When ``False``, keep a ``unit`` dim.
+    scaling_factors : ScalingFactors | None
+        Fitted scale factors. When given, ``set`` values for scaled
+        columns are treated as business units and divided by the
+        per-row factor before graph surgery.
 
     Returns
     -------
@@ -1303,7 +1338,9 @@ def run_do_pymc(
     replacements: dict[str, Any] = {}
     for var, val in set.items():
         key = f"mu_{var}" if (var in latent or var in block_vars) else var
-        arr = _intervention_array(val, N)
+        arr = _scale_cross_section_intervention(
+            var, _intervention_array(val, N), data, scaling_factors
+        )
         target_dtype = gen_model[key].dtype
         replacements[key] = arr.astype(target_dtype)
 
@@ -1427,6 +1464,8 @@ def run_do_panel_unified(
     kind: str = "mean",
     families: dict[str, str] | None = None,
     observed_by_time: Mapping[str, np.ndarray] | None = None,
+    data: nw.DataFrame | None = None,
+    scaling_factors: ScalingFactors | None = None,
 ) -> DoResult:
     """Run the do-operator on a scan-compiled panel model.
 
@@ -1455,6 +1494,13 @@ def run_do_panel_unified(
         Per-variable distribution families.
     observed_by_time : Mapping[str, np.ndarray] | None
         Unit-mean observed series per variable for trajectory overlays.
+    data : nw.DataFrame | None
+        Fitted panel frame (row order matching ``scan_info.sort_idx``).
+        Required when *scaling_factors* is given.
+    scaling_factors : ScalingFactors | None
+        Fitted scale factors. When given, ``set`` values for scaled
+        columns are treated as business units and divided by the
+        scan-aligned factor before graph surgery.
     """
     if set is None:
         set = {}
@@ -1473,6 +1519,13 @@ def run_do_panel_unified(
             mat = np.broadcast_to(val[:, None], (n_times, n_units)).copy()
         else:
             mat = np.full((n_times, n_units), val)
+        if scaling_factors is not None:
+            if data is None:
+                raise ValueError(
+                    "scaling_factors requires data= so per-unit divisors "
+                    "can be aligned to the scan layout."
+                )
+            mat = _scale_scan_intervention(var, mat, data, scan_info, scaling_factors)
         # Outer graph-surgery replacement, as before: needed so the
         # intervened var is no longer a free RV that compute_deterministics /
         # sample_posterior_predictive must bind from the posterior (the

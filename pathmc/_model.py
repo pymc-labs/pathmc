@@ -79,6 +79,7 @@ from pathmc.panel import (
     PanelInfo,
     attach_composite_unit,
     build_panel_info,
+    drop_composite_unit,
     observed_means_by_time,
 )
 from pathmc.parse import Spec, parse_spec
@@ -153,6 +154,45 @@ def _reject_hsgp_out_of_bounds(
                 f"a larger c or an explicit L to widen the valid "
                 f"region."
             )
+
+
+def _scale_set_for_bounds(
+    interventions: Mapping[str, float | np.ndarray],
+    factors: ScalingFactors | None,
+    data: nw.DataFrame,
+) -> Mapping[str, float | np.ndarray]:
+    """Convert user-facing (business-unit) interventions to internal units.
+
+    Bounds and extrapolation checks run against already-scaled ``_data``,
+    so the values they see must be in the same units the model compiled.
+    """
+    if factors is None:
+        return interventions
+    out: dict[str, float | np.ndarray] = {}
+    for var, val in interventions.items():
+        if var not in factors.factors:
+            out[var] = val
+            continue
+        row_div = factors._per_row(data, var)
+        vals = np.asarray(val, dtype=float)
+        out[var] = (vals.reshape(-1, 1) / row_div.reshape(1, -1)).ravel()
+    return out
+
+
+def _scale_scalar_intervention(var: str, val: float, factors: ScalingFactors) -> float:
+    """Divide a unit-less scalar by a uniform fitted factor, or raise."""
+    if var not in factors.factors:
+        return float(val)
+    _dims, table = factors.factors[var]
+    uniq = {float(v) for v in table.values()}
+    if len(uniq) != 1:
+        raise ValueError(
+            f"Cannot apply per-unit scaling of {var!r} to a single scalar "
+            f"(factors differ across units {sorted(table)[:5]}). "
+            "Use do() on the panel, or pass a value already in scaled units "
+            "on a model with a single global scale."
+        )
+    return float(val) / next(iter(uniq))
 
 
 def _warn_extrapolation(
@@ -1180,6 +1220,7 @@ class PathModel:
             kind=kind,
             families=self._families,
             subgroup_indices=subgroup_indices,
+            scaling_factors=self._scaling_factors,
         )
 
     def _subgroup_effect(
@@ -1452,6 +1493,10 @@ class PathModel:
             For panel models with ``simulate_over="time"``, values can
             be arrays of shape ``(n_times,)`` for time-varying
             interventions (e.g., a temporary spend increase).
+            On a model compiled with ``scaling=``, values are in
+            *business* units: pathmc divides by the fitted factor before
+            graph surgery so ``do(set={"tv": 500})`` means 500 of the
+            original column, not 500 scaled units.
         shift : dict[str, float] | None
             Reserved for soft interventions (not yet implemented).
         kind : str
@@ -1493,8 +1538,9 @@ class PathModel:
             )
 
         if set:
-            _reject_hsgp_out_of_bounds(self._spec, self._data, set)
-            _warn_extrapolation(self._data, set)
+            scaled_set = _scale_set_for_bounds(set, self._scaling_factors, self._data)
+            _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_set)
+            _warn_extrapolation(self._data, scaled_set)
 
         if simulate_over == "time":
             if self._panel_info is None:
@@ -1540,6 +1586,8 @@ class PathModel:
                     kind=kind,
                     families=self._families,
                     observed_by_time=observed_by_time,
+                    data=self._data,
+                    scaling_factors=self._scaling_factors,
                 )
             # Non-scan panel models fall through to the cross-sectional path.
 
@@ -1602,8 +1650,18 @@ class PathModel:
                 "every structural variable."
             )
         assert self._data is not None
-        _reject_hsgp_out_of_bounds(self._spec, self._data, do)
-        _warn_extrapolation(self._data, do)
+        scaled_do = _scale_set_for_bounds(do, self._scaling_factors, self._data)
+        _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_do)
+        _warn_extrapolation(self._data, scaled_do)
+        if self._scaling_factors is not None:
+            do = {
+                var: _scale_scalar_intervention(var, val, self._scaling_factors)
+                for var, val in do.items()
+            }
+            evidence = {
+                var: _scale_scalar_intervention(var, val, self._scaling_factors)
+                for var, val in evidence.items()
+            }
         return run_counterfactual(
             spec=self._spec,
             graph_info=self._graph_info,
@@ -2169,10 +2227,13 @@ def model(
         fitted factors are stored on the returned model as
         ``fitted_scaling``.
 
-        .. note:: This phase, outputs of ``predict()`` / ``do()`` on a
-           scaled model remain in *scaled* units. Pass the fitted factors
-           back to :func:`simulate` (as ``scaling=``) for business-unit
-           generation, or multiply by ``model.fitted_scaling`` manually.
+        .. note:: ``do(set=)`` values are in *business* units: pathmc
+           divides by the fitted factor before graph surgery, including
+           per-unit factors. ``predict()`` / ``do()`` *outputs* on a
+           scaled model remain in scaled units when the target role was
+           scaled; multiply by ``model.fitted_scaling`` if you need
+           business-unit outcomes, or pass the fitted factors back to
+           :func:`simulate` for generation.
 
     Returns
     -------
@@ -2409,6 +2470,8 @@ def simulate(
     IntoFrame
         Copy of *data* (same backend as the input) with simulated
         endogenous columns appended (including latent variables).
+        Internal composite unit keys derived for multi-dimensional
+        panels are not returned.
 
     Raises
     ------
@@ -2644,7 +2707,7 @@ def simulate(
             else new_columns
         )
         result = nw_data.with_columns(list(new_columns.values()))
-        return result.to_native()
+        return drop_composite_unit(result, panel_info).to_native()
 
     endo_order = [v for v in graph_info.topological_order if v in endo_rv_names]
 
@@ -2721,7 +2784,7 @@ def simulate(
             scaling_factors, new_columns_xs, nw_data, nw_data.implementation
         )
     result = nw_data.with_columns(list(new_columns_xs.values()))
-    return result.to_native()
+    return drop_composite_unit(result, panel_info).to_native()
 
 
 def simulate_params_template(

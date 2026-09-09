@@ -334,6 +334,21 @@ def attach_composite_unit(df: nw.DataFrame, panel_info: PanelInfo) -> nw.DataFra
     )
 
 
+def drop_composite_unit(df: nw.DataFrame, panel_info: PanelInfo | None) -> nw.DataFrame:
+    """Remove the derived composite unit key so the frame matches the user's columns.
+
+    :func:`attach_composite_unit` adds this column for internal indexing.
+    Public returns (``simulate()``) must drop it so the result can be
+    passed back to :func:`pathmc.model` without colliding with the
+    derived key.
+    """
+    if panel_info is None or not panel_info.is_multi_dim:
+        return df
+    if panel_info.unit not in df.columns:
+        return df
+    return df.drop(panel_info.unit)
+
+
 def _composite_unit_column(
     df: nw.DataFrame, unit_columns: tuple[str, ...]
 ) -> nw.Series:
