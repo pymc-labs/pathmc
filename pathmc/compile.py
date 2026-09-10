@@ -606,12 +606,13 @@ def compile_to_pymc(
         unit_idx = _build_unit_index(data, panel_info)
 
     if coef_entries and panel_info is not None:
-        for entry in coef_entries.values():
+        for pname, entry in coef_entries.items():
             if entry["kind"] != "coefficient":
                 continue
             entry["dim_idx"], levels = _build_cell_group_index(
                 data, panel_info, entry["dims"]
             )
+            _warn_missing_by_var_cells(data, entry["dims"], levels, pname)
             for dim_name, level_list in levels.items():
                 if dim_name not in coords:
                     coords[dim_name] = level_list
@@ -1209,6 +1210,37 @@ def _collect_transform_param_names(spec: Spec) -> set[str]:
             if term.transform is not None:
                 _walk(term.transform)
     return names
+
+
+def _warn_missing_by_var_cells(
+    data: nw.DataFrame,
+    dims: tuple[str, ...],
+    levels: dict[str, list[Any]],
+    var_name: str,
+) -> None:
+    """Warn when a rank-N hyperprior grid has cells with no observed units."""
+    import itertools
+    import warnings
+
+    observed = {
+        tuple(row[d] for d in dims)
+        for row in data.select(dims).unique().iter_rows(named=True)
+    }
+    all_cells = set(itertools.product(*(levels[d] for d in dims)))
+    missing = sorted(all_cells - observed)
+    if not missing:
+        return
+    shown = ", ".join(str(cell) for cell in missing[:5])
+    more = f" (and {len(missing) - 5} more)" if len(missing) > 5 else ""
+    warnings.warn(
+        f"by_var coefficient pooling for '{var_name}' over {dims} leaves "
+        f"hyperprior cell(s) {shown}{more} without observed units; those "
+        "cells sample from the prior and appear in the posterior as if "
+        "estimated. Add rows for the missing combinations or pool over a "
+        "dimension with full coverage.",
+        UserWarning,
+        stacklevel=4,
+    )
 
 
 def _build_cell_group_index(
@@ -2081,11 +2113,12 @@ def _compile_scan_panel(
         names = {n for n in coef_entries if n in term_vars}
         if names:
             pooled_by_lhs[reg_.lhs] = names
-    for entry in coef_entries.values():
+    for pname, entry in coef_entries.items():
         if entry["kind"] == "coefficient":
             entry["dim_idx"], entry["levels"] = _build_cell_group_index(
                 data, panel_info, entry["dims"]
             )
+            _warn_missing_by_var_cells(data, entry["dims"], entry["levels"], pname)
     _exclude_pooled_from_flat_beta(mu_specs, pooled_by_lhs)
 
     endogenous_order = [

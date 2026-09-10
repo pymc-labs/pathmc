@@ -252,6 +252,11 @@ class Adstock(Transform):
         panel_info: Any | None = None,
         data: Any | None = None,
     ) -> Any:
+        if "decay" not in params:
+            raise ValueError(
+                "adstock() requires a decay parameter. Pass decay=<name> in the "
+                "formula, e.g. adstock(tv, decay=theta_tv)."
+            )
         decay = params["decay"]
 
         if panel_info is not None and data is not None:
@@ -318,6 +323,11 @@ class Adstock(Transform):
                 f"Use the default Adstock(l_max=12, normalize=False) for "
                 f"these models, or restructure the model so adstock() does "
                 f"not need scan compilation (e.g. no panel temporal deps)."
+            )
+        if "decay" not in params:
+            raise ValueError(
+                "adstock() requires a decay parameter. Pass decay=<name> in the "
+                "formula, e.g. adstock(tv, decay=theta_tv)."
             )
         decay = params["decay"]
         adstock_t = x_t + decay * state
