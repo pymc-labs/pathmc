@@ -682,10 +682,15 @@ def compile_to_pymc(
         def _ensure_residual_block(bidx: int) -> None:
             if bidx in compiled_blocks or bidx in compiling_blocks:
                 return
+            # A block needs every member to be a regression outcome: the
+            # joint distribution correlates their residuals around
+            # ``mu_{var}``, and an exogenous member has none. Such a block
+            # is left uncompiled (its members stay plain data columns) and
+            # is rejected further up by falsify()/identify().
+            if not blocks[bidx] <= reg_by_lhs.keys():
+                return
             compiling_blocks.add(bidx)
             for member in blocks[bidx]:
-                if member not in mu_specs:
-                    continue
                 for dep_idx in _block_indices_referenced(
                     mu_specs[member], var_to_block_idx
                 ):
