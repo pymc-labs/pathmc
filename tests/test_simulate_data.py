@@ -231,20 +231,76 @@ class TestSimulateValidation:
         expected_var_y1 = 0.25 * np.var(x) + 1.0
         assert np.var(df["Y1"]) == pytest.approx(expected_var_y1, rel=0.1)
 
-    def test_residual_cov_descendant_raises(self, exog_df):
-        with pytest.raises(NotImplementedError, match="downstream"):
-            pathmc.simulate(
-                "Y1 ~ X\nY2 ~ X\nZ ~ Y1\nY1 ~~ Y2",
-                data=exog_df,
-                params={
-                    "beta_Y1": [0.0, 0.5],
-                    "beta_Y2": [0.0, -0.5],
-                    "beta_Z": [0.0, 3.0],
-                    "sigma_Z": 0.1,
-                    "chol_Y1_Y2": [1.0, 0.8, 0.6],
-                },
-                random_seed=42,
-            )
+    def test_residual_cov_descendant_numpy_reference(self):
+        """Z ~ Y1 must use realized Y1, not mu_Y1 (issue #469).
+
+        Hand-written DGP: Y1 = 0.5 X + e1, Z = 3 Y1 + 0.1 e_z, with
+        ``(e1, e2)`` from packed chol ``[1, 0.8, 0.6]``. OLS of Z on Y1
+        recovers 3.0. Using mu_Y1 instead would attenuate the slope
+        toward ``3 * Var(0.5 X) / Var(Y1)``.
+        """
+        rng = np.random.default_rng(0)
+        n = 5000
+        x = rng.normal(size=n)
+        chol = np.array([[1.0, 0.0], [0.8, 0.6]])
+        eps = rng.standard_normal((n, 2)) @ chol.T
+        y1 = 0.5 * x + eps[:, 0]
+        z = 3.0 * y1 + 0.1 * rng.standard_normal(n)
+        design = np.column_stack([np.ones(n), y1])
+        oracle_slope, *_ = np.linalg.lstsq(design, z, rcond=None)
+        assert oracle_slope[1] == pytest.approx(3.0, abs=0.02)
+
+        attenuated = 3.0 * np.var(0.5 * x) / np.var(y1)
+        assert attenuated < 1.0
+
+        df = pathmc.simulate(
+            "Y1 ~ X\nY2 ~ X\nZ ~ Y1\nY1 ~~ Y2",
+            data=pd.DataFrame({"X": x}),
+            params={
+                "beta_Y1": [0.0, 0.5],
+                "beta_Y2": [0.0, -0.5],
+                "beta_Z": [0.0, 3.0],
+                "sigma_Z": 0.1,
+                "chol_Y1_Y2": [1.0, 0.8, 0.6],
+            },
+            random_seed=42,
+        )
+        sim_design = np.column_stack([np.ones(n), df["Y1"].to_numpy()])
+        sim_slope, *_ = np.linalg.lstsq(sim_design, df["Z"].to_numpy(), rcond=None)
+        assert sim_slope[1] == pytest.approx(3.0, abs=0.05)
+        assert abs(sim_slope[1] - 3.0) < abs(sim_slope[1] - attenuated)
+
+    @pytest.mark.slow
+    def test_residual_cov_descendant_recovers_beta_z(self):
+        """Fitting Z ~ Y1 on simulated data puts 3.0 in the beta_Z HDI."""
+        from pathmc.idata import beta_draws, hdi
+
+        rng = np.random.default_rng(1)
+        n = 400
+        x = rng.normal(size=n)
+        spec = "Y1 ~ X\nY2 ~ X\nZ ~ Y1\nY1 ~~ Y2"
+        df = pathmc.simulate(
+            spec,
+            data=pd.DataFrame({"X": x}),
+            params={
+                "beta_Y1": [0.0, 0.5],
+                "beta_Y2": [0.0, -0.5],
+                "beta_Z": [0.0, 3.0],
+                "sigma_Z": 0.5,
+                "chol_Y1_Y2": [1.0, 0.8, 0.6],
+            },
+            random_seed=7,
+        )
+        model = pathmc.model(spec, data=df)
+        idata = model.fit(random_seed=42)
+        draws = beta_draws(idata, "beta_Z", "Z_predictors", "Y1")
+        mean = float(np.mean(draws))
+        lo, hi = (float(x) for x in hdi(draws))
+        assert abs(mean - 3.0) < 0.15, f"mean {mean:.3f} vs truth 3.0"
+        # 50-draw HDIs in this suite are too short to require covering
+        # the exact truth; they must still sit on the realized-Y1 slope
+        # (~3), not the attenuated mu_Y1 slope (~0.6).
+        assert lo > 2.0, f"HDI [{lo}, {hi}] is in the attenuated regime"
 
     def test_residual_cov_within_block_edge_raises(self, exog_df):
         with pytest.raises(

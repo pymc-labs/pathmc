@@ -2514,9 +2514,10 @@ def simulate(
         (``~~``), supply ``"chol_{block_name}"`` as the packed
         lower-triangular Cholesky vector of length ``k(k+1)/2``
         (PyMC ``LKJCholeskyCov`` packing); block members' simulated
-        columns share the correlated residuals. ``~~`` simulation
-        supports blocks whose members are terminal in the DAG; a
-        descendant of a block member raises ``NotImplementedError``.
+        columns share the correlated residuals. Descendants of block
+        members receive the realized noisy draws. Within-block directed
+        edges (one member regressing on another) still raise
+        ``NotImplementedError``.
         For ``hsgp()``
         terms, supply ``"ell_{lhs}_{var}"``, ``"eta_{lhs}_{var}"``, and
         ``"beta_hsgp_{lhs}_{var}"`` (length ``m``). Transform
@@ -2578,9 +2579,8 @@ def simulate(
     ------
     ValueError
         If required parameter values are missing from *params*, if a
-        ``chol_{block_name}`` vector has the wrong length for its block,
-        or if the spec contains ``lag()`` terms but ``panel=`` was
-        omitted.
+        parameter array has the wrong shape, or if the spec contains
+        ``lag()`` terms but ``panel=`` was omitted.
 
     Examples
     --------
@@ -2600,7 +2600,7 @@ def simulate(
     """
     spec = parse_spec(spec_string)
     latent_set = set(latent) if latent else set()
-    block_var_set, blocks = _identify_residual_blocks(spec)
+    block_var_set, _ = _identify_residual_blocks(spec)
     graph_info = build_graph(spec, latent=latent_set)
 
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
@@ -2614,22 +2614,21 @@ def simulate(
         )
 
     if block_var_set:
-        consumers: dict[str, set[str]] = {}
+        within_block_readers: dict[str, set[str]] = {}
         for reg in spec.regressions:
+            if reg.lhs not in block_var_set:
+                continue
             read_vars = {v for term in reg.terms for v in _scan_term_base_vars(term)}
             block_deps = (block_var_set & read_vars) - {reg.lhs}
             if block_deps:
-                consumers[reg.lhs] = block_deps
-        if consumers:
-            block_deps = set().union(*consumers.values())
+                within_block_readers[reg.lhs] = block_deps
+        if within_block_readers:
+            block_deps = set().union(*within_block_readers.values())
             raise NotImplementedError(
-                f"simulate() cannot yet generate {sorted(consumers)}: they are "
-                "downstream of and read residual-covariance block member(s) "
-                f"{sorted(block_deps)}. "
-                "The generative graph wires block members through their mean "
-                "structure, so the realized correlated residuals would not reach "
-                "the descendant. Simulate the block in one call, then simulate "
-                "descendants in a second call using the returned columns."
+                f"simulate() cannot yet generate {sorted(within_block_readers)}: "
+                "a residual-covariance block member reads another member of "
+                f"the same ~~ block ({sorted(block_deps)}). Drop the "
+                "within-block path or the ~~ clause."
             )
 
     nw_data = nw.from_native(data, eager_only=True)
@@ -2681,10 +2680,12 @@ def simulate(
         pooling=pooling,
         graph_info=graph_info,
         latent=latent_set,
+        generative=True,
     )
 
     all_rv_names = {rv.name for rv in gen_model.free_RVs}
     endo_rv_names = endo_set & all_rv_names
+    block_joint_rvs: set[str] = getattr(gen_model, "_pathmc_block_joint_rvs", set())
 
     scan_info = getattr(gen_model, "_pathmc_panel_scan", None)
     families_eff = families or {}
@@ -2709,7 +2710,9 @@ def simulate(
 
     # Innovation sequences drive the scan recursion itself; they are
     # simulation noise, not user-supplied parameters.
-    param_rv_names = all_rv_names - endo_rv_names - innovation_rv_names
+    param_rv_names = (
+        all_rv_names - endo_rv_names - innovation_rv_names - block_joint_rvs
+    )
 
     missing = param_rv_names - set(params.keys())
     if missing:
@@ -2810,7 +2813,10 @@ def simulate(
         result = nw_data.with_columns(list(new_columns.values()))
         return drop_composite_unit(result, panel_info).to_native()
 
-    endo_order = [v for v in graph_info.topological_order if v in endo_rv_names]
+    named_vars = gen_model.named_vars
+    endo_order = [
+        v for v in graph_info.topological_order if v in endo_set and v in named_vars
+    ]
 
     det_names = {d.name for d in gen_model.deterministics}
     latent_det_vars = [
@@ -2819,66 +2825,24 @@ def simulate(
         if v in latent_set and v not in endo_rv_names and f"mu_{v}" in det_names
     ]
 
-    # Block members are observed MvNormal components (not free RVs): draw
-    # their ``mu_{var}`` deterministics, then add correlated Cholesky noise.
-    block_members = [v for v in graph_info.topological_order if v in block_var_set]
-
     vars_to_draw = [fixed_model[var] for var in endo_order]
     latent_det_tensors = [fixed_model[f"mu_{v}"] for v in latent_det_vars]
-    block_mu_tensors = [fixed_model[f"mu_{v}"] for v in block_members]
 
-    all_to_draw = vars_to_draw + latent_det_tensors + block_mu_tensors
+    all_to_draw = vars_to_draw + latent_det_tensors
     drawn = pm.draw(all_to_draw, random_seed=random_seed)
     if not isinstance(drawn, list):
         drawn = [drawn]
 
     n_endo = len(endo_order)
-    n_latent_det = len(latent_det_vars)
     new_columns_xs: dict[str, nw.Series] = {}
     for var, values in zip(endo_order, drawn[:n_endo]):
         new_columns_xs[var] = nw.new_series(
             var, np.asarray(values), backend=nw_data.implementation
         )
-    for var, values in zip(latent_det_vars, drawn[n_endo : n_endo + n_latent_det]):
+    for var, values in zip(latent_det_vars, drawn[n_endo:]):
         new_columns_xs[var] = nw.new_series(
             var, np.asarray(values), backend=nw_data.implementation
         )
-
-    n_tail = n_endo + n_latent_det
-    block_mu_draws = {
-        var: np.asarray(values) for var, values in zip(block_members, drawn[n_tail:])
-    }
-
-    rng = (
-        random_seed
-        if isinstance(random_seed, np.random.Generator)
-        else np.random.default_rng(random_seed)
-    )
-    n_obs = len(nw_data)
-    for block in blocks:
-        # Split the Cholesky noise across members in sorted(block) order --
-        # the MvNormal column order used at compile time.
-        block_sorted = sorted(block)
-        k = len(block_sorted)
-        packed = np.asarray(
-            params[f"chol_{'_'.join(block_sorted)}"], dtype=float
-        ).ravel()
-        expected = k * (k + 1) // 2
-        if packed.size != expected:
-            raise ValueError(
-                f"chol_{'_'.join(block_sorted)} has length {packed.size}, but "
-                f"the residual block {block_sorted} requires a packed "
-                f"lower-triangular Cholesky vector of length {expected}. "
-                "Provide the PyMC LKJCholeskyCov packing of a (k, k) lower-"
-                "triangular matrix."
-            )
-        chol_mat = np.zeros((k, k))
-        chol_mat[np.tril_indices(k)] = packed
-        eps = rng.standard_normal((n_obs, k)) @ chol_mat.T
-        for j, var in enumerate(block_sorted):
-            new_columns_xs[var] = nw.new_series(
-                var, block_mu_draws[var] + eps[:, j], backend=nw_data.implementation
-            )
 
     if scaling_factors is not None:
         new_columns_xs = _invert_generated_columns(
@@ -3020,7 +2984,10 @@ def simulate_params_template(
         pooling=pooling,
         latent=latent_set,
         graph_info=graph_info,
+        generative=True,
     )
+
+    block_joint_rvs: set[str] = getattr(gen_model, "_pathmc_block_joint_rvs", set())
 
     template: dict[str, Any] = {}
     for rv in gen_model.free_RVs:
@@ -3028,10 +2995,15 @@ def simulate_params_template(
         # latents) are simulation outputs, not params entries. The
         # ``innovations_*`` / ``carry_innovations_*`` sequences drive the
         # scan recursion itself: simulate() draws them internally.
-        if rv.name in endo_set or rv.name.startswith((
-            "innovations_",
-            "carry_innovations_",
-        )):
+        # Residual-block joint RVs are realized noise, not user params.
+        if (
+            rv.name in endo_set
+            or rv.name in block_joint_rvs
+            or rv.name.startswith((
+                "innovations_",
+                "carry_innovations_",
+            ))
+        ):
             continue
         shape = tuple(int(d) for d in rv.shape.eval())
         if len(shape) == 0:

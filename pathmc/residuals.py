@@ -44,8 +44,10 @@ class ResidualStructure(Protocol):
         mu_dict: dict[str, Any],
         data_dict: dict[str, np.ndarray],
         priors: dict[str, Any] | None,
-    ) -> None:
-        """Create covariance priors and emit the joint likelihood.
+        *,
+        observed: bool = True,
+    ) -> Any:
+        """Create covariance priors and emit the joint distribution.
 
         Parameters
         ----------
@@ -57,6 +59,10 @@ class ResidualStructure(Protocol):
             Observed data arrays keyed by variable name.
         priors : dict[str, Any] | None
             Prior configuration (may contain structure-specific keys).
+        observed : bool
+            When True (estimation), emit an observed likelihood. When False
+            (``simulate()``), emit a free joint RV whose draws are the
+            realized correlated residuals.
         """
         ...
 
@@ -92,13 +98,14 @@ class LKJResidual:
         mu_dict: dict[str, Any],
         data_dict: dict[str, np.ndarray],
         priors: dict[str, Any] | None,
-    ) -> None:
-        """Emit LKJ Cholesky covariance + MvNormal likelihood."""
+        *,
+        observed: bool = True,
+    ) -> Any:
+        """Emit LKJ Cholesky covariance + MvNormal (observed or free)."""
         k = len(block_vars)
         block_name = "_".join(block_vars)
 
         mu_stacked = pm.math.stack([mu_dict[v] for v in block_vars], axis=1)
-        y_stacked = np.column_stack([data_dict[v] for v in block_vars])
 
         chol, _, _ = pm.LKJCholeskyCov(
             f"chol_{block_name}",
@@ -107,7 +114,12 @@ class LKJResidual:
             sd_dist=pm.HalfNormal.dist(1.0),
             compute_corr=True,
         )
-        pm.MvNormal(f"{block_name}_obs", mu=mu_stacked, chol=chol, observed=y_stacked)
+        if observed:
+            y_stacked = np.column_stack([data_dict[v] for v in block_vars])
+            return pm.MvNormal(
+                f"{block_name}_obs", mu=mu_stacked, chol=chol, observed=y_stacked
+            )
+        return pm.MvNormal(f"{block_name}_joint", mu=mu_stacked, chol=chol)
 
     def prior_keys(self, block_vars: list[str]) -> list[str]:
         """Return LKJ-specific prior keys for introspection."""

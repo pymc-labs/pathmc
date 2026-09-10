@@ -473,6 +473,8 @@ def compile_to_pymc(
     latent: set[str] | None = None,
     graph_info: GraphInfo | None = None,
     priors: dict[str, Any] | None = None,
+    *,
+    generative: bool = False,
 ) -> pm.Model:
     """Compile a structural specification into a generative PyMC model.
 
@@ -509,6 +511,11 @@ def compile_to_pymc(
         objects from ``pymc_extras``. If ``None``, sensible defaults are
         used. See :func:`pathmc.priors.default_priors` for the full
         list of parameter keys.
+    generative : bool
+        When True (``simulate()`` / ``simulate_params_template()`` only),
+        residual-covariance blocks emit a free joint RV so descendants
+        read realized correlated noise. Estimation must leave this False
+        so the observed MvNormal likelihood is unchanged.
 
     Returns
     -------
@@ -666,34 +673,41 @@ def compile_to_pymc(
                 var_to_block_idx[v] = idx
         block_members_seen: dict[int, set[str]] = {i: set() for i in range(len(blocks))}
         compiled_blocks: set[int] = set()
+        block_joint_rvs: set[str] = set()
+
+        def _ensure_residual_block(bidx: int) -> None:
+            if bidx in compiled_blocks:
+                return
+            block_topo = [v for v in graph_info.topological_order if v in blocks[bidx]]
+            joint_name = _compile_residual_block(
+                blocks[bidx],
+                data,
+                mu_specs,
+                data_vars,
+                endogenous_rvs,
+                transform_map,
+                transform_param_rvs,
+                panel_info,
+                priors,
+                topological_order=block_topo,
+                generative=generative,
+            )
+            if joint_name is not None:
+                block_joint_rvs.add(joint_name)
+            compiled_blocks.add(bidx)
 
         for var in graph_info.topological_order:
             if var not in reg_by_lhs:
                 continue
 
-            if var in block_vars:
+            if var not in block_vars:
+                for bidx in _block_indices_referenced(mu_specs[var], var_to_block_idx):
+                    _ensure_residual_block(bidx)
+            else:
                 bidx = var_to_block_idx[var]
                 block_members_seen[bidx].add(var)
-                if (
-                    block_members_seen[bidx] == blocks[bidx]
-                    and bidx not in compiled_blocks
-                ):
-                    block_topo = [
-                        v for v in graph_info.topological_order if v in blocks[bidx]
-                    ]
-                    _compile_residual_block(
-                        blocks[bidx],
-                        data,
-                        mu_specs,
-                        data_vars,
-                        endogenous_rvs,
-                        transform_map,
-                        transform_param_rvs,
-                        panel_info,
-                        priors,
-                        topological_order=block_topo,
-                    )
-                    compiled_blocks.add(bidx)
+                if block_members_seen[bidx] == blocks[bidx]:
+                    _ensure_residual_block(bidx)
                 continue
 
             reg = reg_by_lhs[var]
@@ -725,7 +739,9 @@ def compile_to_pymc(
             )
             mu_gen = build_mu(mu_specs[var], resolver_gen, beta, pt.zeros(len(data)))
 
-            if _references_block_members(mu_specs[var], block_vars):
+            if (not generative) and _references_block_members(
+                mu_specs[var], block_vars
+            ):
                 resolver_est = _make_cross_sectional_resolver(
                     data,
                     data_vars,
@@ -780,6 +796,7 @@ def compile_to_pymc(
             else:
                 endogenous_rvs[var] = rv
 
+    pymc_model._pathmc_block_joint_rvs = block_joint_rvs
     return pymc_model
 
 
@@ -843,6 +860,32 @@ def build_mu(
             mu = mu + coef * tensor
 
     return mu
+
+
+def _block_indices_referenced(
+    mu_spec: MuSpec, var_to_block_idx: dict[str, int]
+) -> set[int]:
+    """Return residual-block indices whose members appear in *mu_spec*."""
+    if not var_to_block_idx:
+        return set()
+    found: set[int] = set()
+    for slot in mu_spec.slots:
+        names: list[str] = []
+        if slot.kind == "plain" and slot.name is not None:
+            names = [slot.name]
+        elif slot.kind == "interaction" and slot.interaction_parts is not None:
+            names = list(slot.interaction_parts)
+        elif slot.kind == "lag" and slot.lag_of is not None:
+            names = [slot.lag_of]
+        elif slot.kind == "transform" and slot.transform is not None:
+            names = [_get_adstock_input(slot.transform)]
+        elif slot.kind == "hsgp" and slot.name is not None:
+            names = [slot.name]
+        for name in names:
+            bidx = var_to_block_idx.get(name)
+            if bidx is not None:
+                found.add(bidx)
+    return found
 
 
 def _references_block_members(mu_spec: MuSpec, block_vars: set[str]) -> bool:
@@ -1467,7 +1510,9 @@ def _compile_residual_block(
     panel_info: PanelInfo | None = None,
     priors: dict[str, Any] | None = None,
     topological_order: list[str] | None = None,
-) -> None:
+    *,
+    generative: bool = False,
+) -> str | None:
     """Compile a residual-covariance block.
 
     Uses ``MuSpec`` + resolver so that endogenous predictors wire
@@ -1475,6 +1520,10 @@ def _compile_residual_block(
     Creates ``mu_{var}`` deterministics and registers block variables
     in *endogenous_rvs* so downstream equations wire through the model
     graph (enabling ``pm.do()`` propagation through block variables).
+
+    On the estimation path, *endogenous_rvs* stores structural means.
+    On the generative path, it stores realized noisy slices of the joint
+    residual RV so descendants read correlated noise, not ``mu_{var}``.
 
     Delegates the covariance parameterization and likelihood emission
     to an :class:`~pathmc.residuals.LKJResidual`.
@@ -1485,6 +1534,14 @@ def _compile_residual_block(
         Block members in topological order.  When provided, variables
         are processed in this order to ensure correct wiring when one
         block member depends on another.
+    generative : bool
+        When True, emit a free joint RV and expose realized values
+        under each member's name.
+
+    Returns
+    -------
+    str | None
+        Name of the free joint RV on the generative path, else None.
     """
     import pytensor.tensor as pt
 
@@ -1530,7 +1587,14 @@ def _compile_residual_block(
         data_dict[var] = data[var].to_numpy()
 
     structure = LKJResidual()
-    structure.emit(block_sorted, mu_dict, data_dict, priors)
+    joint = structure.emit(
+        block_sorted, mu_dict, data_dict, priors, observed=not generative
+    )
+    if not generative:
+        return None
+    for i, var in enumerate(block_sorted):
+        endogenous_rvs[var] = pm.Deterministic(var, joint[:, i])
+    return str(joint.name)
 
 
 def _spec_has_hsgp(spec: Spec) -> bool:
