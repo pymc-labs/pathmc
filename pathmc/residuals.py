@@ -88,8 +88,9 @@ class LKJResidual:
     """Full LKJ Cholesky covariance for residual blocks.
 
     Parameterizes the residual covariance as an LKJ Cholesky factor
-    with half-normal marginal standard deviations. Emits the block
-    as a single observed MvNormal.
+    with half-normal marginal standard deviations. Emits
+    ``{block}_obs`` (observed MvNormal) when ``observed=True``, or a
+    free ``{block}_joint`` RV when ``observed=False``.
     """
 
     def emit(

@@ -2600,7 +2600,7 @@ def simulate(
     """
     spec = parse_spec(spec_string)
     latent_set = set(latent) if latent else set()
-    block_var_set, _ = _identify_residual_blocks(spec)
+    block_var_set, blocks = _identify_residual_blocks(spec)
     graph_info = build_graph(spec, latent=latent_set)
 
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
@@ -2614,12 +2614,14 @@ def simulate(
         )
 
     if block_var_set:
+        var_to_block = {v: block for block in blocks for v in block}
         within_block_readers: dict[str, set[str]] = {}
         for reg in spec.regressions:
-            if reg.lhs not in block_var_set:
+            if reg.lhs not in var_to_block:
                 continue
+            own_block = var_to_block[reg.lhs]
             read_vars = {v for term in reg.terms for v in _scan_term_base_vars(term)}
-            block_deps = (block_var_set & read_vars) - {reg.lhs}
+            block_deps = (own_block & read_vars) - {reg.lhs}
             if block_deps:
                 within_block_readers[reg.lhs] = block_deps
         if within_block_readers:

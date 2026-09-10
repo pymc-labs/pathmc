@@ -272,7 +272,7 @@ class TestSimulateValidation:
 
     @pytest.mark.slow
     def test_residual_cov_descendant_recovers_beta_z(self):
-        """Fitting Z ~ Y1 on simulated data puts 3.0 in the beta_Z HDI."""
+        """Fit Z ~ Y1; posterior mean near 3.0 and HDI above the attenuated slope."""
         from pathmc.idata import beta_draws, hdi
 
         rng = np.random.default_rng(1)
@@ -301,6 +301,31 @@ class TestSimulateValidation:
         # the exact truth; they must still sit on the realized-Y1 slope
         # (~3), not the attenuated mu_Y1 slope (~0.6).
         assert lo > 2.0, f"HDI [{lo}, {hi}] is in the attenuated regime"
+
+    def test_residual_cov_cross_block_descendant_numpy_reference(self):
+        """A ~~ block that reads another ~~ block uses realized upstream noise."""
+        rng = np.random.default_rng(0)
+        n = 5000
+        x = rng.normal(size=n)
+        spec = "Y1 ~ X\nY2 ~ X\nY1 ~~ Y2\nW1 ~ Y1\nW2 ~ X\nW1 ~~ W2"
+        df = pathmc.simulate(
+            spec,
+            data=pd.DataFrame({"X": x}),
+            params={
+                "beta_Y1": [0.0, 0.5],
+                "beta_Y2": [0.0, -0.5],
+                "beta_W1": [0.0, 3.0],
+                "beta_W2": [0.0, -0.5],
+                "chol_Y1_Y2": [1.0, 0.8, 0.6],
+                "chol_W1_W2": [1.0, 0.0, 1.0],
+            },
+            random_seed=42,
+        )
+        design = np.column_stack([np.ones(n), df["Y1"].to_numpy()])
+        slope, *_ = np.linalg.lstsq(design, df["W1"].to_numpy(), rcond=None)
+        attenuated = 3.0 * np.var(0.5 * x) / np.var(df["Y1"].to_numpy())
+        assert slope[1] == pytest.approx(3.0, abs=0.05)
+        assert abs(slope[1] - 3.0) < abs(slope[1] - attenuated)
 
     def test_residual_cov_within_block_edge_raises(self, exog_df):
         with pytest.raises(

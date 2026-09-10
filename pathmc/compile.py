@@ -478,7 +478,10 @@ def compile_to_pymc(
 ) -> pm.Model:
     """Compile a structural specification into a generative PyMC model.
 
-    All endogenous variables are emitted as **free random variables**.
+    Non-block endogenous variables are emitted as **free random variables**.
+    Residual-covariance members are an observed ``MvNormal`` under
+    estimation (``generative=False``) or ``Deterministic`` slices of a
+    free ``{block}_joint`` RV when ``generative=True`` (``simulate()``).
     The caller should use ``pm.observe()`` to condition on observed data
     for estimation, and ``pm.do()`` on this generative model for
     interventional simulation.
@@ -673,11 +676,21 @@ def compile_to_pymc(
                 var_to_block_idx[v] = idx
         block_members_seen: dict[int, set[str]] = {i: set() for i in range(len(blocks))}
         compiled_blocks: set[int] = set()
+        compiling_blocks: set[int] = set()
         block_joint_rvs: set[str] = set()
 
         def _ensure_residual_block(bidx: int) -> None:
-            if bidx in compiled_blocks:
+            if bidx in compiled_blocks or bidx in compiling_blocks:
                 return
+            compiling_blocks.add(bidx)
+            for member in blocks[bidx]:
+                if member not in mu_specs:
+                    continue
+                for dep_idx in _block_indices_referenced(
+                    mu_specs[member], var_to_block_idx
+                ):
+                    if dep_idx != bidx:
+                        _ensure_residual_block(dep_idx)
             block_topo = [v for v in graph_info.topological_order if v in blocks[bidx]]
             joint_name = _compile_residual_block(
                 blocks[bidx],
@@ -694,6 +707,7 @@ def compile_to_pymc(
             )
             if joint_name is not None:
                 block_joint_rvs.add(joint_name)
+            compiling_blocks.remove(bidx)
             compiled_blocks.add(bidx)
 
         for var in graph_info.topological_order:
