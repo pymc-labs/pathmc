@@ -57,25 +57,44 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 
 ### 4. Spawn both sub-agents in parallel
 
+When reviews feed the **`work`** orchestrator (implementer agent will fix findings), **detail beats brevity**. Each finding must be actionable without re-reading the full diff.
+
 **Standards sub-agent prompt** — include:
 
 - The full diff command and commit list.
 - The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full — the sub-agent has no other access to it.
-- The brief: "Report — per file/hunk where relevant — (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls — documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
+- The brief:
+
+> Report every 🔴 and 🟡 with: **Where** (file:line or symbol), **What** (current vs expected behaviour), **Why** (cite standard or smell name), **Fix** (concrete steps). Quote short diff hunks where helpful. Distinguish hard violations from judgement calls. Skip anything tooling enforces. Do not cap length — incomplete findings waste a review round. If posting to a PR for `work`, use the `work-round` template in the `work` skill.
 
 **Spec sub-agent prompt** — include:
 
 - The diff command and commit list.
 - The path or fetched contents of the spec.
-- The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
+- The brief:
+
+> Report: (a) missing or partial requirements; (b) scope creep; (c) implemented requirements that look wrong. For each finding: **Where**, **What**, **Why** (quote spec line), **Fix**. Add a **Requirements checked** list for items you verified. Do not cap length when the implementer agent is the audience. If posting to a PR for `work`, use the `work-round` template in the `work` skill.
 
 If the spec is missing, skip the Spec sub-agent and note this in the final report.
 
+For **standalone** reviews (human reader, not `work` loop), keep reports focused but still include Where/What/Why/Fix per finding — aim for clarity, not word-count limits.
+
 ### 5. Aggregate
 
-Present the two reports under `## Standards` and `## Spec` headings, verbatim or lightly cleaned. Do **not** merge or rerank findings — the two axes are deliberately separate (see _Why two axes_).
+Present the two reports under `## Standards` and `## Spec` headings. Preserve finding detail (Where / What / Why / Fix) — do not compress actionable reviews into one-line bullets.
 
 End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes — that's the reranking the separation exists to prevent.
+
+## Actionable findings (agent handoff)
+
+Reviews that drive an implementer agent (via `work` or `fix-bug`) should treat each finding as a mini-spec:
+
+1. **Locate** — enough to open the right file without searching.
+2. **Diagnose** — what is wrong and what correct looks like.
+3. **Justify** — rule or requirement violated.
+4. **Direct** — steps or code shape for the fix.
+
+Thin reviews ("fix naming", "add test") force the implementer to redo the reviewer's analysis. That is a failed handoff.
 
 ## Why two axes
 
