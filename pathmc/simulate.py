@@ -190,6 +190,56 @@ def _chain_draw_ones(post: xr.Dataset) -> xr.DataArray:
     return xr.ones_like(post["chain"] * post["draw"], dtype=float)
 
 
+def _to_business_units(
+    var: str,
+    da: xr.DataArray,
+    data: nw.DataFrame | None,
+    scaling_factors: ScalingFactors | None,
+    scan_info: Any | None = None,
+) -> xr.DataArray:
+    """Map internal-scale draws for *var* to business units."""
+    if scaling_factors is None or var not in scaling_factors.factors:
+        return da
+    if data is None:
+        raise ValueError(
+            "scaling_factors requires data= so per-row divisors can be aligned."
+        )
+    if scan_info is not None:
+        per_row = scaling_factors._per_row(data, var)
+        factor_mat = (
+            per_row[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
+        )
+        obs = _obs_dims(da)
+        if len(obs) >= 2:
+            t_dim, u_dim = obs[0], obs[1]
+            fda = xr.DataArray(
+                factor_mat,
+                dims=[t_dim, u_dim],
+                coords={t_dim: da.coords[t_dim], u_dim: da.coords[u_dim]},
+            )
+            return da * fda
+    return scaling_factors.unscale_xarray(var, da, data)
+
+
+def _unscale_do_dataset(
+    ds: xr.Dataset,
+    data: nw.DataFrame,
+    scaling_factors: ScalingFactors | None,
+) -> xr.Dataset:
+    """Return *ds* with scaled endogenous variables in business units."""
+    if scaling_factors is None:
+        return ds
+    data_vars = {
+        var: (
+            scaling_factors.unscale_xarray(var, ds[var], data)
+            if var in scaling_factors.factors
+            else ds[var]
+        )
+        for var in ds.data_vars
+    }
+    return xr.Dataset(data_vars)
+
+
 def _spread_over_time(
     ones: xr.DataArray, value: float | np.ndarray, time_index: np.ndarray
 ) -> xr.DataArray:
@@ -1256,6 +1306,19 @@ def _exog_value(
     return _exogenous_fill(col)
 
 
+def _business_exog_value(
+    var: str,
+    data: nw.DataFrame,
+    subgroup_indices: np.ndarray | None,
+    scaling_factors: ScalingFactors | None,
+) -> float:
+    """Empirical fill for an exogenous variable in business units."""
+    val = _exog_value(var, data, subgroup_indices)
+    if scaling_factors is not None and var in scaling_factors.factors:
+        val *= scaling_factors.mean_factor(var, data)
+    return val
+
+
 def run_do_pymc(
     gen_model: pm.Model,
     graph_info: GraphInfo,
@@ -1395,11 +1458,14 @@ def run_do_pymc(
             if var in set:
                 data_vars[var] = _broadcast_intervention(ones, set[var], N)
             elif var in graph_info.exogenous:
-                data_vars[var] = ones * _exog_value(var, data, subgroup_indices)
+                data_vars[var] = ones * _business_exog_value(
+                    var, data, subgroup_indices, scaling_factors
+                )
             else:
                 mu = _apply_inverse_link(
                     det[mean_det_names[var]], families.get(var, "")
                 )
+                mu = _to_business_units(var, mu, data, scaling_factors)
                 if subgroup_indices is not None:
                     mu = mu.isel({_obs_dims(mu)[0]: subgroup_indices})
                 if average_units:
@@ -1442,8 +1508,11 @@ def run_do_pymc(
         if var in set:
             predictive_vars[var] = _broadcast_intervention(ones, set[var], N)
         elif var in graph_info.exogenous:
-            predictive_vars[var] = ones * _exog_value(var, data, subgroup_indices)
+            predictive_vars[var] = ones * _business_exog_value(
+                var, data, subgroup_indices, scaling_factors
+            )
         elif (src := _predictive_source(ppc, extra_det, var)) is not None:
+            src = _to_business_units(var, src, data, scaling_factors)
             if subgroup_indices is not None:
                 src = src.isel({_obs_dims(src)[0]: subgroup_indices})
             # Each row is its own draw: keep them on a ``unit`` axis that
@@ -1589,7 +1658,14 @@ def run_do_panel_unified(
                 data_vars[var] = ones * 0.0
             elif var in graph_info.endogenous:
                 det_key = var if var in stochastic_latent else f"mu_{var}"
-                data_vars[var] = _panel_unit_mean(det[det_key], time_idx)
+                raw = _to_business_units(
+                    var,
+                    det[det_key],
+                    data,
+                    scaling_factors,
+                    scan_info,
+                )
+                data_vars[var] = _panel_unit_mean(raw, time_idx)
 
         return DoResult(
             ds=xr.Dataset(data_vars),
@@ -1639,13 +1715,25 @@ def run_do_panel_unified(
         elif var in graph_info.exogenous:
             predictive_vars[var] = ones * 0.0
         elif var in ppc.posterior_predictive:
-            predictive_vars[var] = _panel_unit_mean(
-                ppc.posterior_predictive[var], time_idx
+            raw = _to_business_units(
+                var,
+                ppc.posterior_predictive[var],
+                data,
+                scaling_factors,
+                scan_info,
             )
+            predictive_vars[var] = _panel_unit_mean(raw, time_idx)
         elif latent_det is not None:
             det_key = var if var in stochastic_latent else f"mu_{var}"
             if det_key in latent_det:
-                predictive_vars[var] = _panel_unit_mean(latent_det[det_key], time_idx)
+                raw = _to_business_units(
+                    var,
+                    latent_det[det_key],
+                    data,
+                    scaling_factors,
+                    scan_info,
+                )
+                predictive_vars[var] = _panel_unit_mean(raw, time_idx)
 
     return DoResult(
         ds=xr.Dataset(predictive_vars),

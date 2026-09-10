@@ -31,6 +31,7 @@ import xarray as xr
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi, hdi_label
 from pathmc.parse import Spec
 from pathmc.reprs import ReprSpec, ResultReprMixin
+from pathmc.scaling import ScalingFactors
 
 __all__ = ["EffectResult"]
 
@@ -221,9 +222,27 @@ def evaluate_defined_params(
     return defined_draws
 
 
+def _labeled_coef_business_scale(
+    spec: Spec,
+    label: str,
+    scaling_factors: ScalingFactors,
+    data: nw.DataFrame,
+) -> float:
+    """Map a labeled coefficient from internal to business units."""
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.label != label:
+                continue
+            predictor = None if term.variable == "Intercept" else term.variable
+            return scaling_factors.coefficient_to_business(predictor, reg.lhs, data)
+    return 1.0
+
+
 def build_effects_summary(
     spec: Spec,
     idata: xr.DataTree,
+    scaling_factors: ScalingFactors | None = None,
+    data: nw.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Build a summary DataFrame of labeled coefficients and defined parameters.
 
@@ -246,6 +265,9 @@ def build_effects_summary(
 
     rows = []
     for name, draws in all_draws.items():
+        if scaling_factors is not None and data is not None and name in labeled_draws:
+            scale = _labeled_coef_business_scale(spec, name, scaling_factors, data)
+            draws = draws * scale
         interval = hdi(draws)
         rows.append({
             "name": name,
@@ -401,6 +423,8 @@ def compute_path_effect(
     spec: Spec,
     idata: xr.DataTree,
     families: dict[str, str] | None = None,
+    scaling_factors: ScalingFactors | None = None,
+    data: nw.DataFrame | None = None,
 ) -> EffectResult:
     """Compute the effect along a specified causal path.
 
@@ -499,6 +523,10 @@ def compute_path_effect(
             coord_name = f"{target}_predictors"
             draws = beta_draws(idata, beta_name, coord_name, source)
 
+        if scaling_factors is not None and data is not None:
+            draws = draws * scaling_factors.coefficient_to_business(
+                source, target, data
+            )
         edge_draws.append(draws)
 
     result_draws = edge_draws[0]

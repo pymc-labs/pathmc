@@ -28,7 +28,9 @@ The fitted factors are stored on the returned :class:`~pathmc.PathModel`
 :func:`pathmc.simulate` can apply the inverse transform and return
 generated columns in their original business units, and so that
 :meth:`~pathmc.PathModel.do` can divide ``set`` values from business
-units into the internal scale.
+units into the internal scale, and user-facing outputs (``do()``,
+``predict()``, ``effects_summary()``, and related helpers) are returned
+in business units.
 """
 
 from __future__ import annotations
@@ -159,6 +161,43 @@ class ScalingFactors:
     ) -> np.ndarray:
         """Multiply *values* by the fitted factor of *column* (inverse transform)."""
         return np.asarray(values, dtype=float) * self._per_row(df, column)
+
+    def mean_factor(self, column: str, df: nw.DataFrame) -> float:
+        """Data-weighted mean divisor for *column* (1.0 when not scaled)."""
+        if column not in self.factors:
+            return 1.0
+        return float(np.mean(self._per_row(df, column)))
+
+    def coefficient_to_business(
+        self,
+        predictor: str | None,
+        outcome: str,
+        df: nw.DataFrame,
+    ) -> float:
+        """Scale a regression coefficient from internal to business units."""
+        scale = self.mean_factor(outcome, df)
+        if predictor is not None and predictor in self.factors:
+            scale /= self.mean_factor(predictor, df)
+        return scale
+
+    def unscale_xarray(self, column: str, da: Any, df: nw.DataFrame) -> Any:
+        """Map internal-scale *da* to business units along observation dims."""
+        import xarray as xr
+
+        if column not in self.factors:
+            return da
+        row_factors = self._per_row(df, column)
+        obs_dims = [d for d in da.dims if d not in ("chain", "draw", "time")]
+        if len(obs_dims) == 1 and da.sizes[obs_dims[0]] == len(row_factors):
+            dim = obs_dims[0]
+            coord_vals = (
+                da.coords[dim].values
+                if dim in da.coords
+                else np.arange(len(row_factors))
+            )
+            factor_da = xr.DataArray(row_factors, dims=[dim], coords={dim: coord_vals})
+            return da * factor_da
+        return da * self.mean_factor(column, df)
 
 
 def _validate_spec(role: str, cfg: dict[str, Any] | None) -> dict[str, Any]:

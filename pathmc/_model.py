@@ -89,6 +89,7 @@ from pathmc.scaling import Scaling, ScalingFactors, fit_scaling, validate_scalin
 from pathmc.simulate import (
     DoResult,
     EstimandResult,
+    _unscale_do_dataset,
     run_counterfactual,
     run_do_panel_unified,
     run_do_pymc,
@@ -665,7 +666,12 @@ class PathModel:
                 UserWarning,
                 stacklevel=2,
             )
-        return build_effects_summary(self._spec, idata)
+        return build_effects_summary(
+            self._spec,
+            idata,
+            scaling_factors=self._scaling_factors,
+            data=self._data,
+        )
 
     def standardized(self) -> pd.DataFrame:
         """Return stdyx-standardized coefficients for labeled effects.
@@ -734,7 +740,14 @@ class PathModel:
             whose coefficient would be multiplied across link scales.
         """
         idata = self._require_fitted("effect")
-        return compute_path_effect(path, self._spec, idata, families=self._families)
+        return compute_path_effect(
+            path,
+            self._spec,
+            idata,
+            families=self._families,
+            scaling_factors=self._scaling_factors,
+            data=self._data,
+        )
 
     def fit(
         self,
@@ -834,6 +847,14 @@ class PathModel:
             pp = pm.sample_posterior_predictive(idata, **kwargs)
         if not kwargs["extend_inferencedata"]:
             return pp
+        if self._scaling_factors is not None and self._data is not None:
+            pp_group = idata.posterior_predictive
+            if pp_group is not None:
+                for var in list(pp_group.data_vars):
+                    if var in self._scaling_factors.factors:
+                        pp_group[var] = self._scaling_factors.unscale_xarray(
+                            var, pp_group[var], self._data
+                        )
         return idata
 
     def latent_trajectory(self, var: str) -> xr.DataArray:
@@ -1498,7 +1519,7 @@ class PathModel:
             graph surgery so ``do(set={"tv": 500})`` means 500 of the
             original column, not 500 scaled units.
         shift : dict[str, float] | None
-            Reserved for soft interventions (not yet implemented).
+            Not implemented; raises :exc:`NotImplementedError` if given.
         kind : str
             ``"mean"`` for deterministic propagation via mu Deterministics,
             ``"predictive"`` to include residual noise.
@@ -1527,6 +1548,12 @@ class PathModel:
         idata = self._require_fitted("do")
         assert self._data is not None
         assert self._gen_model is not None
+
+        if shift:
+            raise NotImplementedError(
+                "do(shift=...) is not yet implemented. Use do(set=...) for hard "
+                "interventions."
+            )
 
         scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
         if scan_info is not None and simulate_over != "time":
@@ -1662,7 +1689,7 @@ class PathModel:
                 var: _scale_scalar_intervention(var, val, self._scaling_factors)
                 for var, val in evidence.items()
             }
-        return run_counterfactual(
+        result = run_counterfactual(
             spec=self._spec,
             graph_info=self._graph_info,
             idata=idata,
@@ -1671,6 +1698,15 @@ class PathModel:
             families=self._families,
             allow_partial_evidence=allow_partial_evidence,
         )
+        if self._scaling_factors is not None:
+            return DoResult(
+                ds=_unscale_do_dataset(
+                    result.dataset, self._data, self._scaling_factors
+                ),
+                scenario=result._scenario,
+                evidence=result._evidence,
+            )
+        return result
 
     def ate(
         self,
@@ -2227,13 +2263,13 @@ def model(
         fitted factors are stored on the returned model as
         ``fitted_scaling``.
 
-        .. note:: ``do(set=)`` values are in *business* units: pathmc
-           divides by the fitted factor before graph surgery, including
-           per-unit factors. ``predict()`` / ``do()`` *outputs* on a
-           scaled model remain in scaled units when the target role was
-           scaled; multiply by ``model.fitted_scaling`` if you need
-           business-unit outcomes, or pass the fitted factors back to
-           :func:`simulate` for generation.
+        .. note:: User-facing inputs and outputs use *business* units:
+           ``do(set=)`` values are divided by the fitted factor before graph
+           surgery (including per-unit factors), and ``predict()`` / ``do()``
+           outputs, ``effects_summary()``, and ``effect()`` are returned in
+           business units. Internal estimation still runs on the scaled
+           columns; ``model.fitted_scaling`` exposes the divisors for
+           :func:`simulate` and manual transforms.
 
     Returns
     -------
