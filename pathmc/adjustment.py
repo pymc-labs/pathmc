@@ -227,20 +227,31 @@ def _validate_reduced_spec(
             )
 
 
+def _reject_uninheritable_beta_prior(
+    construction_priors: dict[str, Any] | None,
+    user_priors: dict[str, Any] | None,
+    outcome: str,
+) -> None:
+    """Raise when a parent beta prior would be silently replaced by defaults."""
+    beta_key = f"beta_{outcome}"
+    if not construction_priors or beta_key not in construction_priors:
+        return
+    if user_priors is not None and beta_key in user_priors:
+        return
+    raise ValueError(
+        f"The structural model has a custom prior on '{beta_key}'. "
+        f"Adjustment models do not inherit coefficient priors because the "
+        f"reduced predictor set can differ. Pass "
+        f"priors={{'{beta_key}': ...}} to adjustment_model() to set it on "
+        f"the reduced equation."
+    )
+
+
 def _inherit_outcome_priors(
     parent_priors: dict[str, Any],
-    construction_priors: dict[str, Any] | None,
     outcome: str,
 ) -> dict[str, Any]:
-    """Copy outcome dispersion priors from the parent; reject beta overrides."""
-    beta_key = f"beta_{outcome}"
-    if construction_priors and beta_key in construction_priors:
-        raise ValueError(
-            f"The structural model has a custom prior on '{beta_key}'. "
-            f"Adjustment models do not inherit coefficient priors. Pass "
-            f"priors= on adjustment_model() for the reduced equation."
-        )
-
+    """Copy outcome dispersion priors from the parent."""
     inherited: dict[str, Any] = {}
     for suffix in _OUTCOME_PRIOR_SUFFIXES:
         key = f"{suffix}_{outcome}"
@@ -395,11 +406,12 @@ class AdjustmentModel:
         construction_priors = (
             parent._construction.get("priors") if parent._construction else None
         )
-        inherited_priors = _inherit_outcome_priors(
-            parent._priors,
+        _reject_uninheritable_beta_prior(
             construction_priors,
+            priors,
             outcome_name,
         )
+        inherited_priors = _inherit_outcome_priors(parent._priors, outcome_name)
         reduced_defaults = default_priors(
             reduced_spec,
             families=outcome_families or None,

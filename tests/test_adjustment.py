@@ -250,6 +250,52 @@ class TestPriorInheritance:
             == 3.0
         )
 
+    def test_parent_beta_override_satisfied_by_user_priors(self, rng):
+        df = _fork_df(rng)
+        model = pathmc.model(
+            "X ~ Z\nY ~ X + Z",
+            data=df,
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=2.0)},
+        )
+        adjusted = model.adjustment_model(
+            "X -> Y",
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=2.0)},
+        )
+        beta = adjusted.outcome_model._priors["beta_Y"].to_dict()
+        assert beta["dist"] == "Normal"
+        assert beta["kwargs"]["sigma"] == 2.0
+
+    def test_parent_beta_override_without_user_beta_still_raises(self, rng):
+        df = _fork_df(rng)
+        model = pathmc.model(
+            "X ~ Z\nY ~ X + Z",
+            data=df,
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=2.0)},
+        )
+        with pytest.raises(ValueError, match="beta_Y"):
+            model.adjustment_model(
+                "X -> Y",
+                priors={"sigma_Y": Prior("HalfNormal", sigma=3.0)},
+            )
+
+    def test_user_beta_override_keeps_inherited_dispersion(self, rng):
+        df = _fork_df(rng)
+        model = pathmc.model(
+            "X ~ Z\nY ~ X + Z",
+            data=df,
+            priors={
+                "beta_Y": Prior("Normal", mu=0, sigma=2.0),
+                "sigma_Y": Prior("HalfNormal", sigma=4.0),
+            },
+        )
+        adjusted = model.adjustment_model(
+            "X -> Y",
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=5.0)},
+        )
+        priors = adjusted.outcome_model._priors
+        assert priors["beta_Y"].to_dict()["kwargs"]["sigma"] == 5.0
+        assert priors["sigma_Y"].to_dict()["kwargs"]["sigma"] == 4.0
+
 
 class TestInnerModelTypes:
     def test_inner_is_pathmodel_with_pymc_model(self, rng):
