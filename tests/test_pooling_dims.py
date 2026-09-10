@@ -503,3 +503,18 @@ class TestParameterRecovery:
             true_beta[("South", "Bolt")],
         ])
         assert np.all(np.abs(post - truth) < 0.75)
+
+
+class TestRaggedRankNWarning:
+    def test_missing_geo_brand_cells_warn_at_compile(self, geo_brand_data):
+        """Ragged panels warn when a rank-N hyperprior cell has no units."""
+        ragged = geo_brand_data[
+            ~((geo_brand_data["geo"] == "North") & (geo_brand_data["brand"] == "Bolt"))
+        ].copy()
+        with pytest.warns(UserWarning, match="hyperprior cell"):
+            pathmc.model(
+                "radio ~ 0 + tv",
+                data=ragged,
+                panel={"unit": ["geo", "brand"], "time": "week"},
+                pooling={"by_var": {"tv": {"coefficient": ("geo", "brand")}}},
+            )

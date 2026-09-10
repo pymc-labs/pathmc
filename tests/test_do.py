@@ -65,3 +65,7 @@ class TestDoSemantics:
         hdi = contrast.hdi("Y")
         assert len(hdi) == 2
         assert hdi[0] < hdi[1]
+
+    def test_shift_raises_not_implemented(self, fitted_mediation):
+        with pytest.raises(NotImplementedError, match="shift"):
+            fitted_mediation.do(shift={"X": 1.0})

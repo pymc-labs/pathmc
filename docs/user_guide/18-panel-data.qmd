@@ -96,7 +96,7 @@ model = pathmc.model(
 )
 ```
 
-The data must be rectangular: every `geo × brand` combination shares the same set of `week` values. Non-rectangular panels raise an error naming the offending combinations. Under the hood the composite key (`"North|Acme"` style labels) becomes the unit coordinate, so each cell gets its own random intercept under `pooling="partial"` — the same machinery as single-column panels. Because `|` separates the source labels, values in multi-dimensional unit columns cannot themselves contain `|`; recode those values before building the model.
+The data must be rectangular: every `geo × brand` combination shares the same set of `week` values. Non-rectangular panels raise an error naming the offending combinations. Under the hood the composite key (`"North|Acme"` style labels) becomes the unit coordinate, so each cell gets its own random intercept under `pooling="partial"` — the same machinery as single-column panels. Because `|` separates the source labels, values in multi-dimensional unit columns cannot themselves contain `|`; recode those values before building the model. Per-dimension coords such as `geo` keep their native dtype (numeric columns stay numeric), while the composite `unit` labels are strings — cast when joining lookups across the two.
 
 ## Structured pooling with `by_var`
 
@@ -122,7 +122,7 @@ model = pathmc.model(
 
 The tuple in `"coefficient"` names **panel dimensions** (the columns in `panel['unit']`) to pool over; a single string works for one dimension. Each pooled predictor gets a per-cell RV (`beta_{var}`) plus hyperpriors named after the requested dims (`mu_{var}_{dim}`, `sigma_{var}_{dim}`), and it replaces that predictor's flat entry in `beta_{lhs}`. A bare string `"none"` forces unpooled per-cell parameters instead — for a predictor this means one free coefficient per cell with no hierarchy, and for a transform parameter (e.g. `decay=theta_tv`) it upgrades the shared scalar to one value per cell.
 
-Use multiple names to pool over a dimension combination, for example `"tv": {"coefficient": ("geo", "brand")}` creates `mu_tv_geo_brand[geo, brand]`. If the observed panel omits some combinations, those unused hyperprior cells remain prior-only; use a rectangular panel when every cell should be informed by data.
+Use multiple names to pool over a dimension combination, for example `"tv": {"coefficient": ("geo", "brand")}` creates `mu_tv_geo_brand[geo, brand]`. If the observed panel omits some combinations, pathmc emits a compile-time warning: those unused hyperprior cells remain prior-only and can look like estimates in the posterior. Use a rectangular panel when every cell should be informed by data.
 
 ## Posterior predictive checks with a lagged outcome
 
@@ -252,7 +252,7 @@ sim = pathmc.simulate(
 
 Omitting `scaling=` in `simulate()` changes nothing: parameters are then interpreted directly in raw data units.
 
-`do(set=)` values are in business units and are divided by the fitted factor (including per-unit factors) before graph surgery, so `do(set={"tv": 500})` means 500 of the original column. `predict()` / `do()` *outputs* remain in scaled units when the target role was scaled; multiply by `model.fitted_scaling` if you need business-unit outcomes.
+User-facing inputs and outputs use business units: `do(set=)` values are divided by the fitted factor (including per-unit factors) before graph surgery, so `do(set={"tv": 500})` means 500 of the original column, and `predict()`, `do()`, `effects_summary()`, and `effect()` return outcomes and coefficients in business units. Estimation still runs on scaled columns internally; `model.fitted_scaling` exposes the divisors for `simulate()` and manual transforms.
 
 ## Residual covariance simulation
 

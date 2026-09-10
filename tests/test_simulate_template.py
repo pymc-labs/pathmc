@@ -116,6 +116,14 @@ class TestTemplateTransforms:
         assert template["theta"]["kind"] == "scalar"
         assert "beta_Y" in template
 
+    def test_adstock_without_decay_raises(self, panel_df):
+        with pytest.raises(ValueError, match="adstock\\(\\) requires a decay"):
+            pathmc.simulate_params_template(
+                "sales ~ adstock(spend)",
+                data=panel_df,
+                panel={"unit": "region", "time": "week"},
+            )
+
     def test_saturation_lam(self, mediation_df):
         template = pathmc.simulate_params_template(
             "Y ~ logistic_saturation(X, lam=lam_x)", data=mediation_df

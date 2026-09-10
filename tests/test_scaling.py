@@ -725,6 +725,48 @@ class TestDoBusinessUnits:
         unscaled = intercept + slope * spend
         assert abs(first - scaled) < abs(first - unscaled)
 
+    def test_do_output_target_in_business_units(self, mock_pymc_sample):
+        """do() outcomes are returned in business units when the target is scaled."""
+        rng = np.random.default_rng(2)
+        tv = rng.uniform(10, 100, 60)
+        sales = 3.0 * tv + rng.normal(scale=1.0, size=60)
+        df = pd.DataFrame({"tv": tv, "sales": sales})
+        m = pathmc.model(
+            "sales ~ tv",
+            data=df,
+            scaling=Scaling(target={"method": "max"}),
+        )
+        m.fit()
+        assert m.fitted_scaling is not None
+        target_factor = next(iter(m.fitted_scaling.factors["sales"][1].values()))
+        raw_tv = 50.0
+        got = float(m.do(set={"tv": raw_tv}, kind="mean").mean("sales"))
+        intercept = _beta_mean(m, "sales", "Intercept")
+        slope = _beta_mean(m, "sales", "tv")
+        expected = (intercept + slope * raw_tv) * target_factor
+        assert got == pytest.approx(expected, rel=1e-4)
+        scaled_mean = intercept + slope * raw_tv
+        assert abs(got - expected) < abs(got - scaled_mean)
+
+    def test_effects_summary_slope_in_business_units(self, mock_pymc_sample):
+        """effects_summary() rescales channel coefficients to business units."""
+        rng = np.random.default_rng(3)
+        tv = rng.uniform(10, 1000, 80)
+        df = pd.DataFrame({
+            "tv": tv,
+            "sales": 2.0 * (tv / 1000.0) + 0.01 * rng.normal(size=80),
+        })
+        m = pathmc.model(
+            "sales ~ b*tv", data=df, scaling=Scaling(channel={"method": "max"})
+        )
+        m.fit()
+        factor = next(iter(m.fitted_scaling.factors["tv"][1].values()))
+        summary = m.effects_summary()
+        post = m._idata["posterior"]["beta_sales"].mean(("chain", "draw")).values
+        beta_scaled = float(post[1])
+        beta_business = beta_scaled / factor
+        assert summary.loc["b", "mean"] == pytest.approx(beta_business, rel=1e-5)
+
 
 # ---------------------------------------------------------------------------
 # Slow MCMC tests: estimation equivalence and recovery
