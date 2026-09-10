@@ -13,18 +13,21 @@
 #   limitations under the License.
 """Structural equation compiler: Spec + data -> pm.Model.
 
-Builds a **generative** PyMC model where all endogenous variables are
-free random variables (not observed). Exogenous inputs use ``pm.Data``,
-linear predictors are tracked as ``pm.Deterministic("mu_{var}", ...)``,
-and each endogenous variable is emitted as ``pm.Normal("{var}", ...)``.
+Builds a **generative** PyMC model. Non-block endogenous variables are
+free random variables (not observed). Residual-covariance members are an
+observed ``MvNormal`` under estimation, or ``Deterministic`` slices of a
+free ``{block}_joint`` RV when ``generative=True``. Exogenous inputs use
+``pm.Data``, and linear predictors are tracked as
+``pm.Deterministic("mu_{var}", ...)``.
 
-The caller uses ``pm.observe()`` to condition the free RVs on observed
-data for estimation, and ``pm.do()`` on the generative model for
+The caller uses ``pm.observe()`` to condition free RVs on observed data
+for estimation, and ``pm.do()`` on the generative model for
 interventional simulation.
 
-Regressions are compiled in topological order so downstream equations
-wire through upstream free RVs, enabling PyMC-native do() interventions
-via graph surgery.
+Regressions are compiled so residual blocks land before any equation that
+reads them, and downstream equations wire through upstream RVs (or
+realized block slices), enabling PyMC-native do() interventions via
+graph surgery.
 
 Panel models with temporal dependencies (adstock transforms or lag
 terms) are compiled using ``pytensor.scan`` so that the generative model
@@ -523,8 +526,11 @@ def compile_to_pymc(
     Returns
     -------
     pm.Model
-        Generative PyMC model (all endogenous vars are free RVs).
-        Use ``pm.observe()`` to condition on data before sampling.
+        Compiled PyMC model. Non-block endogenous variables are free RVs;
+        residual-block members are an observed ``MvNormal`` (estimation)
+        or ``Deterministic`` slices of a free ``{block}_joint`` RV
+        (``generative=True``). Use ``pm.observe()`` to condition on data
+        before sampling.
 
     Raises
     ------
@@ -881,48 +887,41 @@ def build_mu(
     return mu
 
 
+def _predictor_names_in_mu_spec(mu_spec: MuSpec) -> list[str]:
+    """Return predictor variable names referenced by *mu_spec* slots."""
+    names: list[str] = []
+    for slot in mu_spec.slots:
+        if slot.kind == "plain" and slot.name is not None:
+            names.append(slot.name)
+        elif slot.kind == "interaction" and slot.interaction_parts is not None:
+            names.extend(slot.interaction_parts)
+        elif slot.kind == "lag" and slot.lag_of is not None:
+            names.append(slot.lag_of)
+        elif slot.kind == "transform" and slot.transform is not None:
+            names.append(_get_adstock_input(slot.transform))
+        elif slot.kind == "hsgp" and slot.name is not None:
+            names.append(slot.name)
+    return names
+
+
 def _block_indices_referenced(
     mu_spec: MuSpec, var_to_block_idx: dict[str, int]
 ) -> set[int]:
     """Return residual-block indices whose members appear in *mu_spec*."""
     if not var_to_block_idx:
         return set()
-    found: set[int] = set()
-    for slot in mu_spec.slots:
-        names: list[str] = []
-        if slot.kind == "plain" and slot.name is not None:
-            names = [slot.name]
-        elif slot.kind == "interaction" and slot.interaction_parts is not None:
-            names = list(slot.interaction_parts)
-        elif slot.kind == "lag" and slot.lag_of is not None:
-            names = [slot.lag_of]
-        elif slot.kind == "transform" and slot.transform is not None:
-            names = [_get_adstock_input(slot.transform)]
-        elif slot.kind == "hsgp" and slot.name is not None:
-            names = [slot.name]
-        for name in names:
-            bidx = var_to_block_idx.get(name)
-            if bidx is not None:
-                found.add(bidx)
-    return found
+    return {
+        var_to_block_idx[name]
+        for name in _predictor_names_in_mu_spec(mu_spec)
+        if name in var_to_block_idx
+    }
 
 
 def _references_block_members(mu_spec: MuSpec, block_vars: set[str]) -> bool:
     """Return True if any predictor slot references a residual-block member."""
     if not block_vars:
         return False
-    for slot in mu_spec.slots:
-        if slot.kind == "plain" and slot.name in block_vars:
-            return True
-        if slot.kind == "interaction" and slot.interaction_parts is not None:
-            if any(part in block_vars for part in slot.interaction_parts):
-                return True
-        if slot.kind == "lag" and slot.lag_of in block_vars:
-            return True
-        if slot.kind == "transform" and slot.transform is not None:
-            if _get_adstock_input(slot.transform) in block_vars:
-                return True
-    return False
+    return any(name in block_vars for name in _predictor_names_in_mu_spec(mu_spec))
 
 
 def _make_cross_sectional_resolver(

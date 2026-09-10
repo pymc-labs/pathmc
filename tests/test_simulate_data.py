@@ -303,10 +303,26 @@ class TestSimulateValidation:
         assert lo > 2.0, f"HDI [{lo}, {hi}] is in the attenuated regime"
 
     def test_residual_cov_cross_block_descendant_numpy_reference(self):
-        """A ~~ block that reads another ~~ block uses realized upstream noise."""
+        """A ~~ block that reads another ~~ block uses realized upstream noise.
+
+        Hand-written DGP: Y1 = 0.5 X + e1, W1 = 3 Y1 + e_w1, with the two
+        residual pairs from packed chols ``[1, 0.8, 0.6]`` and ``[1, 0, 1]``.
+        OLS of W1 on Y1 recovers 3.0; using mu_Y1 would attenuate.
+        """
         rng = np.random.default_rng(0)
         n = 5000
         x = rng.normal(size=n)
+        eps_y = rng.standard_normal((n, 2)) @ np.array([[1.0, 0.0], [0.8, 0.6]]).T
+        y1 = 0.5 * x + eps_y[:, 0]
+        eps_w = rng.standard_normal((n, 2)) @ np.array([[1.0, 0.0], [0.0, 1.0]]).T
+        w1 = 3.0 * y1 + eps_w[:, 0]
+        oracle_design = np.column_stack([np.ones(n), y1])
+        oracle_slope, *_ = np.linalg.lstsq(oracle_design, w1, rcond=None)
+        assert oracle_slope[1] == pytest.approx(3.0, abs=0.05)
+
+        attenuated = 3.0 * np.var(0.5 * x) / np.var(y1)
+        assert attenuated < 1.5
+
         spec = "Y1 ~ X\nY2 ~ X\nY1 ~~ Y2\nW1 ~ Y1\nW2 ~ X\nW1 ~~ W2"
         df = pathmc.simulate(
             spec,
@@ -323,7 +339,6 @@ class TestSimulateValidation:
         )
         design = np.column_stack([np.ones(n), df["Y1"].to_numpy()])
         slope, *_ = np.linalg.lstsq(design, df["W1"].to_numpy(), rcond=None)
-        attenuated = 3.0 * np.var(0.5 * x) / np.var(df["Y1"].to_numpy())
         assert slope[1] == pytest.approx(3.0, abs=0.05)
         assert abs(slope[1] - 3.0) < abs(slope[1] - attenuated)
 
