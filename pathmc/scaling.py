@@ -163,7 +163,15 @@ class ScalingFactors:
         return np.asarray(values, dtype=float) * self._per_row(df, column)
 
     def mean_factor(self, column: str, df: nw.DataFrame) -> float:
-        """Data-weighted mean divisor for *column* (1.0 when not scaled)."""
+        """Data-weighted mean divisor for *column* (1.0 when not scaled).
+
+        This is a row-weighted average of the per-unit divisors, used
+        when a single number is required (a labeled coefficient, a
+        scalar fill). It is an approximation: a ratio of means is not
+        the mean of ratios, so when outcome and predictor factors are
+        not proportional across units the resulting coefficient is not
+        any one unit's coefficient.
+        """
         if column not in self.factors:
             return 1.0
         return float(np.mean(self._per_row(df, column)))
@@ -174,7 +182,15 @@ class ScalingFactors:
         outcome: str,
         df: nw.DataFrame,
     ) -> float:
-        """Scale a regression coefficient from internal to business units."""
+        """Scale a *linear* coefficient from internal to business units.
+
+        Applies ``mean_factor(outcome) / mean_factor(predictor)``. That
+        ratio is only correct when the coefficient multiplies the raw
+        column (or a homogeneous transform of it, such as adstock).
+        Saturating transforms, interactions, and HSGP terms need a
+        different mapping — see the labeled-coefficient path in
+        :mod:`pathmc.effects`.
+        """
         scale = self.mean_factor(outcome, df)
         if predictor is not None and predictor in self.factors:
             scale /= self.mean_factor(predictor, df)

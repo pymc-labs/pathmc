@@ -485,7 +485,34 @@ def _to_frame(model: PathModel, newdata: IntoFrame | None) -> tuple[nw.DataFrame
     if newdata is None:
         assert model._data is not None
         return model._data, False
-    return nw.from_native(newdata, eager_only=True), True
+    df = nw.from_native(newdata, eager_only=True)
+    factors = model._scaling_factors
+    if factors is None or not factors.factors:
+        return df, True
+    needed: set[str] = set()
+    for col, (dims, _table) in factors.factors.items():
+        if col in df.columns:
+            needed.update(dims)
+    missing = [d for d in needed if d not in df.columns]
+    if missing:
+        raise ValueError(
+            f"predictions(newdata=) on a scaled model needs unit column(s) "
+            f"{missing} in the grid so per-unit scale factors can be applied. "
+            "Add those columns to newdata, or use do(set=...) which applies "
+            "factors from the fitted frame."
+        )
+    return factors.transform(df), True
+
+
+def _column_in_business_units(
+    model: PathModel, data: nw.DataFrame, column: str
+) -> np.ndarray:
+    """Values of *column* in user-facing units (inverse of internal scale)."""
+    x = np.asarray(data[column].to_numpy(), dtype=float)
+    factors = model._scaling_factors
+    if factors is None or column not in factors.factors:
+        return x
+    return factors.inverse_transform_column(x, column, data)
 
 
 def predictions(
@@ -495,7 +522,11 @@ def predictions(
     set: dict[str, float | np.ndarray] | None = None,
     newdata: IntoFrame | None = None,
 ) -> InterpretResult:
-    """Response-mean predictions on the fitted frame or a covariate grid."""
+    """Response-mean predictions on the fitted frame or a covariate grid.
+
+    *newdata* is in business units: scaled-model grids are divided by the
+    fitted factors before compilation, matching ``do(set=)``.
+    """
     model._require_fitted("predictions")
     if model._panel_info is not None:
         _panel_not_implemented("predictions")
@@ -580,7 +611,7 @@ def slopes(
 
     cond = _validate_conditional(conditional)
     data, _swap = _to_frame(model, None)
-    x = np.asarray(data[wrt].to_numpy(), dtype=float)
+    x = _column_in_business_units(model, data, wrt)
     set_lo: dict[str, float | np.ndarray] = {wrt: x, **cond}
     set_hi: dict[str, float | np.ndarray] = {wrt: x + eps, **cond}
     identifiable = _identifiable_flag(model, wrt, outcome)

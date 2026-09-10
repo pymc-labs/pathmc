@@ -89,6 +89,7 @@ from pathmc.scaling import Scaling, ScalingFactors, fit_scaling, validate_scalin
 from pathmc.simulate import (
     DoResult,
     EstimandResult,
+    _to_business_units,
     _unscale_do_dataset,
     run_counterfactual,
     run_do_panel_unified,
@@ -178,6 +179,65 @@ def _scale_set_for_bounds(
         vals = np.asarray(val, dtype=float)
         out[var] = (vals.reshape(-1, 1) / row_div.reshape(1, -1)).ravel()
     return out
+
+
+def _layout_unscaled_column(
+    raw: np.ndarray,
+    template: xr.DataArray,
+    scan_info: Any | None,
+) -> np.ndarray:
+    """Reshape a per-row business-unit vector to match *template*."""
+    sizes = tuple(int(template.sizes[d]) for d in template.dims)
+    if scan_info is not None:
+        mat = raw[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
+        if mat.shape == sizes:
+            return mat
+        if mat.size == int(np.prod(sizes)):
+            return mat.reshape(sizes)
+    if raw.shape == sizes:
+        return raw
+    if raw.size == int(np.prod(sizes)):
+        return raw.reshape(sizes)
+    raise ValueError(
+        f"Cannot align unscaled column of length {raw.size} to observed_data "
+        f"shape {sizes}."
+    )
+
+
+def _unscale_predict_groups(
+    idata: Any,
+    data: nw.DataFrame,
+    scaling_factors: ScalingFactors,
+    scan_info: Any | None,
+) -> None:
+    """Map posterior_predictive and observed_data to business units in place.
+
+    ``observed_data`` is always rebuilt from the internal-scale fitted
+    *data* frame so a second ``predict()`` call does not double-unscale.
+    """
+    pp = getattr(idata, "posterior_predictive", None)
+    if pp is not None:
+        for var in list(pp.data_vars):
+            if var in scaling_factors.factors:
+                pp[var] = _to_business_units(
+                    var, pp[var], data, scaling_factors, scan_info
+                )
+    obs = getattr(idata, "observed_data", None)
+    if obs is None:
+        return
+    for var in list(obs.data_vars):
+        if var not in scaling_factors.factors or var not in data.columns:
+            continue
+        raw = scaling_factors.inverse_transform_column(
+            np.asarray(data[var].to_numpy(), dtype=float), var, data
+        )
+        template = obs[var]
+        values = _layout_unscaled_column(raw, template, scan_info)
+        obs[var] = xr.DataArray(
+            values,
+            dims=template.dims,
+            coords={d: template.coords[d] for d in template.coords},
+        )
 
 
 def _scale_scalar_intervention(var: str, val: float, factors: ScalingFactors) -> float:
@@ -648,7 +708,15 @@ class PathModel:
         -------
         pd.DataFrame
             Summary with mean, sd, and HDI for each labeled coefficient
-            and ``:=`` defined parameter.
+            and ``:=`` defined parameter. On a scaled model, labeled
+            coefficients are mapped to business units according to the
+            term (linear/adstock: ``f_out / f_pred``; saturation/HSGP:
+            ``f_out``; interaction: ``f_out / prod(f_pred_i)``), and
+            defined parameters are evaluated from those rescaled
+            draws so a product such as ``indirect := a*b`` agrees with
+            the rows above it. Per-unit factors are reduced with a
+            data-weighted mean — a ratio of means, not the mean of
+            ratios.
 
         Raises
         ------
@@ -845,17 +913,12 @@ class PathModel:
             validate_panel_scan_shape(self._pymc_model, scan_info)
         with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
             pp = pm.sample_posterior_predictive(idata, **kwargs)
-        if not kwargs["extend_inferencedata"]:
-            return pp
+        result = pp if not kwargs["extend_inferencedata"] else idata
         if self._scaling_factors is not None and self._data is not None:
-            pp_group = idata.posterior_predictive
-            if pp_group is not None:
-                for var in list(pp_group.data_vars):
-                    if var in self._scaling_factors.factors:
-                        pp_group[var] = self._scaling_factors.unscale_xarray(
-                            var, pp_group[var], self._data
-                        )
-        return idata
+            _unscale_predict_groups(
+                result, self._data, self._scaling_factors, scan_info
+            )
+        return result
 
     def latent_trajectory(self, var: str) -> xr.DataArray:
         """Return the posterior latent state of a panel variable over time.
@@ -2072,8 +2135,10 @@ class PathModel:
             Intervention values. When omitted, predictions are
             associational (no graph surgery).
         newdata : IntoFrame or None
-            Covariate grid or frame to predict on. Defaults to the
-            fitted data.
+            Covariate grid or frame to predict on, in *business* units.
+            Defaults to the fitted data. On a scaled model the grid is
+            divided by the fitted factors before compilation, matching
+            ``do(set=)``.
 
         Returns
         -------

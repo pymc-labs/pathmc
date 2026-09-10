@@ -767,6 +767,241 @@ class TestDoBusinessUnits:
         beta_business = beta_scaled / factor
         assert summary.loc["b", "mean"] == pytest.approx(beta_business, rel=1e-5)
 
+    def test_saturation_coef_not_divided_by_channel_factor(self, mock_pymc_sample):
+        """S1: logistic_saturation is unitless; only the outcome factor applies."""
+        rng = np.random.default_rng(4)
+        tv = rng.uniform(10, 1000, 80)
+        df = pd.DataFrame({
+            "tv": tv,
+            "sales": 5.0 * np.tanh(tv / 1000.0) + 0.01 * rng.normal(size=80),
+        })
+        m = pathmc.model(
+            "sales ~ b*logistic_saturation(tv, lam=lam_tv)",
+            data=df,
+            scaling=Scaling(channel={"method": "max"}),
+        )
+        m.fit()
+        factor = next(iter(m.fitted_scaling.factors["tv"][1].values()))
+        internal = _label_mean(m, "b")
+        reported = m.effects_summary().loc["b", "mean"]
+        assert reported == pytest.approx(internal, rel=1e-5)
+        assert abs(reported - internal) < abs(reported - internal / factor)
+
+    def test_interaction_coef_divides_by_product_of_factors(self, mock_pymc_sample):
+        """S1: tv:radio coefficient is per product of the two raw columns."""
+        rng = np.random.default_rng(5)
+        tv = rng.uniform(10, 1000, 80)
+        radio = rng.uniform(10, 500, 80)
+        df = pd.DataFrame({
+            "tv": tv,
+            "radio": radio,
+            "sales": 1.0 + 2e-6 * tv * radio + 0.01 * rng.normal(size=80),
+        })
+        m = pathmc.model(
+            "sales ~ b*tv:radio",
+            data=df,
+            scaling=Scaling(channel={"method": "max"}),
+        )
+        m.fit()
+        f_tv = next(iter(m.fitted_scaling.factors["tv"][1].values()))
+        f_radio = next(iter(m.fitted_scaling.factors["radio"][1].values()))
+        internal = _label_mean(m, "b")
+        reported = m.effects_summary().loc["b", "mean"]
+        expected = internal / (f_tv * f_radio)
+        assert reported == pytest.approx(expected, rel=1e-5)
+
+    def test_defined_param_matches_product_of_rescaled_labels(self, mock_pymc_sample):
+        """N1: indirect := a*b uses business-unit a and b, not mixed units."""
+        rng = np.random.default_rng(6)
+        x = rng.uniform(10, 1000, 80)
+        m_obs = 0.5 * x + rng.normal(scale=1.0, size=80)
+        y = 0.4 * m_obs + rng.normal(scale=1.0, size=80)
+        df = pd.DataFrame({"X": x, "M": m_obs, "Y": y})
+        model = pathmc.model(
+            "M ~ a*X\nY ~ b*M\nindirect := a*b",
+            data=df,
+            scaling=Scaling(
+                target={"method": "max"},
+                channel={"method": "max"},
+            ),
+        )
+        model.fit()
+        from pathmc.effects import extract_labeled_draws, _labeled_coef_business_scale
+
+        draws = extract_labeled_draws(model._spec, model._idata)
+        sa = _labeled_coef_business_scale(
+            model._spec, "a", model.fitted_scaling, model._data
+        )
+        sb = _labeled_coef_business_scale(
+            model._spec, "b", model.fitted_scaling, model._data
+        )
+        expected = float(np.mean(draws["a"] * sa * draws["b"] * sb))
+        reported = model.effects_summary().loc["indirect", "mean"]
+        assert sa * sb != pytest.approx(1.0, rel=0.2)
+        assert reported == pytest.approx(expected, rel=1e-5)
+        internal_product = float(np.mean(draws["a"] * draws["b"]))
+        assert reported != pytest.approx(internal_product, rel=0.05)
+
+    def test_predict_scan_panel_unscales_per_unit(self, mock_pymc_sample):
+        """S2: scan-panel predict() multiplies by per-unit factors, not the mean."""
+        import pymc as pm
+
+        from pathmc._model import _observed_carry
+
+        rng = np.random.default_rng(8)
+        pops = {"big": 1000.0, "small": 10.0}
+        frames = []
+        for geo, pop in pops.items():
+            tv = rng.uniform(1.0, 10.0, 12)
+            frames.append(
+                pd.DataFrame({
+                    "geo": geo,
+                    "week": np.arange(12),
+                    "tv": tv,
+                    "sales": 2.0 * tv * pop + rng.normal(scale=0.1 * pop, size=12),
+                })
+            )
+        df = pd.concat(frames, ignore_index=True)
+        m = pathmc.model(
+            "sales ~ lag(sales) + tv",
+            data=df,
+            panel=PANEL,
+            scaling=Scaling(
+                target={"method": "divide", "by": pops, "dims": ("geo",)},
+                channel={"method": "fixed", "value": 1.0},
+            ),
+        )
+        m.fit()
+        assert m._gen_model is not None
+        scan_info = m._gen_model._pathmc_panel_scan
+        with m._pymc_model, _observed_carry(m._pymc_model, True):
+            raw = pm.sample_posterior_predictive(
+                m._idata, random_seed=0, extend_inferencedata=False, progressbar=False
+            )
+        internal = raw.posterior_predictive["sales"]
+        per_row = m.fitted_scaling._per_row(m._data, "sales")
+        factor_mat = (
+            per_row[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
+        )
+        expected = internal.values * factor_mat
+        idata = m.predict(random_seed=0, progressbar=False)
+        got = idata.posterior_predictive["sales"].values
+        np.testing.assert_allclose(got, expected, rtol=1e-5, atol=1e-5)
+        mean_f = m.fitted_scaling.mean_factor("sales", m._data)
+        assert np.max(np.abs(got - internal.values * mean_f)) > 1.0
+
+    def test_slopes_use_business_unit_endpoints(self, mock_pymc_sample):
+        """S3: slopes() finite-differences at business-unit x, not x/F²."""
+        rng = np.random.default_rng(9)
+        tv = rng.uniform(50, 1000, 80)
+        df = pd.DataFrame({
+            "tv": tv,
+            "sales": 5.0 * np.tanh(tv / 400.0) + 0.01 * rng.normal(size=80),
+        })
+        m = pathmc.model(
+            "sales ~ b*logistic_saturation(tv, lam=lam_tv)",
+            data=df,
+            scaling=Scaling(channel={"method": "max"}),
+        )
+        m.fit()
+        eps = 1e-4
+        got = float(m.slopes("sales", "tv", eps=eps).mean())
+        lo = float(m.do(set={"tv": tv}, kind="mean").mean("sales"))
+        hi = float(m.do(set={"tv": tv + eps}, kind="mean").mean("sales"))
+        expected = (hi - lo) / eps
+        assert got == pytest.approx(expected, rel=1e-3)
+
+    def test_slopes_eyex_uses_business_x_over_business_y(self, mock_pymc_sample):
+        """S3: eyex = dydx * (x_business / mu_business), not mixed units."""
+        import xarray as xr
+
+        from pathmc.interpret import _column_in_business_units, _unit_prediction
+
+        rng = np.random.default_rng(10)
+        tv = rng.uniform(100, 1000, 80)
+        df = pd.DataFrame({
+            "tv": tv,
+            "sales": 2.0 * tv + 50.0 + rng.normal(scale=1.0, size=80),
+        })
+        m = pathmc.model(
+            "sales ~ tv", data=df, scaling=Scaling(channel={"method": "max"})
+        )
+        m.fit()
+        x = _column_in_business_units(m, m._data, "tv")
+        lo = _unit_prediction(m, m._data, "sales", {"tv": x})
+        dydx = m.slopes("sales", "tv", average_by=None).dataset["sales"]
+        eyex = m.slopes("sales", "tv", slope="eyex", average_by=None).dataset["sales"]
+        x_da = xr.DataArray(x, dims=["unit"], coords={"unit": dydx.coords["unit"]})
+        expected = dydx * (x_da / lo)
+        np.testing.assert_allclose(
+            eyex.mean(("chain", "draw")).values,
+            expected.mean(("chain", "draw")).values,
+            rtol=1e-4,
+            atol=1e-6,
+        )
+        x_scaled = np.asarray(m._data["tv"].to_numpy(), dtype=float)
+        wrong = dydx * (
+            xr.DataArray(x_scaled, dims=["unit"], coords={"unit": dydx.coords["unit"]})
+            / lo
+        )
+        err_right = np.max(
+            np.abs(
+                eyex.mean(("chain", "draw")).values
+                - expected.mean(("chain", "draw")).values
+            )
+        )
+        err_wrong = np.max(
+            np.abs(
+                eyex.mean(("chain", "draw")).values
+                - wrong.mean(("chain", "draw")).values
+            )
+        )
+        assert err_right < err_wrong
+
+    def test_predictions_newdata_matches_do_set(self, mock_pymc_sample):
+        """N2: predictions(newdata=) treats the grid as business units, like do(set=)."""
+        rng = np.random.default_rng(11)
+        tv = rng.uniform(10, 1000, 80)
+        df = pd.DataFrame({
+            "tv": tv,
+            "sales": 2.0 * (tv / 1000.0) + 0.01 * rng.normal(size=80),
+        })
+        m = pathmc.model(
+            "sales ~ tv", data=df, scaling=Scaling(channel={"method": "max"})
+        )
+        m.fit()
+        raw = 500.0
+        pred = m.predictions("sales", newdata=pd.DataFrame({"tv": [raw]}))
+        got = float(pred.dataset["sales"].mean(("chain", "draw", "unit")))
+        expected = float(m.do(set={"tv": raw}, kind="mean").mean("sales"))
+        assert got == pytest.approx(expected, rel=1e-4)
+
+    def test_predict_observed_data_in_business_units(self, mock_pymc_sample):
+        """N3: observed_data is inverse-transformed; a second predict() is idempotent."""
+        rng = np.random.default_rng(12)
+        tv = rng.uniform(10, 100, 60)
+        sales = 3.0 * tv + rng.normal(scale=1.0, size=60)
+        df = pd.DataFrame({"tv": tv, "sales": sales})
+        m = pathmc.model(
+            "sales ~ tv", data=df, scaling=Scaling(target={"method": "max"})
+        )
+        m.fit()
+        idata = m.predict()
+        obs = float(idata.observed_data["sales"].mean())
+        assert obs == pytest.approx(float(df["sales"].mean()), rel=1e-6)
+        scaled_mean = float(np.mean(m._data["sales"].to_numpy()))
+        assert abs(obs - float(df["sales"].mean())) < abs(obs - scaled_mean)
+        idata2 = m.predict()
+        obs2 = float(idata2.observed_data["sales"].mean())
+        assert obs2 == pytest.approx(obs, rel=1e-12)
+
+
+def _label_mean(model: pathmc.PathModel, label: str) -> float:
+    """Posterior mean of a labeled coefficient on the *internal* scale."""
+    from pathmc.effects import extract_labeled_draws
+
+    return float(np.mean(extract_labeled_draws(model._spec, model._idata)[label]))
+
 
 # ---------------------------------------------------------------------------
 # Slow MCMC tests: estimation equivalence and recovery

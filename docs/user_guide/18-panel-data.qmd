@@ -252,7 +252,7 @@ sim = pathmc.simulate(
 
 Omitting `scaling=` in `simulate()` changes nothing: parameters are then interpreted directly in raw data units.
 
-User-facing inputs and outputs use business units: `do(set=)` values are divided by the fitted factor (including per-unit factors) before graph surgery, so `do(set={"tv": 500})` means 500 of the original column, and `predict()`, `do()`, `effects_summary()`, and `effect()` return outcomes and coefficients in business units. Estimation still runs on scaled columns internally; `model.fitted_scaling` exposes the divisors for `simulate()` and manual transforms.
+User-facing inputs and outputs use business units: `do(set=)` values are divided by the fitted factor (including per-unit factors) before graph surgery, so `do(set={"tv": 500})` means 500 of the original column, and `predict()`, `do()`, `effects_summary()`, and `effect()` return outcomes and coefficients in business units. `predictions(newdata=)` grids are also business units (the grid is divided before compilation, matching `do(set=)`). Coefficient rescaling depends on the term: a linear or adstock slope is `f_out / f_pred`; a saturating or HSGP coefficient is `f_out` only (the regressor is unitless); an interaction is `f_out / prod(f_pred_i)`. Defined parameters (`:=`) are evaluated from those rescaled labeled draws, so `indirect := a*b` agrees with the product of the `a` and `b` rows. When factors vary by unit, a reported coefficient uses a data-weighted mean of the per-unit divisors — a ratio of means, not the mean of ratios, so it is not any one unit's coefficient. Estimation still runs on scaled columns internally; `model.fitted_scaling` exposes the divisors for `simulate()` and manual transforms.
 
 ## Residual covariance simulation
 
