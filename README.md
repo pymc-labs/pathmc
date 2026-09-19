@@ -39,7 +39,18 @@ pathmc requires Python ≥ 3.12 and PyMC ≥ 6.0.
 Pass a pandas DataFrame with columns matching the variables in your structural equations:
 
 ```python
+import pandas as pd
 import pathmc
+from pathmc.paths import data_dir
+
+df = pd.read_csv(data_dir / "mediation.csv")
+#           X         M         Y
+# 0 -1.315113 -1.534242 -0.926176
+# 1  0.490564  0.187741  1.742414
+# 2 -1.077202 -0.691821 -0.233461
+# 3  0.077516  0.156411  1.285188
+# 4  1.600833  0.232611  1.379142
+# ...
 
 spec = """
 M ~ a*X
