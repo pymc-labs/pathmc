@@ -578,6 +578,7 @@ def compile_to_pymc(
             latent=latent,
             graph_info=graph_info,
             priors=priors,
+            generative=generative,
         )
 
     block_vars, blocks = _identify_residual_blocks(spec)
@@ -1615,6 +1616,43 @@ def _compile_residual_block(
     return str(joint.name)
 
 
+def _reject_unsupported_scan_block_members(
+    block_var_set: set[str],
+    *,
+    latent: set[str],
+    carry_vars: set[str],
+    sparse_vars: set[str],
+) -> None:
+    """Raise for ``~~`` block members a scan-compiled panel cannot support.
+
+    The joint ``MvNormal`` is emitted outside the scan over the flattened
+    ``(time, unit)`` panel, which only works when a member's residual is
+    exchangeable across cells and fully observed:
+
+    * a member that feeds a ``lag()`` carries its realized value forward
+      inside the scan, so its residual would have to be drawn *inside* the
+      recursion and correlated with the block at the same timestep;
+    * a member with missing values needs a masked likelihood, which
+      ``MvNormal`` does not provide;
+    * a latent member has no data column to condition on at all.
+    """
+    if not block_var_set:
+        return
+    for label, offending in (
+        ("feeds a lag() term", sorted(block_var_set & carry_vars)),
+        ("is latent", sorted(block_var_set & latent)),
+        ("has missing values", sorted(block_var_set & sparse_vars)),
+    ):
+        if offending:
+            names = ", ".join(repr(v) for v in offending)
+            raise NotImplementedError(
+                f"residual covariance (~~) is not supported in scan-compiled "
+                f"panel models when a block member {label}: {names}. Drop the "
+                f"~~ clause for these variables, or move the temporal "
+                f"dependence onto a non-block variable."
+            )
+
+
 def _spec_has_hsgp(spec: Spec) -> bool:
     """Return True if any regression term is an HSGP smooth."""
     return any(term.hsgp is not None for reg in spec.regressions for term in reg.terms)
@@ -2167,17 +2205,28 @@ def _compile_scan_panel(
     latent: set[str],
     graph_info: GraphInfo,
     priors: dict[str, Any] | None = None,
+    *,
+    generative: bool = False,
 ) -> pm.Model:
     """Compile a panel model with temporal deps using ``pytensor.scan``.
 
     The generative model encodes the full temporal structure so that
     ``pm.do()`` handles interventions natively.  Free RVs have shape
     ``(n_times, n_units)`` in unit-major sorted order.
+
+    Residual-covariance (``~~``) blocks are emitted *outside* the scan:
+    each member contributes its ``mu_{var}`` row to a single joint
+    ``MvNormal`` over the flattened panel, so one covariance is shared
+    across every (time, unit) cell.  On the generative path the members'
+    correlated residuals are instead drawn up-front and fed into the
+    scan as sequences, so descendants see noisy draws rather than means
+    (mirroring the cross-sectional generative path).
     """
     import pytensor
     import pytensor.tensor as pt
 
     from pathmc.priors import _ensure_dims, default_priors
+    from pathmc.residuals import LKJResidual
 
     if priors is None:
         priors = default_priors(spec, families, pooling, latent, panel_info)
@@ -2238,6 +2287,9 @@ def _compile_scan_panel(
         v for v in latent if families.get(v, "gaussian") == "latent_normal"
     )
     stochastic_latent_set = set(stochastic_latent)
+
+    block_var_set, blocks = _identify_residual_blocks(spec)
+    blocks_sorted = [sorted(b) for b in blocks]
 
     sparse_panel_data: dict[str, np.ma.MaskedArray] = {}
     for reg in spec.regressions:
@@ -2451,7 +2503,21 @@ def _compile_scan_panel(
         observed_carry_vars = sorted(
             set(stochastic_carry_vars) | set(discrete_carry_vars)
         )
-        carry_mu_vars = sorted(set(stochastic_carry_vars) | set(discrete_sample_vars))
+        carry_mu_vars = sorted(
+            set(stochastic_carry_vars)
+            | set(discrete_sample_vars)
+            # Generative block members report mu separately from their
+            # realized (noisy) scan output; estimation members *are* their
+            # mu, so the default carry_all fallback already suffices.
+            | (block_var_set if generative else set())
+        )
+
+        _reject_unsupported_scan_block_members(
+            block_var_set,
+            latent=latent,
+            carry_vars=set(stochastic_carry_vars) | set(discrete_carry_vars),
+            sparse_vars=set(sparse_panel_data),
+        )
 
         observed_carry_nodes: dict[str, Any] = {}
         for var in observed_carry_vars:
@@ -2483,6 +2549,30 @@ def _compile_scan_panel(
             latent_innovation_nodes[var] = pm.Normal(
                 f"innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
+
+        # --- residual-covariance blocks ---
+        # Estimation emits one joint MvNormal after the scan (see below).
+        # The generative path cannot do that: descendants resolve their
+        # block-member inputs *inside* the recursion, so the correlated
+        # residuals have to exist before the scan runs. Draw them
+        # non-centred here -- standard normals scaled by the block's own
+        # Cholesky factor -- and feed one (n_times, n_units) slice per
+        # member in as a sequence.
+        block_residual_nodes: dict[str, Any] = {}
+        if generative and blocks_sorted:
+            structure = LKJResidual()
+            for block_sorted in blocks_sorted:
+                block_name = "_".join(block_sorted)
+                chol = structure.make_chol(block_sorted, priors)
+                z = pm.Normal(
+                    f"residual_innovations_{block_name}",
+                    mu=0,
+                    sigma=1,
+                    shape=(n_times, n_units, len(block_sorted)),
+                )
+                eps = z @ chol.T
+                for i, var in enumerate(block_sorted):
+                    block_residual_nodes[var] = eps[:, :, i]
 
         carry_innovation_nodes: dict[str, Any] = {}
         for var in stochastic_carry_vars:
@@ -2550,12 +2640,15 @@ def _compile_scan_panel(
             scan_model.register_data_var(shared)
             do_intervene_nodes[var] = shared
 
+        block_residual_keys = sorted(block_residual_nodes)
+
         sequences = (
             [exog_data_nodes[k] for k in exog_keys]
             + [observed_carry_nodes[k] for k in observed_carry_vars]
             + [latent_innovation_nodes[k] for k in stochastic_latent]
             + [carry_innovation_nodes[k] for k in stochastic_carry_vars]
             + [discrete_uniform_nodes[k] for k in discrete_bernoulli_vars]
+            + [block_residual_nodes[k] for k in block_residual_keys]
             + [do_intervene_nodes[k] for k in endo_keys]
         )
 
@@ -2637,6 +2730,7 @@ def _compile_scan_panel(
         n_latent_innov_seq = len(stochastic_latent)
         n_carry_innov_seq = len(stochastic_carry_vars)
         n_discrete_uniform_seq = len(discrete_bernoulli_vars)
+        n_block_residual_seq = len(block_residual_keys)
         n_endo = len(endo_keys)
         n_adstock = len(adstock_keys)
         n_exog_lag = len(exog_lag_bases)
@@ -2669,6 +2763,17 @@ def _compile_scan_panel(
                 ]
                 for i, k in enumerate(discrete_bernoulli_vars)
             }
+            block_residual_t = {
+                k: seq_args[
+                    n_exog_seq
+                    + n_obs_carry_seq
+                    + n_latent_innov_seq
+                    + n_carry_innov_seq
+                    + n_discrete_uniform_seq
+                    + i
+                ]
+                for i, k in enumerate(block_residual_keys)
+            }
             do_intervene_t = {
                 k: seq_args[
                     n_exog_seq
@@ -2676,6 +2781,7 @@ def _compile_scan_panel(
                     + n_latent_innov_seq
                     + n_carry_innov_seq
                     + n_discrete_uniform_seq
+                    + n_block_residual_seq
                     + i
                 ]
                 for i, k in enumerate(endo_keys)
@@ -2736,7 +2842,14 @@ def _compile_scan_panel(
                         mu = mu + ns_map[bkey] * x_val
 
                 family = families.get(var, "gaussian")
-                if var in latent:
+                if var in block_residual_t:
+                    # Generative path only: realized value carries the
+                    # block's correlated residual so descendants resolving
+                    # ``var`` this timestep see noise, not the mean. The
+                    # mean is reported separately via ``carry_mu``.
+                    carry_mu[var] = mu
+                    new_endo[var] = mu + block_residual_t[var]
+                elif var in latent:
                     if var in stochastic_latent_set:
                         sigma_val = ns_map[f"sigma_{var}"]
                         new_endo[var] = mu + sigma_val * latent_innov_t[var]
@@ -2840,6 +2953,8 @@ def _compile_scan_panel(
         }
 
         # --- emit deterministics and free RVs ---
+        block_mu: dict[str, Any] = {}
+        block_realized: dict[str, Any] = {}
         for i, var in enumerate(endo_keys):
             carry_all = results[i]  # (n_times, n_units)
             mu_all = carry_mu_results.get(var, carry_all)
@@ -2852,6 +2967,13 @@ def _compile_scan_panel(
                 continue
 
             pm.Deterministic(f"mu_{var}", mu_all)
+
+            if var in block_var_set:
+                # Likelihood (estimation) or realized value (generative) is
+                # emitted per block below, jointly across members.
+                block_mu[var] = mu_all
+                block_realized[var] = carry_all
+                continue
 
             family = families.get(var, "gaussian")
 
@@ -2881,6 +3003,35 @@ def _compile_scan_panel(
             else:
                 sigma = sigma_rvs[var]
                 pm.Normal(var, mu=mu_all, sigma=sigma, shape=(n_times, n_units))
+
+        # --- residual-covariance joint emission ---
+        # One covariance is shared across every (time, unit) cell: each
+        # member's (n_times, n_units) mean is flattened in the same
+        # time-major order as the reshaped observations, so row r of the
+        # MvNormal is one panel cell observed on all k block members.
+        if blocks_sorted:
+            structure = LKJResidual()
+            for block_sorted in blocks_sorted:
+                if generative:
+                    # chol and the correlated draws were emitted before the
+                    # scan; expose each member's realized value under its
+                    # own name so ``simulate()`` reads it like any other
+                    # endogenous variable.
+                    for var in block_sorted:
+                        pm.Deterministic(var, block_realized[var])
+                    continue
+                structure.emit(
+                    block_sorted,
+                    {v: block_mu[v].ravel() for v in block_sorted},
+                    {
+                        v: _reshape_to_panel(
+                            data_sorted, v, n_units, n_times
+                        ).astype(float).ravel()
+                        for v in block_sorted
+                    },
+                    priors,
+                    observed=True,
+                )
 
     scan_model._pathmc_panel_scan = PanelScanInfo(
         sort_idx=sort_idx,

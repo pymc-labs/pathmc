@@ -93,6 +93,24 @@ class LKJResidual:
     free ``{block}_joint`` RV when ``observed=False``.
     """
 
+    def make_chol(self, block_vars: list[str], priors: dict[str, Any] | None) -> Any:
+        """Create and return the block's Cholesky factor RV.
+
+        Split out of :meth:`emit` so callers that need the factor without a
+        joint likelihood -- the scan-panel generative path, which draws
+        correlated residuals non-centred and feeds them into the recursion
+        as sequences -- share one covariance parameterization with the
+        estimation path.
+        """
+        chol, _, _ = pm.LKJCholeskyCov(
+            f"chol_{'_'.join(block_vars)}",
+            n=len(block_vars),
+            eta=2.0,
+            sd_dist=pm.HalfNormal.dist(1.0),
+            compute_corr=True,
+        )
+        return chol
+
     def emit(
         self,
         block_vars: list[str],
@@ -103,18 +121,11 @@ class LKJResidual:
         observed: bool = True,
     ) -> Any:
         """Emit LKJ Cholesky covariance + MvNormal (observed or free)."""
-        k = len(block_vars)
         block_name = "_".join(block_vars)
 
         mu_stacked = pm.math.stack([mu_dict[v] for v in block_vars], axis=1)
 
-        chol, _, _ = pm.LKJCholeskyCov(
-            f"chol_{block_name}",
-            n=k,
-            eta=2.0,
-            sd_dist=pm.HalfNormal.dist(1.0),
-            compute_corr=True,
-        )
+        chol = self.make_chol(block_vars, priors)
         if observed:
             y_stacked = np.column_stack([data_dict[v] for v in block_vars])
             return pm.MvNormal(
