@@ -71,9 +71,15 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
 
     for reg in spec.regressions:
         for term in reg.terms:
-            if term.variable not in pandas_data.columns:
-                continue
             explicit = term.categorical is not None
+            if term.variable not in pandas_data.columns:
+                if explicit:
+                    raise ValueError(
+                        f"Categorical predictor '{term.variable}' was not found in "
+                        f"the data columns. Add a '{term.variable}' column to data "
+                        f"or remove C({term.variable}) from the specification."
+                    )
+                continue
             if not explicit and not _is_categorical_series(pandas_data[term.variable]):
                 continue
             if term.transform is not None or term.interaction_of is not None:

@@ -103,7 +103,7 @@ model = pathmc.model("sales ~ region", data=df)
 model.design("sales")
 ```
 
-For levels `north`, `south`, and `west`, the default design columns are `Intercept`, `region[T.south]`, and `region[T.west]`; the first sorted level (`north`) is the reference. Use `C()` when the reference must be explicit:
+For an ordinary string column with levels `north`, `south`, and `west`, the default design columns are `Intercept`, `region[T.south]`, and `region[T.west]`; the first sorted observed level (`north`) is the reference. For a pandas categorical column, pathmc preserves the declared category order and uses the first declared category as the reference. Use `C()` when the reference must be explicit:
 
 ```python
 model = pathmc.model(

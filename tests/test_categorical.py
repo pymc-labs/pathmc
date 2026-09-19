@@ -69,6 +69,15 @@ def test_explicit_reference_controls_design(categorical_data):
     ]
 
 
+def test_explicit_categorical_requires_data_column():
+    data = pd.DataFrame({"y": [1.0, 2.0]})
+    with pytest.raises(
+        ValueError,
+        match="Categorical predictor 'region'.*not found.*Add a 'region' column",
+    ):
+        pathmc.model("y ~ C(region)", data=data)
+
+
 def test_hierarchical_prior_is_declared(categorical_data):
     model = pathmc.model("y ~ C(region, prior='hierarchical')", data=categorical_data)
     prior_names = set(model.priors()._entries)
@@ -102,6 +111,25 @@ def test_samples_recovers_level_effects_and_do_accepts_label(categorical_data):
     assert west - north < -0.4
 
 
+def test_do_replays_fitted_categorical_basis(categorical_data):
+    model = pathmc.model("y ~ region", data=categorical_data)
+    basis = model._gen_model["_cat_y_region"]
+    original = basis.get_value().copy()
+
+    with model._categorical_intervention({"region": "west"}):
+        np.testing.assert_array_equal(
+            basis.get_value(),
+            np.tile([0.0, 1.0], (len(categorical_data), 1)),
+        )
+    np.testing.assert_array_equal(basis.get_value(), original)
+
+    with model._categorical_intervention({"region": "north"}):
+        np.testing.assert_array_equal(
+            basis.get_value(),
+            np.zeros((len(categorical_data), 2)),
+        )
+
+
 @pytest.mark.slow
 def test_predict_replays_fit_levels_in_new_row_order(categorical_data):
     model = pathmc.model("y ~ region", data=categorical_data)
@@ -109,6 +137,15 @@ def test_predict_replays_fit_levels_in_new_row_order(categorical_data):
     new_data = pd.DataFrame({
         "region": np.resize(["west", "north", "south"], len(categorical_data))
     })
+    basis = model.pymc_model["_cat_y_region"]
+    original = basis.get_value().copy()
+    with model._prediction_data(new_data):
+        np.testing.assert_array_equal(
+            basis.get_value()[:3],
+            [[0.0, 1.0], [0.0, 0.0], [1.0, 0.0]],
+        )
+    np.testing.assert_array_equal(basis.get_value(), original)
+
     predicted = model.predict(
         data=new_data,
         extend_inferencedata=False,
