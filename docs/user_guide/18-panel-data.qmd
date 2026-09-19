@@ -256,7 +256,7 @@ User-facing inputs and outputs use business units: `do(set=)` values are divided
 
 ## Residual covariance simulation
 
-Cross-sectional residual-covariance blocks (`Y1 ~~ Y2`) can be simulated only when no equation reads a block member. Until correlated residual draws are represented inside the generative graph, `simulate()` rejects descendants—including directed edges between members of the same block—instead of silently generating a different DAG. Scan-compiled panel models cannot yet combine `simulate()` with residual covariances.
+Cross-sectional residual-covariance blocks (`Y1 ~~ Y2`) are realized inside the generative graph, so descendants such as `Z ~ Y1` receive the noisy block draws rather than `mu_Y1`. Directed edges *within* the same `~~` block (`Y2 ~ Y1` together with `Y1 ~~ Y2`) still raise `NotImplementedError`, as do scan-compiled panel models that combine `simulate()` with residual covariances.
 
 ## Latent dynamics with sparse measurements
 

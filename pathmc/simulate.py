@@ -1386,17 +1386,7 @@ def run_do_pymc(
     N = len(data)
     latent = graph_info.latent
 
-    free_rv_names = {rv.name for rv in gen_model.free_RVs}
-    det_names_set = {d.name for d in gen_model.deterministics}
-
-    block_vars = {
-        var
-        for var in graph_info.topological_order
-        if var in graph_info.endogenous
-        and var not in free_rv_names
-        and var not in latent
-        and f"mu_{var}" in det_names_set
-    }
+    block_vars = {v for block in graph_info.residual_blocks for v in block}
 
     replacements: dict[str, Any] = {}
     for var, val in set.items():
