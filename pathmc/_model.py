@@ -2606,13 +2606,6 @@ def simulate(
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
 
-    if spec.residual_covs and panel is not None and _has_temporal_deps(spec):
-        raise NotImplementedError(
-            "simulate() does not yet support residual covariances (~~) with "
-            "scan-compiled panel models (lag() or adstock()). Fit or simulate "
-            "the ~~ block without lag()/adstock(), or drop the ~~ clause."
-        )
-
     if block_var_set:
         var_to_block = {v: block for block in blocks for v in block}
         within_block_readers: dict[str, set[str]] = {}
@@ -2706,9 +2699,15 @@ def simulate(
             if v not in latent_set
             and families_eff.get(v, "gaussian") in ("gaussian", "studentt")
         }
-        innovation_rv_names = {f"innovations_{v}" for v in stochastic_latent_vars} | {
-            f"carry_innovations_{v}" for v in stochastic_carry_vars
-        }
+        innovation_rv_names = (
+            {f"innovations_{v}" for v in stochastic_latent_vars}
+            | {f"carry_innovations_{v}" for v in stochastic_carry_vars}
+            # Scan-panel ~~ blocks draw their correlated residuals before the
+            # recursion starts (see _compile_scan_panel); like every other
+            # innovation sequence these are simulation noise, not parameters.
+            # The covariance itself stays a user parameter as chol_{block}.
+            | {f"residual_innovations_{'_'.join(sorted(b))}" for b in blocks}
+        )
 
     # Innovation sequences drive the scan recursion itself; they are
     # simulation noise, not user-supplied parameters.
