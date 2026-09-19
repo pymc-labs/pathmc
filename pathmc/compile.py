@@ -48,7 +48,14 @@ import pymc as pm
 
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
-from pathmc.parse import HSGPCall, Regression, Spec, Term, TransformCall
+from pathmc.parse import (
+    CategoricalCall,
+    HSGPCall,
+    Regression,
+    Spec,
+    Term,
+    TransformCall,
+)
 from pathmc.transforms import get_transform
 
 __all__: list[str] = []
@@ -156,15 +163,22 @@ class PredictorSlot:
     """
 
     name: str
-    coeff_type: Literal["free", "fixed", "hsgp"]
+    coeff_type: Literal["free", "fixed", "hsgp", "categorical"]
     coeff_value: float | None = None
-    kind: Literal["intercept", "plain", "interaction", "transform", "lag", "hsgp"] = (
-        "plain"
-    )
+    kind: Literal[
+        "intercept",
+        "plain",
+        "interaction",
+        "transform",
+        "lag",
+        "hsgp",
+        "categorical",
+    ] = "plain"
     lag_of: str | None = None
     interaction_parts: tuple[str, ...] | None = None
     transform: TransformCall | None = None
     hsgp: HSGPCall | None = None
+    categorical: CategoricalCall | None = None
     # NOTE: an ``hsgp`` slot carries its own basis weights and never draws a
     # scalar coefficient from ``beta``.  Its ``coeff_type`` is the inert
     # ``"hsgp"`` marker (not ``"free"``) so that any ``coeff_type``-based
@@ -256,7 +270,11 @@ def get_predictor_columns(
     cols: list[str] = []
     if _effective_has_intercept(reg, pooling, panel_info):
         cols.append("Intercept")
-    cols.extend(t.variable for t in reg.terms)
+    for term in reg.terms:
+        if term.categorical is not None and term.categorical.columns:
+            cols.extend(term.categorical.columns)
+        else:
+            cols.append(term.variable)
     return cols
 
 
@@ -275,9 +293,12 @@ def get_free_predictor_columns(
         cols.append("Intercept")
     # HSGP terms carry their own basis weights (not a scalar beta column), so
     # they are excluded here to keep ``beta`` sized to the plain/free terms.
-    cols.extend(
-        t.variable for t in reg.terms if t.fixed_value is None and t.hsgp is None
-    )
+    for term in reg.terms:
+        if term.fixed_value is not None or term.hsgp is not None:
+            continue
+        if term.categorical is not None:
+            continue
+        cols.append(term.variable)
     return cols
 
 
@@ -340,6 +361,16 @@ def build_mu_specs(
             )
 
         for term in reg.terms:
+            if term.categorical is not None:
+                slots.append(
+                    PredictorSlot(
+                        name=term.variable,
+                        coeff_type="categorical",
+                        kind="categorical",
+                        categorical=term.categorical,
+                    )
+                )
+                continue
             # HSGP dispatch takes priority: it carries its own basis weights
             # and uses the inert ``coeff_type="hsgp"`` marker so free/fixed
             # coefficient bookkeeping skips it.
@@ -360,7 +391,13 @@ def build_mu_specs(
 
             if term.transform is not None:
                 kind: Literal[
-                    "intercept", "plain", "interaction", "transform", "lag", "hsgp"
+                    "intercept",
+                    "plain",
+                    "interaction",
+                    "transform",
+                    "lag",
+                    "hsgp",
+                    "categorical",
                 ] = "transform"
             elif term.interaction_of is not None:
                 kind = "interaction"
@@ -417,7 +454,9 @@ def build_design_matrix(
     rewrapped to the input backend with ``nw.from_dict(...)``. Do not remove
     the ``.to_pandas()`` call — polars (and other non-pandas) inputs rely on it.
     """
-    rhs_parts = [t.variable for t in reg.terms]
+    from pathmc.categorical import encode_categorical
+
+    rhs_parts = [t.variable for t in reg.terms if t.categorical is None]
     n = len(data)
 
     missing: list[str] = []
@@ -432,7 +471,14 @@ def build_design_matrix(
             columns["Intercept"] = np.ones(n)
         for term in reg.terms:
             v = term.variable
-            if term.interaction_of is not None:
+            if term.categorical is not None and v in data.columns:
+                encoded = encode_categorical(term.categorical, data[v].to_numpy())
+                for idx, name in enumerate(term.categorical.columns):
+                    columns[name] = encoded[:, idx]
+            elif term.categorical is not None:
+                for name in term.categorical.columns:
+                    columns[name] = np.full(n, np.nan)
+            elif term.interaction_of is not None:
                 product = np.ones(n)
                 for part in term.interaction_of:
                     if part in data.columns:
@@ -455,13 +501,25 @@ def build_design_matrix(
         )
 
     if _effective_has_intercept(reg, pooling, panel_info):
-        formula_str = " + ".join(rhs_parts)
+        formula_str = " + ".join(rhs_parts) if rhs_parts else "1"
     else:
-        formula_str = "0 + " + " + ".join(rhs_parts)
+        formula_str = "0 + " + " + ".join(rhs_parts) if rhs_parts else "0"
 
     dm = patsy.dmatrix(formula_str, data=data.to_pandas(), return_type="dataframe")
+    columns = {str(col): dm[col].to_numpy() for col in dm.columns}
+    for term in reg.terms:
+        if term.categorical is None:
+            continue
+        encoded = encode_categorical(term.categorical, data[term.variable].to_numpy())
+        for idx, name in enumerate(term.categorical.columns):
+            columns[name] = encoded[:, idx]
     return nw.from_dict(
-        {str(col): dm[col].to_numpy() for col in dm.columns},
+        {
+            name: columns[name]
+            for name in get_predictor_columns(
+                reg, pooling=pooling, panel_info=panel_info
+            )
+        },
         backend=data.implementation,
     )
 
@@ -561,10 +619,22 @@ def compile_to_pymc(
             "Fit the HSGP smooth in a cross-sectional model, or remove the "
             "hsgp() term."
         )
+    if panel_info is not None and _spec_has_categorical(spec):
+        raise NotImplementedError(
+            "Categorical predictors are not supported in panel models yet. "
+            "Fit the categorical effect in a cross-sectional model or encode "
+            "the predictor manually."
+        )
 
     _reject_hsgp_in_residual_blocks(spec)
     _reject_endogenous_hsgp_inputs(spec)
-    _reject_nan_predictors(data, graph_info)
+    categorical_vars = {
+        term.variable
+        for reg in spec.regressions
+        for term in reg.terms
+        if term.categorical is not None
+    }
+    _reject_nan_predictors(data, graph_info, categorical_vars=categorical_vars)
 
     if _is_scan_panel(spec, panel_info):
         assert panel_info is not None
@@ -615,6 +685,12 @@ def compile_to_pymc(
                 coords[f"{reg.lhs}_{term.hsgp.variable}_hsgp"] = list(
                     range(term.hsgp.m)
                 )
+            if term.categorical is not None:
+                from pathmc.categorical import coefficient_levels
+
+                coords[f"{reg.lhs}_{term.variable}_levels"] = [
+                    str(level) for level in coefficient_levels(term.categorical)
+                ]
 
     needs_unit_coord = bool(coef_entries) or none_transform_flag
     if (has_random_intercepts or needs_unit_coord) and panel_info is not None:
@@ -670,9 +746,48 @@ def compile_to_pymc(
                     transform_param_rvs[pname] = transform_param_rvs[pname][unit_idx]
 
         data_vars: dict[str, Any] = {}
+        categorical_source_vars = {
+            term.variable
+            for reg in spec.regressions
+            for term in reg.terms
+            if term.categorical is not None
+        }
         for var in graph_info.topological_order:
-            if var in graph_info.exogenous and var in data.columns:
+            if (
+                var in graph_info.exogenous
+                and var in data.columns
+                and var not in categorical_source_vars
+            ):
                 data_vars[var] = pm.Data(var, data[var].to_numpy().astype(float))
+
+        categorical_bases: dict[tuple[str, str], Any] = {}
+        categorical_coefficients: dict[tuple[str, str], Any] = {}
+        for reg in spec.regressions:
+            for term in reg.terms:
+                call = term.categorical
+                if call is None:
+                    continue
+                key = (reg.lhs, term.variable)
+                basis_name = f"_cat_{reg.lhs}_{term.variable}"
+                basis = np.column_stack([
+                    design_matrices[reg.lhs][column].to_numpy()
+                    for column in call.columns
+                ])
+                categorical_bases[key] = pm.Data(basis_name, basis)
+                dim = f"{reg.lhs}_{term.variable}_levels"
+                beta_name = f"beta_{reg.lhs}_{term.variable}"
+                if call.prior == "hierarchical":
+                    mu = priors[f"mu_{beta_name}"].create_variable(f"mu_{beta_name}")
+                    sigma = priors[f"sigma_{beta_name}"].create_variable(
+                        f"sigma_{beta_name}"
+                    )
+                    categorical_coefficients[key] = pm.Normal(
+                        beta_name, mu=mu, sigma=sigma, dims=dim
+                    )
+                else:
+                    categorical_coefficients[key] = _ensure_dims(
+                        priors[beta_name], dim
+                    ).create_variable(beta_name)
 
         endogenous_rvs: dict[str, Any] = {}
 
@@ -713,6 +828,8 @@ def compile_to_pymc(
                 transform_param_rvs,
                 panel_info,
                 priors,
+                categorical_bases=categorical_bases,
+                categorical_coefficients=categorical_coefficients,
                 topological_order=block_topo,
                 generative=generative,
             )
@@ -761,6 +878,8 @@ def compile_to_pymc(
                 priors=priors,
                 block_vars=block_vars,
                 prefer_observed_block_members=False,
+                categorical_bases=categorical_bases,
+                categorical_coefficients=categorical_coefficients,
             )
             mu_gen = build_mu(mu_specs[var], resolver_gen, beta, pt.zeros(len(data)))
 
@@ -778,6 +897,8 @@ def compile_to_pymc(
                     priors=priors,
                     block_vars=block_vars,
                     prefer_observed_block_members=True,
+                    categorical_bases=categorical_bases,
+                    categorical_coefficients=categorical_coefficients,
                 )
                 mu_est = build_mu(
                     mu_specs[var], resolver_est, beta, pt.zeros(len(data))
@@ -822,6 +943,7 @@ def compile_to_pymc(
                 endogenous_rvs[var] = rv
 
     pymc_model._pathmc_block_joint_rvs = block_joint_rvs
+    pymc_model._pathmc_categorical_vars = categorical_source_vars
     return pymc_model
 
 
@@ -863,6 +985,9 @@ def build_mu(
     free_idx = 0
 
     for slot in mu_spec.slots:
+        if slot.kind == "categorical":
+            mu = mu + resolver(slot)
+            continue
         # HSGP is handled first, before any coefficient bookkeeping: the
         # resolver returns the full ``phi @ (beta * sqrt_psd)`` smooth, and we
         # must not advance ``free_idx`` (which is aligned with ``beta``, sized
@@ -901,6 +1026,8 @@ def _predictor_names_in_mu_spec(mu_spec: MuSpec) -> list[str]:
             names.append(_get_adstock_input(slot.transform))
         elif slot.kind == "hsgp" and slot.name is not None:
             names.append(slot.name)
+        elif slot.kind == "categorical" and slot.name is not None:
+            names.append(slot.name)
     return names
 
 
@@ -936,6 +1063,8 @@ def _make_cross_sectional_resolver(
     *,
     block_vars: set[str] | None = None,
     prefer_observed_block_members: bool = False,
+    categorical_bases: dict[tuple[str, str], Any] | None = None,
+    categorical_coefficients: dict[tuple[str, str], Any] | None = None,
 ) -> Callable[[PredictorSlot], Any]:
     """Create a resolver for cross-sectional mu construction.
 
@@ -971,6 +1100,12 @@ def _make_cross_sectional_resolver(
         return pt.as_tensor_variable(data[name].to_numpy().astype(float))
 
     def resolve(slot: PredictorSlot) -> Any:
+        if slot.kind == "categorical":
+            assert lhs is not None
+            assert categorical_bases is not None
+            assert categorical_coefficients is not None
+            key = (lhs, slot.name)
+            return categorical_bases[key] @ categorical_coefficients[key]
         if slot.kind == "hsgp":
             assert slot.hsgp is not None
             assert lhs is not None and priors is not None, (
@@ -1527,6 +1662,8 @@ def _compile_residual_block(
     transform_param_rvs: dict[str, Any],
     panel_info: PanelInfo | None = None,
     priors: dict[str, Any] | None = None,
+    categorical_bases: dict[tuple[str, str], Any] | None = None,
+    categorical_coefficients: dict[tuple[str, str], Any] | None = None,
     topological_order: list[str] | None = None,
     *,
     generative: bool = False,
@@ -1596,6 +1733,10 @@ def _compile_residual_block(
             transform_map,
             transform_param_rvs,
             panel_info,
+            lhs=var,
+            priors=priors,
+            categorical_bases=categorical_bases,
+            categorical_coefficients=categorical_coefficients,
         )
         mu = build_mu(ms, resolver, beta, pt.zeros(len(data)))
 
@@ -1618,6 +1759,13 @@ def _compile_residual_block(
 def _spec_has_hsgp(spec: Spec) -> bool:
     """Return True if any regression term is an HSGP smooth."""
     return any(term.hsgp is not None for reg in spec.regressions for term in reg.terms)
+
+
+def _spec_has_categorical(spec: Spec) -> bool:
+    """Return True if any regression uses a categorical predictor."""
+    return any(
+        term.categorical is not None for reg in spec.regressions for term in reg.terms
+    )
 
 
 def _reject_hsgp_in_residual_blocks(spec: Spec) -> None:
@@ -1662,7 +1810,12 @@ def _reject_endogenous_hsgp_inputs(spec: Spec) -> None:
                 )
 
 
-def _reject_nan_predictors(data: nw.DataFrame, graph_info: GraphInfo) -> None:
+def _reject_nan_predictors(
+    data: nw.DataFrame,
+    graph_info: GraphInfo,
+    *,
+    categorical_vars: set[str] | None = None,
+) -> None:
     """Raise if a purely-exogenous (predictor) column contains NaN/inf.
 
     Outcome (endogenous, LHS) variables get first-class missing-data
@@ -1686,6 +1839,8 @@ def _reject_nan_predictors(data: nw.DataFrame, graph_info: GraphInfo) -> None:
     """
     for var in sorted(graph_info.exogenous):
         if var not in data.columns:
+            continue
+        if categorical_vars and var in categorical_vars:
             continue
         vals = np.asarray(data[var].to_numpy(), dtype=float)
         n_bad = int((~np.isfinite(vals)).sum())

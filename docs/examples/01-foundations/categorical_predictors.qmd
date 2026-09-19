@@ -1,0 +1,71 @@
+---
+title: "Categorical Predictors"
+author:
+  - name: "Benjamin Vincent"
+description: "Fit treatment-coded category effects, choose a reference level, and intervene by level label."
+tags: [Causal Inference, do-Operator, Hierarchical Effects, Categorical Predictors]
+jupyter: pathmc
+---
+
+Categorical predictors often represent real interventions: assigning a store to a region, choosing a message variant, or selecting a policy regime. pathmc freezes the observed level set and reference when the model is built, estimates named level effects, and lets `do()` select a level directly.
+
+## Simulate known level effects
+
+This example uses three regions. `north` is the baseline, `south` increases the outcome by 2, and `west` decreases it by 1.
+
+```{python}
+import numpy as np
+import pandas as pd
+import pathmc
+
+rng = np.random.default_rng(42)
+n = 300
+region = rng.choice(["north", "south", "west"], size=n)
+effect = {"north": 0.0, "south": 2.0, "west": -1.0}
+y = 1.0 + np.array([effect[level] for level in region]) + rng.normal(scale=0.5, size=n)
+df = pd.DataFrame({"y": y, "region": region})
+df.head()
+```
+
+## Make the reference explicit
+
+Plain `y ~ region` detects the string column automatically. `C()` makes the modeling choices visible in the specification; here we select `north` as the reference and request hierarchical shrinkage across the two non-reference effects.
+
+```{python}
+model = pathmc.model(
+    "y ~ C(region, reference='north', prior='hierarchical')",
+    data=df,
+)
+model.equations()
+```
+
+The design matrix exposes the exact frozen contrast columns.
+
+```{python}
+model.design("y").head()
+```
+
+## Fit and recover the contrasts
+
+```{python}
+idata = model.fit(draws=500, tune=500, chains=2, random_seed=42, progressbar=False)
+```
+
+The coefficient coordinate names the represented levels, so the posterior can be read without reconstructing patsy's column order.
+
+```{python}
+idata.posterior["beta_y_region"].mean(("chain", "draw"))
+```
+
+## Intervene by label
+
+`do()` accepts a category label, not a dummy vector. The contrast below is the expected change from assigning every row to `north` versus assigning every row to `south`.
+
+```{python}
+north = model.do(set={"region": "north"})
+south = model.do(set={"region": "south"})
+
+float(north.mean("y")), float(south.mean("y")), float((south - north).mean("y"))
+```
+
+The final value should be close to the true contrast of 2. An unknown label such as `central` raises immediately because it was not part of the fit-time level set; pathmc never silently recomputes category coding during prediction or intervention.

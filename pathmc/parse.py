@@ -20,9 +20,11 @@ labeled coefficients (label*variable), and intercept suppression (0 +).
 
 from __future__ import annotations
 
+import ast
 import math
 import re
 from dataclasses import dataclass, field
+from typing import Any, Literal
 
 from pathmc.exceptions import DuplicateEquationError, ParseError
 
@@ -81,6 +83,22 @@ class HSGPCall:
 
 
 @dataclass
+class CategoricalCall:
+    """A treatment-coded categorical predictor.
+
+    ``levels`` and ``reference`` are fit-time state. They are populated from
+    the observed data before compilation and then reused for prediction and
+    interventions so contrast coding cannot silently change.
+    """
+
+    variable: str
+    reference: Any | None = None
+    prior: Literal["independent", "hierarchical"] = "independent"
+    levels: tuple[Any, ...] = ()
+    columns: tuple[str, ...] = ()
+
+
+@dataclass
 class Term:
     """A single predictor term in a regression equation.
 
@@ -96,6 +114,7 @@ class Term:
     interaction_of: tuple[str, ...] | None = None
     fixed_value: float | None = None
     hsgp: HSGPCall | None = None
+    categorical: CategoricalCall | None = None
 
 
 @dataclass
@@ -386,6 +405,18 @@ def _parse_term(raw: str) -> Term:
 
     if "(" in raw:
         func_name = raw[: raw.index("(")].strip()
+        if func_name == "C":
+            if label is not None or fixed_value is not None:
+                raise ParseError(
+                    "C(...) cannot take a coefficient prefix because it expands "
+                    "to one coefficient per non-reference level. Remove the "
+                    "'k*' or 'label*' prefix."
+                )
+            categorical_call = _parse_categorical_expr(raw)
+            return Term(
+                variable=categorical_call.variable,
+                categorical=categorical_call,
+            )
         if func_name == "hsgp":
             if label is not None or fixed_value is not None:
                 raise ParseError(
@@ -393,8 +424,8 @@ def _parse_term(raw: str) -> Term:
                     "carries its own basis weights. Remove the 'k*' or "
                     "'label*' prefix."
                 )
-            call = _parse_hsgp_expr(raw)
-            return Term(variable=call.variable, hsgp=call)
+            hsgp_call = _parse_hsgp_expr(raw)
+            return Term(variable=hsgp_call.variable, hsgp=hsgp_call)
         # Misspelled/misplaced hsgp would otherwise fall through to the
         # transform registry and fail late with "Unknown transform 'z:hsgp'".
         if any(part.strip().lower() == "hsgp" for part in func_name.split(":")):
@@ -430,6 +461,63 @@ def _parse_term(raw: str) -> Term:
     if not variable:
         raise ParseError("Empty variable name in term.")
     return Term(variable=variable, label=label, fixed_value=fixed_value)
+
+
+_CATEGORICAL_ALLOWED_KWARGS = frozenset({"reference", "prior"})
+
+
+def _parse_categorical_expr(raw: str) -> CategoricalCall:
+    """Parse ``C(variable, reference=..., prior=...)``."""
+    if raw[-1] != ")":
+        raise ParseError(
+            f"Unclosed parenthesis in categorical term: '{raw}'. Add a closing ')'."
+        )
+    inner = raw[raw.index("(") + 1 : -1].strip()
+    args = _split_top_level_args(inner)
+    if not args or not args[0].strip() or "=" in args[0]:
+        raise ParseError(
+            "C(...) requires a column name as its first argument. "
+            "Example: C(region, reference='north')."
+        )
+    variable = args[0].strip()
+    if not re.match(r"^[A-Za-z_]\w*$", variable):
+        raise ParseError(
+            f"C(...) input must be a plain variable name, got '{variable}'."
+        )
+
+    kwargs: dict[str, Any] = {}
+    for arg in args[1:]:
+        if "=" not in arg:
+            raise ParseError(
+                f"Expected keyword parameter in C(...), got '{arg.strip()}'. "
+                "Use reference=... or prior=...."
+            )
+        key, _, raw_value = arg.partition("=")
+        key = key.strip()
+        raw_value = raw_value.strip()
+        if key not in _CATEGORICAL_ALLOWED_KWARGS:
+            raise ParseError(
+                f"Unknown C(...) parameter '{key}'. Valid parameters are "
+                "'reference' and 'prior'."
+            )
+        if key in kwargs:
+            raise ParseError(f"Duplicate keyword '{key}' in C(...).")
+        try:
+            value = ast.literal_eval(raw_value)
+        except (ValueError, SyntaxError):
+            value = raw_value
+        kwargs[key] = value
+
+    prior = kwargs.get("prior", "independent")
+    if prior not in {"independent", "hierarchical"}:
+        raise ParseError(
+            f"C(...) prior must be 'independent' or 'hierarchical', got {prior!r}."
+        )
+    return CategoricalCall(
+        variable=variable,
+        reference=kwargs.get("reference"),
+        prior=prior,
+    )
 
 
 def _make_lag_term(tc: TransformCall, raw: str, label: str | None) -> Term:
