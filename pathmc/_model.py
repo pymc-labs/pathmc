@@ -2238,9 +2238,12 @@ class PathModel:
         )
 
     def datagrid(self, **cols: list[float] | list[int]) -> pd.DataFrame:
-        """Build a covariate grid from the fitted data frame.
+        """Build a business-unit covariate grid from the fitted data frame.
 
-        See :func:`pathmc.datagrid` for details.
+        On a model fitted with ``scaling=``, user-supplied values are already
+        business units. Columns held at their fitted mean or mode are converted
+        from the model's internal scale before the grid is returned. See
+        :func:`pathmc.datagrid` for details.
 
         Parameters
         ----------
@@ -2254,7 +2257,21 @@ class PathModel:
         """
         self._require_data("datagrid")
         assert self._data is not None
-        return _datagrid(self._data, **cols)
+        grid = _datagrid(self._data, **cols)
+        factors = self._scaling_factors
+        if factors is None:
+            return grid
+
+        for column in factors.factors:
+            if column in cols or column not in grid.columns:
+                continue
+            raw_values = factors.inverse_transform_column(
+                np.asarray(self._data[column].to_numpy(), dtype=float),
+                column,
+                self._data,
+            )
+            grid[column] = float(raw_values.mean())
+        return grid
 
 
 def model(
