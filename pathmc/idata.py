@@ -16,8 +16,9 @@
 ArviZ 1.0 replaced the ``InferenceData`` class with :class:`xarray.DataTree`,
 where inference groups are child nodes. Accessing a group as a node attribute
 (``idata.posterior``) is dynamically typed and yields a ``DataTree`` rather than
-a ``Dataset``; this module routes group access through ``idata["posterior"].dataset``
-so callers get a statically typed :class:`xarray.Dataset`.
+a ``Dataset``; this module materializes group access through
+``idata["posterior"].to_dataset()`` so callers get a concrete
+:class:`xarray.Dataset` rather than a ``DatasetView``.
 
 It also pins the package-wide credible mass for ``az.hdi``. ArviZ 1.0 changed
 its global defaults (``ci_prob`` 0.94 -> 0.89, ``ci_kind`` "hdi" -> "eti"), so
