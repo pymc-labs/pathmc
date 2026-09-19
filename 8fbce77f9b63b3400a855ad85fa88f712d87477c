@@ -1,0 +1,18 @@
+_freeze/examples/identification/placebo_refutation/execute-results/html.json
+  h_d36ca8649a0e95 2,5,15
+docs/examples/03-identification/placebo_refutation.qmd
+  h_d36ca8649a0e95 15-17,80,103,118-125,211
+docs/references.bib
+  h_d36ca8649a0e95 87-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "8fbce77f9b63b3400a855ad85fa88f712d87477c",
+  "prompts": {},
+  "humans": {
+    "h_d36ca8649a0e95": {
+      "author": "Carlos Trujillo <carlangastr@gmail.com>"
+    }
+  }
+}

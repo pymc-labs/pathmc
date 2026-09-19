@@ -1,0 +1,27 @@
+tests/test_panel_predict_carry.py
+  s_3906ef8704c226::t_951576d631bbfe 133,172
+  s_3906ef8704c226::t_3406d95873e7d0 103-132,134-171,173
+pathmc/simulate.py
+  s_3906ef8704c226::t_f7c223139bec7b 30
+  s_3906ef8704c226::t_dce510496a89ec 1033-1034,1204-1205
+  s_3906ef8704c226::t_bf5bf94d984671 55-95
+  s_3906ef8704c226::t_e703c424b9aeed 1095-1096
+  s_3906ef8704c226::t_eacab6730b1e43 1240-1241
+  s_3906ef8704c226::t_4ebeb43ff9dc57 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "f5d969aa68e1e640b30c8e3ab2c32a1d663e24cf",
+  "prompts": {},
+  "sessions": {
+    "s_3906ef8704c226": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c39ea586-2555-4b19-9c95-875cc7de9d87",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}

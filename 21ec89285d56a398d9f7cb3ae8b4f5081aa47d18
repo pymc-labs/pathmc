@@ -1,0 +1,23 @@
+tests/test_panel_nan_handling.py
+  s_da7ace2bc174dc::t_ef211babbaf5b3 52-53,56
+  s_da7ace2bc174dc::t_99266527622009 230-266
+pathmc/_model.py
+  s_da7ace2bc174dc::t_730e05d37c5e21 536-541
+  s_da7ace2bc174dc::t_f4f29cfc3ba452 338-349
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "21ec89285d56a398d9f7cb3ae8b4f5081aa47d18",
+  "prompts": {},
+  "sessions": {
+    "s_da7ace2bc174dc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "25631542-7728-466d-82a1-2f041a7124f4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "daimon-pymclabs <daimon@pymc-labs.com>"
+    }
+  }
+}

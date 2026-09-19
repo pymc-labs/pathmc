@@ -1,0 +1,25 @@
+pathmc/_model.py
+  s_685ddcccd45de6::t_b144ed3850009a 2241,2243-2246,2260-2272
+tests/test_interpret.py
+  s_685ddcccd45de6::t_b144ed3850009a 222-236,238-246,248-259
+  s_685ddcccd45de6::t_809bfcec1c4091 247
+  s_685ddcccd45de6::t_39e766e4b3dba8 237
+docs/user_guide/14-predictions-comparisons-slopes.qmd
+  s_685ddcccd45de6::t_b144ed3850009a 110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2100fae2ccec4722bd2be70c363ac08741e11849",
+  "prompts": {},
+  "sessions": {
+    "s_685ddcccd45de6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb55-b9c1-7c52-8792-e84f1f8bab5e",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

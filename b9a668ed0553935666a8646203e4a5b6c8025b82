@@ -1,0 +1,36 @@
+pathmc/compile.py
+  s_25e3f57f1a6f57::t_82314de8c42a56 1740
+  s_25e3f57f1a6f57::t_b3817125b52bff 1661-1669,1671,1673-1674
+  s_25e3f57f1a6f57::t_f4ac38a4a9ab63 1772-1782
+  s_25e3f57f1a6f57::t_81621418bd3c48 1851-1861
+  s_25e3f57f1a6f57::t_9b2f65fd8f77fd 1657-1660
+  s_25e3f57f1a6f57::t_fbeed2659f7b66 1645-1656,1670,1672,1675,1682
+pathmc/simulate.py
+  s_25e3f57f1a6f57::t_bc62b9f3cbdc33 1225-1228,1233-1240
+  s_25e3f57f1a6f57::t_3a95127a8268da 63-77,88-90,93-94
+  s_25e3f57f1a6f57::t_f0c53b22e3a968 1242
+  s_25e3f57f1a6f57::t_a99d8614f461f5 1300-1321
+  s_25e3f57f1a6f57::t_5317dd8664034e 1260-1271
+  s_25e3f57f1a6f57::t_38e5f8ae9f062b 78-87,91-92
+  s_25e3f57f1a6f57::t_591b4834b5ecc2 1219,1232,1241
+  s_25e3f57f1a6f57::t_5ac66d32f74383 62
+tests/test_scan_intervention_oracle.py
+  s_25e3f57f1a6f57::t_3433c2a4ad9cae 1-53,61-258
+  s_25e3f57f1a6f57::t_d8922c1e922f32 54-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "b9a668ed0553935666a8646203e4a5b6c8025b82",
+  "prompts": {},
+  "sessions": {
+    "s_25e3f57f1a6f57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7863c246-1229-43d7-b311-cdd99a5cfe2f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}

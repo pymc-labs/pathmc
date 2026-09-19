@@ -1,0 +1,25 @@
+tests/test_effects_oracle.py
+  s_3906ef8704c226::t_32a5eddb47ced1 129,213,266
+  s_3906ef8704c226::t_d6419c11e8733a 77,80
+  s_3906ef8704c226::t_e0ea28bf7ddd94 1-76,78-79,81-128,130-212,214-265,267-312
+pathmc/effects.py
+  s_3906ef8704c226::t_51f5a8bbfc37b1 22
+  s_3906ef8704c226::t_a4cda1828af674 343-363
+  s_3906ef8704c226::t_edae1bcf8dbd58 288-297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "b7bc63d617c2004be7644f3c0c53c07eeee98848",
+  "prompts": {},
+  "sessions": {
+    "s_3906ef8704c226": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c39ea586-2555-4b19-9c95-875cc7de9d87",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}

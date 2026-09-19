@@ -1,0 +1,45 @@
+pathmc/introspect.py
+  s_0121fca9feaa9a::t_1645041ccf80bd 500,504,507
+  s_0121fca9feaa9a::t_7cc747dc6784c8 64-74,85-92,94-95,111,115
+  s_0121fca9feaa9a::t_5c2ffa8a981c9d 408-411
+  s_0121fca9feaa9a::t_a2cf4dfae3b38e 418
+  s_0121fca9feaa9a::t_380821e564c10b 455
+  s_0121fca9feaa9a::t_55ef86d6a46005 527
+  s_0121fca9feaa9a::t_1dc0ba7daf0150 530
+  s_0121fca9feaa9a::t_960e02bb5efa2a 470
+  s_0121fca9feaa9a::t_ee7ab17701eacd 75-84,93
+  s_0121fca9feaa9a::t_0f5a43861e6330 350
+  s_0121fca9feaa9a::t_7094e027936cc5 226,229-230
+  s_0121fca9feaa9a::t_bc102340493dc9 421
+tests/test_introspection.py
+  s_92a4ae79c1e544::t_743e92c15cc8fd 231
+  s_92a4ae79c1e544::t_4655cf744640dc 222
+  s_0121fca9feaa9a::t_6b7b6c08cfa697 162-218,223-229,232-233
+  s_0121fca9feaa9a::t_f354331a8e3c87 28-34,44-55
+  s_0121fca9feaa9a::t_59287004814afe 219-221,230,234
+  s_0121fca9feaa9a::t_8ef4863df9ff97 56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "387927bdc49bfb4f89e5f0dbdeb9fc03d1a7609d",
+  "prompts": {},
+  "sessions": {
+    "s_0121fca9feaa9a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4539fcf7-69bd-4bd9-83d7-10004db0921c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    },
+    "s_92a4ae79c1e544": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5697823e-3eea-4fcc-a07f-4fa5ddda08f9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
