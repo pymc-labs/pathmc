@@ -1,0 +1,36 @@
+pathmc/residuals.py
+  s_a081ff93056a0e::t_a992466543879b 96-113,128
+pathmc/compile.py
+  s_a081ff93056a0e::t_3e6461a997a838 2766-2776,2784
+  s_a081ff93056a0e::t_dadeb695041a72 2845-2852
+  s_a081ff93056a0e::t_b0dd4c18ef842c 2971-2977
+  s_a081ff93056a0e::t_efc86f3b2dc1fc 2515-2520
+  s_a081ff93056a0e::t_7a5ce1574b6206 2553-2576
+  s_a081ff93056a0e::t_708f4c19f685b6 2291-2293
+  s_a081ff93056a0e::t_299837bad51a8b 2733
+  s_a081ff93056a0e::t_0e6b66487be9d0 2956-2957
+  s_a081ff93056a0e::t_beda926937b6f3 2506-2513
+  s_a081ff93056a0e::t_4564be5da8cdaf 2229
+  s_a081ff93056a0e::t_df6ff21e0643a1 2643-2644,2651
+  s_a081ff93056a0e::t_38198af6d9906e 3007-3035
+  s_a081ff93056a0e::t_887a40728c5043 581
+  s_a081ff93056a0e::t_b80610c41e79fb 1619-1655
+  s_a081ff93056a0e::t_b5aa98046c76f1 2208-2209,2216-2223
+  s_a081ff93056a0e::t_35d41d409c8c8a 2514
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "490a35b436eaf23c353a13e077b9517318c040e0",
+  "prompts": {},
+  "sessions": {
+    "s_a081ff93056a0e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a650ef2b-eda8-4428-b2d2-11cba36c5424",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
