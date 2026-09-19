@@ -1,7 +1,8 @@
 cff-version: 1.2.0
 message: "If you use pathmc in academic work, please cite it using these metadata."
 title: "pathmc: Bayesian path analysis and structural causal modeling in PyMC"
-version: 0.1.0
+version: 0.3.0
+date-released: 2026-08-13
 type: software
 license: Apache-2.0
 authors:

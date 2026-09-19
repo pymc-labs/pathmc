@@ -98,6 +98,7 @@ class TestBlockVarDeterministics:
         free_rv_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert "M1" not in free_rv_names
         assert "M2" not in free_rv_names
+        assert not any(name.endswith("_joint") for name in free_rv_names)
 
     def test_lkj_prior_in_priors_output(self, parallel_mediators_data):
         """priors() should show the chol_{block} LKJ entry."""

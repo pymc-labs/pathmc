@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pathmc"
-version = "0.2.2"
+version = "0.3.0"
 description = "Bayesian path analysis and structural causal modeling in PyMC."
 readme = "README.md"
 license = "Apache-2.0"
@@ -52,7 +52,17 @@ Issues = "https://github.com/pymc-labs/pathmc/issues"
 Contributing = "https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md"
 
 [dependency-groups]
-dev = ["build", "ipykernel", "mypy", "polars", "prek", "pytest", "pytest-cov", "ruff"]
+dev = [
+    "build",
+    "ipykernel",
+    "mypy",
+    "polars",
+    "prek",
+    "pytest",
+    "pytest-cov",
+    "pytest-xdist",
+    "ruff",
+]
 
 [project.optional-dependencies]
 docs = [

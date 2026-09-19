@@ -29,8 +29,10 @@ import pandas as pd
 import xarray as xr
 
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi, hdi_label
-from pathmc.parse import Spec
+from pathmc.parse import Spec, Term, TransformCall
 from pathmc.reprs import ReprSpec, ResultReprMixin
+from pathmc.scaling import ScalingFactors
+from pathmc.transforms import get_transform
 
 __all__ = ["EffectResult"]
 
@@ -221,9 +223,77 @@ def evaluate_defined_params(
     return defined_draws
 
 
+def _transform_tree_homogeneous(call: TransformCall) -> bool:
+    """Return True iff every transform in *call* is homogeneous of degree 1."""
+    current: str | TransformCall = call
+    while isinstance(current, TransformCall):
+        transform = get_transform(current.name)
+        flag = transform.homogeneous
+        if flag is None:
+            raise ValueError(
+                f"Cannot rescale a coefficient on transform {current.name!r} "
+                "to business units: the transform does not declare whether "
+                "it is homogeneous in its input (linear, like adstock) or "
+                "unitless (like logistic_saturation). Set "
+                f"{type(transform).__name__}.homogeneous = True or False "
+                "on the registered transform."
+            )
+        if not flag:
+            return False
+        current = current.input_expr
+    return True
+
+
+def _term_coefficient_scale(
+    term: Term,
+    outcome: str,
+    scaling_factors: ScalingFactors,
+    data: nw.DataFrame,
+) -> float:
+    """Internal-to-business multiplier for one regression coefficient.
+
+    Linear and adstock terms use ``f_out / f_pred``. Unitless regressors
+    (logistic saturation, HSGP) use ``f_out`` alone. Interactions use
+    ``f_out / prod(f_pred_i)``.
+    """
+    f_out = scaling_factors.mean_factor(outcome, data)
+    if term.variable == "Intercept":
+        return f_out
+    if term.hsgp is not None:
+        return f_out
+    if term.interaction_of is not None:
+        scale = f_out
+        for part in term.interaction_of:
+            scale /= scaling_factors.mean_factor(part, data)
+        return scale
+    if term.transform is not None:
+        if _transform_tree_homogeneous(term.transform):
+            return f_out / scaling_factors.mean_factor(term.variable, data)
+        return f_out
+    pred = term.lag_of if term.lag_of is not None else term.variable
+    return f_out / scaling_factors.mean_factor(pred, data)
+
+
+def _labeled_coef_business_scale(
+    spec: Spec,
+    label: str,
+    scaling_factors: ScalingFactors,
+    data: nw.DataFrame,
+) -> float:
+    """Map a labeled coefficient from internal to business units."""
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.label != label:
+                continue
+            return _term_coefficient_scale(term, reg.lhs, scaling_factors, data)
+    return 1.0
+
+
 def build_effects_summary(
     spec: Spec,
     idata: xr.DataTree,
+    scaling_factors: ScalingFactors | None = None,
+    data: nw.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Build a summary DataFrame of labeled coefficients and defined parameters.
 
@@ -240,6 +310,12 @@ def build_effects_summary(
         Summary with mean, sd, hdi_3%, hdi_97% for each effect.
     """
     labeled_draws = extract_labeled_draws(spec, idata)
+    if scaling_factors is not None and data is not None:
+        labeled_draws = {
+            name: draws
+            * _labeled_coef_business_scale(spec, name, scaling_factors, data)
+            for name, draws in labeled_draws.items()
+        }
     defined_draws = evaluate_defined_params(spec, labeled_draws)
 
     all_draws = {**labeled_draws, **defined_draws}
@@ -401,6 +477,8 @@ def compute_path_effect(
     spec: Spec,
     idata: xr.DataTree,
     families: dict[str, str] | None = None,
+    scaling_factors: ScalingFactors | None = None,
+    data: nw.DataFrame | None = None,
 ) -> EffectResult:
     """Compute the effect along a specified causal path.
 
@@ -499,6 +577,10 @@ def compute_path_effect(
             coord_name = f"{target}_predictors"
             draws = beta_draws(idata, beta_name, coord_name, source)
 
+        if scaling_factors is not None and data is not None:
+            draws = draws * _term_coefficient_scale(
+                matched_term, target, scaling_factors, data
+            )
         edge_draws.append(draws)
 
     result_draws = edge_draws[0]

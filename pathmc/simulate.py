@@ -48,6 +48,7 @@ from pathmc.idata import hdi_label
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
 from pathmc.reprs import ReprSpec, ResultReprMixin
+from pathmc.scaling import ScalingFactors
 
 if TYPE_CHECKING:
     import matplotlib.axes
@@ -187,6 +188,56 @@ def _chain_draw_ones(post: xr.Dataset) -> xr.DataArray:
     output Dataset without any manual coordinate bookkeeping.
     """
     return xr.ones_like(post["chain"] * post["draw"], dtype=float)
+
+
+def _to_business_units(
+    var: str,
+    da: xr.DataArray,
+    data: nw.DataFrame | None,
+    scaling_factors: ScalingFactors | None,
+    scan_info: Any | None = None,
+) -> xr.DataArray:
+    """Map internal-scale draws for *var* to business units."""
+    if scaling_factors is None or var not in scaling_factors.factors:
+        return da
+    if data is None:
+        raise ValueError(
+            "scaling_factors requires data= so per-row divisors can be aligned."
+        )
+    if scan_info is not None:
+        per_row = scaling_factors._per_row(data, var)
+        factor_mat = (
+            per_row[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
+        )
+        obs = _obs_dims(da)
+        if len(obs) >= 2:
+            t_dim, u_dim = obs[0], obs[1]
+            fda = xr.DataArray(
+                factor_mat,
+                dims=[t_dim, u_dim],
+                coords={t_dim: da.coords[t_dim], u_dim: da.coords[u_dim]},
+            )
+            return da * fda
+    return scaling_factors.unscale_xarray(var, da, data)
+
+
+def _unscale_do_dataset(
+    ds: xr.Dataset,
+    data: nw.DataFrame,
+    scaling_factors: ScalingFactors | None,
+) -> xr.Dataset:
+    """Return *ds* with scaled endogenous variables in business units."""
+    if scaling_factors is None:
+        return ds
+    data_vars = {
+        var: (
+            scaling_factors.unscale_xarray(var, ds[var], data)
+            if var in scaling_factors.factors
+            else ds[var]
+        )
+        for var in ds.data_vars
+    }
+    return xr.Dataset(data_vars)
 
 
 def _spread_over_time(
@@ -359,6 +410,16 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             if observed_by_time is not None
             else {}
         )
+
+    @property
+    def dataset(self) -> xr.Dataset:
+        """Labeled posterior draws as an :class:`xarray.Dataset`.
+
+        Cross-sectional results use dims ``("chain", "draw")``; panel
+        ``do(simulate_over="time")`` results add ``"time"``. For a flat
+        ``(n_samples,)`` numpy view, use :meth:`draws`.
+        """
+        return self._ds
 
     def draws(self, var: str) -> np.ndarray:
         """Return raw posterior draws for *var* under this intervention.
@@ -609,6 +670,14 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
         The treatment variable that was intervened on.
     estimand : str
         Estimand label, e.g. ``"ATE"``, ``"CATE"``, ``"ATT"``, ``"ATU"``.
+    estimator : str
+        Estimator label, e.g. ``"structural"`` or ``"regression_adjustment"``.
+    causal : bool
+        Whether the estimand is causal.
+    interventional : bool
+        Whether the estimand is interventional.
+    identifiable : bool | None
+        Whether the effect was identifiable; ``None`` when unknown.
     """
 
     def __init__(
@@ -618,11 +687,25 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
         outcome: str,
         treatment: str,
         estimand: str,
+        estimator: str = "structural",
+        causal: bool = True,
+        interventional: bool = True,
+        identifiable: bool | None = None,
     ) -> None:
         self._ds = ds
         self._default_var = outcome
         self._treatment = treatment
         self._estimand = estimand
+        self._estimator = estimator
+        self._causal = causal
+        self._interventional = interventional
+        self._identifiable = identifiable
+        self._ds.attrs.update({
+            "estimator": estimator,
+            "causal": causal,
+            "interventional": interventional,
+            "identifiable": identifiable,
+        })
 
     @classmethod
     def from_contrast(
@@ -631,6 +714,10 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
         outcome: str,
         treatment: str,
         estimand: str,
+        estimator: str = "structural",
+        causal: bool = True,
+        interventional: bool = True,
+        identifiable: bool | None = None,
     ) -> EstimandResult:
         """Wrap a :class:`DoResult` contrast as a focused estimand result."""
         return cls(
@@ -638,6 +725,10 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
             outcome=outcome,
             treatment=treatment,
             estimand=estimand,
+            estimator=estimator,
+            causal=causal,
+            interventional=interventional,
+            identifiable=identifiable,
         )
 
     @property
@@ -649,6 +740,35 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
     def treatment(self) -> str:
         """The treatment variable that was intervened on."""
         return self._treatment
+
+    @property
+    def estimator(self) -> str:
+        """Estimator label (e.g. ``"structural"``, ``"regression_adjustment"``)."""
+        return self._estimator
+
+    @property
+    def causal(self) -> bool:
+        """Whether this estimand is causal."""
+        return self._causal
+
+    @property
+    def interventional(self) -> bool:
+        """Whether graph surgery / ``do()`` was used."""
+        return self._interventional
+
+    @property
+    def identifiable(self) -> bool | None:
+        """Whether the effect was identifiable; ``None`` when unknown."""
+        return self._identifiable
+
+    @property
+    def dataset(self) -> xr.Dataset:
+        """Labeled contrast draws as an :class:`xarray.Dataset`.
+
+        Dims are ``("chain", "draw")``, plus ``"time"`` for panel estimands.
+        For a flat ``(n_samples,)`` numpy view, use :meth:`draws`.
+        """
+        return self._ds
 
     def _resolve(self, var: str | None) -> str:
         key = self._default_var if var is None else var
@@ -789,6 +909,10 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
             outcome=self._default_var,
             treatment=self._treatment,
             estimand=self._estimand,
+            estimator=self._estimator,
+            causal=self._causal,
+            interventional=self._interventional,
+            identifiable=self._identifiable,
         )
 
     def _repr_compact(self) -> str:
@@ -1106,6 +1230,70 @@ def _exogenous_fill(values: np.ndarray) -> float:
     return float(np.nanmean(arr))
 
 
+def _intervention_array(val: float | np.ndarray, n: int) -> np.ndarray:
+    """Broadcast a scalar or length-*n* vector to per-row intervention values."""
+    arr = np.asarray(val)
+    if arr.ndim == 0:
+        return np.full(n, float(arr))
+    flat = arr.reshape(-1)
+    if flat.shape[0] == n:
+        return flat.astype(float, copy=False)
+    if flat.shape[0] == 1:
+        return np.full(n, float(flat[0]))
+    raise ValueError(
+        f"Intervention value must be a scalar or a 1-D array of length "
+        f"{n}, got shape {arr.shape}."
+    )
+
+
+def _scale_cross_section_intervention(
+    var: str,
+    arr: np.ndarray,
+    data: nw.DataFrame,
+    scaling_factors: ScalingFactors | None,
+) -> np.ndarray:
+    """Divide a length-n intervention by the column's per-row scale factors."""
+    if scaling_factors is None or var not in scaling_factors.factors:
+        return arr
+    return arr / scaling_factors._per_row(data, var)
+
+
+def _scale_scan_intervention(
+    var: str,
+    mat: np.ndarray,
+    data: nw.DataFrame,
+    scan_info: Any,
+    scaling_factors: ScalingFactors | None,
+) -> np.ndarray:
+    """Divide a ``(n_times, n_units)`` intervention by scan-aligned factors."""
+    if scaling_factors is None or var not in scaling_factors.factors:
+        return mat
+    per_row = scaling_factors._per_row(data, var)
+    factor_mat = (
+        per_row[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
+    )
+    return mat / factor_mat
+
+
+def _broadcast_intervention(
+    ones: xr.DataArray, val: float | np.ndarray, n: int
+) -> xr.DataArray:
+    """Broadcast an intervention value to ``(chain, draw[, unit])``."""
+    arr = _intervention_array(val, n)
+    if np.unique(arr).size == 1:
+        return ones * float(arr[0])
+    per_unit = xr.DataArray(arr, dims=["unit"], coords={"unit": np.arange(n)})
+    return ones * per_unit
+
+
+def _as_unit_dim(mu: xr.DataArray) -> xr.DataArray:
+    """Rename the first observation dim of *mu* to ``unit``."""
+    obs = _obs_dims(mu)
+    if not obs:
+        return mu
+    return mu.rename({obs[0]: "unit"})
+
+
 def _exog_value(
     var: str, data: nw.DataFrame, subgroup_indices: np.ndarray | None
 ) -> float:
@@ -1118,6 +1306,19 @@ def _exog_value(
     return _exogenous_fill(col)
 
 
+def _business_exog_value(
+    var: str,
+    data: nw.DataFrame,
+    subgroup_indices: np.ndarray | None,
+    scaling_factors: ScalingFactors | None,
+) -> float:
+    """Empirical fill for an exogenous variable in business units."""
+    val = _exog_value(var, data, subgroup_indices)
+    if scaling_factors is not None and var in scaling_factors.factors:
+        val *= scaling_factors.mean_factor(var, data)
+    return val
+
+
 def run_do_pymc(
     gen_model: pm.Model,
     graph_info: GraphInfo,
@@ -1127,6 +1328,8 @@ def run_do_pymc(
     kind: str = "mean",
     families: dict[str, str] | None = None,
     subgroup_indices: np.ndarray | None = None,
+    average_units: bool = True,
+    scaling_factors: ScalingFactors | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -1161,6 +1364,13 @@ def run_do_pymc(
         provided, endogenous variable draws are averaged over only
         these rows (e.g., the treated subgroup for ATT). ``None``
         (default) uses all rows.
+    average_units : bool
+        When ``True`` (default), average response means over observation
+        rows for g-computation. When ``False``, keep a ``unit`` dim.
+    scaling_factors : ScalingFactors | None
+        Fitted scale factors. When given, ``set`` values for scaled
+        columns are treated as business units and divided by the
+        per-row factor before graph surgery.
 
     Returns
     -------
@@ -1176,22 +1386,14 @@ def run_do_pymc(
     N = len(data)
     latent = graph_info.latent
 
-    free_rv_names = {rv.name for rv in gen_model.free_RVs}
-    det_names_set = {d.name for d in gen_model.deterministics}
-
-    block_vars = {
-        var
-        for var in graph_info.topological_order
-        if var in graph_info.endogenous
-        and var not in free_rv_names
-        and var not in latent
-        and f"mu_{var}" in det_names_set
-    }
+    block_vars = {v for block in graph_info.residual_blocks for v in block}
 
     replacements: dict[str, Any] = {}
     for var, val in set.items():
         key = f"mu_{var}" if (var in latent or var in block_vars) else var
-        arr = np.full(N, val)
+        arr = _scale_cross_section_intervention(
+            var, _intervention_array(val, N), data, scaling_factors
+        )
         target_dtype = gen_model[key].dtype
         replacements[key] = arr.astype(target_dtype)
 
@@ -1244,17 +1446,23 @@ def run_do_pymc(
         data_vars: dict[str, xr.DataArray] = {}
         for var in graph_info.topological_order:
             if var in set:
-                data_vars[var] = ones * float(np.mean(set[var]))
+                data_vars[var] = _broadcast_intervention(ones, set[var], N)
             elif var in graph_info.exogenous:
-                data_vars[var] = ones * _exog_value(var, data, subgroup_indices)
+                data_vars[var] = ones * _business_exog_value(
+                    var, data, subgroup_indices, scaling_factors
+                )
             else:
                 mu = _apply_inverse_link(
                     det[mean_det_names[var]], families.get(var, "")
                 )
+                mu = _to_business_units(var, mu, data, scaling_factors)
                 if subgroup_indices is not None:
                     mu = mu.isel({_obs_dims(mu)[0]: subgroup_indices})
-                # Average over observation rows: g-computation standardization.
-                data_vars[var] = mu.mean(_obs_dims(mu))
+                if average_units:
+                    # Average over observation rows: g-computation standardization.
+                    data_vars[var] = mu.mean(_obs_dims(mu))
+                else:
+                    data_vars[var] = _as_unit_dim(mu)
 
         return DoResult(ds=xr.Dataset(data_vars))
 
@@ -1288,10 +1496,13 @@ def run_do_pymc(
     predictive_vars: dict[str, xr.DataArray] = {}
     for var in graph_info.topological_order:
         if var in set:
-            predictive_vars[var] = ones * float(np.mean(set[var]))
+            predictive_vars[var] = _broadcast_intervention(ones, set[var], N)
         elif var in graph_info.exogenous:
-            predictive_vars[var] = ones * _exog_value(var, data, subgroup_indices)
+            predictive_vars[var] = ones * _business_exog_value(
+                var, data, subgroup_indices, scaling_factors
+            )
         elif (src := _predictive_source(ppc, extra_det, var)) is not None:
+            src = _to_business_units(var, src, data, scaling_factors)
             if subgroup_indices is not None:
                 src = src.isel({_obs_dims(src)[0]: subgroup_indices})
             # Each row is its own draw: keep them on a ``unit`` axis that
@@ -1312,6 +1523,8 @@ def run_do_panel_unified(
     kind: str = "mean",
     families: dict[str, str] | None = None,
     observed_by_time: Mapping[str, np.ndarray] | None = None,
+    data: nw.DataFrame | None = None,
+    scaling_factors: ScalingFactors | None = None,
 ) -> DoResult:
     """Run the do-operator on a scan-compiled panel model.
 
@@ -1340,6 +1553,13 @@ def run_do_panel_unified(
         Per-variable distribution families.
     observed_by_time : Mapping[str, np.ndarray] | None
         Unit-mean observed series per variable for trajectory overlays.
+    data : nw.DataFrame | None
+        Fitted panel frame (row order matching ``scan_info.sort_idx``).
+        Required when *scaling_factors* is given.
+    scaling_factors : ScalingFactors | None
+        Fitted scale factors. When given, ``set`` values for scaled
+        columns are treated as business units and divided by the
+        scan-aligned factor before graph surgery.
     """
     if set is None:
         set = {}
@@ -1358,6 +1578,13 @@ def run_do_panel_unified(
             mat = np.broadcast_to(val[:, None], (n_times, n_units)).copy()
         else:
             mat = np.full((n_times, n_units), val)
+        if scaling_factors is not None:
+            if data is None:
+                raise ValueError(
+                    "scaling_factors requires data= so per-unit divisors "
+                    "can be aligned to the scan layout."
+                )
+            mat = _scale_scan_intervention(var, mat, data, scan_info, scaling_factors)
         # Outer graph-surgery replacement, as before: needed so the
         # intervened var is no longer a free RV that compute_deterministics /
         # sample_posterior_predictive must bind from the posterior (the
@@ -1421,7 +1648,14 @@ def run_do_panel_unified(
                 data_vars[var] = ones * 0.0
             elif var in graph_info.endogenous:
                 det_key = var if var in stochastic_latent else f"mu_{var}"
-                data_vars[var] = _panel_unit_mean(det[det_key], time_idx)
+                raw = _to_business_units(
+                    var,
+                    det[det_key],
+                    data,
+                    scaling_factors,
+                    scan_info,
+                )
+                data_vars[var] = _panel_unit_mean(raw, time_idx)
 
         return DoResult(
             ds=xr.Dataset(data_vars),
@@ -1471,13 +1705,25 @@ def run_do_panel_unified(
         elif var in graph_info.exogenous:
             predictive_vars[var] = ones * 0.0
         elif var in ppc.posterior_predictive:
-            predictive_vars[var] = _panel_unit_mean(
-                ppc.posterior_predictive[var], time_idx
+            raw = _to_business_units(
+                var,
+                ppc.posterior_predictive[var],
+                data,
+                scaling_factors,
+                scan_info,
             )
+            predictive_vars[var] = _panel_unit_mean(raw, time_idx)
         elif latent_det is not None:
             det_key = var if var in stochastic_latent else f"mu_{var}"
             if det_key in latent_det:
-                predictive_vars[var] = _panel_unit_mean(latent_det[det_key], time_idx)
+                raw = _to_business_units(
+                    var,
+                    latent_det[det_key],
+                    data,
+                    scaling_factors,
+                    scan_info,
+                )
+                predictive_vars[var] = _panel_unit_mean(raw, time_idx)
 
     return DoResult(
         ds=xr.Dataset(predictive_vars),

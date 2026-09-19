@@ -8,11 +8,17 @@ image: thumbnails/data_simulation.png
 jupyter: pathmc
 ---
 
-Every example in these docs simulates data with NumPy — explicit array code that anyone can audit. But pathmc can also generate data directly from a specified model, guaranteeing that the simulated dataset is perfectly consistent with the model's generative structure.
+Most foundational examples in these docs build their datasets with explicit NumPy array code that anyone can audit. But pathmc can also generate data directly from a specified model, guaranteeing that the simulated dataset is perfectly consistent with the model's generative structure.
 
 This is useful for **simulate-and-recover** workflows: choose true parameter values, generate a dataset, fit the model, and verify that the posterior concentrates around truth. It is also a quick way to prototype a model before collecting real data.
 
 The `pathmc.simulate()` function builds a generative PyMC model from the specification, fixes all parameters at user-provided values via `pm.do()`, and draws one simulated dataset.
+
+:::: {.callout-note}
+## MMM examples run on `simulate()`
+
+The applied-models notebooks are moving to `pathmc.simulate()` for their ground-truth DGPs: [MMM with Latent Brand Awareness](/examples/05-applied-models/mmm_awareness.qmd) simulates a latent AR(1) mediator via the `latent=` and `families=` arguments, and pairs with [Media Mix Models](/examples/05-applied-models/mmm.qmd), which walks through panel adstock/saturation structures under partial pooling. Everything shown on this page extends to those settings through the same `params` interface.
+::::
 
 ```{python}
 import numpy as np
@@ -329,6 +335,21 @@ tmp = pathmc.model(spec, data=placeholder)
 tmp.equations()
 ```
 
+### `simulate_params_template()`
+
+`pathmc.simulate_params_template()` replaces this manual step: it compiles the same zero-filled placeholder generative model that `simulate()` builds internally and returns every required parameter name with its expected shape and dtype — without drawing any data.
+
+```{python}
+template = pathmc.simulate_params_template(
+    "M ~ X\nY ~ M + X",
+    data=pd.DataFrame({"X": [0.0]}),
+)
+for name, desc in sorted(template.items()):
+    print(f"{name:>8}: {desc['kind']:>6} {str(desc['shape']):>5} ({desc['dtype']})")
+```
+
+Each value describes how to fill `params`: `"kind"` is `"scalar"`, `"vector"`, or `"matrix"`, `"shape"` lists the axis lengths, and `"dtype"` gives the NumPy dtype. Panel models accept `panel=` and `pooling=` exactly as `model()` does; under `pooling="partial"`, unit-indexed hierarchical parameters are reported with concrete shapes derived from the placeholder data (e.g. `alpha_{var}` has one entry per panel unit), and transform terms contribute their named hyperparameters (e.g. the adstock `decay=theta_tv` argument appears as `theta_tv`).
+
 
 ## Summary
 
@@ -337,6 +358,7 @@ tmp.equations()
 - The returned DataFrame contains the original exogenous columns plus simulated endogenous columns.
 - Supported for all families (`gaussian`, `bernoulli`, `poisson`, `negbinomial`, `studentt`) and multi-equation models.
 - Use `equations()` on a placeholder model to discover both the structural equations and expected parameter names.
+- **`pathmc.simulate_params_template()`** lists every parameter name, shape, and dtype a spec requires — including hierarchical, transform, residual-covariance, and hsgp parameters — so `params` can be authored without trial and error.
 
 ::: {.callout-tip collapse="true"}
 ## When to use numpy simulation instead
