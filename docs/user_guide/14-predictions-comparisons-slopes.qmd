@@ -107,7 +107,7 @@ On **`AdjustmentModel`**, the same signature applies to the reduced outcome equa
 Without `set`, predictions are associational fits of `converted ~ ad_spend + income`.
 With `set={"ad_spend": 1.0}`, pathmc standardizes the outcome at the designated treatment value; `causal=True` only when the intervention targets that treatment alone.
 
-Build grids with `datagrid()` (re-exported from `pathmc` and available on both model types):
+Build grids with `datagrid()` (re-exported from `pathmc` and available on both model types). `pathmc.datagrid(df, ...)` uses the units in the frame you pass. On a scaled fitted model, `m.datagrid(...)` returns business units too: supplied values are left unchanged and columns held at their fitted mean or mode are converted from the internal scale.
 
 ```python
 grid = pathmc.datagrid(df, ad_spend=[0.0, 1.0], income=[-1.0, 0.0, 1.0])

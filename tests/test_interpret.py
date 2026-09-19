@@ -219,6 +219,44 @@ class TestDatagrid:
         grid = fork_model.datagrid(X=[0, 1], Z=[0, 1])
         assert len(grid) == 4
 
+    def test_pathmodel_datagrid_unscaled_matches_standalone(self, fork_model):
+        assert fork_model._data is not None
+        got = fork_model.datagrid(X=[0, 1])
+        expected = datagrid(fork_model._data.to_pandas(), X=[0, 1])
+        pd.testing.assert_frame_equal(got, expected)
+
+    def test_pathmodel_datagrid_scaled_returns_business_units(self, mock_pymc_sample):
+        df = pd.DataFrame({
+            "tv": [100.0, 200.0, 300.0, 400.0],
+            "radio": [20.0, 40.0, 60.0, 80.0],
+            "sales": [31.0, 62.0, 93.0, 124.0],
+        })
+        model = pathmc.model(
+            "sales ~ tv + radio",
+            data=df,
+            scaling=pathmc.Scaling(target={"method": "max"}, channel={"method": "max"}),
+        )
+        model.fit()
+        assert model._idata is not None
+        posterior = model._idata.posterior.copy(deep=True)
+        posterior["beta_sales"].loc[{"sales_predictors": "Intercept"}] = 0.0
+        posterior["beta_sales"].loc[{"sales_predictors": "tv"}] = 1.0
+        posterior["beta_sales"].loc[{"sales_predictors": "radio"}] = 1.0
+        model._idata.posterior = posterior
+
+        raw_tv = 250.0
+        grid = model.datagrid(tv=[raw_tv])
+
+        assert grid["tv"].tolist() == [raw_tv]
+        assert grid["radio"].tolist() == [df["radio"].mean()]
+        assert grid["sales"].tolist() == [df["sales"].mean()]
+
+        predicted = model.predictions("sales", newdata=grid)
+        intervened = model.do(set={"tv": raw_tv}, kind="mean")
+        assert float(predicted.dataset["sales"].mean()) == pytest.approx(
+            intervened.mean("sales")
+        )
+
 
 class TestConditionalValidation:
     def test_list_conditional_raises_type_error(self, fork_model):
