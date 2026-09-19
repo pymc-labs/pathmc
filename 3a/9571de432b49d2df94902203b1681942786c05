@@ -1,0 +1,41 @@
+pathmc/effects.py
+  s_9a17ea120e2eab::t_f585b4da32b401 32,34,237-243,283-295,558-567
+pathmc/_model.py
+  s_9a17ea120e2eab::t_6bbf93f10964f6 88-94,182-192,233,238,240-245,258-262,264
+  s_9a17ea120e2eab::t_fdb8489b555125 2476-2481
+  s_9a17ea120e2eab::t_1f050d5c1509f4 2276-2281
+pathmc/interpret.py
+  s_9a17ea120e2eab::t_6bd6b086a21f51 33,505-511,520,522-528
+tests/test_scaling_contract.py
+  s_9a17ea120e2eab::t_4c5bc0296f2bd6 132,135,141,147-151
+  s_9a17ea120e2eab::t_9db4a484b2094a 134,136-137
+  s_9a17ea120e2eab::t_61067d7d739d74 1-131,133,138-140,142-146,152-274
+  s_9a17ea120e2eab::t_75383931baff2e 275-278
+pathmc/simulate.py
+  s_9a17ea120e2eab::t_d4934124f1cbcb 51,201,207-216,227-231,1247,1249-1255,1266,1268-1273,1316-1324
+pathmc/scaling.py
+  s_9a17ea120e2eab::t_e13078e99f605d 430-431
+  s_9a17ea120e2eab::t_581adca37561bc 38,47,63-163,165-171
+  s_9a17ea120e2eab::t_4c7db5dbc114cd 39,164,327-328,369-371,411,416-425,481-483,500-502,545,932,935,938-940,949,969,972
+  s_9a17ea120e2eab::t_1addc1da2cd1e4 535,929
+  s_9a17ea120e2eab::t_01add4348d1730 236-239,256-326,329-368,372-410,412-415,426-429,432-450,454-480,484-499,503-534,536-544,546-564,571-575,581-587,599-601,618-624,628-632
+  s_9a17ea120e2eab::t_33c83f83b9670c 930-931,933-934,936-937,941,956-962,964-968,970-971,973
+  s_9a17ea120e2eab::t_b9c816aceafa12 451-453
+  s_9a17ea120e2eab::t_19baad7e72bfe8 172
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3a9571de432b49d2df94902203b1681942786c05",
+  "prompts": {},
+  "sessions": {
+    "s_9a17ea120e2eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb77-831c-78e0-8e95-0759bd7f6464",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
