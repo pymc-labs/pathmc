@@ -1,0 +1,19 @@
+docs/user_guide/14-predictions-comparisons-slopes.qmd
+  s_448b830a30a5c4::t_8d0f51847d9f5f 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2bcd74dbf6d88d98f69b738cf4dd4482097ac497",
+  "prompts": {},
+  "sessions": {
+    "s_448b830a30a5c4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb6d-718b-76b2-bb9b-fd34f2a8fb1f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
