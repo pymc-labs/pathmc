@@ -1,0 +1,33 @@
+---
+title: "Basis Terms"
+guide-section: "Concepts"
+---
+
+A basis term expands one predictor into several columns and gives that expansion its own vector of coefficients. This differs from a [transform](12-transforms-families.qmd), which transforms one column before it receives the equation's usual scalar coefficient. Basis terms are useful when a relationship needs a flexible but structured shape.
+
+| Basis | Syntax | Coefficients | Current support |
+| --- | --- | --- | --- |
+| HSGP | `hsgp(x, m=20, c=1.5)` | Kernel-scaled basis weights | Cross-sectional, exogenous 1-D input |
+| Fourier | `fourier(week, n=3, period=52)` | `2n` independent harmonic weights | Cross-sectional; observed or latent 1-D input |
+
+For example, a weekly seasonal pattern with three harmonics is a Fourier basis:
+
+```python
+seasonal = pathmc.model(
+    "sales ~ fourier(week, n=3, period=52) + adstock(tv, decay=theta_tv)",
+    data=df,
+)
+```
+
+The term owns `beta_fourier_sales_week`, so it does not take a coefficient prefix such as `b_season*fourier(...)`. Its sine and cosine columns are symbolic in the PyMC graph, which means the term is recomputed when `do()` changes `week` or when its input is a latent mediator:
+
+```python
+model = pathmc.model(
+    "awareness ~ spend\nsales ~ fourier(awareness, n=2, period=10)",
+    data=df,
+)
+```
+
+`hsgp()` uses the same owned-coefficient mechanism but has a kernel-informed prior and a boundary frozen from the fitted data. Its `do()` interventions must remain inside that boundary; see the [HSGP worked example](../examples/01-foundations/hsgp_1d.qmd). Fourier has no fitted support boundary, so it remains well-defined outside the observed range.
+
+Basis terms currently cannot be used in panel/scan models, inside residual-covariance blocks, or nested in transforms. These limits are checked before compilation and name the equation or variable that needs changing.

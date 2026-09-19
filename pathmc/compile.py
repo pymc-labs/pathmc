@@ -48,7 +48,7 @@ import pymc as pm
 
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
-from pathmc.parse import HSGPCall, Regression, Spec, Term, TransformCall
+from pathmc.parse import Regression, Spec, Term, TransformCall
 from pathmc.transforms import get_transform
 
 __all__: list[str] = []
@@ -156,21 +156,21 @@ class PredictorSlot:
     """
 
     name: str
-    coeff_type: Literal["free", "fixed", "hsgp"]
+    coeff_type: Literal["free", "fixed", "basis"]
     coeff_value: float | None = None
-    kind: Literal["intercept", "plain", "interaction", "transform", "lag", "hsgp"] = (
+    kind: Literal["intercept", "plain", "interaction", "transform", "lag", "basis"] = (
         "plain"
     )
     lag_of: str | None = None
     interaction_parts: tuple[str, ...] | None = None
     transform: TransformCall | None = None
-    hsgp: HSGPCall | None = None
-    # NOTE: an ``hsgp`` slot carries its own basis weights and never draws a
-    # scalar coefficient from ``beta``.  Its ``coeff_type`` is the inert
-    # ``"hsgp"`` marker (not ``"free"``) so that any ``coeff_type``-based
+    basis: Any | None = None
+    # NOTE: a ``basis`` slot carries its own basis weights and never draws a
+    # scalar coefficient from ``beta``. Its ``coeff_type`` is the inert
+    # ``"basis"`` marker (not ``"free"``) so that any ``coeff_type``-based
     # counting -- ``build_mu``'s ``free_idx`` and ``_compile_residual_block``'s
     # ``has_free`` -- automatically excludes it.  Every consumer must
-    # short-circuit ``kind == "hsgp"`` before reading ``coeff_type``.
+    # short-circuit ``kind == "basis"`` before reading ``coeff_type``.
 
 
 @dataclass
@@ -273,10 +273,10 @@ def get_free_predictor_columns(
     cols: list[str] = []
     if _effective_has_intercept(reg, pooling, panel_info):
         cols.append("Intercept")
-    # HSGP terms carry their own basis weights (not a scalar beta column), so
+    # Basis terms carry their own weights (not a scalar beta column), so
     # they are excluded here to keep ``beta`` sized to the plain/free terms.
     cols.extend(
-        t.variable for t in reg.terms if t.fixed_value is None and t.hsgp is None
+        t.variable for t in reg.terms if t.fixed_value is None and t.basis is None
     )
     return cols
 
@@ -340,16 +340,16 @@ def build_mu_specs(
             )
 
         for term in reg.terms:
-            # HSGP dispatch takes priority: it carries its own basis weights
-            # and uses the inert ``coeff_type="hsgp"`` marker so free/fixed
+            # Basis dispatch takes priority: it carries its own weights and
+            # uses the inert ``coeff_type="basis"`` marker so free/fixed
             # coefficient bookkeeping skips it.
-            if term.hsgp is not None:
+            if term.basis is not None:
                 slots.append(
                     PredictorSlot(
                         name=term.variable,
-                        coeff_type="hsgp",
-                        kind="hsgp",
-                        hsgp=term.hsgp,
+                        coeff_type="basis",
+                        kind="basis",
+                        basis=term.basis,
                     )
                 )
                 continue
@@ -360,7 +360,7 @@ def build_mu_specs(
 
             if term.transform is not None:
                 kind: Literal[
-                    "intercept", "plain", "interaction", "transform", "lag", "hsgp"
+                    "intercept", "plain", "interaction", "transform", "lag", "basis"
                 ] = "transform"
             elif term.interaction_of is not None:
                 kind = "interaction"
@@ -555,15 +555,8 @@ def compile_to_pymc(
     _validate_residual_cov_families(spec, families)
     _validate_latent_families(families, latent)
 
-    if panel_info is not None and _spec_has_hsgp(spec):
-        raise NotImplementedError(
-            "HSGP terms are not supported in panel models yet (see follow-up). "
-            "Fit the HSGP smooth in a cross-sectional model, or remove the "
-            "hsgp() term."
-        )
-
-    _reject_hsgp_in_residual_blocks(spec)
-    _reject_endogenous_hsgp_inputs(spec)
+    _validate_basis_capabilities(spec, panel_info)
+    _reject_basis_in_residual_blocks(spec)
     _reject_nan_predictors(data, graph_info)
 
     if _is_scan_panel(spec, panel_info):
@@ -611,9 +604,12 @@ def compile_to_pymc(
         if free_cols:
             coords[f"{reg.lhs}_predictors"] = free_cols
         for term in reg.terms:
-            if term.hsgp is not None:
-                coords[f"{reg.lhs}_{term.hsgp.variable}_hsgp"] = list(
-                    range(term.hsgp.m)
+            if term.basis is not None:
+                from pathmc.basis import get_basis
+
+                basis = get_basis(term.basis.name)
+                coords[basis.weights_dim(reg.lhs, term.basis)] = list(
+                    range(basis.n_basis(term.basis))
                 )
 
     needs_unit_coord = bool(coef_entries) or none_transform_flag
@@ -863,11 +859,11 @@ def build_mu(
     free_idx = 0
 
     for slot in mu_spec.slots:
-        # HSGP is handled first, before any coefficient bookkeeping: the
-        # resolver returns the full ``phi @ (beta * sqrt_psd)`` smooth, and we
+        # A basis is handled first, before any coefficient bookkeeping: the
+        # resolver returns its full owned-coefficient contribution, and we
         # must not advance ``free_idx`` (which is aligned with ``beta``, sized
-        # by ``get_free_predictor_columns`` and excludes HSGP slots).
-        if slot.kind == "hsgp":
+        # by ``get_free_predictor_columns`` and excludes basis slots).
+        if slot.kind == "basis":
             mu = mu + resolver(slot)
             continue
 
@@ -899,7 +895,7 @@ def _predictor_names_in_mu_spec(mu_spec: MuSpec) -> list[str]:
             names.append(slot.lag_of)
         elif slot.kind == "transform" and slot.transform is not None:
             names.append(_get_adstock_input(slot.transform))
-        elif slot.kind == "hsgp" and slot.name is not None:
+        elif slot.kind == "basis" and slot.name is not None:
             names.append(slot.name)
     return names
 
@@ -941,9 +937,8 @@ def _make_cross_sectional_resolver(
 
     Resolves tensors through ``pm.Data`` for exogenous inputs and
     upstream free RVs for endogenous inputs, enabling ``pm.do()``
-    propagation.  ``lhs`` and ``priors`` are required to resolve HSGP
-    slots (which need the equation LHS to name RVs and the prior config
-    for hyperpriors); they may be omitted for HSGP-free equations.
+    propagation. ``lhs`` and ``priors`` are required to resolve basis
+    slots (which need equation context for their owned coefficients).
 
     When *prefer_observed_block_members* is True, block-member names are
     removed from the endogenous-RV map passed to resolution (including
@@ -971,15 +966,17 @@ def _make_cross_sectional_resolver(
         return pt.as_tensor_variable(data[name].to_numpy().astype(float))
 
     def resolve(slot: PredictorSlot) -> Any:
-        if slot.kind == "hsgp":
-            assert slot.hsgp is not None
+        if slot.kind == "basis":
+            assert slot.basis is not None
             assert lhs is not None and priors is not None, (
-                "HSGP slot requires lhs and priors in the resolver."
+                "Basis slot requires lhs and priors in the resolver."
             )
-            from pathmc.hsgp import assemble_hsgp_term
+            from pathmc.basis import get_basis
 
             x = _resolve_var(slot.name)[:, None]
-            return assemble_hsgp_term(slot.hsgp, x, lhs=lhs, priors=priors)
+            return get_basis(slot.basis.name).assemble_graph(
+                x, lhs=lhs, call=slot.basis, priors=priors
+            )
         if slot.kind == "transform":
             tc = transform_map[slot.name]
             return _apply_transform_chain(
@@ -1029,11 +1026,10 @@ def _make_scan_resolver(
         return pt.zeros(n_units)
 
     def resolve(slot: PredictorSlot) -> Any:
-        if slot.kind == "hsgp":
+        if slot.kind == "basis":
             raise NotImplementedError(
-                "HSGP terms are not supported in panel/scan models yet "
-                "(see follow-up). Use a cross-sectional model or remove the "
-                "hsgp() term."
+                "Basis terms are not supported in panel/scan models yet. "
+                "Use a cross-sectional model or remove the basis term."
             )
         if slot.kind == "transform":
             tc = transform_map[slot.name]
@@ -1127,7 +1123,7 @@ def _parse_by_var_pooling(
         lhs_vars = {reg.lhs for reg in spec.regressions}
         for reg in spec.regressions:
             for t in reg.terms:
-                if t.hsgp is not None:
+                if t.basis is not None:
                     continue
                 if t.fixed_value is not None:
                     fixed_predictors.add(t.variable)
@@ -1615,50 +1611,49 @@ def _compile_residual_block(
     return str(joint.name)
 
 
-def _spec_has_hsgp(spec: Spec) -> bool:
-    """Return True if any regression term is an HSGP smooth."""
-    return any(term.hsgp is not None for reg in spec.regressions for term in reg.terms)
-
-
-def _reject_hsgp_in_residual_blocks(spec: Spec) -> None:
-    """Raise if an HSGP term sits on a variable in a ``~~`` block.
+def _reject_basis_in_residual_blocks(spec: Spec) -> None:
+    """Raise if a basis term sits on a variable in a ``~~`` block.
 
     The residual-block compiler sizes ``beta`` from ``{var}_predictors``,
-    which excludes HSGP basis weights, so an HSGP term on a block member
+    which excludes basis weights, so a basis term on a block member
     cannot be wired safely in Phase 1.
     """
     block_vars, _ = _identify_residual_blocks(spec)
     if not block_vars:
         return
     for reg in spec.regressions:
-        if reg.lhs in block_vars and any(t.hsgp is not None for t in reg.terms):
+        if reg.lhs in block_vars and any(t.basis is not None for t in reg.terms):
             raise NotImplementedError(
-                f"HSGP terms are not supported on '{reg.lhs}', which participates "
+                f"Basis terms are not supported on '{reg.lhs}', which participates "
                 "in a ~~ residual-covariance block yet (see follow-up). Model the "
                 "smooth outside the covariance block."
             )
 
 
-def _reject_endogenous_hsgp_inputs(spec: Spec) -> None:
-    """Raise if an HSGP smooth is applied to an endogenous variable.
+def _validate_basis_capabilities(spec: Spec, panel_info: PanelInfo | None) -> None:
+    """Reject combinations not declared by a basis's capability metadata."""
+    from pathmc.basis import get_basis
 
-    ``pm.gp.HSGP.prior_linearized`` calls ``.eval()`` on the input to freeze
-    the centering midpoint and the boundary ``L``.  When the input is an
-    upstream random variable that ``.eval()`` is a draw from the prior, so the
-    basis -- and therefore the fitted smooth -- depends on compilation-time
-    RNG rather than on the data.  Phase 1 only supports exogenous inputs.
-    """
     endogenous = {reg.lhs for reg in spec.regressions}
     for reg in spec.regressions:
         for term in reg.terms:
-            if term.hsgp is not None and term.hsgp.variable in endogenous:
+            if term.basis is None:
+                continue
+            basis = get_basis(term.basis.name)
+            if panel_info is not None and not basis.capabilities.supports_panel:
                 raise NotImplementedError(
-                    f"hsgp() input '{term.hsgp.variable}' in the '{reg.lhs}' "
-                    "equation is endogenous (it is the outcome of another "
-                    "regression). The HSGP basis is built by evaluating its "
-                    "input, so an endogenous input would freeze the basis at a "
-                    "random prior draw and make the fit non-reproducible. "
-                    "Phase 1 supports exogenous hsgp() inputs only."
+                    f"{basis.name}() is not supported in panel models yet. "
+                    "Fit a cross-sectional model or remove the basis term."
+                )
+            if (
+                term.basis.variable in endogenous
+                and not basis.capabilities.supports_endogenous
+            ):
+                raise NotImplementedError(
+                    f"{basis.name}() input '{term.basis.variable}' in the "
+                    f"'{reg.lhs}' equation is endogenous. This basis does not "
+                    "support graph inputs; use an exogenous input or choose a "
+                    "basis with graph-input support."
                 )
 
 

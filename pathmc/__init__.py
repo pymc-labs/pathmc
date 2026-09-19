@@ -50,6 +50,7 @@ from pathmc.sensitivity import SensitivityResult  # noqa: E402
 from pathmc.scaling import Scaling, ScalingFactors  # noqa: E402
 from pathmc.simulate import DoResult, EstimandResult  # noqa: E402
 from pathmc.transforms import ParamSpec, Transform, register_transform  # noqa: E402
+from pathmc.basis import Basis, register_basis  # noqa: E402
 
 # Deliberate re-export so users can build custom priors without a separate
 # pymc_extras import (see the `priors=` argument to model()).
@@ -57,6 +58,7 @@ from pymc_extras.prior import Prior  # noqa: E402
 
 __all__ = [
     "AdjustmentModel",
+    "Basis",
     "TBFPC",
     "BuildModelFromDAG",
     "DoResult",
@@ -79,6 +81,7 @@ __all__ = [
     "datagrid",
     "model",
     "register_transform",
+    "register_basis",
     "same_markov_equivalence_class",
     "simulate",
     "simulate_params_template",
