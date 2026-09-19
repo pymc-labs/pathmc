@@ -178,6 +178,7 @@ def assemble_hsgp_term(
     *,
     lhs: str,
     priors: PriorConfig,
+    out_shape: tuple[int, ...] | None = None,
 ) -> TensorVariable:
     """Emit the HSGP hyperparameters and coefficients, returning ``f_{lhs}_{var}``.
 
@@ -201,11 +202,17 @@ def assemble_hsgp_term(
     priors : PriorConfig
         Merged prior config providing ``ell_{lhs}_{var}``, ``eta_{lhs}_{var}``,
         and (non-centered) ``beta_hsgp_{lhs}_{var}``.
+    out_shape : tuple[int, ...] | None
+        Reshape the smooth to this shape before registering the
+        deterministic.  Panel/scan callers pass ``(n_times, n_units)`` so
+        ``f_{lhs}_{var}`` matches the shape contract every other panel
+        deterministic follows; ``None`` keeps the flat ``(n,)`` form.
 
     Returns
     -------
     TensorVariable
-        The ``f_{lhs}_{var}`` deterministic smooth of shape ``(n,)``.
+        The ``f_{lhs}_{var}`` deterministic smooth, of shape ``(n,)`` or
+        *out_shape* when given.
     """
     from pathmc.priors import _ensure_dims
 
@@ -236,4 +243,6 @@ def assemble_hsgp_term(
         beta = beta_prior.create_variable(beta_name)
         f = phi @ (beta * sqrt_psd)
 
+    if out_shape is not None:
+        f = f.reshape(out_shape)
     return pm.Deterministic(f"f_{lhs}_{var}", f)

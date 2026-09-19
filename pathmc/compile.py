@@ -1004,12 +1004,17 @@ def _make_scan_resolver(
     ns_map: dict[str, Any],
     adstock_state: dict[str, Any],
     n_units: int,
+    hsgp_t: dict[str, Any] | None = None,
 ) -> Callable[[PredictorSlot], Any]:
     """Create a resolver for scan-panel mu construction.
 
     Resolves tensors from per-step scan arguments: current-step
     exogenous slices, already-computed endogenous values, and
     previous-step carry state for lags.
+
+    *hsgp_t* maps an HSGP slot name to this timestep's slice of the
+    pre-built smooth; it is keyed by slot name because the caller builds
+    one resolver per left-hand-side variable.
 
     Side effect: transform slots update *adstock_state* in-place.
     """
@@ -1024,11 +1029,12 @@ def _make_scan_resolver(
 
     def resolve(slot: PredictorSlot) -> Any:
         if slot.kind == "hsgp":
-            raise NotImplementedError(
-                "HSGP terms are not supported in panel/scan models yet "
-                "(see follow-up). Use a cross-sectional model or remove the "
-                "hsgp() term."
-            )
+            if hsgp_t is None or slot.name not in hsgp_t:
+                raise RuntimeError(
+                    f"HSGP slot '{slot.name}' has no pre-built smooth for this "
+                    "timestep; the scan compiler should have built one."
+                )
+            return hsgp_t[slot.name]
         if slot.kind == "transform":
             tc = transform_map[slot.name]
             inp_name = _get_adstock_input(tc)
@@ -2306,6 +2312,11 @@ def _compile_scan_panel(
         ]
         if free_cols:
             coords[f"{reg.lhs}_predictors"] = free_cols
+        for term in reg.terms:
+            if term.hsgp is not None:
+                coords[f"{reg.lhs}_{term.hsgp.variable}_hsgp"] = list(
+                    range(term.hsgp.m)
+                )
         fixed_coeffs_by_var[reg.lhs] = get_fixed_coefficients(reg)
     needs_unit_coord = bool(coef_entries) or any(
         e["kind"] == "none_transform" for e in by_var_entries.values()
@@ -2547,6 +2558,30 @@ def _compile_scan_panel(
                 f"innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
 
+        # --- HSGP smooths ---
+        # The basis is a pointwise function of an exogenous input
+        # (``_reject_endogenous_hsgp_inputs`` guarantees that), so the whole
+        # smooth can be built once over the flattened panel and fed into the
+        # recursion as a sequence. Building it inside ``step_fn`` instead
+        # would rebuild the basis per timestep and, worse, re-emit the
+        # ``beta_hsgp_*`` RVs n_times over.
+        from pathmc.hsgp import assemble_hsgp_term
+
+        hsgp_nodes: dict[tuple[str, str], Any] = {}
+        for var in endo_keys:
+            for slot in mu_specs[var].slots:
+                if slot.kind != "hsgp":
+                    continue
+                assert slot.hsgp is not None
+                x_panel = _reshape_to_panel(data_sorted, slot.name, n_units, n_times)
+                hsgp_nodes[(var, slot.name)] = assemble_hsgp_term(
+                    slot.hsgp,
+                    x_panel.ravel()[:, None],
+                    lhs=var,
+                    priors=priors,
+                    out_shape=(n_times, n_units),
+                )
+
         # --- residual-covariance blocks ---
         # Estimation emits one joint MvNormal after the scan (see below).
         # The generative path cannot do that: descendants resolve their
@@ -2638,6 +2673,7 @@ def _compile_scan_panel(
             do_intervene_nodes[var] = shared
 
         block_residual_keys = sorted(block_residual_nodes)
+        hsgp_keys = sorted(hsgp_nodes)
 
         sequences = (
             [exog_data_nodes[k] for k in exog_keys]
@@ -2646,6 +2682,7 @@ def _compile_scan_panel(
             + [carry_innovation_nodes[k] for k in stochastic_carry_vars]
             + [discrete_uniform_nodes[k] for k in discrete_bernoulli_vars]
             + [block_residual_nodes[k] for k in block_residual_keys]
+            + [hsgp_nodes[k] for k in hsgp_keys]
             + [do_intervene_nodes[k] for k in endo_keys]
         )
 
@@ -2728,6 +2765,7 @@ def _compile_scan_panel(
         n_carry_innov_seq = len(stochastic_carry_vars)
         n_discrete_uniform_seq = len(discrete_bernoulli_vars)
         n_block_residual_seq = len(block_residual_keys)
+        n_hsgp_seq = len(hsgp_keys)
         n_endo = len(endo_keys)
         n_adstock = len(adstock_keys)
         n_exog_lag = len(exog_lag_bases)
@@ -2771,6 +2809,18 @@ def _compile_scan_panel(
                 ]
                 for i, k in enumerate(block_residual_keys)
             }
+            hsgp_t = {
+                k: seq_args[
+                    n_exog_seq
+                    + n_obs_carry_seq
+                    + n_latent_innov_seq
+                    + n_carry_innov_seq
+                    + n_discrete_uniform_seq
+                    + n_block_residual_seq
+                    + i
+                ]
+                for i, k in enumerate(hsgp_keys)
+            }
             do_intervene_t = {
                 k: seq_args[
                     n_exog_seq
@@ -2779,6 +2829,7 @@ def _compile_scan_panel(
                     + n_carry_innov_seq
                     + n_discrete_uniform_seq
                     + n_block_residual_seq
+                    + n_hsgp_seq
                     + i
                 ]
                 for i, k in enumerate(endo_keys)
@@ -2819,6 +2870,11 @@ def _compile_scan_panel(
                     ns_map,
                     new_adstock,
                     n_units,
+                    hsgp_t={
+                        name: tensor
+                        for (lhs_, name), tensor in hsgp_t.items()
+                        if lhs_ == var
+                    },
                 )
                 mu = build_mu(mu_specs[var], resolver, beta, pt.zeros(n_units))
 
