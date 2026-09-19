@@ -257,6 +257,27 @@ class TestDatagrid:
             intervened.mean("sales")
         )
 
+    def test_pathmodel_datagrid_unscales_per_unit_held_column(self):
+        df = pd.DataFrame({
+            "geo": [1, 1, 2, 2],
+            "time": [1, 2, 1, 2],
+            "tv": [10.0, 30.0, 100.0, 300.0],
+            "radio": [20.0, 40.0, 200.0, 400.0],
+            "sales": [1.0, 2.0, 3.0, 4.0],
+        })
+        model = pathmc.model(
+            "sales ~ tv + radio",
+            data=df,
+            panel={"unit": "geo", "time": "time"},
+            scaling=pathmc.Scaling(channel={"method": "max", "dims": ("geo",)}),
+        )
+
+        grid = model.datagrid(tv=[50.0])
+
+        assert grid["geo"].tolist() == [1.5]
+        assert grid["tv"].tolist() == [50.0]
+        assert grid["radio"].tolist() == [df["radio"].mean()]
+
 
 class TestConditionalValidation:
     def test_list_conditional_raises_type_error(self, fork_model):

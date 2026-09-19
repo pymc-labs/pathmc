@@ -2262,13 +2262,15 @@ class PathModel:
         if factors is None:
             return grid
 
-        grid_frame = nw.from_native(grid, eager_only=True)
         for column in factors.factors:
             if column in cols or column not in grid.columns:
                 continue
-            grid[column] = factors.inverse_transform_column(
-                grid[column].to_numpy(), column, grid_frame
+            raw_values = factors.inverse_transform_column(
+                np.asarray(self._data[column].to_numpy(), dtype=float),
+                column,
+                self._data,
             )
+            grid[column] = float(raw_values.mean())
         return grid
 
 
