@@ -11,6 +11,7 @@ jupyter: pathmc
 That wrapper is enough for many binary-treatment studies, but real analyses often need response-scale predictions on a covariate grid, ratio or lift contrasts, local slopes for continuous treatments, or unit-level draws you can summarize yourself.
 This page introduces the shared interpret layer on both `PathModel` and `AdjustmentModel`: `predictions()`, `comparisons()`, and `slopes()`.
 Every result carries causal metadata so you can see whether a query is interventional, identifiable, and safe to read as a treatment effect.
+The terminology and workflow build on prior work in the R ecosystem, especially [`marginaleffects`](https://marginaleffects.com/), which provides a general framework for predictions, comparisons, and slopes. [Bambi](https://bambinos.github.io/bambi/) offers related interpretation tools for Bayesian regression models; pathmc adapts these ideas to its structural and adjustment-model APIs.
 
 **Plots and worked figures live in the Examples gallery**, not here:
 
