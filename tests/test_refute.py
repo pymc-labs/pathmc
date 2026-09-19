@@ -183,11 +183,35 @@ class TestPlaceboRefutationResult:
         returned = result.plot(ax=ax)
         assert returned is fig
 
-    def test_plot_bad_bins_raises(self):
+    @pytest.fixture
+    def null_result(self):
         mu = np.random.default_rng(14).normal(loc=0.0, scale=1.0, size=2000)
-        result = _make_result(mu_null_draws=mu)
-        with pytest.raises(ValueError, match="bins"):
-            result.plot(bins=0)
+        return _make_result(mu_null_draws=mu)
+
+    @pytest.mark.parametrize("bins", [-1, 0])
+    def test_plot_non_positive_bin_count_rejected(self, null_result, bins):
+        with pytest.raises(
+            ValueError, match=rf"^bins must be a positive integer, got {bins}\.$"
+        ):
+            null_result.plot(kind="null", bins=bins)
+
+    @pytest.mark.parametrize("bins", [2.5, True, {1, 2}])
+    def test_plot_invalid_bins_type_rejected(self, null_result, bins):
+        # bool subclasses int, so it needs an explicit reject.
+        with pytest.raises(
+            ValueError,
+            match=r"^bins must be a positive integer, a binning strategy name, "
+            r"a sequence of bin edges, or None, got ",
+        ):
+            null_result.plot(kind="null", bins=bins)
+
+    @pytest.mark.parametrize("bins", ["auto", "sturges", [-1.0, 0.0, 1.0]])
+    def test_plot_strategy_and_edges_delegated(self, null_result, bins):
+        assert null_result.plot(kind="null", bins=bins) is not None
+
+    @pytest.mark.parametrize("bins", [None, 50, np.int64(10)])
+    def test_plot_bin_count_accepted(self, null_result, bins):
+        assert null_result.plot(kind="null", bins=bins) is not None
 
 
 class TestRefutePlaceboErrorHandling:

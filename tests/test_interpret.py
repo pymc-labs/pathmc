@@ -280,6 +280,34 @@ class TestPlot:
         out = pred.plot(ax=ax)
         assert out is fig
 
+    @pytest.fixture
+    def pred(self, fork_model):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        return fork_model.predictions("Y", set={"X": 1.0})
+
+    @pytest.mark.parametrize("bins", [-1, 0])
+    def test_plot_non_positive_bin_count_rejected(self, pred, bins):
+        with pytest.raises(
+            ValueError, match=rf"^bins must be a positive integer, got {bins}\.$"
+        ):
+            pred.plot(bins=bins)
+
+    @pytest.mark.parametrize("bins", [2.5, True, {1, 2}])
+    def test_plot_invalid_bins_type_rejected(self, pred, bins):
+        # bool subclasses int, so it needs an explicit reject.
+        with pytest.raises(
+            ValueError,
+            match=r"^bins must be a positive integer, a binning strategy name, "
+            r"a sequence of bin edges, or None, got ",
+        ):
+            pred.plot(bins=bins)
+
+    @pytest.mark.parametrize("bins", [None, 10, "auto"])
+    def test_plot_valid_bins_accepted(self, pred, bins):
+        assert pred.plot(bins=bins) is not None
+
 
 class TestPublicAPI:
     def test_no_polars_return_type(self, fork_model):
