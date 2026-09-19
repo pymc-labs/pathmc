@@ -41,7 +41,10 @@ def _fit_levels(series: pd.Series) -> tuple[Any, ...]:
             "Drop or impute missing categories before fitting."
         )
     if isinstance(series.dtype, pd.CategoricalDtype):
-        levels = tuple(series.cat.categories.tolist())
+        observed = set(series.unique().tolist())
+        levels = tuple(
+            level for level in series.cat.categories.tolist() if level in observed
+        )
     else:
         values = series.unique().tolist()
         levels = tuple(sorted(values, key=lambda value: str(value)))

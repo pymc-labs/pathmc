@@ -139,8 +139,9 @@ model = pathmc.model(
 An intervention selects a level label. Treatment coding remains an internal representation: setting the reference selects the all-zero contrast row, while setting another level activates its fitted indicator.
 
 ```python
-north = fitted.do(set={"region": "north"})
-south = fitted.do(set={"region": "south"})
+model.fit()
+north = model.do(set={"region": "north"})
+south = model.do(set={"region": "south"})
 contrast = south - north
 ```
 

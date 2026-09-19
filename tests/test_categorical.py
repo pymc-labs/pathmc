@@ -60,6 +60,25 @@ def test_string_column_is_inferred_and_reference_is_frozen(categorical_data):
     assert "levels=['north', 'south', 'west']" in text
 
 
+def test_pandas_category_order_excludes_unused_levels():
+    data = pd.DataFrame({
+        "y": [1.0, 2.0, 3.0, 4.0],
+        "region": pd.Categorical(
+            ["south", "west", "south", "west"],
+            categories=["north", "south", "west"],
+        ),
+    })
+    model = pathmc.model("y ~ region", data=data)
+    assert list(model.design("y").columns) == ["Intercept", "region[T.west]"]
+
+    with pytest.raises(ValueError, match="region.*unseen.*north"):
+        with model._prediction_data(pd.DataFrame({"region": ["north"] * len(data)})):
+            pass
+    with pytest.raises(ValueError, match="region.*unseen.*north"):
+        with model._categorical_intervention({"region": "north"}):
+            pass
+
+
 def test_explicit_reference_controls_design(categorical_data):
     model = pathmc.model("y ~ C(region, reference='south')", data=categorical_data)
     assert list(model.design("y").columns) == [
