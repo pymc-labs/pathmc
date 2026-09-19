@@ -53,7 +53,7 @@ def hdi_label(prob: float = DEFAULT_HDI_PROB) -> str:
 
 def posterior(idata: xr.DataTree) -> xr.Dataset:
     """Return the ``posterior`` group of *idata* as a :class:`xarray.Dataset`."""
-    return idata["posterior"].dataset
+    return idata["posterior"].to_dataset()
 
 
 def beta_draws(
