@@ -23,6 +23,7 @@ import pandas as pd
 import pytest
 import xarray as xr
 
+import pathmc
 from pathmc import Scaling
 from pathmc._model import (
     PathModel,
@@ -86,6 +87,35 @@ def test_pandas_frame_conversion_is_role_aware_and_idempotent(
     pd.testing.assert_frame_equal(twice, once)
     untouched = "Y" if kind == "regressor" else "X"
     np.testing.assert_allclose(once[untouched], frame[untouched])
+
+
+def test_role_metadata_does_not_fall_back_when_kind_has_no_columns(
+    heterogeneous_factors,
+):
+    factors, frame = heterogeneous_factors
+    outcome_only = ScalingFactors(
+        factors=factors.factors,
+        roles={"Y": frozenset({"outcome"})},
+    )
+
+    converted = outcome_only.to_internal(frame, kind="regressor")
+
+    pd.testing.assert_frame_equal(converted, frame)
+
+
+def test_narwhals_frame_conversion_is_idempotent(heterogeneous_factors):
+    factors, frame = heterogeneous_factors
+    business = _nw(frame)
+
+    internal = factors.to_internal(business, kind="regressor")
+    repeated_internal = factors.to_internal(internal, kind="regressor")
+    recovered = factors.to_business(internal, kind="regressor")
+    repeated_business = factors.to_business(recovered, kind="regressor")
+
+    np.testing.assert_allclose(internal["X"].to_numpy(), [2.0, 2.0])
+    np.testing.assert_allclose(repeated_internal["X"].to_numpy(), [2.0, 2.0])
+    np.testing.assert_allclose(recovered["X"].to_numpy(), frame["X"])
+    np.testing.assert_allclose(repeated_business["X"].to_numpy(), frame["X"])
 
 
 def test_series_array_and_scalar_round_trip_and_idempotence(heterogeneous_factors):
@@ -156,6 +186,53 @@ def test_coefficient_factor_resolution_is_ast_aware(
     )
 
     assert converted == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("formula", "expected"),
+    [
+        ("Y ~ b*adstock(X, decay=theta)", 10.0),
+        ("Y ~ b*delayed_adstock(X, decay=theta, theta=delay)", 10.0),
+        ("Y ~ b*weibull_adstock(X, lam=lam_x, k=k_x)", 10.0),
+        ("Y ~ b*logistic_saturation(X, lam=lam_x)", 60.0),
+        ("Y ~ b*michaelis_menten(X, alpha=alpha_x, lam=lam_x)", 60.0),
+        (
+            "Y ~ b*adstock(logistic_saturation(X, lam=lam_x), decay=theta)",
+            60.0,
+        ),
+        ("Y ~ b*lag(X)", 10.0),
+        ("Y ~ hsgp(X, m=5, c=1.5)", 60.0),
+    ],
+)
+def test_every_builtin_term_shape_has_an_executable_coefficient_oracle(
+    heterogeneous_factors, formula, expected
+):
+    factors, frame = heterogeneous_factors
+    term = parse_spec(formula).regressions[0].terms[0]
+
+    converted = factors.to_business(
+        1.0,
+        kind="coefficient",
+        dims={"term": term, "outcome": "Y", "data": _nw(frame)},
+    )
+
+    assert converted == pytest.approx(expected)
+
+
+def test_grouped_exogenous_fill_converts_rows_before_reducing():
+    factors = ScalingFactors(
+        factors={
+            "X": (("geo",), {("large",): 10.0, ("small",): 20.0}),
+        },
+        roles={"X": frozenset({"regressor"})},
+    )
+    internal = _nw(pd.DataFrame({"geo": ["large", "small"], "X": [1.0, 5.0]}))
+
+    full = _business_exog_value("X", internal, None, factors)
+    subgroup = _business_exog_value("X", internal, np.array([0]), factors)
+
+    assert full == pytest.approx(55.0)
+    assert subgroup == pytest.approx(10.0)
 
 
 @pytest.mark.parametrize("kind", ["elasticity", "derived"])
@@ -276,3 +353,42 @@ def test_fit_scaling_records_semantic_roles():
         "X": frozenset({"regressor"}),
         "Y": frozenset({"outcome"}),
     }
+
+
+def test_public_business_surfaces_share_one_executable_linear_oracle(
+    mock_pymc_sample,
+):
+    """Core numeric surfaces agree on Y = 100 + 20 X in business units."""
+    frame = pd.DataFrame({"X": [1.0, 2.0, 3.0], "Y": [120.0, 140.0, 160.0]})
+    model = pathmc.model(
+        "Y ~ b*X",
+        data=frame,
+        scaling=Scaling(
+            target={"method": "fixed", "value": 100.0},
+            channel={"method": "fixed", "value": 10.0},
+        ),
+    )
+    model.fit()
+    posterior = model._idata["posterior"]
+    posterior["beta_Y"].loc[{"Y_predictors": "Intercept"}] = 1.0
+    posterior["beta_Y"].loc[{"Y_predictors": "X"}] = 2.0
+
+    assert float(model.do(set={"X": 3.0}, kind="mean").mean("Y")) == pytest.approx(
+        160.0
+    )
+    assert model.ate("Y", "X", values=(1.0, 3.0), kind="mean").mean() == (
+        pytest.approx(40.0)
+    )
+    assert model.comparisons("Y", "X", contrast=(1.0, 3.0)).mean() == (
+        pytest.approx(40.0)
+    )
+    assert model.slopes("Y", "X").mean() == pytest.approx(20.0)
+
+    predictions = model.predictions("Y", newdata=pd.DataFrame({"X": [3.0]}))
+    assert float(predictions.dataset["Y"].mean()) == pytest.approx(160.0)
+    assert model.effects_summary().loc["b", "mean"] == pytest.approx(20.0)
+    assert model.effect("X -> Y").mean == pytest.approx(20.0)
+
+    grid = model.datagrid(X=[3.0])
+    assert grid.loc[0, "X"] == pytest.approx(3.0)
+    assert grid.loc[0, "Y"] == pytest.approx(140.0)

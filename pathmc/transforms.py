@@ -247,6 +247,7 @@ class Transform:
 class _ConvAdstockBase(Transform):
     """Shared panel / scan behaviour for convolution-based adstock transforms."""
 
+    homogeneous = True
     l_max: int
     normalize: bool
 
@@ -470,6 +471,7 @@ class MichaelisMenten(Transform):
     """
 
     name = "michaelis_menten"
+    homogeneous = False
     param_specs = {
         "alpha": ParamSpec(constraint="positive", default_prior="HalfNormal(1)"),
         "lam": ParamSpec(constraint="positive", default_prior="HalfNormal(1)"),

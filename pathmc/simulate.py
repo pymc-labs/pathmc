@@ -1312,16 +1312,21 @@ def _business_exog_value(
     scaling_factors: ScalingFactors | None,
 ) -> float:
     """Empirical fill for an exogenous variable in business units."""
-    val = _exog_value(var, data, subgroup_indices)
-    if scaling_factors is None:
-        return val
-    return float(
-        scaling_factors.to_business(
-            val,
-            kind="regressor",
-            dims=_ScaleContext(term=var, data=data, scalar="mean"),
+    if var not in data.columns:
+        return 0.0
+    values = np.asarray(data[var].to_numpy(), dtype=float)
+    if scaling_factors is not None:
+        values = np.asarray(
+            scaling_factors.to_business(
+                values,
+                kind="regressor",
+                dims=_ScaleContext(term=var, data=data),
+            ),
+            dtype=float,
         )
-    )
+    if subgroup_indices is not None:
+        values = values[subgroup_indices]
+    return _exogenous_fill(values)
 
 
 def run_do_pymc(

@@ -464,17 +464,23 @@ class ScalingFactors:
         """Convert selected numeric columns of a pandas or Narwhals frame."""
         columns = context.columns
         if columns is None:
-            role_columns = [
-                column
-                for column, roles in self.roles.items()
-                if kind in roles and column in obj.columns
-            ]
-            columns = tuple(role_columns or (set(self.factors) & set(obj.columns)))
+            if self.roles:
+                columns = tuple(
+                    column
+                    for column, roles in self.roles.items()
+                    if kind in roles and column in obj.columns
+                )
+            else:
+                columns = tuple(set(self.factors) & set(obj.columns))
 
         if isinstance(obj, nw.DataFrame):
+            state = _conversion_state(obj)
             new_columns: list[nw.Series] = []
             for column in columns:
                 if column not in self.factors or column not in obj.columns:
+                    continue
+                key = _state_key(self, kind, column)
+                if state.get(key) == direction:
                     continue
                 values = np.asarray(obj[column].to_numpy(), dtype=float)
                 factor = self._per_row(obj, column)
@@ -484,7 +490,17 @@ class ScalingFactors:
                 new_columns.append(
                     nw.new_series(column, converted, backend=obj.implementation)
                 )
-            return obj.with_columns(new_columns) if new_columns else obj
+                state[key] = direction
+            if not new_columns:
+                return obj
+            nw_result = obj.with_columns(new_columns)
+            for key, tagged_direction in state.items():
+                nw_result = _tag_conversion(
+                    nw_result,
+                    key=key,
+                    direction=tagged_direction,
+                )
+            return nw_result
 
         result = obj.copy()
         state = _conversion_state(result)
