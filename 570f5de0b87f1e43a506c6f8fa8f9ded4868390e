@@ -1,0 +1,24 @@
+tests/test_panel_shape_validation.py
+  s_3906ef8704c226::t_4ae3f166b02755 67,102
+  s_3906ef8704c226::t_6175a01f54c6cf 1-60,62-66,68-78,80-92,94-101,103-112,114-129,131-137,139-142,144-148
+  s_3906ef8704c226::t_a5f88770d46eeb 61,79,93,113,130,138,143,149
+pathmc/panel.py
+  s_3906ef8704c226::t_d8c03037ba520c 80-176,191-196,201
+  s_3906ef8704c226::t_f519ae748b5119 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "570f5de0b87f1e43a506c6f8fa8f9ded4868390e",
+  "prompts": {},
+  "sessions": {
+    "s_3906ef8704c226": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c39ea586-2555-4b19-9c95-875cc7de9d87",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}

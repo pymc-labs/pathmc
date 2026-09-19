@@ -1,0 +1,35 @@
+pathmc/compile.py
+  s_25e3f57f1a6f57::t_1d1a0b122586ee 1907-1911
+  s_25e3f57f1a6f57::t_40d46793d51b27 1337-1405
+  s_25e3f57f1a6f57::t_70423427ddff73 1116-1118
+  s_25e3f57f1a6f57::t_d0573787be1d22 1119-1143,1145-1148
+  s_25e3f57f1a6f57::t_76d49d7a63938c 1144
+  s_25e3f57f1a6f57::t_53d25e0bf9162f 392
+  s_25e3f57f1a6f57::t_e8b5333c6ee0f0 1506
+pathmc/parse.py
+  s_25e3f57f1a6f57::t_159dec786c3000 280-312,320
+tests/test_dsl_parse_golden.py
+  s_25e3f57f1a6f57::t_70423427ddff73 63,122,136,148
+  s_25e3f57f1a6f57::t_05f448cbe5f262 1-62,64-121,123-135,137-147,149-308
+tests/test_scan_non_gaussian_mediators.py
+  s_25e3f57f1a6f57::t_1bf10a6c07e224 1-176,180,182-295,297,299-302
+  s_25e3f57f1a6f57::t_70423427ddff73 296,308
+  s_25e3f57f1a6f57::t_b5c9afee204907 298,303-307
+  s_25e3f57f1a6f57::t_e96bbd942ec7f7 177-179,181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "0f26c08348f1f6035d09e698de9a206ac6b2fc93",
+  "prompts": {},
+  "sessions": {
+    "s_25e3f57f1a6f57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7863c246-1229-43d7-b311-cdd99a5cfe2f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}

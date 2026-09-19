@@ -1,0 +1,26 @@
+pathmc/identify.py
+  s_849d83c6e3bff9::t_7c6607519af60e 53-94,182
+  s_849d83c6e3bff9::t_a04fcd6061c411 248-255
+  s_849d83c6e3bff9::t_3594383a303ec9 137-139,141
+  s_849d83c6e3bff9::t_7aa5fce39168ff 116-120,178-181
+pathmc/_model.py
+  s_849d83c6e3bff9::t_840153a6e69651 663-667,694-698
+tests/test_identification.py
+  s_849d83c6e3bff9::t_00c8d0bbd07c6d 182-225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "a425d902fe2d652ba16f68e751ffa678f0de2a3b",
+  "prompts": {},
+  "sessions": {
+    "s_849d83c6e3bff9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a44b13f2-9994-4693-82c0-b8ac07586a07",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}

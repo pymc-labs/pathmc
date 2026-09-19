@@ -1,0 +1,23 @@
+pathmc/_model.py
+  s_e9653c35cf4dcc::t_452b0ca981d855 33-38,1778-1785
+pathmc/panel.py
+  s_e9653c35cf4dcc::t_2047763e5c352e 85-86,97-103,114-116,189-194,203-208,218-221,226-232
+tests/test_panel_shape_validation.py
+  s_e9653c35cf4dcc::t_bfb8b92533db09 45-50,74,85,90-94,96,99,105-135,148,150,165-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "392c43a9d2807522aafc07855bc28e3212c545c7",
+  "prompts": {},
+  "sessions": {
+    "s_e9653c35cf4dcc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "04ef85be-3cb7-497d-860e-04487ff38443",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}

@@ -1,0 +1,70 @@
+_freeze/examples/02-effect-estimation/mediation/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/applied-models/dynamic_pricing/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/identification/causal_identification/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/03-identification/causal_identification/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/04-panel-time/panel_data/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+scripts/verify_refreeze_tex.py
+  s_92a4ae79c1e544::t_47bb8ae3701e30 1-129
+_freeze/examples/05-applied-models/saas_funnel/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+scripts/refreeze_tex.py
+  s_92a4ae79c1e544::t_81bf048c00104f 101
+  s_92a4ae79c1e544::t_ad08864da6677e 111
+  s_92a4ae79c1e544::t_9b48a94f2e0c10 93-100
+  s_92a4ae79c1e544::t_53841778d2e059 67,70-78
+  s_92a4ae79c1e544::t_c046be91fcc6db 129-138,142-153
+  s_92a4ae79c1e544::t_d394fbb9af4ea6 1-66,68-69,79-92,102-110,112-128,139-141,154-172
+_freeze/examples/applied-models/mmm/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/effect-estimation/mediation/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/04-panel-time/did/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/05-applied-models/mmm_awareness/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/effect-estimation/counterfactual/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/applied-models/saas_funnel/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/applied-models/mmm_awareness/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/panel-time/panel_data/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/05-applied-models/dynamic_pricing/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/panel-time/did/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/05-applied-models/mmm/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+_freeze/examples/02-effect-estimation/counterfactual/execute-results/html.json
+  s_ce353280caa6ea::t_ef6bdc7d1d51bc 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "3480ca9f75a171d1bd230efe3c9ce7dcd6704e8d",
+  "prompts": {},
+  "sessions": {
+    "s_92a4ae79c1e544": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5697823e-3eea-4fcc-a07f-4fa5ddda08f9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    },
+    "s_ce353280caa6ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2f1d74dd-008a-4871-b78f-3b0a30f3ce0b",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
