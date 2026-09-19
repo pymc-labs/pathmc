@@ -555,13 +555,6 @@ def compile_to_pymc(
     _validate_residual_cov_families(spec, families)
     _validate_latent_families(families, latent)
 
-    if panel_info is not None and _spec_has_hsgp(spec):
-        raise NotImplementedError(
-            "HSGP terms are not supported in panel models yet (see follow-up). "
-            "Fit the HSGP smooth in a cross-sectional model, or remove the "
-            "hsgp() term."
-        )
-
     _reject_hsgp_in_residual_blocks(spec)
     _reject_endogenous_hsgp_inputs(spec)
     _reject_nan_predictors(data, graph_info)
@@ -2362,7 +2355,11 @@ def _compile_scan_panel(
             else:
                 beta_rvs[var] = None
             if var not in latent:
-                if family in ("gaussian", "studentt"):
+                # Block members draw their scale from the block's Cholesky
+                # factor, so a per-variable sigma would be an unused free RV
+                # with no likelihood attached (the cross-sectional path omits
+                # it for the same reason).
+                if family in ("gaussian", "studentt") and var not in block_var_set:
                     sigma_rvs[var] = _create_prior_var(priors, f"sigma_{var}")
                 if family == "studentt":
                     _create_prior_var(priors, f"nu_{var}")
