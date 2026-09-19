@@ -1341,9 +1341,18 @@ class PathModel:
                 "Use do() with manual subgroup selection instead."
             )
 
+        subgroup_values: float | np.ndarray = subgroup_value
+        if self._scaling_factors is not None:
+            subgroup_values = np.asarray(
+                self._scaling_factors.to_internal(
+                    np.full(len(self._data), subgroup_value, dtype=float),
+                    kind="regressor",
+                    dims=_ScaleContext(term=treatment, data=self._data),
+                )
+            )
         mask = np.isclose(
             np.asarray(self._data[treatment].to_numpy(), dtype=float),
-            subgroup_value,
+            subgroup_values,
         )
         subgroup_idx = np.where(mask)[0]
         if len(subgroup_idx) == 0:
