@@ -29,10 +29,9 @@ import pandas as pd
 import xarray as xr
 
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi, hdi_label
-from pathmc.parse import Spec, Term, TransformCall
+from pathmc.parse import Spec, Term
 from pathmc.reprs import ReprSpec, ResultReprMixin
-from pathmc.scaling import ScalingFactors
-from pathmc.transforms import get_transform
+from pathmc.scaling import ScalingFactors, _ScaleContext
 
 __all__ = ["EffectResult"]
 
@@ -223,27 +222,6 @@ def evaluate_defined_params(
     return defined_draws
 
 
-def _transform_tree_homogeneous(call: TransformCall) -> bool:
-    """Return True iff every transform in *call* is homogeneous of degree 1."""
-    current: str | TransformCall = call
-    while isinstance(current, TransformCall):
-        transform = get_transform(current.name)
-        flag = transform.homogeneous
-        if flag is None:
-            raise ValueError(
-                f"Cannot rescale a coefficient on transform {current.name!r} "
-                "to business units: the transform does not declare whether "
-                "it is homogeneous in its input (linear, like adstock) or "
-                "unitless (like logistic_saturation). Set "
-                f"{type(transform).__name__}.homogeneous = True or False "
-                "on the registered transform."
-            )
-        if not flag:
-            return False
-        current = current.input_expr
-    return True
-
-
 def _term_coefficient_scale(
     term: Term,
     outcome: str,
@@ -256,22 +234,13 @@ def _term_coefficient_scale(
     (logistic saturation, HSGP) use ``f_out`` alone. Interactions use
     ``f_out / prod(f_pred_i)``.
     """
-    f_out = scaling_factors.mean_factor(outcome, data)
-    if term.variable == "Intercept":
-        return f_out
-    if term.hsgp is not None:
-        return f_out
-    if term.interaction_of is not None:
-        scale = f_out
-        for part in term.interaction_of:
-            scale /= scaling_factors.mean_factor(part, data)
-        return scale
-    if term.transform is not None:
-        if _transform_tree_homogeneous(term.transform):
-            return f_out / scaling_factors.mean_factor(term.variable, data)
-        return f_out
-    pred = term.lag_of if term.lag_of is not None else term.variable
-    return f_out / scaling_factors.mean_factor(pred, data)
+    return float(
+        scaling_factors.to_business(
+            1.0,
+            kind="coefficient",
+            dims=_ScaleContext(term=term, outcome=outcome, data=data),
+        )
+    )
 
 
 def _labeled_coef_business_scale(
@@ -311,11 +280,19 @@ def build_effects_summary(
     """
     labeled_draws = extract_labeled_draws(spec, idata)
     if scaling_factors is not None and data is not None:
-        labeled_draws = {
-            name: draws
-            * _labeled_coef_business_scale(spec, name, scaling_factors, data)
-            for name, draws in labeled_draws.items()
-        }
+        converted: dict[str, np.ndarray] = {}
+        for reg in spec.regressions:
+            for term in reg.terms:
+                if term.label is None or term.label not in labeled_draws:
+                    continue
+                converted[term.label] = np.asarray(
+                    scaling_factors.to_business(
+                        labeled_draws[term.label],
+                        kind="coefficient",
+                        dims=_ScaleContext(term=term, outcome=reg.lhs, data=data),
+                    )
+                )
+        labeled_draws = converted
     defined_draws = evaluate_defined_params(spec, labeled_draws)
 
     all_draws = {**labeled_draws, **defined_draws}
@@ -578,8 +555,16 @@ def compute_path_effect(
             draws = beta_draws(idata, beta_name, coord_name, source)
 
         if scaling_factors is not None and data is not None:
-            draws = draws * _term_coefficient_scale(
-                matched_term, target, scaling_factors, data
+            draws = np.asarray(
+                scaling_factors.to_business(
+                    draws,
+                    kind="coefficient",
+                    dims=_ScaleContext(
+                        term=matched_term,
+                        outcome=target,
+                        data=data,
+                    ),
+                )
             )
         edge_draws.append(draws)
 

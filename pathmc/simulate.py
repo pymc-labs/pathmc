@@ -48,7 +48,7 @@ from pathmc.idata import hdi_label
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
 from pathmc.reprs import ReprSpec, ResultReprMixin
-from pathmc.scaling import ScalingFactors
+from pathmc.scaling import ScalingFactors, _ScaleContext
 
 if TYPE_CHECKING:
     import matplotlib.axes
@@ -198,27 +198,22 @@ def _to_business_units(
     scan_info: Any | None = None,
 ) -> xr.DataArray:
     """Map internal-scale draws for *var* to business units."""
-    if scaling_factors is None or var not in scaling_factors.factors:
+    if scaling_factors is None:
         return da
     if data is None:
         raise ValueError(
             "scaling_factors requires data= so per-row divisors can be aligned."
         )
-    if scan_info is not None:
-        per_row = scaling_factors._per_row(data, var)
-        factor_mat = (
-            per_row[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
-        )
-        obs = _obs_dims(da)
-        if len(obs) >= 2:
-            t_dim, u_dim = obs[0], obs[1]
-            fda = xr.DataArray(
-                factor_mat,
-                dims=[t_dim, u_dim],
-                coords={t_dim: da.coords[t_dim], u_dim: da.coords[u_dim]},
-            )
-            return da * fda
-    return scaling_factors.unscale_xarray(var, da, data)
+    return scaling_factors.to_business(
+        da,
+        kind="outcome",
+        dims=_ScaleContext(
+            term=var,
+            data=data,
+            scan_info=scan_info,
+            scalar="mean",
+        ),
+    )
 
 
 def _unscale_do_dataset(
@@ -229,15 +224,11 @@ def _unscale_do_dataset(
     """Return *ds* with scaled endogenous variables in business units."""
     if scaling_factors is None:
         return ds
-    data_vars = {
-        var: (
-            scaling_factors.unscale_xarray(var, ds[var], data)
-            if var in scaling_factors.factors
-            else ds[var]
-        )
-        for var in ds.data_vars
-    }
-    return xr.Dataset(data_vars)
+    return scaling_factors.to_business(
+        ds,
+        kind="outcome",
+        dims=_ScaleContext(data=data, scalar="mean"),
+    )
 
 
 def _spread_over_time(
@@ -1253,9 +1244,15 @@ def _scale_cross_section_intervention(
     scaling_factors: ScalingFactors | None,
 ) -> np.ndarray:
     """Divide a length-n intervention by the column's per-row scale factors."""
-    if scaling_factors is None or var not in scaling_factors.factors:
+    if scaling_factors is None:
         return arr
-    return arr / scaling_factors._per_row(data, var)
+    return np.asarray(
+        scaling_factors.to_internal(
+            arr,
+            kind="regressor",
+            dims=_ScaleContext(term=var, data=data),
+        )
+    )
 
 
 def _scale_scan_intervention(
@@ -1266,13 +1263,15 @@ def _scale_scan_intervention(
     scaling_factors: ScalingFactors | None,
 ) -> np.ndarray:
     """Divide a ``(n_times, n_units)`` intervention by scan-aligned factors."""
-    if scaling_factors is None or var not in scaling_factors.factors:
+    if scaling_factors is None:
         return mat
-    per_row = scaling_factors._per_row(data, var)
-    factor_mat = (
-        per_row[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
+    return np.asarray(
+        scaling_factors.to_internal(
+            mat,
+            kind="regressor",
+            dims=_ScaleContext(term=var, data=data, scan_info=scan_info),
+        )
     )
-    return mat / factor_mat
 
 
 def _broadcast_intervention(
@@ -1314,9 +1313,15 @@ def _business_exog_value(
 ) -> float:
     """Empirical fill for an exogenous variable in business units."""
     val = _exog_value(var, data, subgroup_indices)
-    if scaling_factors is not None and var in scaling_factors.factors:
-        val *= scaling_factors.mean_factor(var, data)
-    return val
+    if scaling_factors is None:
+        return val
+    return float(
+        scaling_factors.to_business(
+            val,
+            kind="regressor",
+            dims=_ScaleContext(term=var, data=data, scalar="mean"),
+        )
+    )
 
 
 def run_do_pymc(
