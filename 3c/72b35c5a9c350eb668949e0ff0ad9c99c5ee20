@@ -1,0 +1,176 @@
+pathmc/__init__.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 40-47,50,59,67,72-73,79,84
+docs/examples/06-interpret/predictions.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-338
+docs/user_guide/20-causal-discovery.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-217
+tests/test_simulate_data.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 73-93,176-178,182-361,364-372,400-979
+pathmc/compile.py
+  s_40f8bc55597781::t_a2406ea3252fad 1982
+  s_40f8bc55597781::t_bdfca2d3da85f3 16-24,27-30,40,479-480,484-487,520-524,529-533,569-570,587-596,604-610,619-620,624-635,638,651-670,685-722,728-731,734-735,740-746,767-769,804-815,824,890-919,924,1071-1451,1531-1533,1542-1545,1555-1562,1608-1615,1948,1999-2003,2217-2231,2282-2288,2292-2297,2299-2304,2309-2316,2326-2332,2380-2402,2520-2539,2602-2607,2624-2627,2629-2631,2647-2649,2757-2764,2856
+tests/test_simulate_template.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-169
+_freeze/user-guide/estimation-approaches/figure-html/cell-2-output-1.svg
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-66
+pathmc/effects.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 32,34-35,226-291,295-296,313-318,480-481,580-583
+.github/workflows/git-ai.yml
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-69
+tests/test_scaling.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-1076
+CONTRIBUTING.md
+  s_40f8bc55597781::t_bdfca2d3da85f3 34-74,154,177
+pathmc/priors.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 22,62-66,77,80-102,108-115,122-123,150-165
+  s_40f8bc55597781::t_609289ba58f32e 166
+pathmc/falsify.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 49,291,304-308,319-322,332-344
+tests/test_pooling_dims.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-520
+great-docs.yml
+  s_40f8bc55597781::t_bdfca2d3da85f3 78,88-91,95,114,118
+tests/test_panel_latent.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-316
+data/mediation.csv
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-501
+.github/workflows/ci.yml
+  s_40f8bc55597781::t_bdfca2d3da85f3 30-33
+docs/user_guide/02-comparison.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 40,106,108-109,122-123,125,143
+pathmc/adjustment.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-724
+docs/user_guide/19-panel-interventions.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-381
+docs/user_guide/13-causal-inference.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 162-164
+_freeze/user-guide/scm-vs-adjustment/execute-results/html.json
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-19
+_freeze/index/figure-html/cell-3-output-1.svg
+  s_40f8bc55597781::t_bdfca2d3da85f3 4,7-10,15,20-21,26-28,33-34,39-41,46-48
+docs/examples/06-interpret/comparisons.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-338
+docs/user_guide/17-standardized-effects.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-51
+docs/assets/contributors.svg
+  s_40f8bc55597781::t_bdfca2d3da85f3 2,8-9,11,18-19,21-31
+tests/test_residual_cov.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 101
+_freeze/user-guide/predictions-comparisons-slopes/execute-results/html.json
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-19
+tests/test_do.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 68-71
+tests/test_adjustment_interpret.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-151
+docs/user_guide/14-predictions-comparisons-slopes.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-109,111-256
+pathmc/identify.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 175-265
+_freeze/user-guide/scm-vs-adjustment/figure-html/cell-3-output-1.svg
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-66
+tests/test_public_api.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 25,33,38-39,45,50,66,73
+tests/test_panel.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 20-21,23,176-291
+pathmc/residuals.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 47-50,62-65,91-93,102-105,118-123
+docs/user_guide/16-scm-vs-adjustment.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-240
+_freeze/user-guide/estimation-approaches/execute-results/html.json
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-12
+AGENTS.md
+  s_40f8bc55597781::t_bdfca2d3da85f3 13-16,45,63,66
+_freeze/docs/examples/interpret/predictions/execute-results/html.json
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-19
+tests/test_adjustment.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-436
+tests/test_v03_smoke.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 31,33,35-36,41-62,152-157
+pathmc/skills/pathmc/SKILL.md
+  s_40f8bc55597781::t_bdfca2d3da85f3 86-91,147-163,176-180,238-253,288
+docs/examples/06-interpret/slopes.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-310
+pathmc/_model.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 22,35-39,72-85,89,93-94,100-102,162-259,328-330,343,357,484-492,611,712-720,738-743,812-819,917-1019,1087-1153,1308,1463-1466,1581-1584,1586,1616-1621,1632-1634,1680-1681,1744-1756,1765-1773,2122-2241,2243,2248-2260,2276,2286,2313-2319,2340-2355,2409-2430,2441,2449,2458-2491,2498-2500,2531-2546,2558-2586,2593-2594,2599-2601,2621-2622,2624-2625,2627,2629-2631,2634-2652,2656-2659,2661-2679,2685-2693,2699-2700,2703,2708-2735,2754-2770,2773-2839,2857,2859,2863,2867-3042
+_freeze/index/execute-results/html.json
+  s_40f8bc55597781::t_bdfca2d3da85f3 2,5
+pathmc/interpret.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-640
+pathmc/scaling.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-557
+_freeze/docs/examples/interpret/comparisons/execute-results/html.json
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-19
+tests/test_interpret.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-221,281-359
+pyproject.toml
+  s_40f8bc55597781::t_bdfca2d3da85f3 7,55-65
+docs/examples/05-applied-models/mmm_awareness.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 70,82-108,116-124,168
+docs/user_guide/18-panel-data.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-339
+pathmc/introspect.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 27,567,599-606,609-634,644-645,654-655,708-718
+  s_40f8bc55597781::t_bd18a8f6072551 719
+pathmc/panel.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 34-37,42-44,50,52-55,58-59,61-77,233-236,247-251,256-261,263,265-294,296-307,313-359
+docs/examples/01-foundations/data_simulation.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 11,17-22,338-352,361
+README.md
+  s_40f8bc55597781::t_bdfca2d3da85f3 35,42,44-53,67-71,85,88,97,105
+tests/conftest.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 14-32
+pathmc/transforms.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 210-216,333-338,354-358,450
+  s_40f8bc55597781::t_a2406ea3252fad 339
+Makefile
+  s_40f8bc55597781::t_bdfca2d3da85f3 14,33-34,36,39,44-47
+  s_40f8bc55597781::t_1e587770bdfdb2 48
+CITATION.cff
+  s_40f8bc55597781::t_bdfca2d3da85f3 4-5
+_freeze/docs/examples/05-applied-models/mmm_awareness/figure-html/cell-15-output-1.svg
+  s_40f8bc55597781::t_bdfca2d3da85f3 7-10,13-14,18-24,27-29,32-36,38-39,41,43-100,102-105,108,110-113,116,118-119,122,124-127,130,132-133,136,138-141,144,146-149,152,154-155,157-161,163-167,169-175,178,180-183,186,188-189,192,194-201,204,206-209,212,214-215,218,220-233,236,238-241,244,246-247,250,252-253,255-259,264-267,270,272-273,276,278-285,290-305,310-311,313-321,323-325,327-337,342-343,348-349
+tests/test_exog_lag_missing_base.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 16-17,21-27
+tests/test_falsify.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 998-1008,1102-1103,1107-1136
+pathmc/simulate.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 51,193-242,414-423,673-680,690-693,699-708,717-720,728-731,744-772,912-915,1233-1296,1309-1321,1331-1332,1367-1373,1389,1394-1396,1449,1451-1453,1458,1461-1465,1499,1501-1503,1505,1526-1527,1556-1562,1581-1587,1651-1658,1708-1713,1715,1719-1726
+tests/test_hsgp_compile.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 135-168
+docs/assets/contributors.json
+  s_40f8bc55597781::t_bdfca2d3da85f3 3,7-8
+data/generate_mediation.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-59
+docs/user_guide/00-welcome.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 24,41-45,105,127,133-134,145-154,243-245
+docs/user_guide/15-estimation-approaches.qmd
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-215
+_freeze/docs/examples/interpret/slopes/execute-results/html.json
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-19
+pathmc/paths.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-112
+tests/test_paths.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-97
+_freeze/docs/examples/01-foundations/data_simulation/execute-results/html.json
+  s_40f8bc55597781::t_bdfca2d3da85f3 2,5,15
+pathmc/modeling.py
+  s_40f8bc55597781::t_bdfca2d3da85f3 1-25
+uv.lock
+  s_40f8bc55597781::t_1d0c9573434362 749-757,2261,2297,2331,2361,2889-2901
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3c72b35c5a9c350eb668949e0ff0ad9c99c5ee20",
+  "prompts": {},
+  "sessions": {
+    "s_40f8bc55597781": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb43-a2e1-7df2-ab71-cda22ac00073",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
