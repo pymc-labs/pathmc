@@ -671,7 +671,10 @@ def compile_to_pymc(
                 data_vars[var] = pm.Data(var, data[var].to_numpy().astype(float))
 
         basis_states: dict[tuple[str, str, str], Any] = {}
-        from pathmc.basis import get_basis
+        basis_data_vars: dict[tuple[str, str, str], Any] = {}
+        from pathmc.basis import DataBasisBinding, get_basis
+
+        basis_bindings: dict[str, DataBasisBinding] = {}
 
         for reg in spec.regressions:
             for term in reg.terms:
@@ -682,12 +685,21 @@ def compile_to_pymc(
                     continue
                 basis = get_basis(term.basis.name)
                 if basis.supports_data_contract:
-                    basis_states[(reg.lhs, basis.name, term.basis.variable)] = (
-                        basis.freeze_data_state(
-                            data[term.basis.variable].to_numpy(), term.basis
-                        )
+                    key = (reg.lhs, basis.name, term.basis.variable)
+                    state = basis.freeze_data_state(
+                        data[term.basis.variable].to_numpy(), term.basis
+                    )
+                    columns, _ = basis.build_data(
+                        data[term.basis.variable].to_numpy(), term.basis, state=state
+                    )
+                    data_name = basis.data_name(reg.lhs, term.basis)
+                    basis_states[key] = state
+                    basis_data_vars[key] = pm.Data(data_name, columns)
+                    basis_bindings[data_name] = DataBasisBinding(
+                        basis=basis, call=term.basis, state=state
                     )
         pymc_model._pathmc_basis_states = basis_states
+        pymc_model._pathmc_data_bases = basis_bindings
 
         endogenous_rvs: dict[str, Any] = {}
 
@@ -775,6 +787,7 @@ def compile_to_pymc(
                 lhs=var,
                 priors=priors,
                 basis_states=basis_states,
+                basis_data_vars=basis_data_vars,
                 block_vars=block_vars,
                 prefer_observed_block_members=False,
             )
@@ -793,6 +806,7 @@ def compile_to_pymc(
                     lhs=var,
                     priors=priors,
                     basis_states=basis_states,
+                    basis_data_vars=basis_data_vars,
                     block_vars=block_vars,
                     prefer_observed_block_members=True,
                 )
@@ -951,6 +965,7 @@ def _make_cross_sectional_resolver(
     lhs: str | None = None,
     priors: dict[str, Any] | None = None,
     basis_states: dict[tuple[str, str, str], Any] | None = None,
+    basis_data_vars: dict[tuple[str, str, str], Any] | None = None,
     *,
     block_vars: set[str] | None = None,
     prefer_observed_block_members: bool = False,
@@ -997,12 +1012,21 @@ def _make_cross_sectional_resolver(
 
             x = _resolve_var(slot.name)[:, None]
             basis = get_basis(slot.basis.name)
+            key = (lhs, basis.name, slot.basis.variable)
+            if basis_data_vars is not None and key in basis_data_vars:
+                return basis.contribution(
+                    basis_data_vars[key],
+                    (basis_states or {}).get(key),
+                    lhs=lhs,
+                    call=slot.basis,
+                    priors=priors,
+                )
             return basis.assemble_graph(
                 x,
                 lhs=lhs,
                 call=slot.basis,
                 priors=priors,
-                state=(basis_states or {}).get((lhs, basis.name, slot.basis.variable)),
+                state=(basis_states or {}).get(key),
             )
         if slot.kind == "transform":
             tc = transform_map[slot.name]

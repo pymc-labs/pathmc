@@ -64,6 +64,15 @@ class BasisCapabilities:
     terminal: bool = True
 
 
+@dataclass(frozen=True)
+class DataBasisBinding:
+    """Frozen data-basis state and the input needed to replay its columns."""
+
+    basis: "Basis"
+    call: Call
+    state: Any
+
+
 class Basis:
     """Base class for registered basis terms.
 
@@ -163,6 +172,10 @@ class Basis:
         """Return the deterministic name for this basis contribution."""
         return f"f_{lhs}_{call.variable}"
 
+    def data_name(self, lhs: str, call: Call) -> str:
+        """Return the ``pm.Data`` name holding materialized basis columns."""
+        return f"basis_{lhs}_{self.name}_{call.variable}"
+
     def render(self, call: Call) -> str:
         """Return the plain-text equation rendering for *call*."""
         return f"f_{self.name}({call.variable})"
@@ -230,3 +243,19 @@ def get_basis(name: str) -> Basis:
 def register_basis(basis: Basis) -> None:
     """Register a custom basis for use in the pathmc formula DSL."""
     REGISTRY[basis.name] = basis
+
+
+def replay_data_bases(
+    bindings: dict[str, DataBasisBinding], values: dict[str, np.ndarray]
+) -> dict[str, np.ndarray]:
+    """Replay frozen data-basis state for the supplied raw input values."""
+    updates: dict[str, np.ndarray] = {}
+    for data_name, binding in bindings.items():
+        variable = binding.call.variable
+        if variable not in values:
+            continue
+        columns, _ = binding.basis.build_data(
+            values[variable], binding.call, state=binding.state
+        )
+        updates[data_name] = columns
+    return updates

@@ -1389,6 +1389,7 @@ def run_do_pymc(
     block_vars = {v for block in graph_info.residual_blocks for v in block}
 
     replacements: dict[str, Any] = {}
+    data_basis_bindings = getattr(gen_model, "_pathmc_data_bases", {})
     for var, val in set.items():
         key = f"mu_{var}" if (var in latent or var in block_vars) else var
         arr = _scale_cross_section_intervention(
@@ -1396,6 +1397,13 @@ def run_do_pymc(
         )
         target_dtype = gen_model[key].dtype
         replacements[key] = arr.astype(target_dtype)
+        if data_basis_bindings:
+            from pathmc.basis import replay_data_bases
+
+            for data_name, columns in replay_data_bases(
+                data_basis_bindings, {var: arr}
+            ).items():
+                replacements[data_name] = columns.astype(gen_model[data_name].dtype)
 
     if kind == "mean":
         with _forced_generative_carry(gen_model):

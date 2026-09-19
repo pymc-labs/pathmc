@@ -20,11 +20,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pymc as pm
-import pytensor.tensor as pt
 import pytest
 
 import pathmc
-from pathmc.basis import Basis, get_basis, register_basis
+from pathmc.basis import Basis, get_basis, register_basis, replay_data_bases
 from pathmc.parse import BasisCall, parse_spec
 
 
@@ -83,6 +82,9 @@ def test_fourier_contribution_recomputes_when_its_input_data_changes():
     with gm:
         before = pm.draw(gm["f_y_x"], draws=1, random_seed=1)
         pm.set_data({"x": np.full(len(data), 1.0)})
+        pm.set_data(
+            replay_data_bases(gm._pathmc_data_bases, {"x": np.full(len(data), 1.0)})
+        )
         after = pm.draw(gm["f_y_x"], draws=1, random_seed=1)
 
     assert not np.allclose(before, after)
@@ -114,9 +116,8 @@ class _CenteredDataBasis(Basis):
         priors: Any,
         state: Any | None = None,
     ) -> tuple[Any, None]:
-        """Apply the frozen center to a symbolic input."""
-        assert state is not None
-        return (pt.as_tensor_variable(x).reshape((-1, 1)) - float(state)), None
+        """Prove observed data bases compile without a graph builder."""
+        raise AssertionError("Observed data basis unexpectedly used build_graph().")
 
 
 def test_data_basis_state_is_frozen_and_replayed_under_new_input_data():
@@ -129,6 +130,11 @@ def test_data_basis_state_is_frozen_and_replayed_under_new_input_data():
     assert gm._pathmc_basis_states[("y", "test_centered_data_basis", "x")] == 1.0
     with gm:
         pm.set_data({"x": np.array([10.0, 11.0, 12.0])})
+        pm.set_data(
+            replay_data_bases(
+                gm._pathmc_data_bases, {"x": np.array([10.0, 11.0, 12.0])}
+            )
+        )
         contribution_without_weight = pm.draw(
             gm["f_y_x"] / gm["beta_test_centered_data_basis_y_x"][0],
             draws=1,
@@ -146,7 +152,17 @@ def test_data_basis_state_survives_predict_and_do():
     model = pathmc.model("y ~ test_centered_data_basis(x)", data=data)
     model.fit(draws=50, tune=50, chains=1, cores=1, progressbar=False, random_seed=1)
 
+    with model._pymc_model:
+        pm.set_data({"x": np.arange(20.0, 32.0)})
     model.predict(progressbar=False)
+    with model._pymc_model:
+        contribution_without_weight = pm.draw(
+            model._pymc_model["f_y_x"]
+            / model._pymc_model["beta_test_centered_data_basis_y_x"][0],
+            draws=1,
+            random_seed=1,
+        )
     intervened = model.do(set={"x": 20.0}, kind="mean")
 
+    np.testing.assert_allclose(contribution_without_weight, np.arange(14.5, 26.5))
     assert float(intervened.mean("y")) > float(data["y"].mean())
