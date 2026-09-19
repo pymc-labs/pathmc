@@ -15,12 +15,16 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pymc as pm
+import pytensor.tensor as pt
+import pytest
 
 import pathmc
-from pathmc.basis import get_basis
+from pathmc.basis import Basis, get_basis, register_basis
 from pathmc.parse import BasisCall, parse_spec
 
 
@@ -82,3 +86,67 @@ def test_fourier_contribution_recomputes_when_its_input_data_changes():
         after = pm.draw(gm["f_y_x"], draws=1, random_seed=1)
 
     assert not np.allclose(before, after)
+
+
+class _CenteredDataBasis(Basis):
+    """Small stateful basis used to exercise the data/graph hand-off."""
+
+    name = "test_centered_data_basis"
+    supports_data_contract = True
+
+    def n_basis(self, call: Any) -> int:
+        """Return one centered column."""
+        return 1
+
+    def build_data(
+        self, x: np.ndarray, call: Any, *, state: Any | None = None
+    ) -> tuple[np.ndarray, float]:
+        """Fit or replay a mean-centering state."""
+        center = float(np.mean(x)) if state is None else float(state)
+        return (np.asarray(x, dtype=float) - center)[:, None], center
+
+    def build_graph(
+        self,
+        x: Any,
+        call: Any,
+        *,
+        lhs: str,
+        priors: Any,
+        state: Any | None = None,
+    ) -> tuple[Any, None]:
+        """Apply the frozen center to a symbolic input."""
+        assert state is not None
+        return (pt.as_tensor_variable(x).reshape((-1, 1)) - float(state)), None
+
+
+def test_data_basis_state_is_frozen_and_replayed_under_new_input_data():
+    """A data basis must not refit centering state after a new intervention input."""
+    register_basis(_CenteredDataBasis())
+    data = pd.DataFrame({"x": [0.0, 1.0, 2.0], "y": [0.0, 1.0, 2.0]})
+    model = pathmc.model("y ~ test_centered_data_basis(x)", data=data)
+    gm = model._gen_model
+
+    assert gm._pathmc_basis_states[("y", "test_centered_data_basis", "x")] == 1.0
+    with gm:
+        pm.set_data({"x": np.array([10.0, 11.0, 12.0])})
+        contribution_without_weight = pm.draw(
+            gm["f_y_x"] / gm["beta_test_centered_data_basis_y_x"][0],
+            draws=1,
+            random_seed=1,
+        )
+
+    np.testing.assert_allclose(contribution_without_weight, [9.0, 10.0, 11.0])
+
+
+@pytest.mark.slow
+def test_data_basis_state_survives_predict_and_do():
+    """The frozen state remains attached to the fitted graph APIs."""
+    register_basis(_CenteredDataBasis())
+    data = pd.DataFrame({"x": np.arange(12.0), "y": np.arange(12.0)})
+    model = pathmc.model("y ~ test_centered_data_basis(x)", data=data)
+    model.fit(draws=50, tune=50, chains=1, cores=1, progressbar=False, random_seed=1)
+
+    model.predict(progressbar=False)
+    intervened = model.do(set={"x": 20.0}, kind="mean")
+
+    assert float(intervened.mean("y")) > float(data["y"].mean())

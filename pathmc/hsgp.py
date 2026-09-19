@@ -62,7 +62,9 @@ class HSGPBasis(Basis):
         assert isinstance(call, HSGPCall)
         return call.m
 
-    def build_data(self, x: np.ndarray, call: Call) -> tuple[np.ndarray, Any]:
+    def build_data(
+        self, x: np.ndarray, call: Call, *, state: Any | None = None
+    ) -> tuple[np.ndarray, Any]:
         """Reject numeric materialization because HSGP depends on parameters."""
         raise NotImplementedError(
             "hsgp() is a graph basis because its columns depend on the "
@@ -70,7 +72,13 @@ class HSGPBasis(Basis):
         )
 
     def build_graph(
-        self, x: TensorLike, call: Call, *, lhs: str, priors: PriorConfig
+        self,
+        x: TensorLike,
+        call: Call,
+        *,
+        lhs: str,
+        priors: PriorConfig,
+        state: Any | None = None,
     ) -> tuple[TensorLike, TensorLike]:
         """Build HSGP columns and their spectral scaling state."""
         assert isinstance(call, HSGPCall)

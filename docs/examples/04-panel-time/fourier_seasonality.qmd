@@ -1,0 +1,53 @@
+---
+title: "Fourier Seasonality"
+author:
+  - name: "PyMC Labs"
+description: "Model seasonal variation with the fourier() basis term and inspect its harmonic components."
+tags: [Basis Functions, Panel Data]
+jupyter: pathmc
+---
+
+Seasonality is often smoother than a week-by-week categorical effect. `fourier(week, n=3, period=52)` represents a yearly cycle with three sine/cosine harmonic pairs, each with its own coefficient. Unlike a transform, the basis owns all six weights, so it is written without a `beta*` prefix.
+
+## Simulate one seasonal cycle
+
+```{python}
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+import pathmc
+
+rng = np.random.default_rng(42)
+week = np.arange(104, dtype=float)
+seasonal_signal = 2 * np.sin(2 * np.pi * week / 52) + 0.6 * np.cos(
+    4 * np.pi * week / 52
+)
+df = pd.DataFrame({
+    "week": week,
+    "sales": 10 + seasonal_signal + rng.normal(0, 0.25, len(week)),
+})
+
+fig, ax = plt.subplots(figsize=(8, 3))
+ax.plot(df["week"], df["sales"], ".", alpha=0.5, label="observed sales")
+ax.plot(df["week"], 10 + seasonal_signal, color="C1", label="seasonal signal")
+ax.set(xlabel="week", ylabel="sales")
+ax.legend()
+```
+
+## Build the seasonal model
+
+```{python}
+model = pathmc.model("sales ~ fourier(week, n=3, period=52)", data=df)
+model.equations()
+```
+
+```{python}
+idata = model.fit(
+    draws=200, tune=200, chains=1, cores=1, progressbar=False, random_seed=42
+)
+new_year = model.do(set={"week": np.arange(104, 208, dtype=float)}, kind="mean")
+new_year.mean("sales")
+```
+
+The basis is also valid when its input is a latent mediator, because sine and cosine are constructed in the PyMC graph. `do()` therefore recomputes the harmonic contribution when it changes the input, without an HSGP-style fitted support boundary. See [Basis Terms](../../user_guide/12b-basis-terms.qmd) for the capability table and comparison with `hsgp()`.

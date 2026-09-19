@@ -35,6 +35,7 @@ prior without teaching the compiler about that structure.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -72,17 +73,31 @@ class Basis:
 
     name: str
     capabilities = BasisCapabilities()
+    supports_data_contract = False
 
     def n_basis(self, call: Call) -> int:
         """Return the number of columns produced by *call*."""
         raise NotImplementedError
 
-    def build_data(self, x: np.ndarray, call: Call) -> tuple[np.ndarray, Any]:
+    def build_data(
+        self, x: np.ndarray, call: Call, *, state: Any | None = None
+    ) -> tuple[np.ndarray, Any]:
         """Build numeric columns and frozen fit-time state from observed input."""
         raise NotImplementedError
 
+    def freeze_data_state(self, x: np.ndarray, call: Call) -> Any:
+        """Fit a data basis once and return immutable-by-convention replay state."""
+        _, state = self.build_data(x, call)
+        return deepcopy(state)
+
     def build_graph(
-        self, x: Any, call: Call, *, lhs: str, priors: "PriorConfig"
+        self,
+        x: Any,
+        call: Call,
+        *,
+        lhs: str,
+        priors: "PriorConfig",
+        state: Any | None = None,
     ) -> tuple[Any, Any]:
         """Build symbolic columns and basis-specific state from a graph input."""
         raise NotImplementedError
@@ -120,11 +135,21 @@ class Basis:
         return pm.Deterministic(self.contribution_name(lhs, call), columns @ beta)
 
     def assemble_graph(
-        self, x: Any, *, lhs: str, call: Call, priors: "PriorConfig"
+        self,
+        x: Any,
+        *,
+        lhs: str,
+        call: Call,
+        priors: "PriorConfig",
+        state: Any | None = None,
     ) -> Any:
         """Build a graph basis and return its complete contribution vector."""
-        columns, state = self.build_graph(x, call, lhs=lhs, priors=priors)
-        return self.contribution(columns, state, lhs=lhs, call=call, priors=priors)
+        columns, graph_state = self.build_graph(
+            x, call, lhs=lhs, priors=priors, state=state
+        )
+        return self.contribution(
+            columns, graph_state, lhs=lhs, call=call, priors=priors
+        )
 
     def weights_dim(self, lhs: str, call: Call) -> str:
         """Return the stable coordinate name for this basis's coefficients."""
@@ -151,13 +176,16 @@ class FourierBasis(Basis):
     """Harmonic sine/cosine expansion with iid Normal coefficient weights."""
 
     name = "fourier"
+    supports_data_contract = True
 
     def n_basis(self, call: Call) -> int:
         """Return two columns for each requested harmonic."""
         assert isinstance(call, BasisCall)
         return 2 * int(call.params["n"])
 
-    def build_data(self, x: np.ndarray, call: Call) -> tuple[np.ndarray, None]:
+    def build_data(
+        self, x: np.ndarray, call: Call, *, state: Any | None = None
+    ) -> tuple[np.ndarray, None]:
         """Materialize Fourier columns for observed data without fitted state."""
         assert isinstance(call, BasisCall)
         values = np.asarray(x, dtype=float).reshape(-1, 1)
@@ -166,7 +194,13 @@ class FourierBasis(Basis):
         return np.concatenate((np.sin(angles), np.cos(angles)), axis=1), None
 
     def build_graph(
-        self, x: Any, call: Call, *, lhs: str, priors: "PriorConfig"
+        self,
+        x: Any,
+        call: Call,
+        *,
+        lhs: str,
+        priors: "PriorConfig",
+        state: Any | None = None,
     ) -> tuple[Any, None]:
         """Build Fourier columns symbolically so they update under ``do()``."""
         assert isinstance(call, BasisCall)

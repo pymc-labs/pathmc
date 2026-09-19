@@ -670,6 +670,25 @@ def compile_to_pymc(
             if var in graph_info.exogenous and var in data.columns:
                 data_vars[var] = pm.Data(var, data[var].to_numpy().astype(float))
 
+        basis_states: dict[tuple[str, str, str], Any] = {}
+        from pathmc.basis import get_basis
+
+        for reg in spec.regressions:
+            for term in reg.terms:
+                if (
+                    term.basis is None
+                    or term.basis.variable not in graph_info.exogenous
+                ):
+                    continue
+                basis = get_basis(term.basis.name)
+                if basis.supports_data_contract:
+                    basis_states[(reg.lhs, basis.name, term.basis.variable)] = (
+                        basis.freeze_data_state(
+                            data[term.basis.variable].to_numpy(), term.basis
+                        )
+                    )
+        pymc_model._pathmc_basis_states = basis_states
+
         endogenous_rvs: dict[str, Any] = {}
 
         var_to_block_idx: dict[str, int] = {}
@@ -755,6 +774,7 @@ def compile_to_pymc(
                 panel_info,
                 lhs=var,
                 priors=priors,
+                basis_states=basis_states,
                 block_vars=block_vars,
                 prefer_observed_block_members=False,
             )
@@ -772,6 +792,7 @@ def compile_to_pymc(
                     panel_info,
                     lhs=var,
                     priors=priors,
+                    basis_states=basis_states,
                     block_vars=block_vars,
                     prefer_observed_block_members=True,
                 )
@@ -929,6 +950,7 @@ def _make_cross_sectional_resolver(
     panel_info: PanelInfo | None,
     lhs: str | None = None,
     priors: dict[str, Any] | None = None,
+    basis_states: dict[tuple[str, str, str], Any] | None = None,
     *,
     block_vars: set[str] | None = None,
     prefer_observed_block_members: bool = False,
@@ -974,8 +996,13 @@ def _make_cross_sectional_resolver(
             from pathmc.basis import get_basis
 
             x = _resolve_var(slot.name)[:, None]
-            return get_basis(slot.basis.name).assemble_graph(
-                x, lhs=lhs, call=slot.basis, priors=priors
+            basis = get_basis(slot.basis.name)
+            return basis.assemble_graph(
+                x,
+                lhs=lhs,
+                call=slot.basis,
+                priors=priors,
+                state=(basis_states or {}).get((lhs, basis.name, slot.basis.variable)),
             )
         if slot.kind == "transform":
             tc = transform_map[slot.name]

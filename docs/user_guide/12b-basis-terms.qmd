@@ -10,7 +10,7 @@ A basis term expands one predictor into several columns and gives that expansion
 | HSGP | `hsgp(x, m=20, c=1.5)` | Kernel-scaled basis weights | Cross-sectional, exogenous 1-D input |
 | Fourier | `fourier(week, n=3, period=52)` | `2n` independent harmonic weights | Cross-sectional; observed or latent 1-D input |
 
-For example, a weekly seasonal pattern with three harmonics is a Fourier basis:
+For example, a weekly seasonal pattern with three harmonics is a Fourier basis; the [Fourier seasonality example](../examples/04-panel-time/fourier_seasonality.qmd) shows a complete one-cycle workflow:
 
 ```python
 seasonal = pathmc.model(
