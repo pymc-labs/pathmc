@@ -97,6 +97,23 @@ def test_explicit_categorical_requires_data_column():
         pathmc.model("y ~ C(region)", data=data)
 
 
+@pytest.mark.parametrize("term", ["1*region", "label*region"])
+def test_inferred_categorical_rejects_coefficient_prefix(categorical_data, term):
+    with pytest.raises(
+        ValueError,
+        match="Categorical predictor 'region'.*coefficient prefix.*Remove",
+    ):
+        pathmc.model(f"y ~ {term}", data=categorical_data)
+
+
+def test_categorical_interaction_raises_actionable_error(categorical_data):
+    with pytest.raises(
+        NotImplementedError,
+        match="Interaction 'region:x'.*categorical predictor.*not supported.*standalone",
+    ):
+        pathmc.model("y ~ region:x", data=categorical_data)
+
+
 def test_hierarchical_prior_is_declared(categorical_data):
     model = pathmc.model("y ~ C(region, prior='hierarchical')", data=categorical_data)
     prior_names = set(model.priors()._entries)

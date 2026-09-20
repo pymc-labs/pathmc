@@ -22,6 +22,7 @@ import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
 
+from pathmc.exceptions import ParseError
 from pathmc.parse import CategoricalCall, Spec
 
 __all__: list[str] = []
@@ -74,6 +75,22 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
 
     for reg in spec.regressions:
         for term in reg.terms:
+            if term.interaction_of is not None:
+                categorical_components = [
+                    variable
+                    for variable in term.interaction_of
+                    if variable in pandas_data.columns
+                    and _is_categorical_series(pandas_data[variable])
+                ]
+                if categorical_components:
+                    raise NotImplementedError(
+                        f"Interaction '{term.variable}' includes categorical "
+                        f"predictor(s) {categorical_components!r}. Categorical "
+                        "interactions are not supported yet; use each categorical "
+                        "predictor as a standalone term."
+                    )
+                continue
+
             explicit = term.categorical is not None
             if term.variable not in pandas_data.columns:
                 if explicit:
@@ -85,6 +102,12 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
                 continue
             if not explicit and not _is_categorical_series(pandas_data[term.variable]):
                 continue
+            if term.label is not None or term.fixed_value is not None:
+                raise ParseError(
+                    f"Categorical predictor '{term.variable}' cannot take a "
+                    "coefficient prefix because it expands to one coefficient "
+                    "per non-reference level. Remove the 'k*' or 'label*' prefix."
+                )
             if term.transform is not None or term.interaction_of is not None:
                 raise NotImplementedError(
                     f"Categorical predictor '{term.variable}' is used in a transform "
