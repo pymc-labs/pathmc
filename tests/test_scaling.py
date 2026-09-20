@@ -995,6 +995,32 @@ class TestDoBusinessUnits:
         obs2 = float(idata2.observed_data["sales"].mean())
         assert obs2 == pytest.approx(obs, rel=1e-12)
 
+    def test_predict_replacement_data_keeps_observed_data_in_business_units(
+        self, mock_pymc_sample
+    ):
+        rng = np.random.default_rng(13)
+        tv = rng.uniform(10, 100, 60)
+        sales = 3.0 * tv + rng.normal(scale=1.0, size=60)
+        df = pd.DataFrame({"tv": tv, "sales": sales})
+        model = pathmc.model(
+            "sales ~ tv",
+            data=df,
+            scaling=Scaling(
+                target={"method": "max"},
+                channel={"method": "max"},
+            ),
+        )
+        model.fit()
+
+        replacement = pd.DataFrame({"tv": np.full(len(df), 50.0)})
+        idata = model.predict(data=replacement)
+
+        np.testing.assert_allclose(
+            idata.observed_data["sales"].values,
+            df["sales"].to_numpy(),
+            rtol=1e-6,
+        )
+
 
 def _label_mean(model: pathmc.PathModel, label: str) -> float:
     """Posterior mean of a labeled coefficient on the *internal* scale."""

@@ -206,7 +206,8 @@ def _layout_unscaled_column(
 
 def _unscale_predict_groups(
     idata: Any,
-    data: nw.DataFrame,
+    prediction_data: nw.DataFrame,
+    fitted_data: nw.DataFrame,
     scaling_factors: ScalingFactors,
     scan_info: Any | None,
 ) -> None:
@@ -220,16 +221,16 @@ def _unscale_predict_groups(
         for var in list(pp.data_vars):
             if var in scaling_factors.factors:
                 pp[var] = _to_business_units(
-                    var, pp[var], data, scaling_factors, scan_info
+                    var, pp[var], prediction_data, scaling_factors, scan_info
                 )
     obs = getattr(idata, "observed_data", None)
     if obs is None:
         return
     for var in list(obs.data_vars):
-        if var not in scaling_factors.factors or var not in data.columns:
+        if var not in scaling_factors.factors or var not in fitted_data.columns:
             continue
         raw = scaling_factors.inverse_transform_column(
-            np.asarray(data[var].to_numpy(), dtype=float), var, data
+            np.asarray(fitted_data[var].to_numpy(), dtype=float), var, fitted_data
         )
         template = obs[var]
         values = _layout_unscaled_column(raw, template, scan_info)
@@ -951,8 +952,13 @@ class PathModel:
                 pp = pm.sample_posterior_predictive(idata, **kwargs)
         result = pp if not kwargs["extend_inferencedata"] else idata
         if self._scaling_factors is not None and prediction_data is not None:
+            assert self._data is not None
             _unscale_predict_groups(
-                result, prediction_data, self._scaling_factors, scan_info
+                result,
+                prediction_data,
+                self._data,
+                self._scaling_factors,
+                scan_info,
             )
         return result
 

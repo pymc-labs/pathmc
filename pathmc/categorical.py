@@ -173,6 +173,28 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
             )
             categorical_vars.add(term.variable)
 
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.categorical is not None:
+                continue
+            if term.interaction_of is not None:
+                source_vars = set(term.interaction_of)
+            elif term.lag_of is not None:
+                source_vars = {term.lag_of}
+            else:
+                source_vars = {term.variable}
+            mixed = sorted(source_vars & categorical_vars)
+            if mixed:
+                raise NotImplementedError(
+                    f"Predictor(s) {mixed!r} are used both categorically and "
+                    f"continuously in the model specification (including term "
+                    f"'{term.variable}' in equation '{reg.lhs}'). Mixed use is "
+                    "not supported because prediction and intervention require "
+                    "one canonical representation. Create a separate numeric "
+                    "column for the continuous effect or use the predictor only "
+                    "inside C(...)."
+                )
+
     return categorical_vars
 
 

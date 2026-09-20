@@ -155,6 +155,26 @@ def test_explicit_categorical_interaction_raises_parse_error(term):
         parse_spec(f"y ~ {term}")
 
 
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "y ~ C(region) + region",
+        "y ~ C(region)\nz ~ region",
+    ],
+)
+def test_mixed_categorical_and_continuous_use_is_rejected(spec):
+    data = pd.DataFrame({
+        "y": [1.0, 2.0, 3.0, 4.0],
+        "z": [2.0, 4.0, 6.0, 8.0],
+        "region": [1, 2, 1, 2],
+    })
+    with pytest.raises(
+        NotImplementedError,
+        match="used both categorically and continuously.*separate numeric column",
+    ):
+        pathmc.model(spec, data=data)
+
+
 def test_hierarchical_prior_is_declared(categorical_data):
     model = pathmc.model("y ~ C(region, prior='hierarchical')", data=categorical_data)
     prior_names = set(model.priors()._entries)
