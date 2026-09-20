@@ -43,6 +43,7 @@ from typing import Any, Callable, Literal
 import narwhals.stable.v1 as nw
 import networkx as nx
 import numpy as np
+import pandas as pd
 import patsy
 import pymc as pm
 
@@ -505,7 +506,18 @@ def build_design_matrix(
     else:
         formula_str = "0 + " + " + ".join(rhs_parts) if rhs_parts else "0"
 
-    dm = patsy.dmatrix(formula_str, data=data.to_pandas(), return_type="dataframe")
+    pandas_data = data.to_pandas()
+    base_vars = {v for term in reg.terms for v in _term_base_vars(term)}
+    numeric_object_kinds = {"complex", "decimal", "floating", "integer"}
+    for variable in base_vars & set(pandas_data.columns):
+        series = pandas_data[variable]
+        if not pd.api.types.is_object_dtype(series.dtype):
+            continue
+        inferred = pd.api.types.infer_dtype(series, skipna=True)
+        if inferred in numeric_object_kinds or inferred == "mixed-integer-float":
+            pandas_data[variable] = pd.to_numeric(series)
+
+    dm = patsy.dmatrix(formula_str, data=pandas_data, return_type="dataframe")
     columns = {str(col): dm[col].to_numpy() for col in dm.columns}
     for term in reg.terms:
         if term.categorical is None:

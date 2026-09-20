@@ -403,6 +403,12 @@ def _parse_term(raw: str) -> Term:
             except ValueError:
                 label = label_str
 
+    if _find_top_level_colon(raw) is not None and re.search(r"(?:^|:)\s*C\s*\(", raw):
+        raise ParseError(
+            f"Categorical interaction '{raw}' is not supported. Use C(...) as "
+            "a standalone term and model category-specific effects separately."
+        )
+
     if "(" in raw:
         func_name = raw[: raw.index("(")].strip()
         if func_name == "C":
@@ -571,6 +577,19 @@ def _find_top_level_star(raw: str) -> int | None:
         elif ch == ")":
             depth -= 1
         elif ch == "*" and depth == 0:
+            return i
+    return None
+
+
+def _find_top_level_colon(raw: str) -> int | None:
+    """Find a ``:`` outside parentheses, or return ``None``."""
+    depth = 0
+    for i, ch in enumerate(raw):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == ":" and depth == 0:
             return i
     return None
 

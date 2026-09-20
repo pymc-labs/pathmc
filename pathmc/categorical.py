@@ -31,7 +31,28 @@ __all__: list[str] = []
 def _is_categorical_series(series: pd.Series) -> bool:
     """Return whether a pandas series should be auto-treated as categorical."""
     dtype = series.dtype
-    return isinstance(dtype, pd.CategoricalDtype) or pd.api.types.is_string_dtype(dtype)
+    if isinstance(dtype, pd.CategoricalDtype | pd.StringDtype):
+        return True
+    if not pd.api.types.is_object_dtype(dtype):
+        return False
+    inferred = pd.api.types.infer_dtype(series, skipna=True)
+    return inferred in {"bytes", "string", "unicode"}
+
+
+def _validate_level_labels(name: str, levels: tuple[Any, ...]) -> None:
+    """Reject distinct levels whose public coefficient labels would collide."""
+    rendered: dict[str, Any] = {}
+    for level in levels:
+        label = str(level)
+        if label in rendered:
+            previous = rendered[label]
+            raise ValueError(
+                f"Categorical predictor '{name}' has distinct levels "
+                f"{previous!r} ({type(previous).__name__}) and {level!r} "
+                f"({type(level).__name__}) that both render as {label!r}. "
+                "Recode the levels to unique string labels before fitting."
+            )
+        rendered[label] = level
 
 
 def _fit_levels(series: pd.Series) -> tuple[Any, ...]:
@@ -49,6 +70,7 @@ def _fit_levels(series: pd.Series) -> tuple[Any, ...]:
     else:
         values = series.unique().tolist()
         levels = tuple(sorted(values, key=lambda value: str(value)))
+    _validate_level_labels(str(series.name), levels)
     if len(levels) < 2:
         raise ValueError(
             f"Categorical predictor '{series.name}' has {len(levels)} level(s). "

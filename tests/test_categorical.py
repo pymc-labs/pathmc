@@ -60,6 +60,26 @@ def test_string_column_is_inferred_and_reference_is_frozen(categorical_data):
     assert "levels=['north', 'south', 'west']" in text
 
 
+def test_object_inference_distinguishes_strings_from_numbers():
+    numeric = pd.DataFrame({
+        "y": [2.0, 4.0, 6.0, 8.0],
+        "x": pd.Series([1, 2, 3, 4], dtype=object),
+    })
+    numeric_model = pathmc.model("y ~ x", data=numeric)
+    assert list(numeric_model.design("y").columns) == ["Intercept", "x"]
+    assert "beta_y_x" not in numeric_model.pymc_model.named_vars
+
+    strings = pd.DataFrame({
+        "y": [1.0, 2.0, 3.0, 4.0],
+        "region": pd.Series(["north", "south", "north", "south"], dtype=object),
+    })
+    string_model = pathmc.model("y ~ region", data=strings)
+    assert list(string_model.design("y").columns) == [
+        "Intercept",
+        "region[T.south]",
+    ]
+
+
 def test_pandas_category_order_excludes_unused_levels():
     data = pd.DataFrame({
         "y": [1.0, 2.0, 3.0, 4.0],
@@ -97,6 +117,18 @@ def test_explicit_categorical_requires_data_column():
         pathmc.model("y ~ C(region)", data=data)
 
 
+def test_distinct_levels_with_same_rendering_are_rejected():
+    data = pd.DataFrame({
+        "y": [1.0, 2.0, 3.0, 4.0],
+        "region": pd.Series([1, "1", 1, "1"], dtype=object),
+    })
+    with pytest.raises(
+        ValueError,
+        match="distinct levels.*both render as '1'.*Recode",
+    ):
+        pathmc.model("y ~ C(region)", data=data)
+
+
 @pytest.mark.parametrize("term", ["1*region", "label*region"])
 def test_inferred_categorical_rejects_coefficient_prefix(categorical_data, term):
     with pytest.raises(
@@ -112,6 +144,15 @@ def test_categorical_interaction_raises_actionable_error(categorical_data):
         match="Interaction 'region:x'.*categorical predictor.*not supported.*standalone",
     ):
         pathmc.model("y ~ region:x", data=categorical_data)
+
+
+@pytest.mark.parametrize("term", ["C(region):x", "x:C(region)"])
+def test_explicit_categorical_interaction_raises_parse_error(term):
+    with pytest.raises(
+        ValueError,
+        match="Categorical interaction.*not supported.*standalone",
+    ):
+        parse_spec(f"y ~ {term}")
 
 
 def test_hierarchical_prior_is_declared(categorical_data):
