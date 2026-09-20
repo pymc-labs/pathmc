@@ -1,0 +1,36 @@
+pathmc/scaling.py
+  s_9a17ea120e2eab::t_e69c03d15e934a 264-289
+  s_9a17ea120e2eab::t_9b807df4b40698 39,44,72,93-100,106-109,112-113,123,125,127,144-155
+  s_9a17ea120e2eab::t_e0004cee07337a 308,332,385,443-449,451-459,463-470,473,488-494,496-497,502-507,516,520-521,535,548-556,566-568,594-596,612,672,683,698,719,728
+  s_9a17ea120e2eab::t_9631b4923a90e5 645,656
+  s_9a17ea120e2eab::t_6f3c01ce51686f 712-713,1033-1038
+pathmc/_model.py
+  s_9a17ea120e2eab::t_eafc454c360dea 90,191,212-213,236,242,256-262,264-269,1354,2287,2294,2493
+pathmc/simulate.py
+  s_9a17ea120e2eab::t_f9105daf41b4d9 230
+  s_9a17ea120e2eab::t_eafc454c360dea 51,210,1253,1272,1311
+tests/test_scaling_contract.py
+  s_9a17ea120e2eab::t_ea13e31a031022 21,31,33,110-138,166-175,177-197,199-216,218-229,231,233-234,236-249,465,468
+  s_9a17ea120e2eab::t_b9733c6c91c9fc 176,198,217,230,232
+  s_9a17ea120e2eab::t_10dacbbeaf0fc3 235
+pathmc/effects.py
+  s_9a17ea120e2eab::t_eafc454c360dea 34,241,292,562
+pathmc/interpret.py
+  s_9a17ea120e2eab::t_eafc454c360dea 33,491,493,505,521
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "654027282d5ad479e0367a905a779acaa6713629",
+  "prompts": {},
+  "sessions": {
+    "s_9a17ea120e2eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb77-831c-78e0-8e95-0759bd7f6464",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
