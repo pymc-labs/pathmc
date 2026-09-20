@@ -78,6 +78,7 @@ class HSGPCall:
     L: float | None = None
     cov: str = "expquad"
     centered: bool = False
+    identifier: str | None = None
 
     @property
     def name(self) -> str:
@@ -262,16 +263,16 @@ def parse_spec(spec_string: str) -> Spec:
 
 
 def _assign_basis_identifiers(reg: Regression) -> None:
-    """Disambiguate repeated generic basis calls on one equation input."""
-    grouped: dict[tuple[str, str], list[Term]] = {}
+    """Disambiguate basis calls sharing one equation input."""
+    grouped: dict[str, list[Term]] = {}
     for term in reg.terms:
-        if isinstance(term.basis, BasisCall):
-            grouped.setdefault((term.basis.name, term.basis.variable), []).append(term)
+        if term.basis is not None:
+            grouped.setdefault(term.basis.variable, []).append(term)
     for terms in grouped.values():
-        if len(terms) < 2:
+        if len(terms) < 2 or all(isinstance(term.basis, HSGPCall) for term in terms):
             continue
         for index, term in enumerate(terms, start=1):
-            assert isinstance(term.basis, BasisCall)
+            assert term.basis is not None
             term.basis.identifier = str(index)
 
 

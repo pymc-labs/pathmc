@@ -105,6 +105,18 @@ def test_multiple_fourier_calls_on_one_input_get_independent_data_bindings():
     assert updates["basis_y_fourier_x_2"].shape == (8, 6)
 
 
+def test_mixed_basis_calls_on_one_input_get_independent_contributions():
+    """HSGP and Fourier on one input must not claim the same deterministic name."""
+    data = pd.DataFrame({"x": np.arange(8.0), "y": np.arange(8.0)})
+    model = pathmc.model(
+        "y ~ hsgp(x, m=5, c=1.5) + fourier(x, n=2, period=4)", data=data
+    )
+    gm = model._gen_model
+
+    assert {"f_y_x_1", "f_y_x_2"} <= set(gm.named_vars)
+    assert {"beta_hsgp_y_x_1", "beta_fourier_y_x_2"} <= set(gm.named_vars)
+
+
 class _CenteredDataBasis(Basis):
     """Small stateful basis used to exercise the data/graph hand-off."""
 
