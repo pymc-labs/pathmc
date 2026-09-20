@@ -195,3 +195,41 @@ def test_simulate_uses_frozen_categorical_design():
         random_seed=4,
     )
     np.testing.assert_allclose(simulated["y"], [1.0, 3.0, 0.0], atol=1e-4)
+
+
+@pytest.mark.parametrize(
+    "scaling",
+    [
+        pathmc.Scaling(channel={"method": "max"}),
+        pathmc.ScalingFactors(
+            factors={
+                "region": ((), {(): 2.0}),
+                "x": ((), {(): 4.0}),
+            }
+        ),
+    ],
+)
+def test_numeric_categorical_labels_are_not_scaled(scaling):
+    exog = pd.DataFrame({"region": [1, 2, 1, 2], "x": [1.0, 2.0, 3.0, 4.0]})
+    data = exog.assign(y=[2.0, 13.0, 4.0, 15.0])
+    model = pathmc.model("y ~ C(region) + x", data=data, scaling=scaling)
+
+    assert model.fitted_scaling is not None
+    assert set(model.fitted_scaling.factors) == {"x"}
+    np.testing.assert_array_equal(
+        model.pymc_model["_cat_y_region"].get_value().ravel(),
+        [0.0, 1.0, 0.0, 1.0],
+    )
+
+    simulated = pathmc.simulate(
+        "y ~ C(region) + x",
+        data=exog,
+        params={
+            "beta_y": [1.0, 4.0],
+            "beta_y_region": [10.0],
+            "sigma_y": 1e-6,
+        },
+        scaling=scaling,
+        random_seed=5,
+    )
+    np.testing.assert_allclose(simulated["y"], [2.0, 13.0, 4.0, 15.0], atol=1e-4)

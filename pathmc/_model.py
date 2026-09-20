@@ -256,6 +256,27 @@ def _scale_scalar_intervention(var: str, val: float, factors: ScalingFactors) ->
     return float(val) / next(iter(uniq))
 
 
+def _exclude_categorical_scaling(
+    factors: ScalingFactors,
+    categorical_vars: set[str],
+) -> ScalingFactors:
+    """Return fitted factors without categorical source columns.
+
+    Numeric category labels identify groups rather than magnitudes. Filtering
+    here also protects callers that reuse a pre-fitted ``ScalingFactors``
+    object containing a column that is categorical in the current model.
+    """
+    if categorical_vars.isdisjoint(factors.factors):
+        return factors
+    return ScalingFactors(
+        factors={
+            column: factor
+            for column, factor in factors.factors.items()
+            if column not in categorical_vars
+        }
+    )
+
+
 def _warn_extrapolation(
     data: nw.DataFrame, interventions: Mapping[str, float | np.ndarray]
 ) -> None:
@@ -2480,10 +2501,11 @@ def model(
     latent_set = set(latent) if latent is not None else set()
 
     nw_data = nw.from_native(data, eager_only=True) if data is not None else None
+    categorical_vars: set[str] = set()
     if nw_data is not None:
         from pathmc.categorical import fit_categorical_terms
 
-        fit_categorical_terms(spec, nw_data)
+        categorical_vars = fit_categorical_terms(spec, nw_data)
     graph_info = build_graph(spec, latent=latent_set)
 
     has_lag_terms = any(
@@ -2539,7 +2561,10 @@ def model(
             nw_data,
             panel_info=panel_info,
             target_columns=endogenous_lhs - latent_set,
-            channel_columns=term_vars - endogenous_lhs,
+            channel_columns=term_vars - endogenous_lhs - categorical_vars,
+        )
+        scaling_factors = _exclude_categorical_scaling(
+            scaling_factors, categorical_vars
         )
         nw_data = scaling_factors.transform(nw_data)
 
@@ -2766,7 +2791,7 @@ def simulate(
     nw_data = nw.from_native(data, eager_only=True)
     from pathmc.categorical import fit_categorical_terms
 
-    fit_categorical_terms(spec, nw_data)
+    categorical_vars = fit_categorical_terms(spec, nw_data)
     graph_info = build_graph(spec, latent=latent_set)
 
     panel_info: PanelInfo | None = None
@@ -2788,8 +2813,11 @@ def simulate(
             nw_data,
             panel_info=panel_info,
             target_columns=endo_set - latent_set,
-            channel_columns=term_vars - endo_set,
+            channel_columns=term_vars - endo_set - categorical_vars,
             roles_with_data=frozenset({"channel"}),
+        )
+        scaling_factors = _exclude_categorical_scaling(
+            scaling_factors, categorical_vars
         )
 
     data_sim = _prepare_simulation_frame(spec, nw_data, panel_info, scaling_factors)
