@@ -1,0 +1,27 @@
+pathmc/categorical.py
+  s_aff722155995c8::t_a432278da39d7f 34-55,73
+tests/test_categorical.py
+  s_aff722155995c8::t_a432278da39d7f 63-82,120-131,149-155
+  s_aff722155995c8::t_0dae0a814333b5 156-157
+pathmc/compile.py
+  s_aff722155995c8::t_04a61b8d6b17f7 46,509-520
+pathmc/parse.py
+  s_aff722155995c8::t_a432278da39d7f 406-411,584-594
+  s_aff722155995c8::t_43a517b407467c 595-596
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "361bc536898ce73ebc77c6c338f25dd115e1736b",
+  "prompts": {},
+  "sessions": {
+    "s_aff722155995c8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb70-dce3-7941-b287-d842d9962a61",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
