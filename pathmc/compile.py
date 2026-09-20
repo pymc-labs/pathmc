@@ -670,8 +670,8 @@ def compile_to_pymc(
             if var in graph_info.exogenous and var in data.columns:
                 data_vars[var] = pm.Data(var, data[var].to_numpy().astype(float))
 
-        basis_states: dict[tuple[str, str, str], Any] = {}
-        basis_data_vars: dict[tuple[str, str, str], Any] = {}
+        basis_states: dict[tuple[str, str, str, str | None], Any] = {}
+        basis_data_vars: dict[tuple[str, str, str, str | None], Any] = {}
         from pathmc.basis import DataBasisBinding, get_basis
 
         basis_bindings: dict[str, DataBasisBinding] = {}
@@ -685,7 +685,7 @@ def compile_to_pymc(
                     continue
                 basis = get_basis(term.basis.name)
                 if basis.supports_data_contract:
-                    key = (reg.lhs, basis.name, term.basis.variable)
+                    key = basis.binding_key(reg.lhs, term.basis)
                     state = basis.freeze_data_state(
                         data[term.basis.variable].to_numpy(), term.basis
                     )
@@ -964,8 +964,8 @@ def _make_cross_sectional_resolver(
     panel_info: PanelInfo | None,
     lhs: str | None = None,
     priors: dict[str, Any] | None = None,
-    basis_states: dict[tuple[str, str, str], Any] | None = None,
-    basis_data_vars: dict[tuple[str, str, str], Any] | None = None,
+    basis_states: dict[tuple[str, str, str, str | None], Any] | None = None,
+    basis_data_vars: dict[tuple[str, str, str, str | None], Any] | None = None,
     *,
     block_vars: set[str] | None = None,
     prefer_observed_block_members: bool = False,
@@ -1012,7 +1012,7 @@ def _make_cross_sectional_resolver(
 
             x = _resolve_var(slot.name)[:, None]
             basis = get_basis(slot.basis.name)
-            key = (lhs, basis.name, slot.basis.variable)
+            key = basis.binding_key(lhs, slot.basis)
             if basis_data_vars is not None and key in basis_data_vars:
                 return basis.contribution(
                     basis_data_vars[key],

@@ -90,6 +90,21 @@ def test_fourier_contribution_recomputes_when_its_input_data_changes():
     assert not np.allclose(before, after)
 
 
+def test_multiple_fourier_calls_on_one_input_get_independent_data_bindings():
+    """Distinct Fourier calls must not overwrite each other's frozen data state."""
+    data = pd.DataFrame({"x": np.arange(8.0), "y": np.arange(8.0)})
+    model = pathmc.model(
+        "y ~ fourier(x, n=2, period=4) + fourier(x, n=3, period=7)", data=data
+    )
+    gm = model._gen_model
+
+    assert {"beta_fourier_y_x_1", "beta_fourier_y_x_2"} <= set(gm.named_vars)
+    assert {"basis_y_fourier_x_1", "basis_y_fourier_x_2"} == set(gm._pathmc_data_bases)
+    updates = replay_data_bases(gm._pathmc_data_bases, {"x": np.arange(8.0) + 10})
+    assert updates["basis_y_fourier_x_1"].shape == (8, 4)
+    assert updates["basis_y_fourier_x_2"].shape == (8, 6)
+
+
 class _CenteredDataBasis(Basis):
     """Small stateful basis used to exercise the data/graph hand-off."""
 
@@ -127,7 +142,7 @@ def test_data_basis_state_is_frozen_and_replayed_under_new_input_data():
     model = pathmc.model("y ~ test_centered_data_basis(x)", data=data)
     gm = model._gen_model
 
-    assert gm._pathmc_basis_states[("y", "test_centered_data_basis", "x")] == 1.0
+    assert gm._pathmc_basis_states[("y", "test_centered_data_basis", "x", None)] == 1.0
     with gm:
         pm.set_data({"x": np.array([10.0, 11.0, 12.0])})
         pm.set_data(

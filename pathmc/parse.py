@@ -96,6 +96,7 @@ class BasisCall:
     name: str
     variable: str
     params: dict[str, int | float]
+    identifier: str | None = None
 
 
 @dataclass
@@ -219,6 +220,7 @@ def parse_spec(spec_string: str) -> Spec:
             residual_covs.append(_parse_residual_cov(stmt))
         elif "~" in stmt:
             reg = _parse_regression(stmt)
+            _assign_basis_identifiers(reg)
             if reg.lhs in seen_lhs:
                 raise DuplicateEquationError(
                     f"Duplicate equation for '{reg.lhs}'. "
@@ -257,6 +259,20 @@ def parse_spec(spec_string: str) -> Spec:
         residual_covs=residual_covs,
         defined_params=defined_params,
     )
+
+
+def _assign_basis_identifiers(reg: Regression) -> None:
+    """Disambiguate repeated generic basis calls on one equation input."""
+    grouped: dict[tuple[str, str], list[Term]] = {}
+    for term in reg.terms:
+        if isinstance(term.basis, BasisCall):
+            grouped.setdefault((term.basis.name, term.basis.variable), []).append(term)
+    for terms in grouped.values():
+        if len(terms) < 2:
+            continue
+        for index, term in enumerate(terms, start=1):
+            assert isinstance(term.basis, BasisCall)
+            term.basis.identifier = str(index)
 
 
 # ---------------------------------------------------------------------------

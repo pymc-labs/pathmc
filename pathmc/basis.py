@@ -162,19 +162,29 @@ class Basis:
 
     def weights_dim(self, lhs: str, call: Call) -> str:
         """Return the stable coordinate name for this basis's coefficients."""
-        return f"{lhs}_{call.variable}_{self.name}"
+        return f"{lhs}_{call.variable}_{self.name}{self._call_suffix(call)}"
 
     def beta_name(self, lhs: str, call: Call) -> str:
         """Return the stable random-variable name for basis coefficients."""
-        return f"beta_{self.name}_{lhs}_{call.variable}"
+        return f"beta_{self.name}_{lhs}_{call.variable}{self._call_suffix(call)}"
 
     def contribution_name(self, lhs: str, call: Call) -> str:
         """Return the deterministic name for this basis contribution."""
-        return f"f_{lhs}_{call.variable}"
+        return f"f_{lhs}_{call.variable}{self._call_suffix(call)}"
 
     def data_name(self, lhs: str, call: Call) -> str:
         """Return the ``pm.Data`` name holding materialized basis columns."""
-        return f"basis_{lhs}_{self.name}_{call.variable}"
+        return f"basis_{lhs}_{self.name}_{call.variable}{self._call_suffix(call)}"
+
+    def binding_key(self, lhs: str, call: Call) -> tuple[str, str, str, str | None]:
+        """Return the unique key used to retain one materialized basis call."""
+        return (lhs, self.name, call.variable, getattr(call, "identifier", None))
+
+    @staticmethod
+    def _call_suffix(call: Call) -> str:
+        """Return an empty suffix for unique calls or a stable occurrence tag."""
+        identifier = getattr(call, "identifier", None)
+        return "" if identifier is None else f"_{identifier}"
 
     def render(self, call: Call) -> str:
         """Return the plain-text equation rendering for *call*."""
