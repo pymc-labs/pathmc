@@ -36,10 +36,12 @@ in business units.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from hashlib import blake2b
 from typing import TYPE_CHECKING, Any, Literal, Mapping, cast
 
 import narwhals.stable.v1 as nw
 import numpy as np
+from narwhals.stable.v1.typing import IntoFrame
 
 from pathmc.panel import _SEPARATOR
 
@@ -67,7 +69,7 @@ _SCALE_TAG = "_pathmc_scale_units"
 
 
 @dataclass(frozen=True)
-class _ScaleContext:
+class ScaleContext:
     """Alignment metadata for one conversion at the scaling boundary.
 
     ``term`` identifies the semantic variable or coefficient term. ``data``
@@ -88,16 +90,27 @@ class _ScaleContext:
 class _ConvertedArray(np.ndarray):
     """NumPy array subclass carrying conversion state."""
 
+    def __array_finalize__(self, source: Any) -> None:
+        """Preserve unit provenance through NumPy views and ufunc results."""
+        if source is None:
+            return
+        state = getattr(source, _SCALE_TAG, None)
+        if isinstance(state, Mapping):
+            setattr(self, _SCALE_TAG, dict(state))
+
 
 class _ConvertedFloat(float):
     """Float subclass carrying conversion state."""
 
 
-def _coerce_context(dims: Any) -> _ScaleContext:
+ScaleDims = ScaleContext | Mapping[str, Any] | IntoFrame | None
+
+
+def _coerce_context(dims: ScaleDims) -> ScaleContext:
     """Normalize the public ``dims=`` argument into conversion metadata."""
     if dims is None:
-        return _ScaleContext()
-    if isinstance(dims, _ScaleContext):
+        return ScaleContext()
+    if isinstance(dims, ScaleContext):
         return dims
     if isinstance(dims, Mapping):
         allowed = {"term", "outcome", "data", "scan_info", "scalar", "columns"}
@@ -107,11 +120,11 @@ def _coerce_context(dims: Any) -> _ScaleContext:
                 f"Unknown scaling dimension context keys {sorted(extra)}. "
                 f"Valid keys are {sorted(allowed)}."
             )
-        return _ScaleContext(**dims)
+        return ScaleContext(**dims)
     if isinstance(dims, nw.DataFrame):
-        return _ScaleContext(data=dims)
+        return ScaleContext(data=dims)
     try:
-        return _ScaleContext(data=nw.from_native(dims, eager_only=True))
+        return ScaleContext(data=nw.from_native(dims, eager_only=True))
     except TypeError as exc:
         raise TypeError(
             "dims= must be a data frame, a scaling context mapping, or None; "
@@ -128,8 +141,18 @@ def _term_key(term: Any) -> str:
     return repr(term)
 
 
-def _state_key(owner: Any, kind: ScaleKind, term: Any) -> str:
-    return f"{id(owner)}:{kind}:{_term_key(term)}"
+def _factor_fingerprint(factor: Any) -> str:
+    """Return a stable signature for one fully resolved conversion factor."""
+    values = np.asarray(factor, dtype=np.float64)
+    digest = blake2b(digest_size=16)
+    digest.update(repr(values.shape).encode())
+    digest.update(values.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def _state_key(term: Any, factor: Any) -> str:
+    """Identify conversion semantics by term and resolved factor, not identity."""
+    return f"{_term_key(term)}:{_factor_fingerprint(factor)}"
 
 
 def _conversion_state(obj: Any) -> dict[str, ScaleDirection]:
@@ -238,6 +261,32 @@ class ScalingFactors:
         default_factory=dict
     )
 
+    def __bool__(self) -> bool:
+        """Whether this object contains any fitted factors."""
+        return bool(self.factors)
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        """Columns with fitted scale factors, in stable order."""
+        return tuple(sorted(self.factors))
+
+    def has_factor(self, column: str) -> bool:
+        """Return whether *column* has a fitted scale factor."""
+        return column in self.factors
+
+    def columns_present_in(self, columns: Any) -> tuple[str, ...]:
+        """Return fitted columns present in a frame-like column collection."""
+        available = set(columns)
+        return tuple(column for column in self.columns if column in available)
+
+    def required_dimensions(self, columns: Any) -> tuple[str, ...]:
+        """Return grouping dimensions needed to convert the given columns."""
+        required: set[str] = set()
+        for column in self.columns_present_in(columns):
+            dims, _table = self.factors[column]
+            required.update(dims)
+        return tuple(sorted(required))
+
     def _per_row(self, df: nw.DataFrame, column: str) -> np.ndarray:
         """Expand unit-keyed divisors to one value per row of *df*."""
         dims, table = self.factors[column]
@@ -256,7 +305,7 @@ class ScalingFactors:
     def _scalar_factor(
         self,
         column: str,
-        context: _ScaleContext,
+        context: ScaleContext,
     ) -> float:
         """Resolve one factor, rejecting lossy heterogeneous reductions."""
         if column not in self.factors:
@@ -280,7 +329,7 @@ class ScalingFactors:
             "'scalar': 'mean'}."
         )
 
-    def _coefficient_factor(self, term: Any, context: _ScaleContext) -> float:
+    def _coefficient_factor(self, term: Any, context: ScaleContext) -> float:
         """Internal-to-business multiplier for one regression coefficient."""
         if context.outcome is None:
             raise ValueError(
@@ -333,7 +382,7 @@ class ScalingFactors:
         obj: Any,
         *,
         kind: ScaleKind,
-        context: _ScaleContext,
+        context: ScaleContext,
     ) -> Any:
         """Resolve the aligned internal-to-business multiplier for *obj*."""
         if kind in ("elasticity", "derived"):
@@ -391,24 +440,37 @@ class ScalingFactors:
                     obs_dims = [
                         str(dim) for dim in obj.dims if dim not in ("chain", "draw")
                     ]
-                    if len(obs_dims) >= 2:
-                        time_dim, unit_dim = obs_dims[:2]
-                        return xr.DataArray(
-                            matrix,
-                            dims=[time_dim, unit_dim],
-                            coords={
-                                time_dim: obj.coords[time_dim],
-                                unit_dim: obj.coords[unit_dim],
-                            },
+                    actual = tuple(int(obj.sizes[dim]) for dim in obs_dims)
+                    if len(obs_dims) != 2 or actual != matrix.shape:
+                        raise ValueError(
+                            f"Cannot align scan scaling factors for {column!r}: "
+                            f"expected observation shape {matrix.shape} in "
+                            f"(time, unit) order, got {actual}. Pass values with "
+                            "explicit time and unit dimensions in that order."
                         )
+                    time_dim, unit_dim = obs_dims
+                    return xr.DataArray(
+                        matrix,
+                        dims=[time_dim, unit_dim],
+                        coords={
+                            time_dim: obj.coords[time_dim],
+                            unit_dim: obj.coords[unit_dim],
+                        },
+                    )
                 arr = np.asarray(obj)
                 if arr.shape == matrix.shape:
                     return matrix
-                if arr.size == matrix.size:
-                    return matrix.reshape(arr.shape)
+                if arr.ndim > 2 and arr.shape[-2:] == matrix.shape:
+                    return matrix.reshape((1,) * (arr.ndim - 2) + matrix.shape)
+                raise ValueError(
+                    f"Cannot align scan scaling factors for {column!r}: expected "
+                    f"shape {matrix.shape}, or leading sample dimensions followed "
+                    f"by {matrix.shape}; got {arr.shape}. Do not reshape factors "
+                    "based only on an equal element count."
+                )
             if isinstance(obj, xr.DataArray):
                 obs_dims = [
-                    str(dim) for dim in obj.dims if dim not in ("chain", "draw", "time")
+                    str(dim) for dim in obj.dims if dim not in ("chain", "draw")
                 ]
                 matching = [dim for dim in obs_dims if obj.sizes[dim] == len(per_row)]
                 if len(matching) == 1:
@@ -423,14 +485,26 @@ class ScalingFactors:
                         dims=[dim],
                         coords={dim: coordinate_values},
                     )
-                return float(np.mean(per_row))
+                if not obs_dims:
+                    return self._scalar_factor(column, context)
+                raise ValueError(
+                    f"Cannot align row scaling factors for {column!r}: expected "
+                    f"exactly one observation dimension of length {len(per_row)}, "
+                    f"got dimensions {tuple(obj.dims)} with shape {obj.shape}."
+                )
             arr = np.asarray(obj)
-            if arr.ndim > 0 and arr.size == len(per_row):
-                return per_row.reshape(arr.shape)
+            if arr.shape == per_row.shape:
+                return per_row
             if arr.ndim > 1 and arr.shape[-1] == len(per_row):
                 return per_row.reshape((1,) * (arr.ndim - 1) + (len(per_row),))
             if arr.ndim == 0:
                 return self._scalar_factor(column, context)
+            raise ValueError(
+                f"Cannot align row scaling factors for {column!r}: expected "
+                f"shape ({len(per_row)},), or leading sample dimensions ending "
+                f"in {len(per_row)}; got {arr.shape}. Do not reshape factors "
+                "based only on an equal element count."
+            )
 
         return self._scalar_factor(column, context)
 
@@ -439,14 +513,14 @@ class ScalingFactors:
         obj: Any,
         *,
         kind: ScaleKind,
-        context: _ScaleContext,
+        context: ScaleContext,
         direction: ScaleDirection,
     ) -> Any:
         """Convert one non-frame value and tag the result."""
-        key = _state_key(self, kind, context.term or getattr(obj, "name", None))
+        factor = self._factor_for(obj, kind=kind, context=context)
+        key = _state_key(context.term or getattr(obj, "name", None), factor)
         if _conversion_state(obj).get(key) == direction:
             return obj
-        factor = self._factor_for(obj, kind=kind, context=context)
         result = obj / factor if direction == "internal" else obj * factor
         original_name = getattr(obj, "name", None)
         if original_name is not None and getattr(result, "name", None) is None:
@@ -458,7 +532,7 @@ class ScalingFactors:
         obj: Any,
         *,
         kind: ScaleKind,
-        context: _ScaleContext,
+        context: ScaleContext,
         direction: ScaleDirection,
     ) -> Any:
         """Convert selected numeric columns of a pandas or Narwhals frame."""
@@ -471,7 +545,15 @@ class ScalingFactors:
                     if kind in roles and column in obj.columns
                 )
             else:
-                columns = tuple(set(self.factors) & set(obj.columns))
+                present = tuple(sorted(set(self.factors) & set(obj.columns)))
+                if present:
+                    raise ValueError(
+                        "Frame conversion with manually constructed "
+                        "ScalingFactors requires semantic roles. Pass roles= "
+                        "when constructing ScalingFactors, or select columns "
+                        "explicitly with dims=ScaleContext(columns=(...))."
+                    )
+                columns = ()
 
         if isinstance(obj, nw.DataFrame):
             state = _conversion_state(obj)
@@ -479,11 +561,11 @@ class ScalingFactors:
             for column in columns:
                 if column not in self.factors or column not in obj.columns:
                     continue
-                key = _state_key(self, kind, column)
-                if state.get(key) == direction:
-                    continue
                 values = np.asarray(obj[column].to_numpy(), dtype=float)
                 factor = self._per_row(obj, column)
+                key = _state_key(column, factor)
+                if state.get(key) == direction:
+                    continue
                 converted = (
                     values / factor if direction == "internal" else values * factor
                 )
@@ -507,11 +589,11 @@ class ScalingFactors:
         for column in columns:
             if column not in self.factors or column not in result.columns:
                 continue
-            key = _state_key(self, kind, column)
-            if state.get(key) == direction:
-                continue
             frame = nw.from_native(result, eager_only=True)
             factor = self._per_row(frame, column)
+            key = _state_key(column, factor)
+            if state.get(key) == direction:
+                continue
             values = np.asarray(result[column], dtype=float)
             result[column] = (
                 values / factor if direction == "internal" else values * factor
@@ -527,7 +609,7 @@ class ScalingFactors:
         obj: Any,
         *,
         kind: ScaleKind,
-        dims: Any,
+        dims: ScaleDims,
         direction: ScaleDirection,
     ) -> Any:
         """Shared implementation for both public conversion directions."""
@@ -560,7 +642,7 @@ class ScalingFactors:
             context = replace(context, term=str(obj.name))
         return self._convert_value(obj, kind=kind, context=context, direction=direction)
 
-    def to_internal(self, obj: Any, *, kind: ScaleKind, dims: Any = None) -> Any:
+    def to_internal(self, obj: Any, *, kind: ScaleKind, dims: ScaleDims = None) -> Any:
         """Convert business-unit values to the model's internal scale.
 
         ``kind`` describes the value's semantic role rather than its Python
@@ -571,7 +653,7 @@ class ScalingFactors:
         """
         return self._convert(obj, kind=kind, dims=dims, direction="internal")
 
-    def to_business(self, obj: Any, *, kind: ScaleKind, dims: Any = None) -> Any:
+    def to_business(self, obj: Any, *, kind: ScaleKind, dims: ScaleDims = None) -> Any:
         """Convert internal-scale values to user-facing business units.
 
         See :meth:`to_internal` for the semantic kinds and alignment context.
@@ -587,7 +669,7 @@ class ScalingFactors:
         return self.to_internal(
             df,
             kind="regressor",
-            dims=_ScaleContext(columns=tuple(self.factors)),
+            dims=ScaleContext(columns=tuple(self.factors)),
         )
 
     def inverse_transform_column(
@@ -598,7 +680,7 @@ class ScalingFactors:
             self.to_business(
                 np.asarray(values, dtype=float),
                 kind="outcome",
-                dims=_ScaleContext(term=column, data=df),
+                dims=ScaleContext(term=column, data=df),
             )
         )
 
@@ -613,7 +695,7 @@ class ScalingFactors:
         any one unit's coefficient.
         """
         return self._scalar_factor(
-            column, _ScaleContext(term=column, data=df, scalar="mean")
+            column, ScaleContext(term=column, data=df, scalar="mean")
         )
 
     def coefficient_to_business(
@@ -627,15 +709,14 @@ class ScalingFactors:
         Applies ``mean_factor(outcome) / mean_factor(predictor)``. That
         ratio is only correct when the coefficient multiplies the raw
         column (or a homogeneous transform of it, such as adstock).
-        Saturating transforms, interactions, and HSGP terms need a
-        different mapping — see the labeled-coefficient path in
-        :mod:`pathmc.effects`.
+        Saturating transforms, interactions, and HSGP terms are handled by
+        :meth:`to_business` with ``kind="coefficient"`` and a parsed term.
         """
         return float(
             self.to_business(
                 1.0,
                 kind="coefficient",
-                dims=_ScaleContext(term=predictor, outcome=outcome, data=df),
+                dims=ScaleContext(term=predictor, outcome=outcome, data=df),
             )
         )
 
@@ -644,7 +725,7 @@ class ScalingFactors:
         return self.to_business(
             da,
             kind="outcome",
-            dims=_ScaleContext(term=column, data=df, scalar="mean"),
+            dims=ScaleContext(term=column, data=df, scalar="mean"),
         )
 
 
@@ -949,12 +1030,12 @@ def fit_scaling(
         for column in channel_columns or set():
             if column in scaling.factors:
                 existing_roles.setdefault(column, set()).add("regressor")
-        return replace(
-            scaling,
-            roles={
-                column: frozenset(value) for column, value in existing_roles.items()
-            },
-        )
+        resolved_roles = {
+            column: frozenset(value) for column, value in existing_roles.items()
+        }
+        if resolved_roles == scaling.roles:
+            return scaling
+        return replace(scaling, roles=resolved_roles)
     if not isinstance(scaling, Scaling):
         raise TypeError(
             "scaling= accepts pathmc.Scaling or a fitted "

@@ -18,6 +18,7 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Callable
 
 import numpy as np
@@ -27,9 +28,9 @@ import xarray as xr
 
 import pathmc
 from pathmc import Scaling
-from pathmc._model import PathModel
+from pathmc._model import PathModel, _layout_unscaled_column
 from pathmc.parse import parse_spec
-from pathmc.scaling import ScalingFactors, fit_scaling
+from pathmc.scaling import ScaleContext, ScalingFactors, fit_scaling
 from pathmc.simulate import _business_exog_value
 
 
@@ -106,6 +107,35 @@ def test_narwhals_frame_conversion_is_idempotent(heterogeneous_factors):
     np.testing.assert_allclose(repeated_business["X"].to_numpy(), frame["X"])
 
 
+def test_frame_idempotence_is_shared_across_semantic_roles():
+    frame = pd.DataFrame({"Y": [8.0, 8.0]})
+    factors = ScalingFactors(
+        factors={"Y": ((), {(): 2.0})},
+        roles={"Y": frozenset({"outcome", "regressor"})},
+    )
+
+    once = factors.to_internal(frame, kind="regressor")
+    cross_role = factors.to_internal(once, kind="outcome")
+
+    pd.testing.assert_frame_equal(cross_role, once)
+    np.testing.assert_allclose(cross_role["Y"], [4.0, 4.0])
+
+
+def test_manual_frame_factors_require_roles_or_explicit_columns():
+    frame = pd.DataFrame({"X": [10.0, 20.0]})
+    factors = ScalingFactors(factors={"X": ((), {(): 10.0})})
+
+    with pytest.raises(ValueError, match="requires semantic roles"):
+        factors.to_internal(frame, kind="regressor")
+
+    converted = factors.to_internal(
+        frame,
+        kind="regressor",
+        dims=ScaleContext(columns=("X",)),
+    )
+    np.testing.assert_allclose(converted["X"], [1.0, 2.0])
+
+
 def test_series_array_and_scalar_round_trip_and_idempotence(heterogeneous_factors):
     factors, frame = heterogeneous_factors
     dims = {"term": "X", "data": _nw(frame)}
@@ -131,6 +161,90 @@ def test_series_array_and_scalar_round_trip_and_idempotence(heterogeneous_factor
         )
         == 20.0
     )
+
+
+def test_numpy_conversion_state_survives_arithmetic_and_slicing(
+    heterogeneous_factors,
+):
+    factors, frame = heterogeneous_factors
+    dims = ScaleContext(term="X", data=_nw(frame))
+    converted = factors.to_internal(frame["X"].to_numpy(), kind="regressor", dims=dims)
+
+    for derived in (converted * 1.0, converted[:]):
+        repeated = factors.to_internal(derived, kind="regressor", dims=dims)
+        np.testing.assert_allclose(repeated, derived)
+    assert getattr(converted[:1], "_pathmc_scale_units", None)
+
+
+def test_conversion_state_is_stable_across_equivalent_factor_instances():
+    first = ScalingFactors(factors={"X": ((), {(): 10.0})})
+    second = ScalingFactors(factors={"X": ((), {(): 10.0})})
+    converted = first.to_internal(
+        np.array([10.0, 20.0]),
+        kind="regressor",
+        dims=ScaleContext(term="X"),
+    )
+
+    repeated = second.to_internal(
+        converted,
+        kind="regressor",
+        dims=ScaleContext(term="X"),
+    )
+
+    np.testing.assert_allclose(repeated, [1.0, 2.0])
+
+
+def test_conversion_state_distinguishes_different_resolved_alignment():
+    factors = ScalingFactors(factors={"X": (("geo",), {("a",): 2.0, ("b",): 4.0})})
+    forward = _nw(pd.DataFrame({"geo": ["a", "b"]}))
+    reverse = _nw(pd.DataFrame({"geo": ["b", "a"]}))
+    converted = factors.to_internal(
+        np.array([8.0, 8.0]),
+        kind="regressor",
+        dims=ScaleContext(term="X", data=forward),
+    )
+
+    realigned = factors.to_internal(
+        converted,
+        kind="regressor",
+        dims=ScaleContext(term="X", data=reverse),
+    )
+
+    np.testing.assert_allclose(realigned, [1.0, 1.0])
+
+
+def test_row_factors_reject_same_size_but_misaligned_array():
+    factors = ScalingFactors(factors={"X": (("geo",), {("a",): 1.0, ("b",): 10.0})})
+    frame = _nw(pd.DataFrame({"geo": ["a", "a", "b", "b"]}))
+
+    with pytest.raises(ValueError, match="equal element count"):
+        factors.to_internal(
+            np.ones((2, 2)),
+            kind="regressor",
+            dims=ScaleContext(term="X", data=frame),
+        )
+
+
+def test_scan_factors_reject_transposed_same_size_array():
+    factors = ScalingFactors(
+        factors={"X": (("geo",), {("a",): 1.0, ("b",): 10.0, ("c",): 100.0})}
+    )
+    frame = _nw(pd.DataFrame({"geo": ["a", "a", "b", "b", "c", "c"]}))
+    scan = SimpleNamespace(sort_idx=np.arange(6), n_units=3, n_times=2)
+
+    with pytest.raises(ValueError, match=r"expected shape \(2, 3\)"):
+        factors.to_internal(
+            np.ones((3, 2)),
+            kind="regressor",
+            dims=ScaleContext(term="X", data=frame, scan_info=scan),
+        )
+
+
+def test_observed_layout_rejects_same_size_shape_coincidence():
+    template = xr.DataArray(np.ones((2, 2)), dims=("chain", "row"))
+
+    with pytest.raises(ValueError, match="Shapes must match exactly"):
+        _layout_unscaled_column(np.arange(4.0), template, None)
 
 
 def test_xarray_factors_align_by_named_dimension(heterogeneous_factors):
@@ -348,9 +462,10 @@ def test_factor_arithmetic_does_not_escape_scaling_module():
         ".mean_factor(",
         ".inverse_transform_column(",
         ".unscale_xarray(",
+        ".factors",
     )
     leaks: list[str] = []
-    for path in package.glob("*.py"):
+    for path in package.rglob("*.py"):
         if path.name == "scaling.py":
             continue
         text = path.read_text()

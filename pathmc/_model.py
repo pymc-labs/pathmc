@@ -87,9 +87,9 @@ from pathmc.parse import Spec, parse_spec
 from pathmc.refute import PlaceboRefutationResult, refute_placebo as _refute_placebo
 from pathmc.sensitivity import SensitivityResult, compute_sensitivity
 from pathmc.scaling import (
+    ScaleContext,
     Scaling,
     ScalingFactors,
-    _ScaleContext,
     fit_scaling,
     validate_scaling_config,
 )
@@ -188,7 +188,7 @@ def _scale_set_for_bounds(
             factors.to_internal(
                 vals,
                 kind="regressor",
-                dims=_ScaleContext(term=var, data=data),
+                dims=ScaleContext(term=var, data=data),
             )
         ).ravel()
     return out
@@ -205,15 +205,12 @@ def _layout_unscaled_column(
         mat = raw[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
         if mat.shape == sizes:
             return mat
-        if mat.size == int(np.prod(sizes)):
-            return mat.reshape(sizes)
     if raw.shape == sizes:
         return raw
-    if raw.size == int(np.prod(sizes)):
-        return raw.reshape(sizes)
     raise ValueError(
         f"Cannot align unscaled column of length {raw.size} to observed_data "
-        f"shape {sizes}."
+        f"shape {sizes}. Shapes must match exactly; an equal element count "
+        "does not establish dimension alignment."
     )
 
 
@@ -236,13 +233,13 @@ def _unscale_predict_groups(
     if obs is None:
         return
     for var in list(obs.data_vars):
-        if var not in data.columns:
+        if not scaling_factors.has_factor(var) or var not in data.columns:
             continue
         raw = np.asarray(
             scaling_factors.to_business(
                 np.asarray(data[var].to_numpy(), dtype=float),
                 kind="outcome",
-                dims=_ScaleContext(term=var, data=data),
+                dims=ScaleContext(term=var, data=data),
             )
         )
         template = obs[var]
@@ -256,13 +253,20 @@ def _unscale_predict_groups(
 
 def _scale_scalar_intervention(var: str, val: float, factors: ScalingFactors) -> float:
     """Divide a unit-less scalar by a uniform fitted factor, or raise."""
-    return float(
-        factors.to_internal(
-            val,
-            kind="regressor",
-            dims=_ScaleContext(term=var, scalar="uniform"),
+    try:
+        return float(
+            factors.to_internal(
+                val,
+                kind="regressor",
+                dims=ScaleContext(term=var, scalar="uniform"),
+            )
         )
-    )
+    except ValueError as exc:
+        raise ValueError(
+            f"Cannot apply per-unit scaling of {var!r} to a single scalar. "
+            "Use do() on the panel, or pass a value already in scaled units "
+            "on a model with a single global scale."
+        ) from exc
 
 
 def _warn_extrapolation(
@@ -1347,7 +1351,7 @@ class PathModel:
                 self._scaling_factors.to_internal(
                     np.full(len(self._data), subgroup_value, dtype=float),
                     kind="regressor",
-                    dims=_ScaleContext(term=treatment, data=self._data),
+                    dims=ScaleContext(term=treatment, data=self._data),
                 )
             )
         mask = np.isclose(
@@ -2280,14 +2284,14 @@ class PathModel:
         if factors is None:
             return grid
 
-        for column in factors.factors:
+        for column in factors.columns_present_in(grid.columns):
             if column in cols or column not in grid.columns:
                 continue
             raw_values = np.asarray(
                 factors.to_business(
                     np.asarray(self._data[column].to_numpy(), dtype=float),
                     kind="regressor",
-                    dims=_ScaleContext(term=column, data=self._data),
+                    dims=ScaleContext(term=column, data=self._data),
                 )
             )
             grid[column] = float(raw_values.mean())
@@ -2486,7 +2490,7 @@ def _invert_generated_columns(
         values = factors.to_business(
             np.asarray(series.to_numpy(), dtype=float),
             kind="outcome",
-            dims=_ScaleContext(term=var, data=df),
+            dims=ScaleContext(term=var, data=df),
         )
         out[var] = nw.new_series(var, np.asarray(values), backend=backend)
     return out

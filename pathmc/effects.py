@@ -31,7 +31,7 @@ import xarray as xr
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi, hdi_label
 from pathmc.parse import Spec, Term
 from pathmc.reprs import ReprSpec, ResultReprMixin
-from pathmc.scaling import ScalingFactors, _ScaleContext
+from pathmc.scaling import ScaleContext, ScalingFactors
 
 __all__ = ["EffectResult"]
 
@@ -238,7 +238,7 @@ def _term_coefficient_scale(
         scaling_factors.to_business(
             1.0,
             kind="coefficient",
-            dims=_ScaleContext(term=term, outcome=outcome, data=data),
+            dims=ScaleContext(term=term, outcome=outcome, data=data),
         )
     )
 
@@ -289,7 +289,7 @@ def build_effects_summary(
                     scaling_factors.to_business(
                         labeled_draws[term.label],
                         kind="coefficient",
-                        dims=_ScaleContext(term=term, outcome=reg.lhs, data=data),
+                        dims=ScaleContext(term=term, outcome=reg.lhs, data=data),
                     )
                 )
         labeled_draws = converted
@@ -559,7 +559,7 @@ def compute_path_effect(
                 scaling_factors.to_business(
                     draws,
                     kind="coefficient",
-                    dims=_ScaleContext(
+                    dims=ScaleContext(
                         term=matched_term,
                         outcome=target,
                         data=data,

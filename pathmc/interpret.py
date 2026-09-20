@@ -30,7 +30,7 @@ from pathmc.compile import build_design_matrix, get_predictor_columns
 from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.idata import hdi as compute_hdi
 from pathmc.reprs import ReprSpec, ResultReprMixin
-from pathmc.scaling import _ScaleContext
+from pathmc.scaling import ScaleContext
 from pathmc.simulate import (
     EstimandResult,
     _DrawStorageMixin,
@@ -488,12 +488,9 @@ def _to_frame(model: PathModel, newdata: IntoFrame | None) -> tuple[nw.DataFrame
         return model._data, False
     df = nw.from_native(newdata, eager_only=True)
     factors = model._scaling_factors
-    if factors is None or not factors.factors:
+    if factors is None or not factors:
         return df, True
-    needed: set[str] = set()
-    for col, (dims, _table) in factors.factors.items():
-        if col in df.columns:
-            needed.update(dims)
+    needed = factors.required_dimensions(df.columns)
     missing = [d for d in needed if d not in df.columns]
     if missing:
         raise ValueError(
@@ -505,9 +502,7 @@ def _to_frame(model: PathModel, newdata: IntoFrame | None) -> tuple[nw.DataFrame
     return factors.to_internal(
         df,
         kind="regressor",
-        dims=_ScaleContext(
-            columns=tuple(column for column in factors.factors if column in df.columns)
-        ),
+        dims=ScaleContext(columns=factors.columns_present_in(df.columns)),
     ), True
 
 
@@ -523,7 +518,7 @@ def _column_in_business_units(
         factors.to_business(
             x,
             kind="regressor",
-            dims=_ScaleContext(term=column, data=data),
+            dims=ScaleContext(term=column, data=data),
         )
     )
 

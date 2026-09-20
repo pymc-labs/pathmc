@@ -48,7 +48,7 @@ from pathmc.idata import hdi_label
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
 from pathmc.reprs import ReprSpec, ResultReprMixin
-from pathmc.scaling import ScalingFactors, _ScaleContext
+from pathmc.scaling import ScaleContext, ScalingFactors
 
 if TYPE_CHECKING:
     import matplotlib.axes
@@ -207,7 +207,7 @@ def _to_business_units(
     return scaling_factors.to_business(
         da,
         kind="outcome",
-        dims=_ScaleContext(
+        dims=ScaleContext(
             term=var,
             data=data,
             scan_info=scan_info,
@@ -227,7 +227,7 @@ def _unscale_do_dataset(
     return scaling_factors.to_business(
         ds,
         kind="outcome",
-        dims=_ScaleContext(data=data, scalar="mean"),
+        dims=ScaleContext(data=data, scalar="mean"),
     )
 
 
@@ -1250,7 +1250,7 @@ def _scale_cross_section_intervention(
         scaling_factors.to_internal(
             arr,
             kind="regressor",
-            dims=_ScaleContext(term=var, data=data),
+            dims=ScaleContext(term=var, data=data),
         )
     )
 
@@ -1269,7 +1269,7 @@ def _scale_scan_intervention(
         scaling_factors.to_internal(
             mat,
             kind="regressor",
-            dims=_ScaleContext(term=var, data=data, scan_info=scan_info),
+            dims=ScaleContext(term=var, data=data, scan_info=scan_info),
         )
     )
 
@@ -1293,18 +1293,6 @@ def _as_unit_dim(mu: xr.DataArray) -> xr.DataArray:
     return mu.rename({obs[0]: "unit"})
 
 
-def _exog_value(
-    var: str, data: nw.DataFrame, subgroup_indices: np.ndarray | None
-) -> float:
-    """Empirical fill for an exogenous variable, restricted to a subgroup."""
-    if var not in data.columns:
-        return 0.0
-    col = data[var].to_numpy()
-    if subgroup_indices is not None:
-        col = col[subgroup_indices]
-    return _exogenous_fill(col)
-
-
 def _business_exog_value(
     var: str,
     data: nw.DataFrame,
@@ -1320,7 +1308,7 @@ def _business_exog_value(
             scaling_factors.to_business(
                 values,
                 kind="regressor",
-                dims=_ScaleContext(term=var, data=data),
+                dims=ScaleContext(term=var, data=data),
             ),
             dtype=float,
         )
