@@ -147,19 +147,11 @@ The posterior-predictive mean follows the planted seasonal mean, and the 94% int
 
 Fourier columns are recomputed when their input changes. We can therefore intervene on the next two 52-week cycles without an HSGP-style fitted support boundary. To make the future interval comparable with the in-sample interval above, we request `kind="predictive"`: both panels then include uncertainty in the harmonic weights *and* residual sales noise.
 
-The generic extrapolation warning is useful for most interventions, but a Fourier basis is defined by its period beyond the observed numerical range. We suppress that warning only for this explicitly periodic projection.
+The projection lies outside the fitted numerical range, so pathmc emits one extrapolation warning. That warning is useful context; Fourier remains defined here because its period specifies how the basis repeats beyond the observed weeks.
 
 ```{python}
-import warnings
-
 future_week = np.arange(104, 208, dtype=float)
-with warnings.catch_warnings():
-    warnings.filterwarnings(
-        "ignore",
-        message="Intervention value .* outside the observed data range.*",
-        category=UserWarning,
-    )
-    future_predictive = model.do(set={"week": future_week}, kind="predictive")
+future_predictive = model.do(set={"week": future_week}, kind="predictive")
 future_sales_draws = future_predictive.dataset["sales"].values.reshape(
     -1, len(future_week)
 )
