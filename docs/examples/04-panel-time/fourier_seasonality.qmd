@@ -152,6 +152,14 @@ The projection lies outside the fitted numerical range, so pathmc emits one extr
 ```{python}
 future_week = np.arange(104, 208, dtype=float)
 future_predictive = model.do(set={"week": future_week}, kind="predictive")
+```
+
+`future_predictive` retains posterior-predictive samples for every future week. The collapsed cell below turns those samples into the figure's means and 94% intervals.
+
+```{python}
+# | label: fig-fourier-future-cycle
+# | fig-cap: "In-sample and future posterior-predictive weekly sales. Orange marks the fitted 104 weeks and green marks two future 52-week cycles; both bands are 94% HDIs for individual sales observations. The black dashed curve is the planted seasonal mean in sales units."
+# | code-fold: true
 future_sales_draws = future_predictive.dataset["sales"].values.reshape(
     -1, len(future_week)
 )
@@ -164,12 +172,7 @@ future_seasonal_mean = (
 )
 all_week = np.concatenate([df["week"].to_numpy(), future_week])
 all_seasonal_mean = np.concatenate([10 + seasonal_signal, future_seasonal_mean])
-```
 
-```{python}
-# | label: fig-fourier-future-cycle
-# | fig-cap: "In-sample and future posterior-predictive weekly sales. Orange marks the fitted 104 weeks and green marks two future 52-week cycles; both bands are 94% HDIs for individual sales observations. The black dashed curve is the planted seasonal mean in sales units."
-# | code-fold: true
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 ax.scatter(
     df["week"],
