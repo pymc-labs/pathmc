@@ -1,22 +1,36 @@
 ---
 title: "Fourier Seasonality"
 author:
-  - name: "PyMC Labs"
+  - name: "Benjamin Vincent"
 description: "Model seasonal variation with the fourier() basis term and inspect its harmonic components."
 tags: [Basis Functions, Panel Data]
 jupyter: pathmc
 ---
 
-Seasonality is often smoother than a week-by-week categorical effect. `fourier(week, n=3, period=52)` represents a yearly cycle with three sine/cosine harmonic pairs, each with its own coefficient. Unlike a transform, the basis owns all six weights, so it is written without a `beta*` prefix.
+Weekly sales can rise and fall every year without changing abruptly at the boundary between weeks 52 and 1. A week-by-week categorical effect can describe that pattern, but it needs one parameter per week and does not express its smooth, repeating structure. `fourier(week, n=3, period=52)` instead represents a yearly cycle with three sine/cosine harmonic pairs, each with its own coefficient.
 
-## Simulate one seasonal cycle
+This example simulates two years of sales, fits a seasonal model, and checks that posterior-predictive sales recover the planted cycle and its observation noise. It assumes familiarity with fitting a basic pathmc model; see the [Basis Terms](/user-guide/basis-terms.html) guide for how Fourier and HSGP terms differ.
+
+## Simulate a repeating seasonal signal
+
+The data-generating process has a baseline of 10 sales units, a one-cycle sine wave of amplitude 2, a second harmonic of amplitude 0.6, and Gaussian measurement noise with standard deviation 0.25. We simulate two full 52-week cycles so that the model sees the repetition it must learn.
 
 ```{python}
+# | label: fig-simulated-seasonality
+# | fig-cap: "Simulated weekly sales across two 52-week cycles. Points include Gaussian observation noise; the solid line is the planted seasonal mean in sales units."
+# | code-fold: true
+import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 import pathmc
+
+FIG_WIDTH = 8
+FIG_HEIGHT = 3.5
+COLOR_OBSERVED = "#4c78a8"
+COLOR_POSTERIOR = "#f58518"
+COLOR_TRUE = "black"
 
 rng = np.random.default_rng(42)
 week = np.arange(104, dtype=float)
@@ -28,26 +42,114 @@ df = pd.DataFrame({
     "sales": 10 + seasonal_signal + rng.normal(0, 0.25, len(week)),
 })
 
-fig, ax = plt.subplots(figsize=(8, 3))
-ax.plot(df["week"], df["sales"], ".", alpha=0.5, label="observed sales")
-ax.plot(df["week"], 10 + seasonal_signal, color="C1", label="seasonal signal")
-ax.set(xlabel="week", ylabel="sales")
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.scatter(
+    df["week"],
+    df["sales"],
+    s=16,
+    alpha=0.55,
+    color=COLOR_OBSERVED,
+    label="Observed sales",
+)
+ax.plot(
+    df["week"],
+    10 + seasonal_signal,
+    color=COLOR_TRUE,
+    lw=2,
+    label="Planted seasonal mean",
+)
+ax.set(xlabel="Week", ylabel="Sales (arbitrary units)", xlim=(0, 103))
 ax.legend()
+plt.show()
 ```
 
-## Build the seasonal model
+The points are noisy, but the rise and fall repeat after 52 weeks. The model below has enough harmonics to recover both the broad annual wave and the smaller second-harmonic feature without fitting a separate effect for every week.
+
+## Fit a Fourier seasonal model
 
 ```{python}
 model = pathmc.model("sales ~ fourier(week, n=3, period=52)", data=df)
 model.equations()
 ```
 
+The Fourier term owns six coefficients: one sine and one cosine weight for each of the three harmonics. These weights jointly describe the shape of the cycle, while the equation intercept describes the overall sales level.
+
 ```{python}
 idata = model.fit(
     draws=200, tune=200, chains=1, cores=1, progressbar=False, random_seed=42
 )
-new_year = model.do(set={"week": np.arange(104, 208, dtype=float)}, kind="mean")
-new_year.mean("sales")
 ```
 
-The basis is also valid when its input is a latent mediator, because sine and cosine are constructed in the PyMC graph. `do()` therefore recomputes the harmonic contribution when it changes the input, without an HSGP-style fitted support boundary. See [Basis Terms](../../user_guide/12b-basis-terms.qmd) for the capability table and comparison with `hsgp()`.
+## Check posterior-predictive sales
+
+A fitted seasonal curve alone would hide the uncertainty introduced by residual noise. A posterior predictive check instead simulates new sales at every observed week, combining uncertainty about the harmonic weights with the model's observation noise.
+
+```{python}
+posterior_predictive = model.predict(
+    extend_inferencedata=False, progressbar=False, random_seed=42
+)
+sales_predictive = posterior_predictive.posterior_predictive["sales"].values.reshape(
+    -1, len(df)
+)
+sales_predictive_mean = sales_predictive.mean(axis=0)
+sales_predictive_hdi = az.hdi(sales_predictive, prob=0.94, axis=0)
+```
+
+```{python}
+# | label: fig-fourier-posterior-predictive
+# | fig-cap: "Posterior-predictive weekly sales with a 94% HDI across two 52-week cycles. The black dashed curve is the planted seasonal mean; points are the simulated observations in sales units."
+# | code-fold: true
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.scatter(
+    df["week"],
+    df["sales"],
+    s=14,
+    alpha=0.45,
+    color=COLOR_OBSERVED,
+    label="Observed sales",
+    zorder=1,
+)
+ax.fill_between(
+    df["week"],
+    sales_predictive_hdi[:, 0],
+    sales_predictive_hdi[:, 1],
+    color=COLOR_POSTERIOR,
+    alpha=0.25,
+    label="94% posterior-predictive HDI",
+    zorder=2,
+)
+ax.plot(
+    df["week"],
+    sales_predictive_mean,
+    color=COLOR_POSTERIOR,
+    lw=2.5,
+    label="Posterior-predictive mean",
+    zorder=3,
+)
+ax.plot(
+    df["week"],
+    10 + seasonal_signal,
+    color=COLOR_TRUE,
+    linestyle="--",
+    lw=1.5,
+    label="Planted seasonal mean",
+    zorder=4,
+)
+ax.set(xlabel="Week", ylabel="Sales (arbitrary units)", xlim=(0, 103))
+ax.legend(fontsize=8)
+plt.show()
+```
+
+The posterior-predictive mean follows the planted seasonal mean, and the 94% interval covers the scatter expected from the simulated observation noise. That is the relevant check here: the model should recover the repeating pattern without pretending that an individual week's sales are known exactly.
+
+## Project a future cycle with `do()`
+
+Fourier columns are recomputed when their input changes. We can therefore set `week` to two future cycles and obtain the model's expected seasonal pattern without an HSGP-style fitted support boundary. The intervention array matches the 104 observations used to fit this model.
+
+```{python}
+future_week = np.arange(104, 208, dtype=float)
+future_sales = model.do(set={"week": future_week}, kind="mean")
+future_sales.mean("sales")
+```
+
+**Takeaway:** use `fourier()` when the outcome varies smoothly and periodically, and use a posterior predictive check to verify both the cycle and the scale of unexplained variation. For a smooth relationship that does not repeat, see the [HSGP example](/docs/examples/foundations/hsgp_1d.html).
