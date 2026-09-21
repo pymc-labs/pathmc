@@ -30,6 +30,7 @@ FIG_WIDTH = 8
 FIG_HEIGHT = 3.5
 COLOR_OBSERVED = "#4c78a8"
 COLOR_POSTERIOR = "#f58518"
+COLOR_FUTURE = "#54a24b"
 COLOR_TRUE = "black"
 
 rng = np.random.default_rng(42)
@@ -144,12 +145,59 @@ The posterior-predictive mean follows the planted seasonal mean, and the 94% int
 
 ## Project a future cycle with `do()`
 
-Fourier columns are recomputed when their input changes. We can therefore set `week` to two future cycles and obtain the model's expected seasonal pattern without an HSGP-style fitted support boundary. The intervention array matches the 104 observations used to fit this model.
+Fourier columns are recomputed when their input changes. We can therefore intervene on each week of the next 52-week cycle and obtain its expected seasonal pattern without an HSGP-style fitted support boundary. Calling `do()` once per week retains the posterior uncertainty for each point on the projected curve.
 
 ```{python}
-future_week = np.arange(104, 208, dtype=float)
-future_sales = model.do(set={"week": future_week}, kind="mean")
-future_sales.mean("sales")
+future_week = np.arange(104, 156, dtype=float)
+future_sales_draws = np.column_stack([
+    model.do(set={"week": float(value)}, kind="mean").draws("sales")
+    for value in future_week
+])
+future_sales_mean = future_sales_draws.mean(axis=0)
+future_sales_hdi = az.hdi(future_sales_draws, prob=0.94, axis=0)
+future_seasonal_mean = (
+    10
+    + 2 * np.sin(2 * np.pi * future_week / 52)
+    + 0.6 * np.cos(4 * np.pi * future_week / 52)
+)
 ```
 
-**Takeaway:** use `fourier()` when the outcome varies smoothly and periodically, and use a posterior predictive check to verify both the cycle and the scale of unexplained variation. For a smooth relationship that does not repeat, see the [HSGP example](/docs/examples/foundations/hsgp_1d.html).
+```{python}
+# | label: fig-fourier-future-cycle
+# | fig-cap: "Interventional projection of expected weekly sales for the next 52-week cycle. The green line and band are the posterior mean and 94% HDI under do(week); the black dashed curve is the planted seasonal mean in sales units."
+# | code-fold: true
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.fill_between(
+    future_week,
+    future_sales_hdi[:, 0],
+    future_sales_hdi[:, 1],
+    color=COLOR_FUTURE,
+    alpha=0.25,
+    label="94% interventional HDI",
+    zorder=1,
+)
+ax.plot(
+    future_week,
+    future_sales_mean,
+    color=COLOR_FUTURE,
+    lw=2.5,
+    label="Interventional mean",
+    zorder=2,
+)
+ax.plot(
+    future_week,
+    future_seasonal_mean,
+    color=COLOR_TRUE,
+    linestyle="--",
+    lw=1.5,
+    label="Planted seasonal mean",
+    zorder=3,
+)
+ax.set(xlabel="Future week", ylabel="Expected sales (arbitrary units)")
+ax.legend(fontsize=8)
+plt.show()
+```
+
+The projection repeats the learned cycle and stays close to the known data-generating pattern, with a narrow interval because the model observed two complete cycles. In applied work the dashed reference will be unavailable, but the band still communicates uncertainty about the expected seasonal contribution.
+
+**Takeaway:** use `fourier()` when the outcome varies smoothly and periodically, use a posterior predictive check to assess observations, and use `do()` to project the expected cycle at future input values. For a smooth relationship that does not repeat, see the [HSGP example](/docs/examples/foundations/hsgp_1d.html).
