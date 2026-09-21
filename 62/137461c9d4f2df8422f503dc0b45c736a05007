@@ -1,0 +1,30 @@
+docs/examples/04-panel-time/fourier_seasonality.qmd
+  s_323ce2f6e7f6d4::t_edc8b394d88f08 22
+  s_323ce2f6e7f6d4::t_0e08ddce9557b1 95
+  s_323ce2f6e7f6d4::t_4a99a458924ac3 147,150
+  s_323ce2f6e7f6d4::t_e2c95dcf0c494b 4,10,12-16,19-21,29-34,45-61,63,66-68,75-76,83-94,96-146,148-149,151-155
+docs/examples/01-foundations/hsgp_1d.qmd
+  s_323ce2f6e7f6d4::t_e2c95dcf0c494b 11
+docs/user_guide/basis-terms.qmd
+  s_323ce2f6e7f6d4::t_e2c95dcf0c494b 1-36
+_freeze/docs/examples/foundations/hsgp_1d/execute-results/html.json
+  s_323ce2f6e7f6d4::t_2e922617e83e09 2,5,15
+_freeze/docs/examples/panel-time/fourier_seasonality/execute-results/html.json
+  s_323ce2f6e7f6d4::t_e3bc394cf99efb 2,5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "62137461c9d4f2df8422f503dc0b45c736a05007",
+  "prompts": {},
+  "sessions": {
+    "s_323ce2f6e7f6d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb8e-cc8f-7aa2-810b-77ca91422941",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
