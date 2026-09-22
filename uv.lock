@@ -866,7 +866,7 @@ wheels = [
 
 [[package]]
 name = "great-docs"
-version = "0.16.0"
+version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -875,12 +875,13 @@ dependencies = [
     { name = "pillow" },
     { name = "py-yaml12" },
     { name = "pygments" },
+    { name = "python-dotenv" },
     { name = "requests" },
     { name = "ruff" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ad/d1/f35d227b3d267a16c6f9d4076d6fc16b7acd83a1b4d7b3f31a4d20156eea/great_docs-0.16.0.tar.gz", hash = "sha256:ba31a4928834680faa7092f2d30cc63f26a9f685f37d27a7f0712ca34f8a0dae", size = 31315606, upload-time = "2026-07-27T23:53:54.757Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/99/d0573f286f3179efe9f3f819bc686e3f2a3c570d3643cb1f1c8979b7a5fc/great_docs-0.17.0.tar.gz", hash = "sha256:98e5408ba1e64a3c8b08a6f6619e2b2d1a83d509b8f97d1477030e3112f6948d", size = 31422143, upload-time = "2026-08-13T15:23:59.668Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/28/01ae5d1e195f5079e485c27f4710f08629f0a688db5bdc4ab1fdc9a9fa07/great_docs-0.16.0-py3-none-any.whl", hash = "sha256:aab52ed8fb114170cfc4055a8037faf590bcf6048a482906da694a72f6f5e816", size = 985396, upload-time = "2026-07-27T23:53:52.896Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/88/f6f5ebd572ddf532021b87d719765b0ce59fb99dd12f6d1b25ba93ae7380/great_docs-0.17.0-py3-none-any.whl", hash = "sha256:3d2e715ca7aa3cbbf7ff47a2987dd9c65510d920ceefb793c200eb3ed509e550", size = 1034889, upload-time = "2026-08-13T15:23:57.227Z" },
 ]
 
 [[package]]
@@ -2302,7 +2303,7 @@ dev = [
 requires-dist = [
     { name = "arviz", specifier = ">=1.1,<2" },
     { name = "graphviz" },
-    { name = "great-docs", marker = "extra == 'docs'", specifier = ">=0.16.0" },
+    { name = "great-docs", marker = "extra == 'docs'", specifier = ">=0.17.0" },
     { name = "jax", marker = "extra == 'samplers'" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "narwhals", specifier = ">=1.20,<3" },
@@ -2909,6 +2910,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee498c46e004a0eb49bc148f2fd230864601a86dcf6db/python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3", size = 342432, upload-time = "2024-03-01T18:36:20.211Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
+]
+
+[[package]]
+name = "python-dotenv"
+version = "1.2.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/53/ed9d74092561d4b01a2ef1349d52cdbc135e526c245f366b089cfca6de49/python_dotenv-1.2.3.tar.gz", hash = "sha256:a20a594dabeaa385725aa239d5244871c143ecb356add8a20fcf23773a6c3a35", size = 58945, upload-time = "2026-08-16T16:54:54.067Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/17/c5c6b53ddc18f297992099b3d9ec16c855c0ccc83263a21fe4d1c625ec6c/python_dotenv-1.2.3-py3-none-any.whl", hash = "sha256:904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9", size = 22780, upload-time = "2026-08-16T16:54:52.473Z" },
 ]
 
 [[package]]
