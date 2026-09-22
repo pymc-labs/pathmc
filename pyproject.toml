@@ -66,7 +66,7 @@ dev = [
 
 [project.optional-dependencies]
 docs = [
-    "great-docs>=0.16.0",
+    "great-docs>=0.17.0",
 ]
 samplers = ["nutpie", "numpyro", "jax"]
 
