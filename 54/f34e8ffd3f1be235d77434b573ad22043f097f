@@ -1,0 +1,24 @@
+.agents/skills/code-review/SKILL.md
+  s_876f20a00307bb::t_6268c375ed14a1 68,76
+.agents/skills/work/SKILL.md
+  s_876f20a00307bb::t_5c3ec4c14842c2 281,285-286,288,294,297,301-303,305-308,310,313,321,329,340,353-357
+  s_876f20a00307bb::t_1ba3b76e68f1bf 80-83,86-88,92,94,96,111-115
+  s_876f20a00307bb::t_1598b8a83e9e9e 317
+  s_876f20a00307bb::t_f4ee74b8cf8755 216,218,247,249,255,267,276
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "54f34e8ffd3f1be235d77434b573ad22043f097f",
+  "prompts": {},
+  "sessions": {
+    "s_876f20a00307bb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c752-d7f4-7c81-b5dc-764ffa479d84",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
