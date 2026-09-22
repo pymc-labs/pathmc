@@ -1,0 +1,21 @@
+docs/user_guide/00-welcome.qmd
+  s_8b2a24fd668b5d::t_45d98e5ba9e141 30,32
+_freeze/index/execute-results/html.json
+  s_8b2a24fd668b5d::t_e68d05255ce168 2,5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "177f7c3fc41fb2379fcea8cc75b251cb198b9b49",
+  "prompts": {},
+  "sessions": {
+    "s_8b2a24fd668b5d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0caa7-f1f5-7b80-8f82-ea43ae61f55a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
