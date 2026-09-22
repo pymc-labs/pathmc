@@ -65,7 +65,7 @@ When reviews feed the **`work`** orchestrator (implementer agent will fix findin
 - The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full — the sub-agent has no other access to it.
 - The brief:
 
-> Report every 🔴 and 🟡 with: **Where** (file:line or symbol), **What** (current vs expected behaviour), **Why** (cite standard or smell name), **Fix** (concrete steps). Quote short diff hunks where helpful. Distinguish hard violations from judgement calls. Skip anything tooling enforces. Do not cap length — incomplete findings waste a review round. If posting to a PR for `work`, use the `work-round` template in the `work` skill.
+> Report every 🔴 and 🟡 with: **Where** (file:line or symbol), **What** (current vs expected behaviour), **Why** (cite standard or smell name), **Fix** (concrete steps). Quote short diff hunks where helpful. Distinguish hard violations from judgement calls. Skip anything tooling enforces. Do not cap length — incomplete findings waste a review round. If posting to a PR for `work`, use the `work-round` template in the `work` skill, including the exact current PR head SHA in the marker. An approval is stale after any push.
 
 **Spec sub-agent prompt** — include:
 
@@ -73,7 +73,7 @@ When reviews feed the **`work`** orchestrator (implementer agent will fix findin
 - The path or fetched contents of the spec.
 - The brief:
 
-> Report: (a) missing or partial requirements; (b) scope creep; (c) implemented requirements that look wrong. For each finding: **Where**, **What**, **Why** (quote spec line), **Fix**. Add a **Requirements checked** list for items you verified. Do not cap length when the implementer agent is the audience. If posting to a PR for `work`, use the `work-round` template in the `work` skill.
+> Report: (a) missing or partial requirements; (b) scope creep; (c) implemented requirements that look wrong. For each finding: **Where**, **What**, **Why** (quote spec line), **Fix**. Add a **Requirements checked** list for items you verified. Do not cap length when the implementer agent is the audience. If posting to a PR for `work`, use the `work-round` template in the `work` skill, including the exact current PR head SHA in the marker. An approval is stale after any push.
 
 If the spec is missing, skip the Spec sub-agent and note this in the final report.
 

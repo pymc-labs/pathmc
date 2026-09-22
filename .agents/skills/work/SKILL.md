@@ -77,23 +77,23 @@ If started from a PR: `gh pr checkout $PR_NUMBER`
 |--------|-----------|---------|
 | `work-spec` | Orchestrator | Spec published on the issue |
 | `work-summary` | Implementer | Summary after each implementation push |
-| `work-round:$N:standards` | Standards reviewer | Round *N* findings on repo conventions |
-| `work-round:$N:spec` | Spec reviewer | Round *N* findings vs issue spec |
-| `work-approved:standards` | Standards reviewer | Round *N* standards axis clean (no 🔴/🟡) |
-| `work-approved:spec` | Spec reviewer | Round *N* spec axis clean (no 🔴/🟡) |
-| `work-review-complete` | Orchestrator | Both axes approved; **CI not yet green** |
-| `work-approved` | Orchestrator | Both axes approved **and CI green** — merge-ready |
+| `work-round:$N:$AXIS:$SHA` | Standards/spec reviewer | Round *N* findings on the named axis at commit *SHA* |
+| `work-approved:$N:$AXIS:$SHA` | Standards/spec reviewer | Round *N* named axis clean (no 🔴/🟡) at commit *SHA* |
+| `work-review-complete:$N:$SHA` | Orchestrator | Both axes approved at *SHA*; **CI still pending** |
+| `work-approved:$N:$SHA` | Orchestrator | Both axes approved at *SHA* **and CI green** — merge-ready |
 | `work-escalation` | Orchestrator | Handoff to human |
 
-**Comment style**: Marker comments are for humans reading the PR. Write in plain language — full sentences, concrete file or behaviour references. Do **not** use orchestrator shorthand (`axis clean`, `public export`, `spec axis`) without explaining what was checked and what changed.
+**Comment style**: Marker comments are for humans reading the PR. Write in plain language — full sentences, concrete file or behaviour references. Do **not** use orchestrator shorthand (`axis clean`, `public export`, `spec axis`) without explaining what was checked and what changed. Replace `$N`, `$AXIS`, and `$SHA` with the review round, `standards` or `spec`, and the exact PR head SHA being reviewed.
+
+An approval is valid only for the SHA in its marker. Any push invalidates both axis approvals, so both reviewers must review the new head. Legacy markers without a round and SHA are historical state only; do not use them to approve a new head.
 
 ```bash
 gh pr view $PR_NUMBER --json comments -q \
-  '[.comments[].body | select(test("work-round:[0-9]+:"))] | length'
+  '[.comments[].body | select(test("<!-- work-round:[0-9]+:(standards|spec):[0-9a-f]{7,40} -->"))] | length'
 gh pr view $PR_NUMBER --json comments -q \
-  '[.comments[].body | select(test("<!-- work-approved -->"))] | length'
+  '[.comments[].body | select(test("<!-- work-approved:[0-9]+:[0-9a-f]{7,40} -->"))] | length'
 gh pr view $PR_NUMBER --json comments -q \
-  '[.comments[].body | select(test("work-review-complete"))] | length'
+  '[.comments[].body | select(test("<!-- work-review-complete:[0-9]+:[0-9a-f]{7,40} -->"))] | length'
 gh issue view $ISSUE_NUMBER --json labels -q \
   '[.labels[].name | select(. == "ready-for-agent")] | length'
 ```
@@ -108,11 +108,11 @@ gh issue view $ISSUE_NUMBER --json labels -q \
 | Issue open, no `ready-for-agent`, no `## Spec` in body | **Spec phase** |
 | Issue has `ready-for-agent`, no PR | **Implement phase** (create branch + PR) |
 | PR exists, CI failing | Fix CI → push → continue |
-| PR exists, unaddressed `work-round` on either axis | Address review → push → `work-summary` → continue |
-| PR exists, CI green, both axes need another review pass | **Review phase** (spawn reviewers) |
-| PR has `work-review-complete` and CI still failing/pending | Wait for CI or fix CI → continue |
-| PR has `work-approved` and CI passing | Exit — done |
-| 3+ `work-round` markers (any axis) | Escalate |
+| PR exists, unaddressed `work-round` for the current head on either axis | Address review → push → `work-summary` → continue |
+| PR exists, CI green, no matching per-axis approvals for the current head | **Review phase** (spawn reviewers) |
+| PR has matching `work-review-complete` and CI is pending | Wait for CI → continue |
+| PR has matching `work-approved` and CI passing | Exit — done |
+| Three distinct review rounds have produced findings | Escalate |
 
 **Tie-breaking**: When several child issues or checklist items look equal, pick the first by number or top-to-bottom. Document the choice; do not ask the user.
 
@@ -213,9 +213,9 @@ When spawning reviewers via **`code-review`**, tell them: *comments are for an i
 
 **If 🔴 or 🟡 findings** — post round comment:
 
-```bash
+````bash
 gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
-<!-- work-round:1:standards -->
+<!-- work-round:1:standards:<HEAD_SHA> -->
 ## Standards review (round 1)
 
 Reviewed <scope — e.g. `pathmc/simulate.py`, `pathmc/panel.py`, `tests/test_do_plot.py`> against `AGENTS.md` and CONTRIBUTING conventions.
@@ -244,15 +244,15 @@ Reviewed <scope — e.g. `pathmc/simulate.py`, `pathmc/panel.py`, `tests/test_do
 - 🟢 <finding + optional one-line suggestion>
 EOF
 )"
-```
+````
 
-Use `work-round:$N:spec` for the spec reviewer. Quote the spec requirement for each finding. Add a **Requirements checked** subsection listing spec items verified (even when passing) so the implementer sees coverage.
+Use `work-round:$N:spec:$SHA` for the spec reviewer. Quote the spec requirement for each finding. Add a **Requirements checked** subsection listing spec items verified (even when passing) so the implementer sees coverage. Replace `<HEAD_SHA>` with the exact commit under review.
 
 **If no 🔴 or 🟡** — post per-axis approval (not the umbrella `work-approved`):
 
 ```bash
 gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
-<!-- work-approved:standards -->
+<!-- work-approved:1:standards:<HEAD_SHA> -->
 ## Standards review (round 1)
 
 Reviewed <files/modules> against `AGENTS.md` and code-smell baseline.
@@ -264,7 +264,7 @@ EOF
 )"
 ```
 
-Use `work-approved:spec` for the spec reviewer. Include **Requirements checked** (bullets mapping spec items to what you verified in the diff) and the issue number.
+Use `work-approved:$N:spec:$SHA` for the spec reviewer. Include **Requirements checked** (bullets mapping spec items to what you verified in the diff) and the issue number. Replace `<HEAD_SHA>` with the exact commit under review.
 
 ### Implementer: addressing review
 
@@ -273,47 +273,52 @@ When `work-round` comments exist, the implementer must:
 1. Read **every** finding block (Where / What / Why / Fix) before editing.
 2. In the follow-up `work-summary`, reference each 🔴/🟡 by title and state what changed (or why deferred with reason).
 3. Not close a finding with a one-word fix — match the specificity the reviewer provided.
+4. After any push, treat both previous axis approvals as stale and require both reviewers to review the new head.
 
 ### Orchestrator loop
 
 ```
-round = count of work-round markers on the PR (max 3)
+round = highest distinct round number in valid work-round:$N:$AXIS:$SHA markers (max 3)
 
 while round < 3:
     wait_for_ci()   # gh pr checks --watch, cap 30 min
+    review_round = round + 1
+    reviewed_sha = current PR head SHA
 
-    spawn standards_reviewer(round + 1) and spec_reviewer(round + 1) in parallel
+    spawn standards_reviewer(review_round, reviewed_sha) and spec_reviewer(review_round, reviewed_sha) in parallel
 
     if either axis posted work-round (🔴/🟡):
         address all 🔴 and 🟡; skip 🟢 unless trivial
         run tests + lint; push
         post work-summary (what changed in response to review)
-        round += 1
+        round = review_round
         continue
 
-    # Both axes posted work-approved:standards and work-approved:spec
+    # Both axes posted matching work-approved:$review_round:$axis:$reviewed_sha markers
     wait_for_ci()
 
     if CI green:
-        post umbrella work-approved (template below); break
-    else:
-        post work-review-complete (template below)
+        post work-approved:$review_round:$reviewed_sha (template below); break
+    elif CI pending:
+        post work-review-complete:$review_round:$reviewed_sha (template below)
         wait_for_ci()   # cap 30 min total CI wait for this session
-        if CI green: post umbrella work-approved; break
-        else: stop — do not post work-approved until CI is green
+        if CI green: post work-approved:$review_round:$reviewed_sha; break
+        else: stop and resume when CI changes
+    else:
+        stop and fix CI; do not post a review-complete or work-approved marker
 
-if round >= 3 and not umbrella work-approved: escalate()
+if round >= 3 and the third round produced findings: escalate()
 ```
 
-Never post umbrella `<!-- work-approved -->` while CI is failing or still pending. Use `work-review-complete` instead.
+Never post a `work-approved` marker while CI is failing or pending. Use `work-review-complete` only while CI is pending; a failing check follows the CI-fix path.
 
 ### Orchestrator: review complete, CI pending
 
-Post when both axes approved the code but required CI checks are not all green yet:
+Post when both axes approved the current head but required CI checks are still pending:
 
 ```bash
 gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
-<!-- work-review-complete -->
+<!-- work-review-complete:1:<HEAD_SHA> -->
 ## Review complete — waiting on CI
 
 Standards and spec reviews are clean for round <N>.
@@ -321,7 +326,7 @@ Standards and spec reviews are clean for round <N>.
 **Standards**: <one sentence — e.g. "No convention issues; one fix landed in <sha> (removed internal helper from `__all__`).">
 **Spec**: <one sentence — e.g. "Implements #111 — trajectory plot, observed overlay, cross-sectional redirect, tests.">
 
-CI is still running or failing: <list pending or failed check names>. Merge when CI is green; umbrella `work-approved` will follow.
+CI is still pending: <list pending check names>. Merge when CI is green; the matching `work-approved` marker will follow.
 EOF
 )"
 ```
@@ -332,7 +337,7 @@ Post **only** when both axes approved **and** required CI checks are green:
 
 ```bash
 gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
-<!-- work-approved -->
+<!-- work-approved:1:<HEAD_SHA> -->
 ## Ready to merge
 
 **Issue**: Implements #<issue> — <one line on what shipped>.
@@ -345,7 +350,11 @@ EOF
 )"
 ```
 
-Address all 🔴 and 🟡 before any approval marker. Never self-approve an axis you implemented without an independent reviewer comment on that axis.
+Address all 🔴 and 🟡 before any approval marker. Never self-approve an axis you implemented without an independent reviewer comment on that axis. Before posting an umbrella approval, verify that both axis markers contain the current PR head SHA and that all required CI checks are green.
+
+### Marker validation checklist
+
+Before advancing state, parse only hidden marker comments matching the formats above. Ignore markers in ordinary prose or quoted examples. Select the latest markers for the current PR head SHA, require both axes for the same round, and count distinct round numbers rather than comments. If the marker state is ambiguous, rerun both reviewers instead of trusting a stale approval.
 
 ## Phase 5: Escalation
 
