@@ -1,0 +1,71 @@
+tests/test_categorical.py
+  s_aff722155995c8::t_0cbc6cf4602dfa 1-124,126,129-141
+  s_aff722155995c8::t_ea25bc9b29dda2 125,127-128
+docs/user_guide/11-model-specification.qmd
+  s_aff722155995c8::t_5abaf39e10f8e0 149
+  s_aff722155995c8::t_9cc4e4542aa356 97-148,150
+pathmc/parse.py
+  s_aff722155995c8::t_a7cf1055842e58 27,85-100,117,408-414,466-520
+  s_aff722155995c8::t_90bb73477f52f4 23
+  s_aff722155995c8::t_1bb13fcc914e38 415-419,427-428
+  s_9a17ea120e2eab::t_b9399de1bfa13c 521-522
+pathmc/categorical.py
+  s_aff722155995c8::t_21bd7c45bf47dd 1-168
+docs/examples/01-foundations/categorical_predictors.qmd
+  s_aff722155995c8::t_27402894516757 6
+  s_aff722155995c8::t_cc55cb95d69cef 51,57
+  s_aff722155995c8::t_9cc4e4542aa356 1-5,7-50,52-56,58-71
+great-docs.yml
+  s_aff722155995c8::t_9cc4e4542aa356 75
+pathmc/simulate.py
+  s_aff722155995c8::t_eb60a1be0cda77 28,1388
+  s_aff722155995c8::t_4ea89b7184a0c4 1334,1387,1455-1456,1507-1508
+pathmc/priors.py
+  s_aff722155995c8::t_17c1d290e6b5de 143-150
+pathmc/compile.py
+  s_aff722155995c8::t_dad2e49997e580 1766-1770
+  s_aff722155995c8::t_e6996f671267f0 622-627,688-693,749-754,756-760,763-791
+  s_aff722155995c8::t_fddca3a3644ccb 631-637,1815-1818,1843-1844
+  s_aff722155995c8::t_c23d6e8a825472 990,1029-1030,1066-1067,1103-1108
+  s_aff722155995c8::t_b3a1b462b75162 457-459,474-481,504,506,509-515,517-522
+  s_aff722155995c8::t_4dfa798fa5e01c 1738-1739
+  s_aff722155995c8::t_d537c6e6a9ada5 51-58,166,168-176,181,273-277,296-301,364-373,394-400
+  s_aff722155995c8::t_1afe9d66b33462 831-832,881-882,900-901,946,988-989,1665-1666,1736-1737,1764-1765,1813-1814
+pathmc/_model.py
+  s_aff722155995c8::t_5879ca40b84086 353-355,1384-1424,1676,1745-1758,1775
+  s_aff722155995c8::t_1bb13fcc914e38 929,939,988
+  s_aff722155995c8::t_eb7c1b65c11774 864-870,878-882,928,930,932,934,938,940-984,991-993
+  s_aff722155995c8::t_e27276b49aa712 985-987,989-990,994
+  s_aff722155995c8::t_817b6570a3435a 2485-2487
+  s_aff722155995c8::t_0971e00d2a90f2 2769-2770,3090-3093
+  s_aff722155995c8::t_55624c0ec55920 1380,1383,1776,1802,1811-1812,2483-2484,2767-2768
+pathmc/introspect.py
+  s_aff722155995c8::t_19030cf286c363 397-400,506-513
+  s_aff722155995c8::t_299ee6392fc3da 699-710
+_freeze/docs/examples/foundations/categorical_predictors/execute-results/html.json
+  s_aff722155995c8::t_267970fee03a43 1-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f06e8aa648f4226ce5d4fbabcbe4b279056b2041",
+  "prompts": {},
+  "sessions": {
+    "s_9a17ea120e2eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb77-831c-78e0-8e95-0759bd7f6464",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    },
+    "s_aff722155995c8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb70-dce3-7941-b287-d842d9962a61",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

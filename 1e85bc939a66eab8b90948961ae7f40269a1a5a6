@@ -1,0 +1,26 @@
+pathmc/basis.py
+  s_323ce2f6e7f6d4::t_5f51bc8d167e53 165,169,173,177-187
+pathmc/compile.py
+  s_323ce2f6e7f6d4::t_5f51bc8d167e53 673-674,688,967-968,1015
+pathmc/parse.py
+  s_323ce2f6e7f6d4::t_5f51bc8d167e53 99,223,264-275
+  s_323ce2f6e7f6d4::t_c0f4473582bb5c 276-277
+tests/test_basis.py
+  s_323ce2f6e7f6d4::t_03f82cdf62c0dd 93-107,145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1e85bc939a66eab8b90948961ae7f40269a1a5a6",
+  "prompts": {},
+  "sessions": {
+    "s_323ce2f6e7f6d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb8e-cc8f-7aa2-810b-77ca91422941",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+tests/test_basis.py
+  s_323ce2f6e7f6d4::t_263b77f63b20a6 18-19,23,27,89-138
+  s_323ce2f6e7f6d4::t_7c61114154587c 24,139-152
+pathmc/hsgp.py
+  s_323ce2f6e7f6d4::t_0bd5bee43f5811 65-67,75-81
+pathmc/basis.py
+  s_323ce2f6e7f6d4::t_c02c782cf2772a 38,76,82-84,88-92,94-100,138-144,147-152,179,186-188,197-203
+pathmc/compile.py
+  s_323ce2f6e7f6d4::t_6170fd9037c1c9 673-677,682-689,691,777,795,953,999,1001-1005
+  s_323ce2f6e7f6d4::t_97d7cd15345b53 1000
+  s_323ce2f6e7f6d4::t_350c95396da321 678-681,690
+docs/examples/04-panel-time/fourier_seasonality.qmd
+  s_323ce2f6e7f6d4::t_866494a96b6984 42
+  s_323ce2f6e7f6d4::t_f4987f667fc39d 40-41,43-45
+  s_323ce2f6e7f6d4::t_929ae8f8015999 1-39,46
+  s_323ce2f6e7f6d4::t_58821c806b05dc 47-53
+docs/user_guide/12b-basis-terms.qmd
+  s_323ce2f6e7f6d4::t_929ae8f8015999 13
+_freeze/docs/examples/foundations/hsgp_1d/execute-results/html.json
+  s_323ce2f6e7f6d4::t_58d84c667c4ebb 2,5,15
+_freeze/docs/examples/panel-time/fourier_seasonality/execute-results/html.json
+  s_9a17ea120e2eab::t_d2af8ee5de632f 1-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0d251d6d0fc7090b1b0e601be8da5b29d5daed4c",
+  "prompts": {},
+  "sessions": {
+    "s_323ce2f6e7f6d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb8e-cc8f-7aa2-810b-77ca91422941",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    },
+    "s_9a17ea120e2eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb77-831c-78e0-8e95-0759bd7f6464",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

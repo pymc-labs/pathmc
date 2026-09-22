@@ -1,0 +1,19 @@
+pathmc/compile.py
+  s_a081ff93056a0e::t_217efe0c0f1a79 2358-2362
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "643913fca52ced18dd93fc004b2cbcee192282b0",
+  "prompts": {},
+  "sessions": {
+    "s_a081ff93056a0e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a650ef2b-eda8-4428-b2d2-11cba36c5424",
+        "model": "claude-opus-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}

@@ -1,0 +1,54 @@
+pathmc/hsgp.py
+  s_323ce2f6e7f6d4::t_913a1b86ea473b 39,54-106,118-147,305
+  s_323ce2f6e7f6d4::t_000811bb6c4da6 107-117
+pathmc/introspect.py
+  s_323ce2f6e7f6d4::t_d2821959438be4 395-398,502-505,695-702
+docs/user_guide/12b-basis-terms.qmd
+  s_323ce2f6e7f6d4::t_7cf26bf1f1b438 1-33
+docs/examples/01-foundations/hsgp_1d.qmd
+  s_323ce2f6e7f6d4::t_d4bd81d2473ad8 6
+  s_323ce2f6e7f6d4::t_7cf26bf1f1b438 11
+pathmc/compile.py
+  s_323ce2f6e7f6d4::t_97fcd4717483ea 51,167
+  s_323ce2f6e7f6d4::t_a3cfdee9150990 159,161,168-170,173,276,279,343-344,346,350-352,363,558-559,607-612,862-863,865-866,898,940-941,969-970,972,974,977-979,1029,1031-1032,1614-1615,1618,1625,1627,1633-1635,1640-1651,1653-1656
+  s_323ce2f6e7f6d4::t_47066110037bf4 1126
+pathmc/priors.py
+  s_323ce2f6e7f6d4::t_1711473a13c677 26,147-149
+  s_323ce2f6e7f6d4::t_f08c17fb18acb0 150
+pathmc/basis.py
+  s_323ce2f6e7f6d4::t_000811bb6c4da6 96-99
+  s_323ce2f6e7f6d4::t_b6e01685a4a844 1-95,100-188
+  s_323ce2f6e7f6d4::t_f346ab261b4b2a 189-198
+tests/test_basis.py
+  s_323ce2f6e7f6d4::t_55fa2645a9d84d 1-71
+  s_323ce2f6e7f6d4::t_67c9fa5b683d71 72-84
+pathmc/adjustment.py
+  s_323ce2f6e7f6d4::t_26fcb944ee0164 187,189-190
+pathmc/parse.py
+  s_323ce2f6e7f6d4::t_0a8814adbae2bc 82-99,116-121,420-426,758-790,794-805
+  s_323ce2f6e7f6d4::t_823217b46f1cd2 427-428,435-436,791-793,806-808,845-847
+  s_323ce2f6e7f6d4::t_619472b9b4014a 429-434,809-844,848-858
+  s_323ce2f6e7f6d4::t_8a141f2c6d9353 859-860
+great-docs.yml
+  s_323ce2f6e7f6d4::t_7cf26bf1f1b438 72
+pathmc/__init__.py
+  s_323ce2f6e7f6d4::t_26fcb944ee0164 53,61,84
+pathmc/effects.py
+  s_323ce2f6e7f6d4::t_26fcb944ee0164 262
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "71c5fbb6f919c18174b10de0f50e966a0f088851",
+  "prompts": {},
+  "sessions": {
+    "s_323ce2f6e7f6d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb8e-cc8f-7aa2-810b-77ca91422941",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

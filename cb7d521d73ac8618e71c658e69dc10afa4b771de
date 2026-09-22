@@ -1,0 +1,21 @@
+docs/examples/04-panel-time/fourier_seasonality.qmd
+  s_323ce2f6e7f6d4::t_d2edc6c61f4883 155-162
+_freeze/docs/examples/panel-time/fourier_seasonality/execute-results/html.json
+  s_323ce2f6e7f6d4::t_6989c93bb469aa 2,5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cb7d521d73ac8618e71c658e69dc10afa4b771de",
+  "prompts": {},
+  "sessions": {
+    "s_323ce2f6e7f6d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb8e-cc8f-7aa2-810b-77ca91422941",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
