@@ -25,18 +25,11 @@ pathmc compiles a concise formula language into a generative Bayesian model wher
 
 ```{python}
 # | echo: true
-import numpy as np
 import pandas as pd
 import pathmc
+from pathmc.paths import data_dir
 
-rng = np.random.default_rng(42)
-n = 500
-
-X = rng.normal(size=n)
-M = 0.5 * X + rng.normal(scale=0.5, size=n)
-Y = 0.8 * M + 0.3 * X + rng.normal(scale=0.5, size=n)
-
-df = pd.DataFrame({"X": X, "M": M, "Y": Y})
+df = pd.read_csv(data_dir / "mediation.csv")
 
 spec = """
 M ~ a*X
