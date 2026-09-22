@@ -1,0 +1,19 @@
+_freeze/index/execute-results/html.json
+  s_8b2a24fd668b5d::t_b45c2e352aed52 2,5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "aa437635415b3830d688dab78f0035121f16742b",
+  "prompts": {},
+  "sessions": {
+    "s_8b2a24fd668b5d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0caa7-f1f5-7b80-8f82-ea43ae61f55a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
