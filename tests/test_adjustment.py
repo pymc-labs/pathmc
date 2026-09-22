@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import numpy as np
+import narwhals.stable.v1 as nw
 import pandas as pd
 import polars as pl
 import pymc as pm
@@ -295,6 +296,71 @@ class TestPriorInheritance:
         priors = adjusted.outcome_model._priors
         assert priors["beta_Y"].to_dict()["kwargs"]["sigma"] == 5.0
         assert priors["sigma_Y"].to_dict()["kwargs"]["sigma"] == 4.0
+
+    def test_set_priors_beta_override_requires_reduced_override(self, rng):
+        model = pathmc.model("X ~ Z\nY ~ X + Z", data=_fork_df(rng))
+        model.set_priors({"beta_Y": Prior("Normal", mu=0, sigma=2)})
+
+        with pytest.raises(ValueError, match=r"priors=\{'beta_Y'"):
+            model.adjustment_model("X -> Y")
+
+        adjusted = model.adjustment_model(
+            "X -> Y", priors={"beta_Y": Prior("Normal", mu=0, sigma=3)}
+        )
+        assert (
+            adjusted.outcome_model._priors["beta_Y"].to_dict()["kwargs"]["sigma"] == 3
+        )
+
+    def test_reset_beta_to_default_does_not_raise(self, rng):
+        model = pathmc.model(
+            "X ~ Z\nY ~ X + Z",
+            data=_fork_df(rng),
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=2)},
+        )
+        model.set_priors({"beta_Y": Prior("Normal", mu=0, sigma=10)})
+
+        adjusted = model.adjustment_model("X -> Y")
+        assert adjusted.outcome_model._priors["beta_Y"] == model._priors["beta_Y"]
+
+    def test_direct_pathmodel_beta_override_requires_reduced_override(self, rng):
+        spec = parse_spec("X ~ Z\nY ~ X + Z")
+        model = pathmc.PathModel(
+            spec=spec,
+            graph_info=build_graph(spec),
+            data=nw.from_native(_fork_df(rng), eager_only=True),
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=2)},
+        )
+
+        with pytest.raises(ValueError, match=r"priors=\{'beta_Y'"):
+            model.adjustment_model("X -> Y")
+
+    def test_transform_parameter_prior_inherited_for_custom_formula(self, rng):
+        formula = "Y ~ logistic_saturation(X, lam=lam_x) + Z"
+        model = pathmc.model(
+            f"X ~ Z\n{formula}",
+            data=_fork_df(rng),
+            priors={"lam_x": Prior("HalfNormal", sigma=7)},
+        )
+
+        adjusted = model.adjustment_model("X -> Y", formula=formula)
+        assert adjusted.outcome_model._priors["lam_x"] == model._priors["lam_x"]
+
+    def test_set_transform_parameter_prior_and_reduced_override(self, rng):
+        formula = "Y ~ logistic_saturation(X, lam=lam_x) + Z"
+        model = pathmc.model(f"X ~ Z\n{formula}", data=_fork_df(rng))
+        model.set_priors({"lam_x": Prior("HalfNormal", sigma=7)})
+
+        adjusted = model.adjustment_model("X -> Y", formula=formula)
+        assert adjusted.outcome_model._priors["lam_x"] == model._priors["lam_x"]
+
+        overridden = model.adjustment_model(
+            "X -> Y",
+            formula=formula,
+            priors={"lam_x": Prior("HalfNormal", sigma=3)},
+        )
+        assert (
+            overridden.outcome_model._priors["lam_x"].to_dict()["kwargs"]["sigma"] == 3
+        )
 
 
 class TestInnerModelTypes:

@@ -36,8 +36,6 @@ from pathmc.simulate import EstimandResult
 
 __all__ = ["AdjustmentModel"]
 
-_OUTCOME_PRIOR_SUFFIXES = ("sigma", "nu", "alpha_disp")
-
 
 def _parse_treatment_outcome_query(query: str) -> tuple[str, str]:
     """Split a ``treatment -> outcome`` query string into node names."""
@@ -228,13 +226,16 @@ def _validate_reduced_spec(
 
 
 def _reject_uninheritable_beta_prior(
-    construction_priors: dict[str, Any] | None,
+    parent_priors: dict[str, Any],
+    parent_defaults: dict[str, Any],
     user_priors: dict[str, Any] | None,
     outcome: str,
 ) -> None:
     """Raise when a parent beta prior would be silently replaced by defaults."""
     beta_key = f"beta_{outcome}"
-    if not construction_priors or beta_key not in construction_priors:
+    if beta_key not in parent_priors or parent_priors[beta_key] == parent_defaults.get(
+        beta_key
+    ):
         return
     if user_priors is not None and beta_key in user_priors:
         return
@@ -247,17 +248,18 @@ def _reject_uninheritable_beta_prior(
     )
 
 
-def _inherit_outcome_priors(
+def _inherit_reduced_priors(
     parent_priors: dict[str, Any],
+    reduced_defaults: dict[str, Any],
     outcome: str,
 ) -> dict[str, Any]:
-    """Copy outcome dispersion priors from the parent."""
-    inherited: dict[str, Any] = {}
-    for suffix in _OUTCOME_PRIOR_SUFFIXES:
-        key = f"{suffix}_{outcome}"
-        if key in parent_priors:
-            inherited[key] = parent_priors[key]
-    return inherited
+    """Copy compatible outcome dispersion and transform priors from the parent."""
+    beta_key = f"beta_{outcome}"
+    return {
+        key: parent_priors[key]
+        for key in reduced_defaults
+        if key != beta_key and key in parent_priors
+    }
 
 
 class AdjustmentModel:
@@ -403,18 +405,25 @@ class AdjustmentModel:
         if families is not None:
             outcome_families.update(families)
 
-        construction_priors = (
-            parent._construction.get("priors") if parent._construction else None
+        parent_defaults = default_priors(
+            parent._spec,
+            families=parent._families,
+            pooling=parent._pooling,
+            latent=parent._latent,
+            panel_info=parent._panel_info,
         )
         _reject_uninheritable_beta_prior(
-            construction_priors,
+            parent._priors,
+            parent_defaults,
             priors,
             outcome_name,
         )
-        inherited_priors = _inherit_outcome_priors(parent._priors, outcome_name)
         reduced_defaults = default_priors(
             reduced_spec,
             families=outcome_families or None,
+        )
+        inherited_priors = _inherit_reduced_priors(
+            parent._priors, reduced_defaults, outcome_name
         )
         merged_priors = merge_priors(reduced_defaults, inherited_priors)
         if priors is not None:
