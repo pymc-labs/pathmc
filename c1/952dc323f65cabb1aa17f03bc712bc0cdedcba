@@ -1,0 +1,35 @@
+pathmc/__init__.py
+  s_4a71ae2b4a0488::t_8de10451ebffe6 35,61,83
+pathmc/basis.py
+  s_4a71ae2b4a0488::t_8de10451ebffe6 90
+  s_4a71ae2b4a0488::t_ea5d4d6c256a57 91,94
+  s_4a71ae2b4a0488::t_0d816b9868d92f 80-83,88,92-93
+  s_4a71ae2b4a0488::t_76a7dee46c8f1c 89
+pathmc/parse.py
+  s_4a71ae2b4a0488::t_0bcf1b59dd8f9c 581-582,584-586
+pathmc/compile.py
+  s_4a71ae2b4a0488::t_8de10451ebffe6 687
+tests/test_basis.py
+  s_4a71ae2b4a0488::t_3509702d0ac2db 104,106
+  s_4a71ae2b4a0488::t_e357c756d5a0f2 47-49,90-92
+  s_4a71ae2b4a0488::t_c701980b03a973 27,31-46,50-89,93-103,105
+  s_4a71ae2b4a0488::t_a57877081e4d2f 107-108
+pathmc/hsgp.py
+  s_4a71ae2b4a0488::t_0d816b9868d92f 59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c1952dc323f65cabb1aa17f03bc712bc0cdedcba",
+  "prompts": {},
+  "sessions": {
+    "s_4a71ae2b4a0488": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca9e-978e-7c50-91cd-76f03cbeea29",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
