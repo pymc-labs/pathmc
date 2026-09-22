@@ -102,6 +102,5 @@ Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
 ### Autonomous workflows
 
 - **Bugs**: `fix-bug` skill — `fix bug #N`
-- **Features**: `work` skill — `work #N` (orchestrates grill-with-docs, to-spec, implement, tdd, code-review)
 
-Matt Pocock sub-skills live under `.agents/skills/` (installed via `skills-lock.json`). Update with `npx skills update`. See `.agents/skills/THIRD_PARTY.md` for attribution and licenses.
+General-purpose planning, implementation, TDD, and code-review skills are intentionally not vendored in this repository. Developers can install and use the workflows they prefer in their user-level skills.

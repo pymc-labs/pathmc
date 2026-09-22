@@ -2,7 +2,7 @@
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
-This file was written for pathmc by adapting the template in `.agents/skills/setup-matt-pocock-skills/issue-tracker-github.md`. We did not run the interactive setup skill — the result is the same as accepting its GitHub defaults. See the **Bringing work to a new repo** section in `.agents/skills/work/SKILL.md` when porting this stack elsewhere.
+This file records pathmc's repository-specific issue conventions. General-purpose planning, implementation, TDD, and review skills are intentionally not vendored in this repository; developers can install and use preferred workflows in their user-level skills.
 
 ## Conventions
 
@@ -19,9 +19,9 @@ Infer the repo from `git remote -v` — `gh` does this automatically when run in
 
 **PRs as a request surface: no.**
 
-## When a skill says "publish to the issue tracker"
+## When an agent needs the issue tracker
 
-Create or update a GitHub issue. For `to-spec` and `work`, append a `## Spec` section to the issue body.
+Create or update a GitHub issue using the commands above, preserving any existing human-authored content.
 
 ## When a skill says "fetch the relevant ticket"
 
