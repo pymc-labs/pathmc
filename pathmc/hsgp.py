@@ -56,6 +56,7 @@ class HSGPBasis(Basis):
 
     name = "hsgp"
     capabilities = BasisCapabilities(supports_endogenous=False)
+    supports_data_contract = False
 
     def n_basis(self, call: Call) -> int:
         """Return the requested number of Laplacian eigenfunctions."""

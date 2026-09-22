@@ -77,12 +77,21 @@ class Basis:
     """Base class for registered basis terms.
 
     Subclasses implement either or both column-building contracts and may
-    override :meth:`contribution` for a structured coefficient prior.
+    override :meth:`contribution` for a structured coefficient prior. An
+    overridden :meth:`build_data` enables the data contract automatically;
+    set ``supports_data_contract = False`` only when the override exists to
+    give a directed error rather than to materialize columns.
     """
 
     name: str
     capabilities = BasisCapabilities()
-    supports_data_contract = False
+    supports_data_contract: bool | None = None
+
+    def has_data_contract(self) -> bool:
+        """Return whether this basis implements the numeric build contract."""
+        if self.supports_data_contract is not None:
+            return self.supports_data_contract
+        return type(self).build_data is not Basis.build_data
 
     def n_basis(self, call: Call) -> int:
         """Return the number of columns produced by *call*."""
@@ -199,7 +208,6 @@ class FourierBasis(Basis):
     """Harmonic sine/cosine expansion with iid Normal coefficient weights."""
 
     name = "fourier"
-    supports_data_contract = True
 
     def n_basis(self, call: Call) -> int:
         """Return two columns for each requested harmonic."""

@@ -684,7 +684,7 @@ def compile_to_pymc(
                 ):
                     continue
                 basis = get_basis(term.basis.name)
-                if basis.supports_data_contract:
+                if basis.has_data_contract():
                     key = basis.binding_key(reg.lhs, term.basis)
                     state = basis.freeze_data_state(
                         data[term.basis.variable].to_numpy(), term.basis

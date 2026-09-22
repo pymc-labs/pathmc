@@ -24,7 +24,86 @@ import pytest
 
 import pathmc
 from pathmc.basis import Basis, get_basis, register_basis, replay_data_bases
+from pathmc.exceptions import ParseError
 from pathmc.parse import BasisCall, parse_spec
+
+
+def test_basis_extension_is_available_from_package_root():
+    """External basis authors can use the public package entry point."""
+    assert pathmc.Basis is Basis
+    assert pathmc.register_basis is register_basis
+    assert {"Basis", "register_basis"} <= set(pathmc.__all__)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "adstock(fourier(x, n=2, period=4), decay=theta)",
+        "adstock(logistic_saturation(fourier(x, n=2, period=4), lam=theta), decay=theta)",
+    ],
+)
+def test_fourier_cannot_be_nested_inside_a_transform(expression: str):
+    """A basis owns coefficients and cannot be a transform's scalar input."""
+    with pytest.raises(
+        ParseError, match="Apply fourier\\(\\.\\.\\.\\) directly"
+    ) as exc:
+        parse_spec(f"y ~ {expression}")
+    assert "fourier(x, n=2, period=4)" in str(exc.value)
+
+
+class _DataOnlyBasis(Basis):
+    """A stateful public extension with no graph builder or dispatch flag."""
+
+    name = "test_data_only_basis"
+
+    def n_basis(self, call: Any) -> int:
+        """Return the single centered column."""
+        return 1
+
+    def build_data(
+        self, x: np.ndarray, call: Any, *, state: Any | None = None
+    ) -> tuple[np.ndarray, float]:
+        """Center on the fitted mean, then reuse it for new values."""
+        center = float(np.mean(x)) if state is None else float(state)
+        return (np.asarray(x, dtype=float) - center)[:, None], center
+
+
+def test_registered_data_only_basis_rejects_transform_nesting():
+    """The parser applies the same composition rule to custom bases."""
+    pathmc.register_basis(_DataOnlyBasis())
+    expression = "adstock(test_data_only_basis(x), decay=theta)"
+    with pytest.raises(ParseError, match="Apply test_data_only_basis") as exc:
+        parse_spec(f"y ~ {expression}")
+    assert expression in str(exc.value)
+
+
+@pytest.mark.slow
+def test_data_only_basis_compiles_and_replays_state_for_predict_and_do():
+    """The advertised data contract works without graph code or a flag."""
+    pathmc.register_basis(_DataOnlyBasis())
+    data = pd.DataFrame({"x": np.arange(12.0), "y": np.arange(12.0)})
+    model = pathmc.model("y ~ test_data_only_basis(x)", data=data)
+    gm = model._gen_model
+    binding = gm._pathmc_data_bases["basis_y_test_data_only_basis_x"]
+    assert binding.state == 5.5
+    np.testing.assert_allclose(
+        replay_data_bases(gm._pathmc_data_bases, {"x": np.arange(20.0, 32.0)})[
+            "basis_y_test_data_only_basis_x"
+        ][:, 0],
+        np.arange(14.5, 26.5),
+    )
+
+    model.fit(draws=50, tune=50, chains=1, cores=1, progressbar=False, random_seed=1)
+    with model._pymc_model:
+        pm.set_data({"x": np.arange(20.0, 32.0)})
+    model.predict(progressbar=False)
+    np.testing.assert_allclose(
+        model._pymc_model["basis_y_test_data_only_basis_x"].get_value()[:, 0],
+        np.arange(14.5, 26.5),
+    )
+    baseline = model.do(set={"x": 0.0}, kind="mean")
+    intervened = model.do(set={"x": 20.0}, kind="mean")
+    assert float(intervened.mean("y")) - float(baseline.mean("y")) > 10.0
 
 
 def test_fourier_parses_as_a_generic_basis_call():

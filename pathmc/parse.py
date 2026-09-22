@@ -578,10 +578,12 @@ def _parse_transform_expr(raw: str) -> TransformCall:
         )
 
     if "(" in input_raw:
-        if input_raw[: input_raw.index("(")].strip() == "hsgp":
+        input_name = input_raw[: input_raw.index("(")].strip()
+        if input_name in {"hsgp", "fourier"} or _is_registered_basis(input_name):
             raise ParseError(
-                "hsgp(...) cannot be nested inside a transform. "
-                "Apply hsgp() directly to a variable."
+                f"Basis expression '{input_raw}' cannot be nested inside "
+                f"transform '{raw}'. Apply {input_name}(...) directly to a "
+                "variable as a standalone term."
             )
         input_expr: str | TransformCall = _parse_transform_expr(input_raw)
     else:
