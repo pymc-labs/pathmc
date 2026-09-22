@@ -25,6 +25,7 @@ handles temporal propagation natively.
 
 from __future__ import annotations
 
+import builtins
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -1330,6 +1331,7 @@ def run_do_pymc(
     subgroup_indices: np.ndarray | None = None,
     average_units: bool = True,
     scaling_factors: ScalingFactors | None = None,
+    categorical_vars: set[str] | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -1382,6 +1384,8 @@ def run_do_pymc(
         set = {}
     if families is None:
         families = {}
+    if categorical_vars is None:
+        categorical_vars = builtins.set()
 
     N = len(data)
     latent = graph_info.latent
@@ -1448,6 +1452,8 @@ def run_do_pymc(
             if var in set:
                 data_vars[var] = _broadcast_intervention(ones, set[var], N)
             elif var in graph_info.exogenous:
+                if var in categorical_vars:
+                    continue
                 data_vars[var] = ones * _business_exog_value(
                     var, data, subgroup_indices, scaling_factors
                 )
@@ -1498,6 +1504,8 @@ def run_do_pymc(
         if var in set:
             predictive_vars[var] = _broadcast_intervention(ones, set[var], N)
         elif var in graph_info.exogenous:
+            if var in categorical_vars:
+                continue
             predictive_vars[var] = ones * _business_exog_value(
                 var, data, subgroup_indices, scaling_factors
             )

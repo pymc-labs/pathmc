@@ -72,6 +72,7 @@ tags:
     Latent Variables: eye-off
     Media Mix Modeling: megaphone
     Hierarchical Effects: layers
+    Categorical Predictors: list-tree
     Gaussian Process: waves
     HSGP: spline
     Nonparametric: trending-up

@@ -394,6 +394,10 @@ def _format_term(t: Term) -> str:
 
     if t.hsgp is not None:
         return f"f_hsgp({t.hsgp.variable})"
+    if t.categorical is not None:
+        call = t.categorical
+        levels = ", ".join(repr(level) for level in call.levels)
+        return f"C({call.variable}, reference={call.reference!r}, levels=[{levels}])"
     if t.transform is not None:
         return f"{prefix}{_format_transform(t.transform)}"
     if t.interaction_of is not None:
@@ -499,6 +503,14 @@ def _format_term_latex(t: Term) -> str:
 
     if t.hsgp is not None:
         return rf"f_{{\mathrm{{hsgp}}}}({_latex_symbol(t.hsgp.variable)})"
+    if t.categorical is not None:
+        call = t.categorical
+        levels = ", ".join(str(level) for level in call.levels)
+        return (
+            rf"\operatorname{{C}}({_latex_symbol(call.variable)};\,"
+            rf"\mathrm{{ref}}={_latex_escape(str(call.reference))};\,"
+            rf"\mathrm{{levels}}={{{_latex_escape(levels)}}})"
+        )
     if t.transform is not None:
         return f"{prefix}{_format_transform_latex(t.transform)}"
     if t.interaction_of is not None:
@@ -684,6 +696,18 @@ def build_priors(
                 )
                 entries[f"slope_{reg.lhs}_{svar}"] = "Normal(mu_slope, sigma_slope)"
         for term in reg.terms:
+            if term.categorical is not None:
+                beta_name = f"beta_{reg.lhs}_{term.variable}"
+                if term.categorical.prior == "hierarchical":
+                    entries[f"mu_{beta_name}"] = _entry(
+                        f"mu_{beta_name}", "Normal(0, 10)"
+                    )
+                    entries[f"sigma_{beta_name}"] = _entry(
+                        f"sigma_{beta_name}", "HalfNormal(1)"
+                    )
+                    entries[beta_name] = f"Normal(mu_{beta_name}, sigma_{beta_name})"
+                else:
+                    entries[beta_name] = _entry(beta_name, "Normal(0, 10)")
             if term.transform is not None:
                 _collect_transform_priors(
                     term.transform, entries, seen_transform_params, prior_config
