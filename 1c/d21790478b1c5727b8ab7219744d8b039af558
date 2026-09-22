@@ -1,0 +1,21 @@
+pyproject.toml
+  s_8886e8cbd18e56::t_4f9d5840769e6c 69
+uv.lock
+  s_8886e8cbd18e56::t_ac28e9e0b76fb5 869,878,882,884,2306,2915-2923
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1cd21790478b1c5727b8ab7219744d8b039af558",
+  "prompts": {},
+  "sessions": {
+    "s_8886e8cbd18e56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cad3-a5b9-7d71-a1eb-af61c468b31e",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
