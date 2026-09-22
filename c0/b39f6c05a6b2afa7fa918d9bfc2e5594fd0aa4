@@ -1,0 +1,20 @@
+docs/user_guide/00-welcome.qmd
+  s_e067fab00327ae::t_51b47ee1dc8a08 27-28,31-38
+  s_e067fab00327ae::t_5b6ff6e9adb584 39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c0b39f6c05a6b2afa7fa918d9bfc2e5594fd0aa4",
+  "prompts": {},
+  "sessions": {
+    "s_e067fab00327ae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c7a2-e76f-7403-8333-f792abe93127",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
