@@ -77,6 +77,18 @@ def test_registered_data_only_basis_rejects_transform_nesting():
     assert expression in str(exc.value)
 
 
+def test_data_only_basis_rejects_endogenous_input_with_a_directed_error():
+    """Data-only extensions explain why latent inputs require graph code."""
+    pathmc.register_basis(_DataOnlyBasis())
+    data = pd.DataFrame({"x": np.arange(8.0), "m": np.arange(8.0), "y": np.arange(8.0)})
+    with pytest.raises(NotImplementedError, match="implement build_graph") as exc:
+        pathmc.model("m ~ x\ny ~ test_data_only_basis(m)", data=data)
+    message = str(exc.value)
+    assert "input 'm'" in message
+    assert "'y' equation" in message
+    assert "use an exogenous input" in message
+
+
 @pytest.mark.slow
 def test_data_only_basis_compiles_and_replays_state_for_predict_and_do():
     """The advertised data contract works without graph code or a flag."""

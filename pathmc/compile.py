@@ -1696,16 +1696,21 @@ def _validate_basis_capabilities(spec: Spec, panel_info: PanelInfo | None) -> No
                     f"{basis.name}() is not supported in panel models yet. "
                     "Fit a cross-sectional model or remove the basis term."
                 )
-            if (
-                term.basis.variable in endogenous
-                and not basis.capabilities.supports_endogenous
-            ):
-                raise NotImplementedError(
-                    f"{basis.name}() input '{term.basis.variable}' in the "
-                    f"'{reg.lhs}' equation is endogenous. This basis does not "
-                    "support graph inputs; use an exogenous input or choose a "
-                    "basis with graph-input support."
-                )
+            if term.basis.variable in endogenous:
+                if not basis.capabilities.supports_endogenous:
+                    raise NotImplementedError(
+                        f"{basis.name}() input '{term.basis.variable}' in the "
+                        f"'{reg.lhs}' equation is endogenous. This basis does not "
+                        "support graph inputs; use an exogenous input or choose a "
+                        "basis with graph-input support."
+                    )
+                if not basis.has_graph_contract():
+                    raise NotImplementedError(
+                        f"{basis.name}() input '{term.basis.variable}' in the "
+                        f"'{reg.lhs}' equation is endogenous, but this basis does "
+                        "not implement build_graph(). Implement build_graph() "
+                        "for symbolic inputs or use an exogenous input."
+                    )
 
 
 def _reject_nan_predictors(data: nw.DataFrame, graph_info: GraphInfo) -> None:

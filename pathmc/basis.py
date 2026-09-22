@@ -93,6 +93,10 @@ class Basis:
             return self.supports_data_contract
         return type(self).build_data is not Basis.build_data
 
+    def has_graph_contract(self) -> bool:
+        """Return whether this basis implements symbolic column building."""
+        return type(self).build_graph is not Basis.build_graph
+
     def n_basis(self, call: Call) -> int:
         """Return the number of columns produced by *call*."""
         raise NotImplementedError
