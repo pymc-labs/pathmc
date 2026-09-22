@@ -102,5 +102,4 @@ Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
 ### Autonomous workflows
 
 - **Bugs**: `fix-bug` skill — `fix bug #N`
-
-General-purpose planning, implementation, TDD, and code-review skills are intentionally not vendored in this repository. Developers can install and use the workflows they prefer in their user-level skills.
+- **Features**: `work` skill — `work #N`
