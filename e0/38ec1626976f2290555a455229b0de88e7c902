@@ -1,0 +1,27 @@
+docs/agents/domain.md
+  s_70dd61480459c6::t_1931b296c9fe03 1,3,7,10
+docs/agents/triage-labels.md
+  s_70dd61480459c6::t_1931b296c9fe03 1,3
+docs/agents/issue-tracker.md
+  s_70dd61480459c6::t_1931b296c9fe03 5,22,24
+.agents/skills/work/SKILL.md
+  s_70dd61480459c6::t_d2abc4272c6e94 1-256
+AGENTS.md
+  s_70dd61480459c6::t_d85092e460054b 105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e038ec1626976f2290555a455229b0de88e7c902",
+  "prompts": {},
+  "sessions": {
+    "s_70dd61480459c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c763-e652-7993-85a5-cffdc212d4c7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
