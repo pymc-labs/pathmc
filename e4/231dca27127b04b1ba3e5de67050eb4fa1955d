@@ -1,0 +1,32 @@
+docs/user_guide/00-welcome.qmd
+  s_e067fab00327ae::t_51b47ee1dc8a08 28
+  s_e067fab00327ae::t_5b6ff6e9adb584 33
+  s_e067fab00327ae::t_937e053d804dfa 26-27,41,43-46
+  s_8b2a24fd668b5d::t_45d98e5ba9e141 30,32
+_freeze/index/execute-results/html.json
+  s_8b2a24fd668b5d::t_e68d05255ce168 2,5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e4231dca27127b04b1ba3e5de67050eb4fa1955d",
+  "prompts": {},
+  "sessions": {
+    "s_8b2a24fd668b5d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0caa7-f1f5-7b80-8f82-ea43ae61f55a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    },
+    "s_e067fab00327ae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c7a2-e76f-7403-8333-f792abe93127",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
