@@ -1,0 +1,21 @@
+.agents/skills/work/SKILL.md
+  s_70dd61480459c6::t_d2abc4272c6e94 1-256
+AGENTS.md
+  s_70dd61480459c6::t_d85092e460054b 105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2305c91a65d00f8d94f4ddfc6a99b1c162cedae8",
+  "prompts": {},
+  "sessions": {
+    "s_70dd61480459c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c763-e652-7993-85a5-cffdc212d4c7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
