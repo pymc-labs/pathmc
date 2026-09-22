@@ -24,7 +24,18 @@ Specify your causal assumptions as equations. Fit with full Bayesian inference. 
 pathmc compiles a concise formula language into a generative Bayesian model where every variable is wired through its structural parents in the DAG. Call `model()` to build and inspect, then `fit()` to run MCMC. One object handles estimation, introspection, causal queries, identification checking, native regression adjustment, and sensitivity analysis, all with full posterior uncertainty.
 
 ```python
+import numpy as np
+import pandas as pd
 import pathmc
+
+rng = np.random.default_rng(42)
+n = 500
+
+X = rng.normal(size=n)
+M = 0.5 * X + rng.normal(scale=0.5, size=n)
+Y = 0.8 * M + 0.3 * X + rng.normal(scale=0.5, size=n)
+
+df = pd.DataFrame({"X": X, "M": M, "Y": Y})
 
 spec = """
 M ~ a*X
