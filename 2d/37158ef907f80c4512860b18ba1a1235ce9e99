@@ -1,0 +1,19 @@
+.github/release.yml
+  s_3e048da2614989::t_5338d313973786 17-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2d37158ef907f80c4512860b18ba1a1235ce9e99",
+  "prompts": {},
+  "sessions": {
+    "s_3e048da2614989": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d7ff-552f-7da3-9a2f-4576ca5d6e65",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
