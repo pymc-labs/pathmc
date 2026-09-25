@@ -1,0 +1,25 @@
+.github/workflows/broken-link-checker.yml
+  s_78c36f1b9ef139::t_48276ccff65951 19
+.github/workflows/welcome.yml
+  s_78c36f1b9ef139::t_48276ccff65951 30,34
+.github/workflows/contributors.yml
+  s_78c36f1b9ef139::t_48276ccff65951 259
+.github/workflows/ci.yml
+  s_78c36f1b9ef139::t_48276ccff65951 31,47-49,58,60,78,82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "97e4fbaf97dc09d91a9d441e10b6d96e68d76624",
+  "prompts": {},
+  "sessions": {
+    "s_78c36f1b9ef139": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d7f4-e12c-73c2-8cf0-1376f7ce5971",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
