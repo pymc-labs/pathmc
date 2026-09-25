@@ -62,6 +62,7 @@ class BasisCapabilities:
     supports_multidim: bool = False
     supports_endogenous: bool = True
     terminal: bool = True
+    requires_raw_input_units: bool = False
 
 
 @dataclass(frozen=True)
@@ -212,6 +213,7 @@ class FourierBasis(Basis):
     """Harmonic sine/cosine expansion with iid Normal coefficient weights."""
 
     name = "fourier"
+    capabilities = BasisCapabilities(requires_raw_input_units=True)
 
     def n_basis(self, call: Call) -> int:
         """Return two columns for each requested harmonic."""

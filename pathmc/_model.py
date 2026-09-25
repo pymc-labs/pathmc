@@ -269,6 +269,54 @@ def _scale_scalar_intervention(var: str, val: float, factors: ScalingFactors) ->
         ) from exc
 
 
+def _raw_basis_input_vars(spec: Spec) -> set[str]:
+    """Collect basis inputs whose declared units scaling must preserve."""
+    from pathmc.basis import get_basis
+
+    return {
+        term.basis.variable
+        for reg in spec.regressions
+        for term in reg.terms
+        if term.basis is not None
+        and get_basis(term.basis.name).capabilities.requires_raw_input_units
+    }
+
+
+def _exclude_scaled_basis_inputs(
+    scaling: Scaling | ScalingFactors,
+    basis_inputs: set[str],
+    target_columns: set[str],
+    channel_columns: set[str],
+) -> tuple[Scaling | ScalingFactors, set[str]]:
+    """Preserve basis input units and report any requested scale exclusions."""
+    if isinstance(scaling, ScalingFactors):
+        excluded = {
+            column
+            for column in basis_inputs & (target_columns | channel_columns)
+            if scaling.has_factor(column)
+        }
+        scaling = scaling.without_columns(excluded)
+    elif isinstance(scaling, Scaling):
+        excluded = set()
+        if scaling.target is not None:
+            excluded.update(basis_inputs & target_columns)
+        if scaling.channel is not None:
+            excluded.update(basis_inputs & channel_columns)
+    else:
+        return scaling, set()
+
+    if excluded:
+        warnings.warn(
+            "Scaling was requested for basis input column(s) "
+            f"{sorted(excluded)}, but those columns remain in their declared "
+            "units so the basis parameters retain their meaning. Scaling is "
+            "also skipped for plain-regressor uses of the same columns.",
+            UserWarning,
+            stacklevel=3,
+        )
+    return scaling, excluded
+
+
 def _warn_extrapolation(
     data: nw.DataFrame, interventions: Mapping[str, float | np.ndarray]
 ) -> None:
@@ -2463,12 +2511,20 @@ def model(
         for reg in spec.regressions:
             for t in reg.terms:
                 term_vars.update(_term_base_vars(t))
+        target_columns = endogenous_lhs - latent_set
+        channel_columns = term_vars - endogenous_lhs
+        scaling, excluded = _exclude_scaled_basis_inputs(
+            scaling,
+            _raw_basis_input_vars(spec),
+            target_columns,
+            channel_columns,
+        )
         scaling_factors = fit_scaling(
             scaling,
             nw_data,
             panel_info=panel_info,
-            target_columns=endogenous_lhs - latent_set,
-            channel_columns=term_vars - endogenous_lhs,
+            target_columns=target_columns - excluded,
+            channel_columns=channel_columns - excluded,
         )
         nw_data = scaling_factors.transform(nw_data)
 
@@ -2705,6 +2761,14 @@ def simulate(
         for reg in spec.regressions:
             for t in reg.terms:
                 term_vars.update(_term_base_vars(t))
+        target_columns = endo_set - latent_set
+        channel_columns = term_vars - endo_set
+        scaling, excluded = _exclude_scaled_basis_inputs(
+            scaling,
+            _raw_basis_input_vars(spec),
+            target_columns,
+            channel_columns,
+        )
         # Channel factors are fitted on the supplied exogenous columns;
         # target factors must come from a grid (or the pre-fitted object)
         # because outcomes do not exist before simulation.
@@ -2712,8 +2776,8 @@ def simulate(
             scaling,
             nw_data,
             panel_info=panel_info,
-            target_columns=endo_set - latent_set,
-            channel_columns=term_vars - endo_set,
+            target_columns=target_columns - excluded,
+            channel_columns=channel_columns - excluded,
             roles_with_data=frozenset({"channel"}),
         )
 

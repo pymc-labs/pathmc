@@ -292,7 +292,10 @@ class Scaling:
     ``"max"`` / ``"mean"`` divide each column by the group-wise maximum
     or mean of that same column; ``"fixed"`` divides by a supplied
     constant or grid; ``"divide"`` divides by an external grid such as
-    population.
+    population. A column used as input to a basis that requires raw units is
+    kept in its declared units so the basis parameters retain their meaning.
+    If scaling was requested for that column, the model warns; scaling is also
+    skipped for plain-regressor uses of the same column.
 
     This mirrors ``pymc_marketing.mmm.scaling.Scaling(method="max",
     dims=...)`` and ``FixedScaling(values=<DataArray>)``: ``target`` /
@@ -348,6 +351,21 @@ class ScalingFactors:
     def has_factor(self, column: str) -> bool:
         """Return whether *column* has a fitted scale factor."""
         return column in self.factors
+
+    def without_columns(self, columns: set[str]) -> ScalingFactors:
+        """Return fitted factors excluding the named data columns."""
+        return ScalingFactors(
+            factors={
+                column: factor
+                for column, factor in self.factors.items()
+                if column not in columns
+            },
+            roles={
+                column: roles
+                for column, roles in self.roles.items()
+                if column not in columns
+            },
+        )
 
     def columns_present_in(self, columns: Any) -> tuple[str, ...]:
         """Return fitted columns present in a frame-like column collection."""
