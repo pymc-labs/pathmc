@@ -1,0 +1,38 @@
+.github/workflows/broken-link-checker.yml
+  s_68474097b289e1::t_988c95093bd761 1-18,20-25
+  s_78c36f1b9ef139::t_48276ccff65951 19
+.github/release.yml
+  s_68474097b289e1::t_988c95093bd761 7
+.github/workflows/ci.yml
+  s_68474097b289e1::t_988c95093bd761 16-30,32-38,39-41,43-45
+  s_78c36f1b9ef139::t_48276ccff65951 31,46-48,57,59,77,81
+.github/workflows/welcome.yml
+  s_68474097b289e1::t_988c95093bd761 1-23,24-29,31-33,35-36
+  s_78c36f1b9ef139::t_48276ccff65951 30,34
+.github/workflows/contributors.yml
+  s_78c36f1b9ef139::t_48276ccff65951 259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f682250e168e6f4328eec254a014fe1bd393acaa",
+  "prompts": {},
+  "sessions": {
+    "s_68474097b289e1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d7d1-88f4-7bc3-bbb9-69232c430a66",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    },
+    "s_78c36f1b9ef139": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d7f4-e12c-73c2-8cf0-1376f7ce5971",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
