@@ -100,7 +100,77 @@ class _ConvertedArray(np.ndarray):
 
 
 class _ConvertedFloat(float):
-    """Float subclass carrying conversion state."""
+    """Float subclass that retains conversion state through scalar arithmetic."""
+
+    def _tag_result(self, value: Any) -> Any:
+        if value is NotImplemented:
+            return value
+        if not isinstance(value, (int, float, np.integer, np.floating)):
+            return value
+        tagged = _ConvertedFloat(value)
+        state = _conversion_state(self)
+        if state:
+            setattr(tagged, _SCALE_TAG, state)
+        return tagged
+
+    def _binary(self, other: Any, operation: Any) -> Any:
+        other_value = float(other) if isinstance(other, _ConvertedFloat) else other
+        return self._tag_result(operation(float(self), other_value))
+
+    def _reverse_binary(self, other: Any, operation: Any) -> Any:
+        other_value = float(other) if isinstance(other, _ConvertedFloat) else other
+        return self._tag_result(operation(other_value, float(self)))
+
+    def __add__(self, other: Any) -> Any:
+        return self._binary(other, float.__add__)
+
+    def __radd__(self, other: Any) -> Any:
+        return self._reverse_binary(other, float.__add__)
+
+    def __sub__(self, other: Any) -> Any:
+        return self._binary(other, float.__sub__)
+
+    def __rsub__(self, other: Any) -> Any:
+        return self._reverse_binary(other, float.__sub__)
+
+    def __mul__(self, other: Any) -> Any:
+        return self._binary(other, float.__mul__)
+
+    def __rmul__(self, other: Any) -> Any:
+        return self._reverse_binary(other, float.__mul__)
+
+    def __truediv__(self, other: Any) -> Any:
+        return self._binary(other, float.__truediv__)
+
+    def __rtruediv__(self, other: Any) -> Any:
+        return self._reverse_binary(other, float.__truediv__)
+
+    def __floordiv__(self, other: Any) -> Any:
+        return self._binary(other, float.__floordiv__)
+
+    def __rfloordiv__(self, other: Any) -> Any:
+        return self._reverse_binary(other, float.__floordiv__)
+
+    def __mod__(self, other: Any) -> Any:
+        return self._binary(other, float.__mod__)
+
+    def __rmod__(self, other: Any) -> Any:
+        return self._reverse_binary(other, float.__mod__)
+
+    def __pow__(self, other: float, modulo: None = None) -> Any:
+        return self._binary(other, float.__pow__)
+
+    def __rpow__(self, other: float, modulo: None = None) -> Any:
+        return self._reverse_binary(other, float.__pow__)
+
+    def __neg__(self) -> _ConvertedFloat:
+        return self._tag_result(float.__neg__(self))
+
+    def __pos__(self) -> _ConvertedFloat:
+        return self._tag_result(float.__pos__(self))
+
+    def __abs__(self) -> _ConvertedFloat:
+        return self._tag_result(float.__abs__(self))
 
 
 ScaleDims = ScaleContext | Mapping[str, Any] | IntoFrame | None
