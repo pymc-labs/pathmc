@@ -4,6 +4,7 @@ changelog:
   exclude:
     labels:
       - wontfix
+      - no releasenotes
   categories:
     - title: New Features 🎉
       labels:

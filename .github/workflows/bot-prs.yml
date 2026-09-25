@@ -1,0 +1,26 @@
+name: Label automated pull requests
+
+on:
+  # zizmor: ignore[dangerous-triggers]
+  # This workflow only uses the PR author type and a SHA-pinned action; it does
+  # not check out or run pull request code.
+  pull_request_target:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  label:
+    if: github.event.pull_request.user.type == 'Bot'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Mark the PR as omitted from release notes
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              ...context.issue,
+              labels: ['no releasenotes'],
+            });
