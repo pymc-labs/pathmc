@@ -1144,10 +1144,12 @@ class PathModel:
             Per-variable families for the reduced model only.
         priors : dict | None
             Prior overrides for the reduced equation, merged with the
-            outcome dispersion priors inherited from this model.
+            outcome dispersion and shared transform-parameter priors inherited
+            from this model.
             Coefficient priors are never inherited, since the reduced
-            predictor set can differ from the structural one — pass
-            ``beta_{outcome}`` here to set it on the reduced equation.
+            predictor set can differ from the structural one. A custom
+            ``beta_{outcome}`` prior on this model requires an explicit
+            override here.
 
         Returns
         -------
