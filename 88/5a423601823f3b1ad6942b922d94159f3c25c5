@@ -1,0 +1,28 @@
+tests/test_adjustment.py
+  s_2aa3d98d5b9b39::t_d16416934e220d 19,300-360,362-363
+  s_2aa3d98d5b9b39::t_9e3399e3bdd703 361,364
+pathmc/skills/pathmc/SKILL.md
+  s_2aa3d98d5b9b39::t_45614dbea43ed7 155-159
+pathmc/_model.py
+  s_2aa3d98d5b9b39::t_43519ed6158c73 880-881,883-885
+pathmc/adjustment.py
+  s_2aa3d98d5b9b39::t_45614dbea43ed7 251,425
+  s_2aa3d98d5b9b39::t_f36ef8639621cf 229-230,236-238,253,256-262,408-413,416-417,426
+  s_2aa3d98d5b9b39::t_0b25cd801a1a33 427
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "885a423601823f3b1ad6942b922d94159f3c25c5",
+  "prompts": {},
+  "sessions": {
+    "s_2aa3d98d5b9b39": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cafb-0386-7c23-aa74-9afcf70cd560",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

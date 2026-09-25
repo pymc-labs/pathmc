@@ -1,0 +1,25 @@
+tests/test_public_api.py
+  s_4a71ae2b4a0488::t_0d139da2add4a5 26,48
+tests/test_basis.py
+  s_4a71ae2b4a0488::t_0d139da2add4a5 80-91
+pathmc/compile.py
+  s_4a71ae2b4a0488::t_6c2b188ab6808e 1699-1713
+pathmc/basis.py
+  s_4a71ae2b4a0488::t_6c2b188ab6808e 96-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b7682f72c6668e8a70ed4694956e18f5be897d4e",
+  "prompts": {},
+  "sessions": {
+    "s_4a71ae2b4a0488": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca9e-978e-7c50-91cd-76f03cbeea29",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

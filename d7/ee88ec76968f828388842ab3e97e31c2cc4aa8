@@ -1,0 +1,21 @@
+docs/user_guide/18-panel-data.qmd
+  s_9a17ea120e2eab::t_6a3de361848d95 257
+  s_9a17ea120e2eab::t_7e13135f3042a0 258-268,270
+  s_9a17ea120e2eab::t_5061fa97f106fb 269
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d7ee88ec76968f828388842ab3e97e31c2cc4aa8",
+  "prompts": {},
+  "sessions": {
+    "s_9a17ea120e2eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb77-831c-78e0-8e95-0759bd7f6464",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
