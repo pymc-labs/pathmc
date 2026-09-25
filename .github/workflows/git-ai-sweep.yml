@@ -1,0 +1,141 @@
+name: git-ai sweep
+
+# Backstop for git-ai.yml. The merge-time job only consolidates forward, and
+# only when its run succeeds, so this periodically replays `git-ai ci local
+# merge` over recently merged pull requests to recover what it missed: notes
+# stranded before git-ai.yml existed, fork PRs (whose read-only token can never
+# push), `closed` runs lost to queue eviction, and transient failures.
+#
+# Running git-ai.yml itself on `schedule:` would not work: `git-ai ci github
+# run` finds no pull-request payload, prints "nothing to do", and exits 0.
+
+on:
+  schedule:
+    - cron: "17 4 * * 1" # Mondays 04:17 UTC
+  workflow_dispatch:
+    inputs:
+      since:
+        description: >-
+          Sweep PRs merged on or after this date (YYYY-MM-DD), or `all` for
+          the full backfill. Empty uses the default 14-day window.
+        required: false
+        default: ""
+
+permissions: {}
+
+# Shared with git-ai.yml: both push the single repo-global refs/notes/ai without
+# --force, so they must never run at the same time. See git-ai.yml for why
+# runs are queued rather than cancelled.
+concurrency:
+  group: git-ai-notes
+  cancel-in-progress: false
+  queue: max
+
+env:
+  # Pinned deliberately; keep in lockstep with git-ai.yml.
+  GIT_AI_VERSION: v1.6.21
+  GIT_AI_SHA256: 8465f82008707bd7f0d867908f0ccf6c591f0cef118f5991e1f245f14b17d3d7
+
+jobs:
+  sweep:
+    name: Backfill AI attribution notes
+    runs-on: ubuntu-latest
+    # Deliberately not continue-on-error: this is the backstop, and its failure
+    # is exactly what needs to be visible.
+    timeout-minutes: 30
+    permissions:
+      contents: write # push consolidated attribution notes to refs/notes/ai
+      pull-requests: read # list merged PRs and their head/base SHAs
+    steps:
+      - name: Install git-ai
+        run: |
+          mkdir -p "$RUNNER_TEMP/git-ai"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/git-ai/git-ai" \
+            "https://github.com/git-ai-project/git-ai/releases/download/${GIT_AI_VERSION}/git-ai-linux-x64"
+          echo "${GIT_AI_SHA256}  $RUNNER_TEMP/git-ai/git-ai" | sha256sum --check --strict
+          chmod +x "$RUNNER_TEMP/git-ai/git-ai"
+          echo "$RUNNER_TEMP/git-ai" >> "$GITHUB_PATH"
+      # No actions/checkout, matching git-ai.yml: the clone lives in
+      # RUNNER_TEMP and the token is only ever handed to git and gh here.
+      - name: Sweep merged pull requests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SINCE: ${{ inputs.since }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          case "${SINCE:-}" in
+            "") since="$(date -u -d '14 days ago' +%Y-%m-%d)" ;;
+            all) since="0000-00-00" ;;
+            [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) since="$SINCE" ;;
+            *) echo "::error::since must be YYYY-MM-DD, 'all', or empty; got '$SINCE'"; exit 1 ;;
+          esac
+          echo "Sweeping PRs merged into ${DEFAULT_BRANCH} on or after ${since}"
+
+          work="$RUNNER_TEMP/repo"
+          git clone --quiet --branch "$DEFAULT_BRANCH" \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$work"
+          cd "$work"
+          # All PR heads in one fetch: merged branches are usually deleted, but
+          # GitHub keeps pull/N/head, and git-ai needs the original commits.
+          git fetch --quiet origin '+refs/pull/*/head:refs/github/pr/*'
+          git fetch --quiet origin '+refs/notes/ai:refs/notes/ai' || echo "No refs/notes/ai yet"
+
+          # merged_at is ISO-8601, so a string comparison against YYYY-MM-DD is
+          # a date comparison.
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=${DEFAULT_BRANCH}&per_page=100" \
+            --jq ".[] | select(.merged_at != null and .merged_at >= \"${since}\")
+                  | [.number, .merge_commit_sha, .head.ref, .head.sha, .base.sha,
+                     (if .head.repo != null and .head.repo.full_name != \"${GITHUB_REPOSITORY}\"
+                      then .head.repo.clone_url else \"\" end)] | @tsv" \
+            > "$RUNNER_TEMP/prs.tsv"
+
+          total=0 done_=0 skipped=0 failed=()
+          while IFS=$'\t' read -r number merge_sha head_ref head_sha base_sha fork_url; do
+            total=$((total + 1))
+            if git notes --ref=ai list "$merge_sha" >/dev/null 2>&1; then
+              skipped=$((skipped + 1))
+              continue
+            fi
+            if ! git cat-file -e "${merge_sha}^{commit}" 2>/dev/null; then
+              echo "::warning::#${number}: merge commit ${merge_sha} is not in ${DEFAULT_BRANCH}; skipping"
+              skipped=$((skipped + 1))
+              continue
+            fi
+            echo "::group::#${number} (${merge_sha:0:7})"
+            args=(--merge-commit-sha "$merge_sha" --base-ref "$DEFAULT_BRANCH"
+                  --head-ref "$head_ref" --head-sha "$head_sha" --base-sha "$base_sha"
+                  --skip-fetch-notes --skip-fetch-base --skip-push)
+            if [ -n "$fork_url" ]; then
+              args+=(--fork-clone-url "$fork_url")
+            fi
+            if git-ai ci local merge "${args[@]}"; then
+              done_=$((done_ + 1))
+            else
+              failed+=("#${number}")
+            fi
+            echo "::endgroup::"
+          done < "$RUNNER_TEMP/prs.tsv"
+
+          # One push for the whole sweep. Non-force: the shared concurrency
+          # group means nothing else can have moved refs/notes/ai meanwhile.
+          if git rev-parse --verify --quiet refs/notes/ai >/dev/null; then
+            git push origin refs/notes/ai:refs/notes/ai
+          fi
+
+          {
+            echo "### git-ai sweep since ${since}"
+            echo "- merged PRs considered: ${total}"
+            echo "- already noted or not on ${DEFAULT_BRANCH}: ${skipped}"
+            echo "- checked by git-ai (see log for each outcome): ${done_}"
+            echo "- failed: ${#failed[@]} ${failed[*]:-}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error::git-ai failed for ${failed[*]}"
+            exit 1
+          fi
