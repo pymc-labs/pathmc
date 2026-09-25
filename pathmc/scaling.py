@@ -351,6 +351,21 @@ class ScalingFactors:
         """Return whether *column* has a fitted scale factor."""
         return column in self.factors
 
+    def without_columns(self, columns: set[str]) -> ScalingFactors:
+        """Return fitted factors excluding the named data columns."""
+        return ScalingFactors(
+            factors={
+                column: factor
+                for column, factor in self.factors.items()
+                if column not in columns
+            },
+            roles={
+                column: roles
+                for column, roles in self.roles.items()
+                if column not in columns
+            },
+        )
+
     def columns_present_in(self, columns: Any) -> tuple[str, ...]:
         """Return fitted columns present in a frame-like column collection."""
         available = set(columns)

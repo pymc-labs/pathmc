@@ -160,6 +160,24 @@ def test_fourier_period_uses_declared_units_with_channel_scaling():
     )
 
 
+def test_fourier_period_ignores_prefitted_input_scaling():
+    """Reused factors cannot change a Fourier input's declared period."""
+    week = np.array([0.0, 13.0, 26.0, 39.0, 52.0])
+    data = pd.DataFrame({"week": week, "y": np.arange(1.0, 6.0)})
+    factors = pathmc.ScalingFactors(factors={"week": ((), {(): 52.0})})
+
+    model = pathmc.model(
+        "y ~ fourier(week, n=1, period=52)", data=data, scaling=factors
+    )
+
+    raw_angles = 2 * np.pi * week / 52
+    expected = np.column_stack((np.sin(raw_angles), np.cos(raw_angles)))
+    np.testing.assert_array_equal(model._data["week"].to_numpy(), week)
+    np.testing.assert_allclose(
+        model._gen_model["basis_y_fourier_week"].get_value(), expected, atol=1e-12
+    )
+
+
 def test_fourier_owns_weights_without_misaligning_plain_or_fixed_terms():
     """A basis does not consume a scalar beta slot between ordinary terms."""
     data = pd.DataFrame({

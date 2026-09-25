@@ -275,18 +275,7 @@ def _without_fourier_input_factors(
     """Keep fitted scales from changing a declared Fourier input unit."""
     if not isinstance(scaling, ScalingFactors):
         return scaling
-    return ScalingFactors(
-        factors={
-            column: factor
-            for column, factor in scaling.factors.items()
-            if column not in fourier_inputs
-        },
-        roles={
-            column: roles
-            for column, roles in scaling.roles.items()
-            if column not in fourier_inputs
-        },
-    )
+    return scaling.without_columns(fourier_inputs)
 
 
 def _warn_extrapolation(
