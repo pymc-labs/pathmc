@@ -21,18 +21,16 @@ jobs:
     permissions:
       issues: write
       pull-requests: write
-    env:
-      ACTOR: ${{ github.actor }}
     steps:
       - name: Welcome first-time contributors
         uses: actions/first-interaction@1c4688942c71f71d4f5502a26ea67c331730fa4d # v3.1.0
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           issue_message: |
-            👋 Welcome to pathmc, @${{ env.ACTOR }}! Thanks for opening your first issue.
+            👋 Welcome to pathmc, @${{ github.actor }}! Thanks for opening your first issue.
 
             Please include a small example, the behavior you expected, and any error output. The [documentation](https://pathmc.pymc-labs.com/) may also help answer questions.
           pr_message: |
-            👋 Welcome to pathmc, @${{ env.ACTOR }}! Thanks for opening your first pull request.
+            👋 Welcome to pathmc, @${{ github.actor }}! Thanks for opening your first pull request.
 
             Please see the [contribution guide](https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md) for development setup and checks. We’ll review your changes soon.

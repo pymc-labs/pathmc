@@ -28,6 +28,7 @@ jobs:
           predicate-quantifier: some-with-excludes
           filters: |
             code:
+              - 'pathmc/**'
               - '**'
               - '!docs/**'
               - '!examples/**'
@@ -43,7 +44,9 @@ jobs:
     needs: changes
     if: >-
       !cancelled() &&
-      (github.event_name != 'pull_request' || needs.changes.outputs.code == 'true')
+      (github.event_name != 'pull_request' ||
+       needs.changes.result != 'success' ||
+       needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -52,9 +55,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync --all-extras --locked
       - name: Run tests
         run: make test
         env:
@@ -72,11 +75,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Install dependencies
         # Locked install (same as `make setup`) so the mypy hook sees the
         # project dependencies, matching local `make lint` behavior.
-        run: uv sync --all-extras
+        run: uv sync --all-extras --locked
       - name: Run prek on changed files in PRs
         if: github.event_name == 'pull_request'
         run: uv run prek run --from-ref "$BASE_SHA" --to-ref "$HEAD_SHA"
