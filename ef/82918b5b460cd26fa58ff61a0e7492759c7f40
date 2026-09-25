@@ -1,0 +1,30 @@
+pathmc/_model.py
+  s_c247a4fed6ba19::t_b83a61935752cb 318-319
+  s_c247a4fed6ba19::t_77ff5463e87b64 299,305-306
+  s_c247a4fed6ba19::t_90eb368f65fa12 272-298,300-304,307-317,2514-2521,2526-2527,2764-2771,2779-2780
+tests/test_basis.py
+  s_c247a4fed6ba19::t_21e39da806be38 144-148,161-162,175-182
+  s_c247a4fed6ba19::t_a909158fb8fa6e 164-169,174-182
+  s_c247a4fed6ba19::t_6966611106126d 149-154,170-173,183-235
+pathmc/scaling.py
+  s_c247a4fed6ba19::t_89280cc236dbea 355-369
+  s_c247a4fed6ba19::t_57f6fe0a1a9209 295-298
+pathmc/basis.py
+  s_c247a4fed6ba19::t_4a1ba9eb6bf889 65,216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ef82918b5b460cd26fa58ff61a0e7492759c7f40",
+  "prompts": {},
+  "sessions": {
+    "s_c247a4fed6ba19": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d81e-4f3f-7533-9386-fa008a66df4c",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
