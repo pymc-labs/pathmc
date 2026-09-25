@@ -1,0 +1,30 @@
+.github/workflows/validate-lockfile.yml
+  s_68474097b289e1::t_afb417968cba30 23
+  s_68474097b289e1::t_988c95093bd761 1-22,24-25
+.github/workflows/broken-link-checker.yml
+  s_68474097b289e1::t_988c95093bd761 1-25
+.github/release.yml
+  s_68474097b289e1::t_988c95093bd761 7
+.github/workflows/bot-prs.yml
+  s_68474097b289e1::t_988c95093bd761 1-26
+.github/workflows/ci.yml
+  s_68474097b289e1::t_988c95093bd761 16-41,43-46
+.github/workflows/welcome.yml
+  s_68474097b289e1::t_988c95093bd761 1-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "13d6c2c177f2cdab8502f4d4efb323dc589f3a65",
+  "prompts": {},
+  "sessions": {
+    "s_68474097b289e1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d7d1-88f4-7bc3-bbb9-69232c430a66",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
