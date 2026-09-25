@@ -292,7 +292,9 @@ class Scaling:
     ``"max"`` / ``"mean"`` divide each column by the group-wise maximum
     or mean of that same column; ``"fixed"`` divides by a supplied
     constant or grid; ``"divide"`` divides by an external grid such as
-    population.
+    population. A column used as the input to ``fourier(...)`` is kept in
+    its declared units so its values remain on the declared period, including
+    when the same column is also used as a plain regressor.
 
     This mirrors ``pymc_marketing.mmm.scaling.Scaling(method="max",
     dims=...)`` and ``FixedScaling(values=<DataArray>)``: ``target`` /

@@ -269,6 +269,26 @@ def _scale_scalar_intervention(var: str, val: float, factors: ScalingFactors) ->
         ) from exc
 
 
+def _without_fourier_input_factors(
+    scaling: Scaling | ScalingFactors, fourier_inputs: set[str]
+) -> Scaling | ScalingFactors:
+    """Keep fitted scales from changing a declared Fourier input unit."""
+    if not isinstance(scaling, ScalingFactors):
+        return scaling
+    return ScalingFactors(
+        factors={
+            column: factor
+            for column, factor in scaling.factors.items()
+            if column not in fourier_inputs
+        },
+        roles={
+            column: roles
+            for column, roles in scaling.roles.items()
+            if column not in fourier_inputs
+        },
+    )
+
+
 def _warn_extrapolation(
     data: nw.DataFrame, interventions: Mapping[str, float | np.ndarray]
 ) -> None:
@@ -2460,15 +2480,19 @@ def model(
             )
         endogenous_lhs = {reg.lhs for reg in spec.regressions}
         term_vars: set[str] = set()
+        fourier_inputs: set[str] = set()
         for reg in spec.regressions:
             for t in reg.terms:
                 term_vars.update(_term_base_vars(t))
+                if t.basis is not None and t.basis.name == "fourier":
+                    fourier_inputs.add(t.basis.variable)
+        scaling = _without_fourier_input_factors(scaling, fourier_inputs)
         scaling_factors = fit_scaling(
             scaling,
             nw_data,
             panel_info=panel_info,
-            target_columns=endogenous_lhs - latent_set,
-            channel_columns=term_vars - endogenous_lhs,
+            target_columns=endogenous_lhs - latent_set - fourier_inputs,
+            channel_columns=term_vars - endogenous_lhs - fourier_inputs,
         )
         nw_data = scaling_factors.transform(nw_data)
 
@@ -2702,9 +2726,13 @@ def simulate(
     scaling_factors: ScalingFactors | None = None
     if scaling is not None:
         term_vars: set[str] = set()
+        fourier_inputs: set[str] = set()
         for reg in spec.regressions:
             for t in reg.terms:
                 term_vars.update(_term_base_vars(t))
+                if t.basis is not None and t.basis.name == "fourier":
+                    fourier_inputs.add(t.basis.variable)
+        scaling = _without_fourier_input_factors(scaling, fourier_inputs)
         # Channel factors are fitted on the supplied exogenous columns;
         # target factors must come from a grid (or the pre-fitted object)
         # because outcomes do not exist before simulation.
@@ -2712,8 +2740,8 @@ def simulate(
             scaling,
             nw_data,
             panel_info=panel_info,
-            target_columns=endo_set - latent_set,
-            channel_columns=term_vars - endo_set,
+            target_columns=endo_set - latent_set - fourier_inputs,
+            channel_columns=term_vars - endo_set - fourier_inputs,
             roles_with_data=frozenset({"channel"}),
         )
 
