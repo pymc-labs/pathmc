@@ -69,6 +69,7 @@ tags:
     Simulation: dices
     Priors: sliders-horizontal
     Transforms: waves
+    Basis Functions: grid-3x3
     Latent Variables: eye-off
     Media Mix Modeling: megaphone
     Hierarchical Effects: layers

@@ -184,10 +184,10 @@ def _validate_reduced_spec(
                 "lag() terms are not supported in adjustment model formulas. "
                 "Use the structural PathModel for panel/lagged models."
             )
-        if term.hsgp is not None:
+        if term.basis is not None:
             raise ValueError(
-                "hsgp() terms are not supported in adjustment model formulas. "
-                "Use the structural PathModel for HSGP models."
+                "Basis terms are not supported in adjustment model formulas. "
+                "Use the structural PathModel for basis-term models."
             )
 
     predictors: set[str] = set()

@@ -259,7 +259,7 @@ def _term_coefficient_scale(
     f_out = scaling_factors.mean_factor(outcome, data)
     if term.variable == "Intercept":
         return f_out
-    if term.hsgp is not None:
+    if term.basis is not None:
         return f_out
     if term.interaction_of is not None:
         scale = f_out

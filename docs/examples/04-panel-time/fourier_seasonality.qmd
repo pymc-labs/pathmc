@@ -1,0 +1,245 @@
+---
+title: "Fourier Seasonality"
+author:
+  - name: "Benjamin Vincent"
+description: "Model seasonal variation with the fourier() basis term and inspect its harmonic components."
+tags: [Basis Functions, Panel Data]
+jupyter: pathmc
+---
+
+Weekly sales can rise and fall every year without changing abruptly at the boundary between weeks 52 and 1. A week-by-week categorical effect can describe that pattern, but it needs one parameter per week and does not express its smooth, repeating structure. `fourier(week, n=3, period=52)` instead represents a yearly cycle with three sine/cosine harmonic pairs, each with its own coefficient.
+
+This example simulates two years of sales, fits a seasonal model, and checks that posterior-predictive sales recover the planted cycle and its observation noise. It assumes familiarity with fitting a basic pathmc model; see the [Basis Terms](/user-guide/basis-terms.html) guide for how Fourier and HSGP terms differ.
+
+## Simulate a repeating seasonal signal
+
+The data-generating process has a baseline of 10 sales units, a one-cycle sine wave of amplitude 2, a second harmonic of amplitude 0.6, and Gaussian measurement noise with standard deviation 0.25. We simulate two full 52-week cycles so that the model sees the repetition it must learn.
+
+```{python}
+# | label: fig-simulated-seasonality
+# | fig-cap: "Simulated weekly sales across two 52-week cycles. Points include Gaussian observation noise; the solid line is the planted seasonal mean in sales units."
+# | code-fold: true
+import arviz as az
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+import pathmc
+
+FIG_WIDTH = 8
+FIG_HEIGHT = 3.5
+COLOR_OBSERVED = "#4c78a8"
+COLOR_POSTERIOR = "#f58518"
+COLOR_FUTURE = "#54a24b"
+COLOR_TRUE = "black"
+
+rng = np.random.default_rng(42)
+week = np.arange(104, dtype=float)
+seasonal_signal = 2 * np.sin(2 * np.pi * week / 52) + 0.6 * np.cos(
+    4 * np.pi * week / 52
+)
+df = pd.DataFrame({
+    "week": week,
+    "sales": 10 + seasonal_signal + rng.normal(0, 0.25, len(week)),
+})
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.scatter(
+    df["week"],
+    df["sales"],
+    s=16,
+    alpha=0.55,
+    color=COLOR_OBSERVED,
+    label="Observed sales",
+)
+ax.plot(
+    df["week"],
+    10 + seasonal_signal,
+    color=COLOR_TRUE,
+    lw=2,
+    label="Planted seasonal mean",
+)
+ax.set(xlabel="Week", ylabel="Sales (arbitrary units)", xlim=(0, 103))
+ax.legend()
+plt.show()
+```
+
+The points are noisy, but the rise and fall repeat after 52 weeks. The model below has enough harmonics to recover both the broad annual wave and the smaller second-harmonic feature without fitting a separate effect for every week.
+
+## Fit a Fourier seasonal model
+
+```{python}
+model = pathmc.model("sales ~ fourier(week, n=3, period=52)", data=df)
+model.equations()
+```
+
+The Fourier term owns six coefficients: one sine and one cosine weight for each of the three harmonics. These weights jointly describe the shape of the cycle, while the equation intercept describes the overall sales level.
+
+```{python}
+idata = model.fit(
+    draws=200, tune=200, chains=1, cores=1, progressbar=False, random_seed=42
+)
+```
+
+## Check posterior-predictive sales
+
+A fitted seasonal curve alone would hide the uncertainty introduced by residual noise. A posterior predictive check instead simulates new sales at every observed week, combining uncertainty about the harmonic weights with the model's observation noise.
+
+```{python}
+posterior_predictive = model.predict(
+    extend_inferencedata=False, progressbar=False, random_seed=42
+)
+sales_predictive = posterior_predictive.posterior_predictive["sales"].values.reshape(
+    -1, len(df)
+)
+sales_predictive_mean = sales_predictive.mean(axis=0)
+sales_predictive_hdi = az.hdi(sales_predictive, prob=0.94, axis=0)
+```
+
+```{python}
+# | label: fig-fourier-posterior-predictive
+# | fig-cap: "Posterior-predictive weekly sales with a 94% HDI across two 52-week cycles. The black dashed curve is the planted seasonal mean; points are the simulated observations in sales units."
+# | code-fold: true
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.scatter(
+    df["week"],
+    df["sales"],
+    s=14,
+    alpha=0.45,
+    color=COLOR_OBSERVED,
+    label="Observed sales",
+    zorder=1,
+)
+ax.fill_between(
+    df["week"],
+    sales_predictive_hdi[:, 0],
+    sales_predictive_hdi[:, 1],
+    color=COLOR_POSTERIOR,
+    alpha=0.25,
+    label="94% posterior-predictive HDI",
+    zorder=2,
+)
+ax.plot(
+    df["week"],
+    sales_predictive_mean,
+    color=COLOR_POSTERIOR,
+    lw=2.5,
+    label="Posterior-predictive mean",
+    zorder=3,
+)
+ax.plot(
+    df["week"],
+    10 + seasonal_signal,
+    color=COLOR_TRUE,
+    linestyle="--",
+    lw=1.5,
+    label="Planted seasonal mean",
+    zorder=4,
+)
+ax.set(xlabel="Week", ylabel="Sales (arbitrary units)", xlim=(0, 103))
+ax.legend(fontsize=8)
+plt.show()
+```
+
+The posterior-predictive mean follows the planted seasonal mean, and the 94% interval covers the scatter expected from the simulated observation noise. That is the relevant check here: the model should recover the repeating pattern without pretending that an individual week's sales are known exactly.
+
+## Project a future cycle with `do()`
+
+Fourier columns are recomputed when their input changes. We can therefore intervene on the next two 52-week cycles without an HSGP-style fitted support boundary. To make the future interval comparable with the in-sample interval above, we request `kind="predictive"`: both panels then include uncertainty in the harmonic weights *and* residual sales noise.
+
+The projection lies outside the fitted numerical range, so pathmc emits one extrapolation warning. That warning is useful context; Fourier remains defined here because its period specifies how the basis repeats beyond the observed weeks.
+
+```{python}
+future_week = np.arange(104, 208, dtype=float)
+future_predictive = model.do(set={"week": future_week}, kind="predictive")
+```
+
+`future_predictive` retains posterior-predictive samples for every future week. The collapsed cell below turns those samples into the figure's means and 94% intervals.
+
+```{python}
+# | label: fig-fourier-future-cycle
+# | fig-cap: "In-sample and future posterior-predictive weekly sales. Orange marks the fitted 104 weeks and green marks two future 52-week cycles; both bands are 94% HDIs for individual sales observations. The black dashed curve is the planted seasonal mean in sales units."
+# | code-fold: true
+future_sales_draws = future_predictive.dataset["sales"].values.reshape(
+    -1, len(future_week)
+)
+future_sales_mean = future_sales_draws.mean(axis=0)
+future_sales_hdi = az.hdi(future_sales_draws, prob=0.94, axis=0)
+future_seasonal_mean = (
+    10
+    + 2 * np.sin(2 * np.pi * future_week / 52)
+    + 0.6 * np.cos(4 * np.pi * future_week / 52)
+)
+all_week = np.concatenate([df["week"].to_numpy(), future_week])
+all_seasonal_mean = np.concatenate([10 + seasonal_signal, future_seasonal_mean])
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.scatter(
+    df["week"],
+    df["sales"],
+    s=14,
+    alpha=0.45,
+    color=COLOR_OBSERVED,
+    label="Observed sales",
+    zorder=1,
+)
+ax.fill_between(
+    df["week"],
+    sales_predictive_hdi[:, 0],
+    sales_predictive_hdi[:, 1],
+    color=COLOR_POSTERIOR,
+    alpha=0.2,
+    label="94% in-sample predictive HDI",
+    zorder=2,
+)
+ax.plot(
+    df["week"],
+    sales_predictive_mean,
+    color=COLOR_POSTERIOR,
+    lw=2.5,
+    label="In-sample predictive mean",
+    zorder=3,
+)
+ax.fill_between(
+    future_week,
+    future_sales_hdi[:, 0],
+    future_sales_hdi[:, 1],
+    color=COLOR_FUTURE,
+    alpha=0.25,
+    label="94% future predictive HDI",
+    zorder=2,
+)
+ax.plot(
+    future_week,
+    future_sales_mean,
+    color=COLOR_FUTURE,
+    lw=2.5,
+    linestyle="--",
+    label="Future predictive mean",
+    zorder=3,
+)
+ax.plot(
+    all_week,
+    all_seasonal_mean,
+    color=COLOR_TRUE,
+    linestyle="--",
+    lw=1.5,
+    label="Planted seasonal mean",
+    zorder=4,
+)
+ax.axvline(
+    103.5,
+    color=COLOR_TRUE,
+    linestyle="--",
+    lw=1.2,
+    label="Forecast origin",
+    zorder=5,
+)
+ax.set(xlabel="Week", ylabel="Sales (arbitrary units)", xlim=(0, 207))
+ax.legend(fontsize=7.5, ncol=2, loc="upper right")
+plt.show()
+```
+
+The orange and green bands now describe the same quantity: plausible **individual sales observations**, not just the model's expected curve. The forecast does not become artificially narrow at week 104; any remaining difference reflects what the model learned about the repeating pattern, not omitted residual noise. In applied work the dashed reference will be unavailable, but the predictive band still communicates uncertainty about future observations.
+
+**Takeaway:** use `fourier()` when the outcome varies smoothly and periodically, use a posterior predictive check to assess observations, and use `do()` to project the expected cycle at future input values. For a smooth relationship that does not repeat, see the [HSGP example](/docs/examples/foundations/hsgp_1d.html).
