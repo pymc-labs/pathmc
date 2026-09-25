@@ -1,0 +1,19 @@
+.github/workflows/pr-closing-issue-labels.yml
+  s_68474097b289e1::t_31889df96550b8 1-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a3e93ee545acb25e34609b3b28fa1caf2c9eeee5",
+  "prompts": {},
+  "sessions": {
+    "s_68474097b289e1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d7d1-88f4-7bc3-bbb9-69232c430a66",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
