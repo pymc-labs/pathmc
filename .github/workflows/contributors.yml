@@ -256,4 +256,4 @@ jobs:
           add-paths: |
             docs/assets/contributors.svg
             docs/assets/contributors.json
-          labels: documentation
+          labels: documentation, no releasenotes
