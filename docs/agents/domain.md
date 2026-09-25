@@ -1,13 +1,13 @@
-# Domain Docs
+# Domain Documentation
 
-How agent skills should consume pathmc domain documentation.
+How contributors and agents should consume pathmc domain documentation.
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root (created lazily by `grill-with-docs` / `domain-modeling` when needed).
+- **`CONTEXT.md`** at the repo root, when present.
 - **`docs/adr/`** — read ADRs that touch the area you're about to work in.
 
-If these files don't exist, proceed silently. The grilling phase creates them when terms or decisions are resolved.
+If these files don't exist, proceed silently.
 
 ## Use the glossary's vocabulary
 

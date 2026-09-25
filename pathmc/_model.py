@@ -479,6 +479,12 @@ class PathModel:
             self._pymc_model = pm.observe(self._gen_model, observations)
         else:
             self._pymc_model = self._gen_model
+        self._pymc_model._pathmc_data_bases = getattr(
+            self._gen_model, "_pathmc_data_bases", {}
+        )
+        self._pymc_model._pathmc_basis_states = getattr(
+            self._gen_model, "_pathmc_basis_states", {}
+        )
 
         # Enable the observed carry unconditionally, not only when
         # ``observations`` is non-empty. A variable with any NaN is skipped
@@ -924,6 +930,20 @@ class PathModel:
         scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
         if scan_info is not None:
             validate_panel_scan_shape(self._pymc_model, scan_info)
+        data_basis_bindings = getattr(self._pymc_model, "_pathmc_data_bases", {})
+        if data_basis_bindings:
+            from pathmc.basis import replay_data_bases
+
+            raw_values = {
+                binding.call.variable: self._pymc_model[
+                    binding.call.variable
+                ].get_value()
+                for binding in data_basis_bindings.values()
+            }
+            updates = replay_data_bases(data_basis_bindings, raw_values)
+            if updates:
+                with self._pymc_model:
+                    pm.set_data(updates)
         with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
             pp = pm.sample_posterior_predictive(idata, **kwargs)
         result = pp if not kwargs["extend_inferencedata"] else idata

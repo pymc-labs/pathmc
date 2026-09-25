@@ -346,7 +346,7 @@ class ScalingFactors:
             return outcome_factor / self._scalar_factor(term, mean_context)
         if getattr(term, "variable", None) == "Intercept":
             return outcome_factor
-        if getattr(term, "hsgp", None) is not None:
+        if getattr(term, "basis", None) is not None:
             return outcome_factor
         interaction = getattr(term, "interaction_of", None)
         if interaction is not None:

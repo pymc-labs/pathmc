@@ -23,6 +23,7 @@ import pathmc
 def test_top_level_public_api_is_explicit() -> None:
     assert pathmc.__all__ == [
         "AdjustmentModel",
+        "Basis",
         "TBFPC",
         "BuildModelFromDAG",
         "DoResult",
@@ -44,6 +45,7 @@ def test_top_level_public_api_is_explicit() -> None:
         "dag_to_spec",
         "datagrid",
         "model",
+        "register_basis",
         "register_transform",
         "same_markov_equivalence_class",
         "simulate",
