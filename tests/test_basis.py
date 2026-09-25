@@ -146,11 +146,12 @@ def test_fourier_period_uses_declared_units_with_channel_scaling():
     week = np.array([0.0, 13.0, 26.0, 39.0, 52.0])
     data = pd.DataFrame({"week": week, "y": np.arange(1.0, 6.0)})
 
-    model = pathmc.model(
-        "y ~ week + fourier(week, n=1, period=52)",
-        data=data,
-        scaling=pathmc.Scaling(channel={"method": "max"}),
-    )
+    with pytest.warns(UserWarning, match="remain in their declared units"):
+        model = pathmc.model(
+            "y ~ week + fourier(week, n=1, period=52)",
+            data=data,
+            scaling=pathmc.Scaling(channel={"method": "max"}),
+        )
 
     raw_angles = 2 * np.pi * week / 52
     expected = np.column_stack((np.sin(raw_angles), np.cos(raw_angles)))
@@ -166,9 +167,10 @@ def test_fourier_period_ignores_prefitted_input_scaling():
     data = pd.DataFrame({"week": week, "y": np.arange(1.0, 6.0)})
     factors = pathmc.ScalingFactors(factors={"week": ((), {(): 52.0})})
 
-    model = pathmc.model(
-        "y ~ fourier(week, n=1, period=52)", data=data, scaling=factors
-    )
+    with pytest.warns(UserWarning, match="remain in their declared units"):
+        model = pathmc.model(
+            "y ~ fourier(week, n=1, period=52)", data=data, scaling=factors
+        )
 
     raw_angles = 2 * np.pi * week / 52
     expected = np.column_stack((np.sin(raw_angles), np.cos(raw_angles)))
@@ -176,6 +178,59 @@ def test_fourier_period_ignores_prefitted_input_scaling():
     np.testing.assert_allclose(
         model._gen_model["basis_y_fourier_week"].get_value(), expected, atol=1e-12
     )
+
+
+def test_fourier_input_skips_and_warns_about_target_scaling():
+    """Endogenous Fourier inputs remain raw and announce skipped scaling."""
+    x = np.arange(8.0)
+    data = pd.DataFrame({"x": x, "m": 2 * x + 1, "y": x})
+
+    with pytest.warns(UserWarning, match="'m'"):
+        model = pathmc.model(
+            "m ~ x\ny ~ fourier(m, n=1, period=52)",
+            data=data,
+            scaling=pathmc.Scaling(target={"method": "max"}, channel={"method": "max"}),
+        )
+
+    np.testing.assert_array_equal(model._data["m"].to_numpy(), data["m"])
+    np.testing.assert_allclose(model._data["x"].to_numpy(), data["x"] / data["x"].max())
+
+
+def test_fourier_input_warns_when_fixed_scaling_is_skipped():
+    """Explicit fixed scaling on a Fourier input is never silently ignored."""
+    data = pd.DataFrame({"week": np.arange(5.0), "y": np.arange(5.0)})
+
+    with pytest.warns(UserWarning, match="'week'"):
+        model = pathmc.model(
+            "y ~ fourier(week, n=1, period=52)",
+            data=data,
+            scaling=pathmc.Scaling(channel={"method": "fixed", "value": 52.0}),
+        )
+
+    np.testing.assert_array_equal(model._data["week"].to_numpy(), data["week"])
+
+
+def test_simulate_preserves_fourier_period_under_channel_scaling():
+    """Simulation uses the same declared-unit Fourier inputs as model()."""
+    week = np.array([0.0, 13.0, 26.0, 39.0, 52.0])
+    data = pd.DataFrame({"week": week, "y": np.zeros_like(week)})
+    params = {
+        "beta_y": np.array([0.0]),
+        "beta_fourier_y_week": np.array([1.0, 0.0]),
+        "sigma_y": 1e-6,
+    }
+
+    with pytest.warns(UserWarning, match="'week'"):
+        simulated = pathmc.simulate(
+            "y ~ fourier(week, n=1, period=52)",
+            data=data,
+            params=params,
+            scaling=pathmc.Scaling(channel={"method": "max"}),
+            random_seed=4,
+        )
+
+    expected = np.sin(2 * np.pi * week / 52)
+    np.testing.assert_allclose(simulated["y"].to_numpy(), expected, atol=2e-5)
 
 
 def test_fourier_owns_weights_without_misaligning_plain_or_fixed_terms():
