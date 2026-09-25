@@ -68,9 +68,11 @@ git-ai stats <start>..<end>
 
 A `.github/workflows/git-ai.yml` job keeps attribution intact across the rewrites GitHub performs server-side. It runs on every push to an open pull request and again when one is closed, but it only does work in the cases that would otherwise lose data — principally squash and rebase merges, which collapse or replace the commits the notes were attached to. Ordinary merge commits already preserve attribution and are skipped.
 
-Two limits on completeness are worth knowing before you read anything into the numbers. Attribution tracks adoption: while only some contributors have git-ai installed, the notes undercount AI authorship and overcount human authorship. And **history before this workflow landed was never consolidated** — every note predating it is still attached to an orphaned pre-squash commit, so `git log --show-notes=ai` and `git-ai stats` will show nothing for that period. That is expected, not a broken install. See the [git-ai docs](https://usegitai.com/docs/get-started) for anything beyond the above.
+A weekly `.github/workflows/git-ai-sweep.yml` job is the backstop. It replays the same consolidation over pull requests merged in the last two weeks and fills in any that are still missing a note: runs that failed or were dropped from the queue, and pull requests from forks (see below). Maintainers can also run it by hand from the Actions tab, with `since` set to a date or to `all` to backfill the full history.
 
-One limitation to be aware of if you contribute from a fork: GitHub gives `pull_request` events from forks a read-only token, so the job can fetch your fork's notes but cannot push the consolidated result back. Attribution for fork pull requests therefore may not be recorded at all. Nothing about this blocks or slows the pull request; it only means the resulting numbers under-represent outside contributions.
+Attribution tracks adoption, so read the numbers with that in mind: while only some contributors have git-ai installed, the notes undercount AI authorship and overcount human authorship. See the [git-ai docs](https://usegitai.com/docs/get-started) for anything beyond the above.
+
+If you contribute from a fork: GitHub gives `pull_request` events from forks a read-only token, so the merge-time job can fetch your fork's notes but cannot push the consolidated result back. The weekly sweep runs with the repository's own token and records it instead, so attribution for a fork pull request can take up to a week to appear. Only notes you have pushed to your fork can be picked up. Nothing about this blocks or slows the pull request.
 
 ## Contributing code via pull requests
 
