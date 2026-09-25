@@ -36,7 +36,6 @@ jobs:
               - '!_freeze/**'
               - '!great-docs.yml'
               - '!*.md'
-              - '!**/*.md'
               - '!*.qmd'
               - '!**/*.qmd'
 
