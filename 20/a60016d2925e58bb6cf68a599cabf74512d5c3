@@ -1,0 +1,23 @@
+.github/dependabot.yml
+  s_68474097b289e1::t_1d216e6d2b2aa5 1-6
+  s_68474097b289e1::t_c1663803808822 7-8
+.github/workflows/pr-closing-issue-labels.yml
+  s_68474097b289e1::t_1d216e6d2b2aa5 4-7,11-14
+  s_68474097b289e1::t_222a2adfda49fd 24-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "20a60016d2925e58bb6cf68a599cabf74512d5c3",
+  "prompts": {},
+  "sessions": {
+    "s_68474097b289e1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d7d1-88f4-7bc3-bbb9-69232c430a66",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
