@@ -258,7 +258,7 @@ The same convention applies to causal estimands and refutation results. `cate()`
 
 ### Convert values explicitly
 
-Use the fitted factors to cross the unit boundary when working directly with scaled data. `to_internal()` divides business-unit values by their fitted factors; `to_business()` reverses the conversion. The `kind` argument identifies the value's role (`"outcome"`, `"regressor"`, or `"coefficient"`); `"elasticity"` and `"derived"` values are dimensionless and remain unchanged. Repeating a conversion in the same direction on its result leaves the values unchanged.
+Use the fitted factors to cross the unit boundary when working directly with scaled data. `to_internal()` divides business-unit values by their fitted factors; `to_business()` reverses the conversion. The `kind` argument identifies the value's role (`"outcome"`, `"regressor"`, or `"coefficient"`); `"elasticity"` and `"derived"` values are dimensionless and remain unchanged. Repeating a conversion in the same direction on its direct result leaves the values unchanged. Scalar results retain that state through arithmetic with Python `int` and `float` values, but `round()` and NumPy operations can return an untagged value. Arithmetic that changes units also retains the tag, so explicitly cross the boundary before using a converted value in a different unit role.
 
 ```python
 factors = model.fitted_scaling

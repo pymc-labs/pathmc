@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from hashlib import blake2b
+import operator
 from typing import TYPE_CHECKING, Any, Literal, Mapping, cast
 
 import narwhals.stable.v1 as nw
@@ -100,7 +101,11 @@ class _ConvertedArray(np.ndarray):
 
 
 class _ConvertedFloat(float):
-    """Float subclass that retains conversion state through scalar arithmetic."""
+    """Float subclass that retains conversion state through Python arithmetic.
+
+    Arithmetic preserves provenance, even when it changes the physical units.
+    NumPy scalar operations and ``round()`` can return untagged values.
+    """
 
     def _tag_result(self, value: Any) -> Any:
         if value is NotImplemented:
@@ -122,46 +127,46 @@ class _ConvertedFloat(float):
         return self._tag_result(operation(other_value, float(self)))
 
     def __add__(self, other: Any) -> Any:
-        return self._binary(other, float.__add__)
+        return self._binary(other, operator.add)
 
     def __radd__(self, other: Any) -> Any:
-        return self._reverse_binary(other, float.__add__)
+        return self._reverse_binary(other, operator.add)
 
     def __sub__(self, other: Any) -> Any:
-        return self._binary(other, float.__sub__)
+        return self._binary(other, operator.sub)
 
     def __rsub__(self, other: Any) -> Any:
-        return self._reverse_binary(other, float.__sub__)
+        return self._reverse_binary(other, operator.sub)
 
     def __mul__(self, other: Any) -> Any:
-        return self._binary(other, float.__mul__)
+        return self._binary(other, operator.mul)
 
     def __rmul__(self, other: Any) -> Any:
-        return self._reverse_binary(other, float.__mul__)
+        return self._reverse_binary(other, operator.mul)
 
     def __truediv__(self, other: Any) -> Any:
-        return self._binary(other, float.__truediv__)
+        return self._binary(other, operator.truediv)
 
     def __rtruediv__(self, other: Any) -> Any:
-        return self._reverse_binary(other, float.__truediv__)
+        return self._reverse_binary(other, operator.truediv)
 
     def __floordiv__(self, other: Any) -> Any:
-        return self._binary(other, float.__floordiv__)
+        return self._binary(other, operator.floordiv)
 
     def __rfloordiv__(self, other: Any) -> Any:
-        return self._reverse_binary(other, float.__floordiv__)
+        return self._reverse_binary(other, operator.floordiv)
 
     def __mod__(self, other: Any) -> Any:
-        return self._binary(other, float.__mod__)
+        return self._binary(other, operator.mod)
 
     def __rmod__(self, other: Any) -> Any:
-        return self._reverse_binary(other, float.__mod__)
+        return self._reverse_binary(other, operator.mod)
 
     def __pow__(self, other: float, modulo: None = None) -> Any:
-        return self._binary(other, float.__pow__)
+        return self._binary(other, operator.pow)
 
     def __rpow__(self, other: float, modulo: None = None) -> Any:
-        return self._reverse_binary(other, float.__pow__)
+        return self._reverse_binary(other, operator.pow)
 
     def __neg__(self) -> _ConvertedFloat:
         return self._tag_result(float.__neg__(self))

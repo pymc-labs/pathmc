@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import inspect
+import operator
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -161,6 +162,59 @@ def test_series_array_and_scalar_round_trip_and_idempotence(heterogeneous_factor
         )
         == 20.0
     )
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        operator.add,
+        operator.sub,
+        operator.mul,
+        operator.truediv,
+        operator.floordiv,
+        operator.mod,
+        operator.pow,
+    ],
+)
+@pytest.mark.parametrize("operand_type", [int, float, np.float64])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_converted_scalar_arithmetic_matches_python_numbers(
+    operation, operand_type, reverse
+):
+    factors = ScalingFactors(factors={"X": ((), {(): 10.0})})
+    converted = factors.to_internal(20.0, kind="regressor", dims={"term": "X"})
+    operand = operand_type(3)
+
+    actual = operation(operand, converted) if reverse else operation(converted, operand)
+    expected = operation(operand, 2.0) if reverse else operation(2.0, operand)
+
+    assert actual == pytest.approx(expected)
+    if operand_type in (int, float):
+        assert isinstance(actual, type(converted))
+    if isinstance(actual, type(converted)):
+        assert (
+            factors.to_internal(actual, kind="regressor", dims={"term": "X"}) == actual
+        )
+
+
+def test_converted_scalar_sum_and_python_float_arithmetic_keep_provenance():
+    factors = ScalingFactors(factors={"X": ((), {(): 10.0})})
+    converted = factors.to_internal(20.0, kind="regressor", dims={"term": "X"})
+
+    for result in (sum([converted]), converted + 0.0, 1 + converted):
+        assert (
+            factors.to_internal(result, kind="regressor", dims={"term": "X"}) == result
+        )
+
+
+def test_business_scalar_reverse_arithmetic_keeps_provenance():
+    factors = ScalingFactors(factors={"X": ((), {(): 10.0})})
+    business = factors.to_business(2.0, kind="regressor", dims={"term": "X"})
+
+    doubled = 2 * business
+
+    assert doubled == 40.0
+    assert factors.to_business(doubled, kind="regressor", dims={"term": "X"}) == 40.0
 
 
 def test_numpy_conversion_state_survives_arithmetic_and_slicing(
