@@ -1,0 +1,18 @@
+name: Sync labels from closing issues
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited]
+
+permissions: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Copy labels from closing issues
+        uses: williambdean/closing-labels@f4c2fcadcb3df832d1cb6db483d79df85647acec # v0.0.7
+        with:
+          respect_unlabeled: true
