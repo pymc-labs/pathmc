@@ -75,6 +75,20 @@ jobs:
           esac
           echo "Sweeping PRs merged into ${DEFAULT_BRANCH} on or after ${since}"
 
+          # Prints "present" or "absent" for refs/notes/ai on remote $1, and
+          # fails on anything else (network, 5xx, auth). `ls-remote
+          # --exit-code` exits 2 only when the ref does not exist, so an
+          # absent ref can never be confused with a failed request.
+          notes_ref_state() {
+            local rc=0
+            git ls-remote --exit-code "$1" refs/notes/ai >/dev/null || rc=$?
+            case "$rc" in
+              0) echo present ;;
+              2) echo absent ;;
+              *) return 1 ;;
+            esac
+          }
+
           work="$RUNNER_TEMP/repo"
           git clone --quiet --branch "$DEFAULT_BRANCH" \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$work"
@@ -82,7 +96,14 @@ jobs:
           # All PR heads in one fetch: merged branches are usually deleted, but
           # GitHub keeps pull/N/head, and git-ai needs the original commits.
           git fetch --quiet origin '+refs/pull/*/head:refs/github/pr/*'
-          git fetch --quiet origin '+refs/notes/ai:refs/notes/ai' || echo "No refs/notes/ai yet"
+          # Every git-ai call below runs with --skip-fetch-notes, so the
+          # existing history must be in hand. Any failure here fails the job.
+          origin_notes="$(notes_ref_state origin)"
+          if [ "$origin_notes" = present ]; then
+            git fetch --quiet origin '+refs/notes/ai:refs/notes/ai'
+          else
+            echo "origin has no refs/notes/ai yet"
+          fi
 
           # merged_at is ISO-8601, so a string comparison against YYYY-MM-DD is
           # a date comparison.
@@ -90,8 +111,9 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=${DEFAULT_BRANCH}&per_page=100" \
             --jq ".[] | select(.merged_at != null and .merged_at >= \"${since}\")
                   | [.number, .merge_commit_sha, .head.ref, .head.sha, .base.sha,
-                     (if .head.repo != null and .head.repo.full_name != \"${GITHUB_REPOSITORY}\"
-                      then .head.repo.clone_url else \"\" end)] | @tsv" \
+                     (if .head.repo == null then \"deleted\"
+                      elif .head.repo.full_name != \"${GITHUB_REPOSITORY}\" then .head.repo.clone_url
+                      else \"\" end)] | @tsv" \
             > "$RUNNER_TEMP/prs.tsv"
 
           total=0 done_=0 skipped=0 failed=()
@@ -110,8 +132,29 @@ jobs:
             args=(--merge-commit-sha "$merge_sha" --base-ref "$DEFAULT_BRANCH"
                   --head-ref "$head_ref" --head-sha "$head_sha" --base-sha "$base_sha"
                   --skip-fetch-notes --skip-fetch-base --skip-push)
-            if [ -n "$fork_url" ]; then
-              args+=(--fork-clone-url "$fork_url")
+            if [ "$fork_url" = deleted ]; then
+              echo "::warning::#${number}: head fork was deleted; its notes cannot be imported"
+            elif [ -n "$fork_url" ]; then
+              # git-ai v1.6.21 downgrades a failed fork-notes fetch to a warning
+              # and still exits 0, which would count this PR as done and drop
+              # it from later sweeps. Fetch here instead, where a failure is
+              # visible, and let git-ai read the prepared ref. Reset the ref
+              # first so one fork's notes never leak into another's PR.
+              git update-ref -d refs/notes/ai-remote/fork 2>/dev/null || true
+              if ! fork_notes="$(notes_ref_state "$fork_url")"; then
+                echo "::error::#${number}: could not query ${fork_url} for notes"
+                failed+=("#${number}")
+                echo "::endgroup::"
+                continue
+              fi
+              if [ "$fork_notes" = present ] && ! git fetch --quiet --no-tags \
+                  "$fork_url" '+refs/notes/ai:refs/notes/ai-remote/fork'; then
+                echo "::error::#${number}: could not fetch notes from ${fork_url}"
+                failed+=("#${number}")
+                echo "::endgroup::"
+                continue
+              fi
+              args+=(--fork-clone-url "$fork_url" --skip-fetch-fork-notes)
             fi
             if git-ai ci local merge "${args[@]}"; then
               done_=$((done_ + 1))
@@ -136,6 +179,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${#failed[@]}" -gt 0 ]; then
-            echo "::error::git-ai failed for ${failed[*]}"
+            echo "::error::attribution not recorded for ${failed[*]}; a later sweep will retry them"
             exit 1
           fi
