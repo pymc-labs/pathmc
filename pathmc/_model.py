@@ -86,7 +86,13 @@ from pathmc.panel import (
 from pathmc.parse import Spec, parse_spec
 from pathmc.refute import PlaceboRefutationResult, refute_placebo as _refute_placebo
 from pathmc.sensitivity import SensitivityResult, compute_sensitivity
-from pathmc.scaling import Scaling, ScalingFactors, fit_scaling, validate_scaling_config
+from pathmc.scaling import (
+    ScaleContext,
+    Scaling,
+    ScalingFactors,
+    fit_scaling,
+    validate_scaling_config,
+)
 from pathmc.simulate import (
     DoResult,
     EstimandResult,
@@ -173,12 +179,18 @@ def _scale_set_for_bounds(
         return interventions
     out: dict[str, float | np.ndarray] = {}
     for var, val in interventions.items():
-        if var not in factors.factors:
-            out[var] = val
-            continue
-        row_div = factors._per_row(data, var)
         vals = np.asarray(val, dtype=float)
-        out[var] = (vals.reshape(-1, 1) / row_div.reshape(1, -1)).ravel()
+        if vals.ndim == 0:
+            vals = np.full(len(data), float(vals))
+        elif vals.size != len(data):
+            vals = np.broadcast_to(vals.reshape(-1, 1), (vals.size, len(data)))
+        out[var] = np.asarray(
+            factors.to_internal(
+                vals,
+                kind="regressor",
+                dims=ScaleContext(term=var, data=data),
+            )
+        ).ravel()
     return out
 
 
@@ -193,15 +205,12 @@ def _layout_unscaled_column(
         mat = raw[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
         if mat.shape == sizes:
             return mat
-        if mat.size == int(np.prod(sizes)):
-            return mat.reshape(sizes)
     if raw.shape == sizes:
         return raw
-    if raw.size == int(np.prod(sizes)):
-        return raw.reshape(sizes)
     raise ValueError(
         f"Cannot align unscaled column of length {raw.size} to observed_data "
-        f"shape {sizes}."
+        f"shape {sizes}. Shapes must match exactly; an equal element count "
+        "does not establish dimension alignment."
     )
 
 
@@ -219,18 +228,19 @@ def _unscale_predict_groups(
     pp = getattr(idata, "posterior_predictive", None)
     if pp is not None:
         for var in list(pp.data_vars):
-            if var in scaling_factors.factors:
-                pp[var] = _to_business_units(
-                    var, pp[var], data, scaling_factors, scan_info
-                )
+            pp[var] = _to_business_units(var, pp[var], data, scaling_factors, scan_info)
     obs = getattr(idata, "observed_data", None)
     if obs is None:
         return
     for var in list(obs.data_vars):
-        if var not in scaling_factors.factors or var not in data.columns:
+        if not scaling_factors.has_factor(var) or var not in data.columns:
             continue
-        raw = scaling_factors.inverse_transform_column(
-            np.asarray(data[var].to_numpy(), dtype=float), var, data
+        raw = np.asarray(
+            scaling_factors.to_business(
+                np.asarray(data[var].to_numpy(), dtype=float),
+                kind="outcome",
+                dims=ScaleContext(term=var, data=data),
+            )
         )
         template = obs[var]
         values = _layout_unscaled_column(raw, template, scan_info)
@@ -243,18 +253,68 @@ def _unscale_predict_groups(
 
 def _scale_scalar_intervention(var: str, val: float, factors: ScalingFactors) -> float:
     """Divide a unit-less scalar by a uniform fitted factor, or raise."""
-    if var not in factors.factors:
-        return float(val)
-    _dims, table = factors.factors[var]
-    uniq = {float(v) for v in table.values()}
-    if len(uniq) != 1:
+    try:
+        return float(
+            factors.to_internal(
+                val,
+                kind="regressor",
+                dims=ScaleContext(term=var, scalar="uniform"),
+            )
+        )
+    except ValueError as exc:
         raise ValueError(
-            f"Cannot apply per-unit scaling of {var!r} to a single scalar "
-            f"(factors differ across units {sorted(table)[:5]}). "
+            f"Cannot apply per-unit scaling of {var!r} to a single scalar. "
             "Use do() on the panel, or pass a value already in scaled units "
             "on a model with a single global scale."
+        ) from exc
+
+
+def _raw_basis_input_vars(spec: Spec) -> set[str]:
+    """Collect basis inputs whose declared units scaling must preserve."""
+    from pathmc.basis import get_basis
+
+    return {
+        term.basis.variable
+        for reg in spec.regressions
+        for term in reg.terms
+        if term.basis is not None
+        and get_basis(term.basis.name).capabilities.requires_raw_input_units
+    }
+
+
+def _exclude_scaled_basis_inputs(
+    scaling: Scaling | ScalingFactors,
+    basis_inputs: set[str],
+    target_columns: set[str],
+    channel_columns: set[str],
+) -> tuple[Scaling | ScalingFactors, set[str]]:
+    """Preserve basis input units and report any requested scale exclusions."""
+    if isinstance(scaling, ScalingFactors):
+        excluded = {
+            column
+            for column in basis_inputs & (target_columns | channel_columns)
+            if scaling.has_factor(column)
+        }
+        scaling = scaling.without_columns(excluded)
+    elif isinstance(scaling, Scaling):
+        excluded = set()
+        if scaling.target is not None:
+            excluded.update(basis_inputs & target_columns)
+        if scaling.channel is not None:
+            excluded.update(basis_inputs & channel_columns)
+    else:
+        return scaling, set()
+
+    if excluded:
+        warnings.warn(
+            "Scaling was requested for basis input column(s) "
+            f"{sorted(excluded)}, but those columns remain in their declared "
+            "units so the basis parameters retain their meaning. Scaling is "
+            "also skipped for plain-regressor uses of the same columns.",
+            UserWarning,
+            stacklevel=3,
         )
-    return float(val) / next(iter(uniq))
+    return scaling, excluded
 
 
 def _warn_extrapolation(
@@ -467,6 +527,12 @@ class PathModel:
             self._pymc_model = pm.observe(self._gen_model, observations)
         else:
             self._pymc_model = self._gen_model
+        self._pymc_model._pathmc_data_bases = getattr(
+            self._gen_model, "_pathmc_data_bases", {}
+        )
+        self._pymc_model._pathmc_basis_states = getattr(
+            self._gen_model, "_pathmc_basis_states", {}
+        )
 
         # Enable the observed carry unconditionally, not only when
         # ``observations`` is non-empty. A variable with any NaN is skipped
@@ -912,6 +978,20 @@ class PathModel:
         scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
         if scan_info is not None:
             validate_panel_scan_shape(self._pymc_model, scan_info)
+        data_basis_bindings = getattr(self._pymc_model, "_pathmc_data_bases", {})
+        if data_basis_bindings:
+            from pathmc.basis import replay_data_bases
+
+            raw_values = {
+                binding.call.variable: self._pymc_model[
+                    binding.call.variable
+                ].get_value()
+                for binding in data_basis_bindings.values()
+            }
+            updates = replay_data_bases(data_basis_bindings, raw_values)
+            if updates:
+                with self._pymc_model:
+                    pm.set_data(updates)
         with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
             pp = pm.sample_posterior_predictive(idata, **kwargs)
         result = pp if not kwargs["extend_inferencedata"] else idata
@@ -1333,9 +1413,18 @@ class PathModel:
                 "Use do() with manual subgroup selection instead."
             )
 
+        subgroup_values: float | np.ndarray = subgroup_value
+        if self._scaling_factors is not None:
+            subgroup_values = np.asarray(
+                self._scaling_factors.to_internal(
+                    np.full(len(self._data), subgroup_value, dtype=float),
+                    kind="regressor",
+                    dims=ScaleContext(term=treatment, data=self._data),
+                )
+            )
         mask = np.isclose(
             np.asarray(self._data[treatment].to_numpy(), dtype=float),
-            subgroup_value,
+            subgroup_values,
         )
         subgroup_idx = np.where(mask)[0]
         if len(subgroup_idx) == 0:
@@ -2263,13 +2352,15 @@ class PathModel:
         if factors is None:
             return grid
 
-        for column in factors.factors:
+        for column in factors.columns_present_in(grid.columns):
             if column in cols or column not in grid.columns:
                 continue
-            raw_values = factors.inverse_transform_column(
-                np.asarray(self._data[column].to_numpy(), dtype=float),
-                column,
-                self._data,
+            raw_values = np.asarray(
+                factors.to_business(
+                    np.asarray(self._data[column].to_numpy(), dtype=float),
+                    kind="regressor",
+                    dims=ScaleContext(term=column, data=self._data),
+                )
             )
             grid[column] = float(raw_values.mean())
         return grid
@@ -2420,12 +2511,20 @@ def model(
         for reg in spec.regressions:
             for t in reg.terms:
                 term_vars.update(_term_base_vars(t))
+        target_columns = endogenous_lhs - latent_set
+        channel_columns = term_vars - endogenous_lhs
+        scaling, excluded = _exclude_scaled_basis_inputs(
+            scaling,
+            _raw_basis_input_vars(spec),
+            target_columns,
+            channel_columns,
+        )
         scaling_factors = fit_scaling(
             scaling,
             nw_data,
             panel_info=panel_info,
-            target_columns=endogenous_lhs - latent_set,
-            channel_columns=term_vars - endogenous_lhs,
+            target_columns=target_columns - excluded,
+            channel_columns=channel_columns - excluded,
         )
         nw_data = scaling_factors.transform(nw_data)
 
@@ -2464,14 +2563,12 @@ def _invert_generated_columns(
     """Multiply generated endogenous columns back into business units."""
     out: dict[str, nw.Series] = {}
     for var, series in columns.items():
-        if var in factors.factors:
-            out[var] = nw.new_series(
-                var,
-                factors.inverse_transform_column(series.to_numpy(), var, df),
-                backend=backend,
-            )
-        else:
-            out[var] = series
+        values = factors.to_business(
+            np.asarray(series.to_numpy(), dtype=float),
+            kind="outcome",
+            dims=ScaleContext(term=var, data=df),
+        )
+        out[var] = nw.new_series(var, np.asarray(values), backend=backend)
     return out
 
 
@@ -2664,6 +2761,14 @@ def simulate(
         for reg in spec.regressions:
             for t in reg.terms:
                 term_vars.update(_term_base_vars(t))
+        target_columns = endo_set - latent_set
+        channel_columns = term_vars - endo_set
+        scaling, excluded = _exclude_scaled_basis_inputs(
+            scaling,
+            _raw_basis_input_vars(spec),
+            target_columns,
+            channel_columns,
+        )
         # Channel factors are fitted on the supplied exogenous columns;
         # target factors must come from a grid (or the pre-fitted object)
         # because outcomes do not exist before simulation.
@@ -2671,8 +2776,8 @@ def simulate(
             scaling,
             nw_data,
             panel_info=panel_info,
-            target_columns=endo_set - latent_set,
-            channel_columns=term_vars - endo_set,
+            target_columns=target_columns - excluded,
+            channel_columns=channel_columns - excluded,
             roles_with_data=frozenset({"channel"}),
         )
 

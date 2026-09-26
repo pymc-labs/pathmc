@@ -102,4 +102,3 @@ Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
 ### Autonomous workflows
 
 - **Bugs**: `fix-bug` skill — `fix bug #N`
-- **Features**: `work` skill — `work #N`

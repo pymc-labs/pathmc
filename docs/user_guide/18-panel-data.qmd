@@ -254,6 +254,20 @@ Omitting `scaling=` in `simulate()` changes nothing: parameters are then interpr
 
 User-facing inputs and outputs use business units: `do(set=)` values are divided by the fitted factor (including per-unit factors) before graph surgery, so `do(set={"tv": 500})` means 500 of the original column, and `predict()`, `do()`, `effects_summary()`, and `effect()` return outcomes and coefficients in business units. `predictions(newdata=)` grids are also business units (the grid is divided before compilation, matching `do(set=)`). Coefficient rescaling depends on the term: a linear or adstock slope is `f_out / f_pred`; a saturating or HSGP coefficient is `f_out` only (the regressor is unitless); an interaction is `f_out / prod(f_pred_i)`. Defined parameters (`:=`) are evaluated from those rescaled labeled draws, so `indirect := a*b` agrees with the product of the `a` and `b` rows. When factors vary by unit, a reported coefficient uses a data-weighted mean of the per-unit divisors — a ratio of means, not the mean of ratios, so it is not any one unit's coefficient. Estimation still runs on scaled columns internally; `model.fitted_scaling` exposes the divisors for `simulate()` and manual transforms.
 
+The same convention applies to causal estimands and refutation results. `cate()` interprets its intervention `values` and `condition` in business units. `att()` and `atu()` interpret their subgroup and intervention values in business units, converting the subgroup value to the fitted scale before selecting observations; these methods currently support cross-sectional models only. `refute_placebo()` reports both the observed and placebo effects in business units. When `do()` fills an unspecified exogenous variable from the fitted data, it converts each row back to business units before calculating the fill value for the relevant subgroup.
+
+### Convert values explicitly
+
+Use the fitted factors to cross the unit boundary when working directly with scaled data. `to_internal()` divides business-unit values by their fitted factors; `to_business()` reverses the conversion. The `kind` argument identifies the value's role (`"outcome"`, `"regressor"`, or `"coefficient"`); `"elasticity"` and `"derived"` values are dimensionless and remain unchanged. Repeating a conversion in the same direction on its direct result leaves the values unchanged. Scalar results retain that state through arithmetic with Python `int` and `float` values, but `round()` and NumPy operations can return an untagged value. Arithmetic that changes units also retains the tag, so explicitly cross the boundary before using a converted value in a different unit role.
+
+```python
+factors = model.fitted_scaling
+internal_channels = factors.to_internal(df, kind="regressor")
+business_channels = factors.to_business(internal_channels, kind="regressor")
+```
+
+For a frame, fitted role metadata selects the columns to convert. If you create `ScalingFactors` manually without roles, select the columns explicitly with `dims={"columns": ("tv",)}`; otherwise frame conversion raises an error rather than guessing. Unnamed individual values need a column in `dims`, for example `dims={"term": "tv"}`. When factors vary by unit, provide row-aligned values and the corresponding data; a single scalar cannot represent different per-unit conversions. Row arrays must end in the fitted row count, and scan-panel arrays must end in `(n_times, n_units)` order. Ambiguous shapes raise an alignment error instead of silently reordering factors.
+
 ## Residual covariance simulation
 
 Cross-sectional residual-covariance blocks (`Y1 ~~ Y2`) are realized inside the generative graph, so descendants such as `Z ~ Y1` receive the noisy block draws rather than `mu_Y1`. Directed edges *within* the same `~~` block (`Y2 ~ Y1` together with `Y1 ~~ Y2`) still raise `NotImplementedError`, as do scan-compiled panel models that combine `simulate()` with residual covariances.

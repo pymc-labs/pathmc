@@ -30,6 +30,7 @@ from pathmc.compile import build_design_matrix, get_predictor_columns
 from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.idata import hdi as compute_hdi
 from pathmc.reprs import ReprSpec, ResultReprMixin
+from pathmc.scaling import ScaleContext
 from pathmc.simulate import (
     EstimandResult,
     _DrawStorageMixin,
@@ -487,12 +488,9 @@ def _to_frame(model: PathModel, newdata: IntoFrame | None) -> tuple[nw.DataFrame
         return model._data, False
     df = nw.from_native(newdata, eager_only=True)
     factors = model._scaling_factors
-    if factors is None or not factors.factors:
+    if factors is None or not factors:
         return df, True
-    needed: set[str] = set()
-    for col, (dims, _table) in factors.factors.items():
-        if col in df.columns:
-            needed.update(dims)
+    needed = factors.required_dimensions(df.columns)
     missing = [d for d in needed if d not in df.columns]
     if missing:
         raise ValueError(
@@ -501,7 +499,11 @@ def _to_frame(model: PathModel, newdata: IntoFrame | None) -> tuple[nw.DataFrame
             "Add those columns to newdata, or use do(set=...) which applies "
             "factors from the fitted frame."
         )
-    return factors.transform(df), True
+    return factors.to_internal(
+        df,
+        kind="regressor",
+        dims=ScaleContext(columns=factors.columns_present_in(df.columns)),
+    ), True
 
 
 def _column_in_business_units(
@@ -510,9 +512,15 @@ def _column_in_business_units(
     """Values of *column* in user-facing units (inverse of internal scale)."""
     x = np.asarray(data[column].to_numpy(), dtype=float)
     factors = model._scaling_factors
-    if factors is None or column not in factors.factors:
+    if factors is None:
         return x
-    return factors.inverse_transform_column(x, column, data)
+    return np.asarray(
+        factors.to_business(
+            x,
+            kind="regressor",
+            dims=ScaleContext(term=column, data=data),
+        )
+    )
 
 
 def predictions(

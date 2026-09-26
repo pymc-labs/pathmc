@@ -489,12 +489,22 @@ def _permute_and_refit(
     treatment effect under one placebo permutation.
     """
     clone = model._refit_permuted(treatment, seed, sample_kwargs)
+    # The clone is compiled from already-internal data, so construction must
+    # not transform it again. Attach the original boundary only while querying
+    # the clone: intervention inputs and ATE draws remain business-unit values.
+    clone_factors = clone._scaling_factors
+    clone._scaling_factors = model._scaling_factors
     # The observed-ATE call in refute_placebo already surfaces any
     # out-of-range extrapolation warning once; silence the identical per-fold
     # repeats here to avoid n_permutations duplicate warnings.
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=".*outside.*observed data range.*")
-        placebo_ate = clone.ate(outcome, treatment, values=values)
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message=".*outside.*observed data range.*"
+            )
+            placebo_ate = clone.ate(outcome, treatment, values=values)
+    finally:
+        clone._scaling_factors = clone_factors
     # ate() returns an EstimandResult whose default accessor is the outcome.
     draws = np.asarray(placebo_ate.draws(), dtype=float)
     return float(np.mean(draws)), float(np.std(draws))
