@@ -1,0 +1,21 @@
+tests/test_residual_cov.py
+  s_354a59521fdf39::t_9ecab0955d0e95 243-251
+docs/user_guide/18-panel-data.qmd
+  s_354a59521fdf39::t_1fed7cf436a747 273
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2db3c6ed3e0444d67c4566117fce897746cb9b90",
+  "prompts": {},
+  "sessions": {
+    "s_354a59521fdf39": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1060bcb2-4638-4155-b2e3-8ab37293e751",
+        "model": "composer-2.5"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
