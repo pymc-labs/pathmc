@@ -1,0 +1,29 @@
+tests/test_residual_cov.py
+  s_354a59521fdf39::t_d89072e1377115 201-226,228-235,237-247
+  s_354a59521fdf39::t_ba3eb73956e888 227,236
+pathmc/compile.py
+  s_354a59521fdf39::t_e729aafc15d064 568-569
+  s_354a59521fdf39::t_dd77e2b0a333af 56-61
+  s_354a59521fdf39::t_2f36fe2ec9d78d 2063-2068
+pathmc/_model.py
+  s_354a59521fdf39::t_de85333e970c33 2726
+  s_354a59521fdf39::t_aa772801ad5b1e 35
+tests/test_simulate_data.py
+  s_354a59521fdf39::t_774f965630dfc5 362
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8e1e727869f0bab8de06f503f1477fb8d820137d",
+  "prompts": {},
+  "sessions": {
+    "s_354a59521fdf39": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1060bcb2-4638-4155-b2e3-8ab37293e751",
+        "model": "composer-2.5"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
