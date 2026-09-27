@@ -1519,6 +1519,35 @@ def run_do_pymc(
     return DoResult(ds=xr.Dataset(predictive_vars))
 
 
+def _panel_predictive_sample_kwargs(
+    do_model: pm.Model,
+    graph_info: GraphInfo,
+    set: dict[str, float | np.ndarray],
+) -> dict[str, Any]:
+    """Keyword args for ``sample_posterior_predictive`` on intervened scan panels.
+
+    Masked panel outcomes split into ``{var}_observed`` and
+    ``{var}_unobserved`` free RVs. After ``pm.do()`` changes upstream
+    nodes, PyMC freezes the unobserved imputations unless they are listed
+    in ``sample_vars``. Requesting only ``sample_vars`` drops the merged
+    outcome from ``posterior_predictive``, so ``var_names`` must name the
+    endogenous variables we still read from the PPC output.
+    """
+    if not set:
+        return {}
+    unobs = [rv.name for rv in do_model.free_RVs if rv.name.endswith("_unobserved")]
+    if not unobs:
+        return {}
+    var_names = [
+        var
+        for var in graph_info.topological_order
+        if var in graph_info.endogenous and var not in set
+    ]
+    if not var_names:
+        return {"sample_vars": unobs}
+    return {"sample_vars": unobs, "var_names": var_names}
+
+
 def run_do_panel_unified(
     gen_model: pm.Model,
     graph_info: GraphInfo,
@@ -1686,7 +1715,11 @@ def run_do_panel_unified(
                 "ignore", message="Could not extract data from symbolic observation"
             )
             with do_model:
-                ppc = pm.sample_posterior_predictive(idata, progressbar=False)
+                ppc = pm.sample_posterior_predictive(
+                    idata,
+                    progressbar=False,
+                    **_panel_predictive_sample_kwargs(do_model, graph_info, set),
+                )
 
         if latent_det_names:
             latent_det = pm.compute_deterministics(

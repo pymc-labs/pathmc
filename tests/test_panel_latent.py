@@ -301,13 +301,37 @@ def _fit_panel_do_model(stochastic: bool) -> pathmc.PathModel:
     return m
 
 
+def _predictive_survey_contrast(
+    m: pathmc.PathModel, c_high: float = 5.0, c_low: float = 0.0
+) -> np.ndarray:
+    """Per-time mean survey under two awareness interventions (predictive)."""
+    r_low = m.do(
+        set={"awareness": c_low},
+        simulate_over="time",
+        kind="predictive",
+    )
+    r_high = m.do(
+        set={"awareness": c_high},
+        simulate_over="time",
+        kind="predictive",
+    )
+    return r_high.by_time("survey").mean(axis=1) - r_low.by_time("survey").mean(axis=1)
+
+
 class TestPanelLatentDoSet:
     """``do(set={latent})`` with ``simulate_over='time'`` on scan panels."""
 
+    @pytest.fixture(scope="class")
+    def stochastic_model(self):
+        return _fit_panel_do_model(stochastic=True)
+
+    @pytest.fixture(scope="class")
+    def deterministic_model(self):
+        return _fit_panel_do_model(stochastic=False)
+
     @pytest.mark.parametrize("c", [0.0, 1.0])
-    def test_mean_stochastic_latent(self, c: float):
-        m = _fit_panel_do_model(stochastic=True)
-        result = m.do(
+    def test_mean_stochastic_latent(self, stochastic_model, c: float):
+        result = stochastic_model.do(
             set={"awareness": c},
             simulate_over="time",
             kind="mean",
@@ -316,9 +340,8 @@ class TestPanelLatentDoSet:
         assert result.mean("survey") == pytest.approx(c)
 
     @pytest.mark.parametrize("c", [0.0, 1.0])
-    def test_mean_deterministic_latent(self, c: float):
-        m = _fit_panel_do_model(stochastic=False)
-        result = m.do(
+    def test_mean_deterministic_latent(self, deterministic_model, c: float):
+        result = deterministic_model.do(
             set={"awareness": c},
             simulate_over="time",
             kind="mean",
@@ -326,14 +349,31 @@ class TestPanelLatentDoSet:
         assert result.mean("awareness") == pytest.approx(c)
         assert result.mean("survey") == pytest.approx(c)
 
-    def test_predictive_stochastic_latent_finite_survey(self):
-        m = _fit_panel_do_model(stochastic=True)
+    @pytest.mark.parametrize("stochastic", [True, False])
+    def test_mean_time_varying_set(
+        self, stochastic, stochastic_model, deterministic_model
+    ):
+        m = stochastic_model if stochastic else deterministic_model
+        c_by_t = np.arange(6.0)
         result = m.do(
-            set={"awareness": 0.5},
+            set={"awareness": c_by_t},
             simulate_over="time",
-            kind="predictive",
+            kind="mean",
         )
-        assert np.isfinite(result.mean("survey"))
+        survey_by_t = result.by_time("survey").mean(axis=1)
+        np.testing.assert_allclose(survey_by_t, c_by_t)
+
+    def test_predictive_stochastic_latent_survey_tracks_intervention(
+        self, stochastic_model
+    ):
+        diff = _predictive_survey_contrast(stochastic_model)
+        np.testing.assert_allclose(diff, 5.0, atol=0.35)
+
+    def test_predictive_deterministic_latent_survey_tracks_intervention(
+        self, deterministic_model
+    ):
+        diff = _predictive_survey_contrast(deterministic_model)
+        np.testing.assert_allclose(diff, 5.0, atol=0.35)
 
 
 # ---------------------------------------------------------------------------
