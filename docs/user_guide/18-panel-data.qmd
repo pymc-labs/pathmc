@@ -270,7 +270,7 @@ For a frame, fitted role metadata selects the columns to convert. If you create 
 
 ## Residual covariance simulation
 
-Cross-sectional residual-covariance blocks (`Y1 ~~ Y2`) are realized inside the generative graph, so descendants such as `Z ~ Y1` receive the noisy block draws rather than `mu_Y1`. Directed edges *within* the same `~~` block (`Y2 ~ Y1` together with `Y1 ~~ Y2`) still raise `NotImplementedError`. Scan-compiled panel models (`lag()` or `adstock()` with `panel=`) together with `~~` also raise `NotImplementedError` in both `model()` and `simulate()`; future support is tracked in [GitHub issue #520](https://github.com/pymc-labs/pathmc/issues/520).
+Cross-sectional residual-covariance blocks (`Y1 ~~ Y2`) are realized inside the generative graph, so descendants such as `Z ~ Y1` receive the noisy block draws rather than `mu_Y1`. Directed edges *within* the same `~~` block (`Y2 ~ Y1` together with `Y1 ~~ Y2`) still raise `NotImplementedError`. Residual covariances (`~~`) are not supported on scan-compiled panel models (`lag()` or `adstock()` with `panel=`); `model()`, `simulate()`, and `simulate_params_template()` all raise `NotImplementedError`. Future support is tracked in [GitHub issue #520](https://github.com/pymc-labs/pathmc/issues/520).
 
 ## Latent dynamics with sparse measurements
 

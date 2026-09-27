@@ -240,6 +240,15 @@ class TestScanPanelResidualCovRejection:
                 panel=PANEL,
             )
 
+    def test_simulate_params_template_scan_panel_raises(self):
+        df = _panel_residual_cov_data()[["region", "week", "X"]]
+        with pytest.raises(NotImplementedError, match="(?i)residual covariances"):
+            pathmc.simulate_params_template(
+                "Y1 ~ X + lag(Y1)\nY2 ~ X\nY1 ~~ Y2",
+                data=df,
+                panel=PANEL,
+            )
+
     def test_model_panel_without_scan_still_has_chol(self):
         df = _panel_residual_cov_data()
         model = pathmc.model("Y1 ~ X\nY2 ~ X\nY1 ~~ Y2", data=df, panel=PANEL)
