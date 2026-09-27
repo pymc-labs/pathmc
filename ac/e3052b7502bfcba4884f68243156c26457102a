@@ -1,0 +1,23 @@
+tests/test_panel_latent.py
+  s_375405e70eea6c::t_1099423f05fa55 304-320,324-331,333-334,343-344,352-357,359,361,363-369,371-375
+  s_375405e70eea6c::t_3cdcd9d40a7c2a 370,376
+pathmc/simulate.py
+  s_375405e70eea6c::t_e73c6a867ea681 1718-1722
+  s_375405e70eea6c::t_8acd9f80ca3f84 1522-1550
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ace3052b7502bfcba4884f68243156c26457102a",
+  "prompts": {},
+  "sessions": {
+    "s_375405e70eea6c": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a0d59955-3335-4baf-94b0-a29cb081bf70",
+        "model": "composer-2.5"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
