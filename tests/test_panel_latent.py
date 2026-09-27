@@ -56,6 +56,7 @@ def _ar1_survey_panel(
 
 
 SPEC = "survey ~ 0 + 1*awareness\nawareness ~ lag(awareness)"
+SPEC_WITH_EXOG = "survey ~ 0 + 1*awareness\nawareness ~ lag(awareness) + x"
 PANEL = {"unit": "unit", "time": "time"}
 
 
@@ -275,6 +276,136 @@ class TestLatentTrajectoryAccessor:
         assert traj.name == "mu_awareness"
         assert traj.dims == ("chain", "draw", "time", "unit")
         assert traj.sizes["time"] == 30
+
+
+# ---------------------------------------------------------------------------
+# do(set={latent}) on scan-compiled panel models (issue #516)
+# ---------------------------------------------------------------------------
+
+
+def _small_ar1_panel(seed: int = 42) -> pd.DataFrame:
+    return _ar1_survey_panel(
+        n_units=2,
+        n_times=6,
+        obs_times=(1, 4),
+        seed=seed,
+    )
+
+
+def _fit_panel_do_model(
+    stochastic: bool, *, with_exog: bool = False
+) -> pathmc.PathModel:
+    df = _small_ar1_panel()
+    if with_exog:
+        rng = np.random.default_rng(0)
+        df = df.assign(x=rng.normal(size=len(df)))
+    kwargs: dict = {"data": df, "panel": PANEL, "latent": ["awareness"]}
+    if stochastic:
+        kwargs["families"] = {"awareness": "latent_normal"}
+    spec = SPEC_WITH_EXOG if with_exog else SPEC
+    m = pathmc.model(spec, **kwargs)
+    m.fit(draws=20, tune=20, chains=1, cores=1, random_seed=0, progressbar=False)
+    return m
+
+
+def _predictive_survey_contrast(
+    m: pathmc.PathModel, c_high: float = 5.0, c_low: float = 0.0
+) -> np.ndarray:
+    """Per-time mean survey under two awareness interventions (predictive)."""
+    r_low = m.do(
+        set={"awareness": c_low},
+        simulate_over="time",
+        kind="predictive",
+    )
+    r_high = m.do(
+        set={"awareness": c_high},
+        simulate_over="time",
+        kind="predictive",
+    )
+    return r_high.by_time("survey").mean(axis=1) - r_low.by_time("survey").mean(axis=1)
+
+
+class TestPanelLatentDoSet:
+    """``do(set={latent})`` with ``simulate_over='time'`` on scan panels."""
+
+    @pytest.fixture(scope="class")
+    def stochastic_model(self):
+        return _fit_panel_do_model(stochastic=True)
+
+    @pytest.fixture(scope="class")
+    def deterministic_model(self):
+        return _fit_panel_do_model(stochastic=False)
+
+    @pytest.mark.parametrize("c", [0.0, 1.0])
+    def test_mean_stochastic_latent(self, stochastic_model, c: float):
+        result = stochastic_model.do(
+            set={"awareness": c},
+            simulate_over="time",
+            kind="mean",
+        )
+        assert result.mean("awareness") == pytest.approx(c)
+        assert result.mean("survey") == pytest.approx(c)
+
+    @pytest.mark.parametrize("c", [0.0, 1.0])
+    def test_mean_deterministic_latent(self, deterministic_model, c: float):
+        result = deterministic_model.do(
+            set={"awareness": c},
+            simulate_over="time",
+            kind="mean",
+        )
+        assert result.mean("awareness") == pytest.approx(c)
+        assert result.mean("survey") == pytest.approx(c)
+
+    @pytest.mark.parametrize("stochastic", [True, False])
+    def test_mean_time_varying_set(
+        self, stochastic, stochastic_model, deterministic_model
+    ):
+        m = stochastic_model if stochastic else deterministic_model
+        c_by_t = np.arange(6.0)
+        result = m.do(
+            set={"awareness": c_by_t},
+            simulate_over="time",
+            kind="mean",
+        )
+        survey_by_t = result.by_time("survey").mean(axis=1)
+        np.testing.assert_allclose(survey_by_t, c_by_t)
+
+    def test_predictive_stochastic_latent_survey_tracks_intervention(
+        self, stochastic_model
+    ):
+        diff = _predictive_survey_contrast(stochastic_model)
+        # Unseeded PPC over 2 units x 20 draws: loose atol still rejects the
+        # old frozen-imputation behavior (~0 at unobserved times).
+        np.testing.assert_allclose(diff, 5.0, atol=1.5)
+
+    def test_predictive_deterministic_latent_survey_tracks_intervention(
+        self, deterministic_model
+    ):
+        diff = _predictive_survey_contrast(deterministic_model)
+        np.testing.assert_allclose(diff, 5.0, atol=1.5)
+
+    def test_predictive_deterministic_latent_set_on_outcome(self, deterministic_model):
+        """Latent names must not appear in PPC ``var_names`` (only ``mu_{var}``)."""
+        result = deterministic_model.do(
+            set={"survey": 1.0},
+            simulate_over="time",
+            kind="predictive",
+        )
+        assert np.isfinite(result.mean("survey"))
+        assert np.isfinite(result.mean("awareness"))
+
+    def test_predictive_deterministic_latent_set_on_exogenous_driver(self):
+        """Predictive ``set`` on an exogenous driver uses the same PPC path."""
+        m = _fit_panel_do_model(stochastic=False, with_exog=True)
+        r_low = m.do(set={"x": 0.0}, simulate_over="time", kind="predictive")
+        r_high = m.do(set={"x": 1.0}, simulate_over="time", kind="predictive")
+        diff = r_high.by_time("survey").mean(axis=1) - r_low.by_time("survey").mean(
+            axis=1
+        )
+        assert np.all(np.isfinite(diff))
+        # Unobserved survey times (t=0,2,3,5) must move, not stay frozen.
+        unobserved_steps = [0, 2, 3, 5]
+        assert np.max(np.abs(diff[unobserved_steps])) > 0.05
 
 
 # ---------------------------------------------------------------------------
