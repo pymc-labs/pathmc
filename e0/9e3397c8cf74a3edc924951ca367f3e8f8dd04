@@ -1,0 +1,23 @@
+CITATION.cff
+  s_fbe8945a27fa8a::t_e5f5d3e2a23574 4-5
+pyproject.toml
+  s_fbe8945a27fa8a::t_ca2c22ddad6c19 7
+uv.lock
+  s_fbe8945a27fa8a::t_d291a41a0d6eb7 2262
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e09e3397c8cf74a3edc924951ca367f3e8f8dd04",
+  "prompts": {},
+  "sessions": {
+    "s_fbe8945a27fa8a": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1b6d6f1c-1cbf-4c80-9be6-2e4110ae002a",
+        "model": "composer-2.5"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
