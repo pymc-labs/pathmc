@@ -1529,9 +1529,13 @@ def _panel_predictive_sample_kwargs(
     Masked panel outcomes split into ``{var}_observed`` and
     ``{var}_unobserved`` free RVs. After ``pm.do()`` changes upstream
     nodes, PyMC freezes the unobserved imputations unless they are listed
-    in ``sample_vars``. Requesting only ``sample_vars`` drops the merged
-    outcome from ``posterior_predictive``, so ``var_names`` must name the
-    endogenous variables we still read from the PPC output.
+    in ``sample_vars``. We resample every ``*_unobserved`` imputation RV in
+    the do-model, not only those downstream of the intervention, so
+    predictive draws stay consistent with the intervened generative graph.
+    Requesting only ``sample_vars`` drops the merged outcome from
+    ``posterior_predictive``, so ``var_names`` must name the non-latent
+    endogenous variables we still read from the PPC output (latents are
+    filled via ``compute_deterministics`` instead).
     """
     if not set:
         return {}
@@ -1541,7 +1545,9 @@ def _panel_predictive_sample_kwargs(
     var_names = [
         var
         for var in graph_info.topological_order
-        if var in graph_info.endogenous and var not in set
+        if var in graph_info.endogenous
+        and var not in set
+        and var not in graph_info.latent
     ]
     if not var_names:
         return {"sample_vars": unobs}
