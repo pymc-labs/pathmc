@@ -39,6 +39,9 @@ env:
 jobs:
   sweep:
     name: Backfill AI attribution notes
+    # Forks that enable Actions would otherwise get a write-scoped job pushing
+    # notes into the fork.
+    if: github.repository == 'pymc-labs/pathmc'
     runs-on: ubuntu-latest
     # Deliberately not continue-on-error: this is the backstop, and its failure
     # is exactly what needs to be visible.
