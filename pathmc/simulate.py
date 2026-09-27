@@ -1576,6 +1576,9 @@ def run_do_panel_unified(
     n_times = scan_info.n_times
     n_units = scan_info.n_units
     latent = graph_info.latent
+    stochastic_latent = {
+        v for v in latent if families.get(v, "gaussian") == "latent_normal"
+    }
 
     replacements: dict[str, Any] = {}
     scan_intervene_updates: dict[str, np.ndarray] = {}
@@ -1595,7 +1598,10 @@ def run_do_panel_unified(
         # intervened var is no longer a free RV that compute_deterministics /
         # sample_posterior_predictive must bind from the posterior (the
         # fitted idata never sampled it -- it is observed during fit()).
-        key = f"mu_{var}" if var in latent else var
+        if var in latent and var not in stochastic_latent:
+            key = f"mu_{var}"
+        else:
+            key = var
         target_dtype = gen_model[key].dtype
         replacements[key] = mat.astype(target_dtype)
         if var in graph_info.endogenous:
@@ -1615,13 +1621,9 @@ def run_do_panel_unified(
             if var in graph_info.endogenous and var not in set and var not in latent:
                 replacements[var] = gen_model[f"mu_{var}"] * 1
 
-        stochastic_latent = {
-            v for v in latent if families.get(v, "gaussian") == "latent_normal"
-        }
-
         det_names = []
         for var in graph_info.topological_order:
-            if var in graph_info.endogenous:
+            if var in graph_info.endogenous and var not in set:
                 if var in stochastic_latent:
                     det_names.append(var)
                 else:
@@ -1669,9 +1671,6 @@ def run_do_panel_unified(
         )
 
     # kind == "predictive"
-    stochastic_latent = {
-        v for v in latent if families.get(v, "gaussian") == "latent_normal"
-    }
     latent_det_names = []
     for var in graph_info.topological_order:
         if var in latent and var not in set:

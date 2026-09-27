@@ -278,6 +278,65 @@ class TestLatentTrajectoryAccessor:
 
 
 # ---------------------------------------------------------------------------
+# do(set={latent}) on scan-compiled panel models (issue #516)
+# ---------------------------------------------------------------------------
+
+
+def _small_ar1_panel(seed: int = 42) -> pd.DataFrame:
+    return _ar1_survey_panel(
+        n_units=2,
+        n_times=6,
+        obs_times=(1, 4),
+        seed=seed,
+    )
+
+
+def _fit_panel_do_model(stochastic: bool) -> pathmc.PathModel:
+    df = _small_ar1_panel()
+    kwargs: dict = {"data": df, "panel": PANEL, "latent": ["awareness"]}
+    if stochastic:
+        kwargs["families"] = {"awareness": "latent_normal"}
+    m = pathmc.model(SPEC, **kwargs)
+    m.fit(draws=20, tune=20, chains=1, cores=1, random_seed=0, progressbar=False)
+    return m
+
+
+class TestPanelLatentDoSet:
+    """``do(set={latent})`` with ``simulate_over='time'`` on scan panels."""
+
+    @pytest.mark.parametrize("c", [0.0, 1.0])
+    def test_mean_stochastic_latent(self, c: float):
+        m = _fit_panel_do_model(stochastic=True)
+        result = m.do(
+            set={"awareness": c},
+            simulate_over="time",
+            kind="mean",
+        )
+        assert result.mean("awareness") == pytest.approx(c)
+        assert result.mean("survey") == pytest.approx(c)
+
+    @pytest.mark.parametrize("c", [0.0, 1.0])
+    def test_mean_deterministic_latent(self, c: float):
+        m = _fit_panel_do_model(stochastic=False)
+        result = m.do(
+            set={"awareness": c},
+            simulate_over="time",
+            kind="mean",
+        )
+        assert result.mean("awareness") == pytest.approx(c)
+        assert result.mean("survey") == pytest.approx(c)
+
+    def test_predictive_stochastic_latent_finite_survey(self):
+        m = _fit_panel_do_model(stochastic=True)
+        result = m.do(
+            set={"awareness": 0.5},
+            simulate_over="time",
+            kind="predictive",
+        )
+        assert np.isfinite(result.mean("survey"))
+
+
+# ---------------------------------------------------------------------------
 # Recovery — AR(1) latent dynamics from sparse surveys (slow: MCMC)
 # ---------------------------------------------------------------------------
 
