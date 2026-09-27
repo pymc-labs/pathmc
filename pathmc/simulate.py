@@ -1534,8 +1534,10 @@ def _panel_predictive_sample_kwargs(
     predictive draws stay consistent with the intervened generative graph.
     Requesting only ``sample_vars`` drops the merged outcome from
     ``posterior_predictive``, so ``var_names`` must name the non-latent
-    endogenous variables we still read from the PPC output (latents are
-    filled via ``compute_deterministics`` instead).
+    endogenous variables we still read from the PPC output. Latents not
+    in ``set`` are excluded from ``var_names`` and recovered through
+    ``compute_deterministics`` with the fitted posterior (including
+    ``innovations_{var}`` for stochastic latents), not fresh process noise.
     """
     if not set:
         return {}

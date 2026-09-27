@@ -56,6 +56,7 @@ def _ar1_survey_panel(
 
 
 SPEC = "survey ~ 0 + 1*awareness\nawareness ~ lag(awareness)"
+SPEC_WITH_EXOG = "survey ~ 0 + 1*awareness\nawareness ~ lag(awareness) + x"
 PANEL = {"unit": "unit", "time": "time"}
 
 
@@ -291,12 +292,18 @@ def _small_ar1_panel(seed: int = 42) -> pd.DataFrame:
     )
 
 
-def _fit_panel_do_model(stochastic: bool) -> pathmc.PathModel:
+def _fit_panel_do_model(
+    stochastic: bool, *, with_exog: bool = False
+) -> pathmc.PathModel:
     df = _small_ar1_panel()
+    if with_exog:
+        rng = np.random.default_rng(0)
+        df = df.assign(x=rng.normal(size=len(df)))
     kwargs: dict = {"data": df, "panel": PANEL, "latent": ["awareness"]}
     if stochastic:
         kwargs["families"] = {"awareness": "latent_normal"}
-    m = pathmc.model(SPEC, **kwargs)
+    spec = SPEC_WITH_EXOG if with_exog else SPEC
+    m = pathmc.model(spec, **kwargs)
     m.fit(draws=20, tune=20, chains=1, cores=1, random_seed=0, progressbar=False)
     return m
 
@@ -386,6 +393,19 @@ class TestPanelLatentDoSet:
         )
         assert np.isfinite(result.mean("survey"))
         assert np.isfinite(result.mean("awareness"))
+
+    def test_predictive_deterministic_latent_set_on_exogenous_driver(self):
+        """Predictive ``set`` on an exogenous driver uses the same PPC path."""
+        m = _fit_panel_do_model(stochastic=False, with_exog=True)
+        r_low = m.do(set={"x": 0.0}, simulate_over="time", kind="predictive")
+        r_high = m.do(set={"x": 1.0}, simulate_over="time", kind="predictive")
+        diff = r_high.by_time("survey").mean(axis=1) - r_low.by_time("survey").mean(
+            axis=1
+        )
+        assert np.all(np.isfinite(diff))
+        # Unobserved survey times (t=0,2,3,5) must move, not stay frozen.
+        unobserved_steps = [0, 2, 3, 5]
+        assert np.max(np.abs(diff[unobserved_steps])) > 0.05
 
 
 # ---------------------------------------------------------------------------
