@@ -1,0 +1,20 @@
+pathmc/scaling.py
+  s_64c70c863c6504::t_0b5ed3de151877 103-159,161-162,164-173
+  s_64c70c863c6504::t_b61a77ba0841f8 160,163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "efa70471a225d198a6e92def81504a430a88924d",
+  "prompts": {},
+  "sessions": {
+    "s_64c70c863c6504": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d7e6-9b65-7d21-9089-49e1f4c0bd60",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

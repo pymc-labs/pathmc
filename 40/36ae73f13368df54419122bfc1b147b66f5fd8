@@ -1,0 +1,19 @@
+.github/workflows/zizmor.yml
+  s_070c0b6278bbc5::t_6fc1a53215e3f2 34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4036ae73f13368df54419122bfc1b147b66f5fd8",
+  "prompts": {},
+  "sessions": {
+    "s_070c0b6278bbc5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d817-5209-7db3-9647-afaadc867c18",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

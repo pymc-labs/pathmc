@@ -1,0 +1,130 @@
+pathmc/hsgp.py
+  s_323ce2f6e7f6d4::t_913a1b86ea473b 39,54-58,60-65,69-75,83-115,127-156,314
+  s_323ce2f6e7f6d4::t_000811bb6c4da6 116-126
+  s_323ce2f6e7f6d4::t_0bd5bee43f5811 66-68,76-82
+  s_4a71ae2b4a0488::t_0d816b9868d92f 59
+pathmc/introspect.py
+  s_323ce2f6e7f6d4::t_d2821959438be4 395-398,502-505,695-702
+docs/user_guide/basis-terms.qmd
+  s_323ce2f6e7f6d4::t_7cf26bf1f1b438 1-12,14-25,30-33,35-36
+  s_323ce2f6e7f6d4::t_e2c95dcf0c494b 1-36
+docs/examples/01-foundations/hsgp_1d.qmd
+  s_323ce2f6e7f6d4::t_d4bd81d2473ad8 6
+  s_323ce2f6e7f6d4::t_e2c95dcf0c494b 11
+pathmc/compile.py
+  s_323ce2f6e7f6d4::t_97fcd4717483ea 51,167
+  s_323ce2f6e7f6d4::t_a3cfdee9150990 159,161,168-170,173,276,279,343-344,346,350-352,363,558-559,607-612,897-898,900-901,933,977-978,1006-1007,1009,1011,1030,1080,1082-1083,1665-1666,1669,1676,1678,1684-1686,1691-1698
+  s_323ce2f6e7f6d4::t_47066110037bf4 1177
+  s_323ce2f6e7f6d4::t_6170fd9037c1c9 678-680,685-686,700,703,789,808,1014,1025-1028
+  s_323ce2f6e7f6d4::t_97d7cd15345b53 1024
+  s_323ce2f6e7f6d4::t_350c95396da321 681-684,701
+  s_323ce2f6e7f6d4::t_5430d20ce518c9 675-677,689-699,702,790,809,1016-1023,1029
+  s_323ce2f6e7f6d4::t_5f51bc8d167e53 673-674,688,967-968,1015
+  s_4a71ae2b4a0488::t_8de10451ebffe6 687
+  s_4a71ae2b4a0488::t_6c2b188ab6808e 1699-1713
+pathmc/priors.py
+  s_323ce2f6e7f6d4::t_1711473a13c677 26,147-149
+  s_323ce2f6e7f6d4::t_f08c17fb18acb0 150
+pathmc/basis.py
+  s_323ce2f6e7f6d4::t_000811bb6c4da6 133-136
+  s_323ce2f6e7f6d4::t_b6e01685a4a844 1-37,39-66,76-79,84-87,99-103,107-109,115,123-132,137-159,167-168,175-177,179-181,183-185,201-220,224-231,239-257
+  s_323ce2f6e7f6d4::t_f346ab261b4b2a 258-267
+  s_323ce2f6e7f6d4::t_c02c782cf2772a 38,104-106,110-114,116-122,160-166,169-174,221-223,232-238
+  s_323ce2f6e7f6d4::t_f60f77b448be63 67-75,188-189,201,268-283
+  s_323ce2f6e7f6d4::t_5f51bc8d167e53 178,182,186,190-200
+  s_4a71ae2b4a0488::t_8de10451ebffe6 90
+  s_4a71ae2b4a0488::t_ea5d4d6c256a57 91,94
+  s_4a71ae2b4a0488::t_0d816b9868d92f 80-83,88,92-93
+  s_4a71ae2b4a0488::t_76a7dee46c8f1c 89
+  s_4a71ae2b4a0488::t_6c2b188ab6808e 96-99
+tests/test_basis.py
+  s_323ce2f6e7f6d4::t_55fa2645a9d84d 1-17,20-22,24-25,28-30,121-165
+  s_323ce2f6e7f6d4::t_67c9fa5b683d71 166-175,179-181
+  s_323ce2f6e7f6d4::t_263b77f63b20a6 18-19,182-183,211-236,239-247,249-250,256-262
+  s_323ce2f6e7f6d4::t_7c61114154587c 23,263-272,275,283-284,286
+  s_323ce2f6e7f6d4::t_194a18dc123aae 26,176-178,237-238,251-255,273-274,276-282
+  s_323ce2f6e7f6d4::t_5d61eeb897f884 285
+  s_323ce2f6e7f6d4::t_03f82cdf62c0dd 184-198,248
+  s_323ce2f6e7f6d4::t_c3ac4a788bc576 199-210
+  s_4a71ae2b4a0488::t_3509702d0ac2db 116,118
+  s_4a71ae2b4a0488::t_e357c756d5a0f2 47-49,102-104
+  s_4a71ae2b4a0488::t_c701980b03a973 27,31-46,50-79,92-101,105-115,117
+  s_4a71ae2b4a0488::t_a57877081e4d2f 119-120
+  s_4a71ae2b4a0488::t_0d139da2add4a5 80-91
+pathmc/adjustment.py
+  s_323ce2f6e7f6d4::t_26fcb944ee0164 187,189-190
+pathmc/parse.py
+  s_323ce2f6e7f6d4::t_0a8814adbae2bc 83-99,101,118-123,437-443,777-809,813-824
+  s_323ce2f6e7f6d4::t_823217b46f1cd2 444-445,452-453,810-812,825-827,864-866
+  s_323ce2f6e7f6d4::t_619472b9b4014a 446-451,828-863,867-877
+  s_323ce2f6e7f6d4::t_8a141f2c6d9353 878-879
+  s_323ce2f6e7f6d4::t_5f51bc8d167e53 100,224,265,268,271,273-274,276
+  s_323ce2f6e7f6d4::t_c0f4473582bb5c 277-278
+  s_323ce2f6e7f6d4::t_c3ac4a788bc576 81,266-267,269-270,272,275
+  s_4a71ae2b4a0488::t_0bcf1b59dd8f9c 581-582,584-586
+great-docs.yml
+  s_323ce2f6e7f6d4::t_7cf26bf1f1b438 72
+pathmc/__init__.py
+  s_323ce2f6e7f6d4::t_26fcb944ee0164 61,83
+  s_4a71ae2b4a0488::t_8de10451ebffe6 35,61,83
+pathmc/effects.py
+  s_323ce2f6e7f6d4::t_26fcb944ee0164 262
+docs/examples/04-panel-time/fourier_seasonality.qmd
+  s_323ce2f6e7f6d4::t_866494a96b6984 73
+  s_323ce2f6e7f6d4::t_f4987f667fc39d 71-72,74-75,78
+  s_323ce2f6e7f6d4::t_929ae8f8015999 1-3,5-9,11,17-18,23-28,36-45,63,65-66,70,79
+  s_323ce2f6e7f6d4::t_58821c806b05dc 80-81,82-83
+  s_323ce2f6e7f6d4::t_edc8b394d88f08 22
+  s_323ce2f6e7f6d4::t_0e08ddce9557b1 96
+  s_323ce2f6e7f6d4::t_4a99a458924ac3 153
+  s_323ce2f6e7f6d4::t_e2c95dcf0c494b 4,10,12-16,19-21,29-32,34-35,46-62,64,67-69,76-77,84-95,97-147,151-152,241-242
+  s_323ce2f6e7f6d4::t_a316401bfac84f 33,166-172,175,176,203-208,211-216,220-221,224-227,229,240,244-245
+  s_323ce2f6e7f6d4::t_15a896bfbe3589 148-149,153,163-165,238
+  s_323ce2f6e7f6d4::t_a814f93063ec46 173-174,177-202,209-210,217-219,222-223,228,230-237,239,243
+  s_323ce2f6e7f6d4::t_d85d2c45a799d5 150,154
+  s_323ce2f6e7f6d4::t_d2edc6c61f4883 155-162
+_freeze/docs/examples/panel-time/fourier_seasonality/execute-results/html.json
+  s_9a17ea120e2eab::t_d2af8ee5de632f 1,3-4,6-12
+  s_323ce2f6e7f6d4::t_6989c93bb469aa 2,5
+pathmc/_model.py
+  s_323ce2f6e7f6d4::t_d9ebf44e6c2991 921-934
+  s_323ce2f6e7f6d4::t_7f9061c66f74e4 470-475
+pathmc/simulate.py
+  s_323ce2f6e7f6d4::t_50bf37911b29fd 1392,1400-1406
+_freeze/docs/examples/foundations/hsgp_1d/execute-results/html.json
+  s_323ce2f6e7f6d4::t_2e922617e83e09 2,5,15
+tests/test_public_api.py
+  s_4a71ae2b4a0488::t_0d139da2add4a5 26,48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b8743b49ef7affe98a744aadf8ae38b30aa4d866",
+  "prompts": {},
+  "sessions": {
+    "s_323ce2f6e7f6d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb8e-cc8f-7aa2-810b-77ca91422941",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    },
+    "s_4a71ae2b4a0488": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca9e-978e-7c50-91cd-76f03cbeea29",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    },
+    "s_9a17ea120e2eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb77-831c-78e0-8e95-0759bd7f6464",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

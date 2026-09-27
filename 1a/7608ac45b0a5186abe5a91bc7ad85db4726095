@@ -1,0 +1,21 @@
+tests/test_idata.py
+  s_8979a28eae25f4::t_760551c1527ee9 39-42
+pathmc/idata.py
+  s_8979a28eae25f4::t_760551c1527ee9 57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1a7608ac45b0a5186abe5a91bc7ad85db4726095",
+  "prompts": {},
+  "sessions": {
+    "s_8979a28eae25f4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bb59-0824-7d93-b3e5-183ca48402a7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
