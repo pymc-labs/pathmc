@@ -54,9 +54,10 @@ from pathmc.transforms import get_transform
 __all__: list[str] = []
 
 _SCAN_PANEL_RESIDUAL_COV_MSG = (
-    "Residual covariances (~~) are not supported on scan-compiled panel models "
+    "Residual covariances (~~) are not supported yet on scan-compiled panel models "
     "(lag() or adstock()). Drop the ~~ clause, or remove lag() and adstock() "
-    "so the model is not scan-compiled."
+    "so the model is not scan-compiled. "
+    "Future support is tracked in https://github.com/pymc-labs/pathmc/issues/520."
 )
 
 
