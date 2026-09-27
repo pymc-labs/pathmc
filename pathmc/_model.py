@@ -32,6 +32,7 @@ from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
 from pathmc.compile import (
     _requires_rectangular_panel,
+    _SCAN_PANEL_RESIDUAL_COV_MSG,
     _build_lag_map,
     _has_temporal_deps,
     _identify_residual_blocks,
@@ -2722,11 +2723,7 @@ def simulate(
     endo_set = set(endogenous_lhs)
 
     if spec.residual_covs and panel is not None and _has_temporal_deps(spec):
-        raise NotImplementedError(
-            "simulate() does not yet support residual covariances (~~) with "
-            "scan-compiled panel models (lag() or adstock()). Fit or simulate "
-            "the ~~ block without lag()/adstock(), or drop the ~~ clause."
-        )
+        raise NotImplementedError(_SCAN_PANEL_RESIDUAL_COV_MSG)
 
     if block_var_set:
         var_to_block = {v: block for block in blocks for v in block}

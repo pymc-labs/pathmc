@@ -53,6 +53,13 @@ from pathmc.transforms import get_transform
 
 __all__: list[str] = []
 
+_SCAN_PANEL_RESIDUAL_COV_MSG = (
+    "Residual covariances (~~) are not supported yet on scan-compiled panel models "
+    "(lag() or adstock()). Drop the ~~ clause, or remove lag() and adstock() "
+    "so the model is not scan-compiled. "
+    "Future support is tracked in https://github.com/pymc-labs/pathmc/issues/520."
+)
+
 
 def _user_stacklevel() -> int:
     """Stacklevel to attribute a ``warnings.warn`` to the first non-pathmc frame.
@@ -558,6 +565,8 @@ def compile_to_pymc(
     _validate_basis_capabilities(spec, panel_info)
     _reject_basis_in_residual_blocks(spec)
     _reject_nan_predictors(data, graph_info)
+
+    _reject_scan_panel_residual_cov(spec, panel_info)
 
     if _is_scan_panel(spec, panel_info):
         assert panel_info is not None
@@ -2050,6 +2059,12 @@ def _requires_rectangular_panel(spec: Spec, graph_info: GraphInfo) -> bool:
 def _is_scan_panel(spec: Spec, panel_info: PanelInfo | None) -> bool:
     """True when compile_to_pymc will take the scan-panel path."""
     return panel_info is not None and _has_temporal_deps(spec)
+
+
+def _reject_scan_panel_residual_cov(spec: Spec, panel_info: PanelInfo | None) -> None:
+    """Reject ~~ on scan-compiled panel models before the scan early-return."""
+    if spec.residual_covs and _is_scan_panel(spec, panel_info):
+        raise NotImplementedError(_SCAN_PANEL_RESIDUAL_COV_MSG)
 
 
 def _transform_base_vars(tc: TransformCall) -> list[str]:

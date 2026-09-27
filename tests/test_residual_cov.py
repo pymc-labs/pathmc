@@ -198,3 +198,59 @@ class TestBlockVarDoOperator:
         r1 = fitted_parallel_mediators.do(set={"M1": 1.0}, kind="predictive")
         ate = r1.mean("Y") - r0.mean("Y")
         assert np.isfinite(ate), f"ATE of M1 on Y should be finite, got {ate}"
+
+
+def _panel_residual_cov_data() -> pd.DataFrame:
+    rng = np.random.default_rng(42)
+    regions = ["North", "South", "East"]
+    rows = []
+    for region in regions:
+        for week in range(1, 26):
+            rows.append({
+                "region": region,
+                "week": week,
+                "X": rng.normal(),
+                "Y1": rng.normal(),
+                "Y2": rng.normal(),
+            })
+    return pd.DataFrame(rows)
+
+
+PANEL = {"unit": "region", "time": "week"}
+
+
+class TestScanPanelResidualCovRejection:
+    """Scan-compiled panel models must reject ~~ before fitting independent residuals."""
+
+    def test_model_lag_scan_panel_raises(self):
+        df = _panel_residual_cov_data()
+        with pytest.raises(NotImplementedError, match="(?i)residual covariances"):
+            pathmc.model(
+                "Y1 ~ X + lag(Y1)\nY2 ~ X\nY1 ~~ Y2",
+                data=df,
+                panel=PANEL,
+            )
+
+    def test_model_adstock_scan_panel_raises(self):
+        df = _panel_residual_cov_data()
+        with pytest.raises(NotImplementedError, match="(?i)residual covariances"):
+            pathmc.model(
+                "Y1 ~ adstock(X, decay=theta)\nY2 ~ X\nY1 ~~ Y2",
+                data=df,
+                panel=PANEL,
+            )
+
+    def test_simulate_params_template_scan_panel_raises(self):
+        df = _panel_residual_cov_data()[["region", "week", "X"]]
+        with pytest.raises(NotImplementedError, match="(?i)residual covariances"):
+            pathmc.simulate_params_template(
+                "Y1 ~ X + lag(Y1)\nY2 ~ X\nY1 ~~ Y2",
+                data=df,
+                panel=PANEL,
+            )
+
+    def test_model_panel_without_scan_still_has_chol(self):
+        df = _panel_residual_cov_data()
+        model = pathmc.model("Y1 ~ X\nY2 ~ X\nY1 ~~ Y2", data=df, panel=PANEL)
+        free_rv_names = {rv.name for rv in model.pymc_model.free_RVs}
+        assert "chol_Y1_Y2" in free_rv_names
