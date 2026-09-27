@@ -16,13 +16,9 @@
 Each transform produces PyMC tensor operations for model compilation and
 provides a ``step()`` method for use inside ``pytensor.scan`` bodies.
 
-Built-in geometric adstock and logistic saturation delegate to
-``pymc_marketing.mmm.transformers`` when a compatible ``pymc-marketing``
-release is installed (see :mod:`pathmc._pmm_backend`); otherwise they use
-vendored pytensor kernels with matching numerics. Additional MMM variants
-(delayed / Weibull adstock, Michaelis-Menten saturation) follow the same
-pattern. Install ``pymc-marketing`` manually once a release compatible with
-pathmc's ``pytensor>=3.1.1`` floor is published upstream to activate delegation.
+Built-in MMM transforms delegate to ``pymc_marketing.mmm.transformers`` (see
+:mod:`pathmc._pmm_backend`). Install ``pathmc[marketing]`` for
+``pymc-marketing`` >= 1.1.0.
 """
 
 from __future__ import annotations
@@ -32,15 +28,12 @@ from typing import Any
 
 import numpy as np
 import pymc as pm
-import pytensor.tensor as pt
-
 from pathmc._pmm_backend import (
-    _batched_convolution,
     adstock_pmm,
     delayed_adstock_pmm,
     logistic_saturation_pmm,
     michaelis_menten_pmm,
-    pmm_available,
+    require_pmm,
     weibull_adstock_pmm,
 )
 
@@ -62,14 +55,9 @@ def _geometric_adstock(
             f"least one lag weight; set l_max to the maximum carryover "
             f"duration in time steps."
         )
-    if pmm_available():
-        dims = tuple(f"d{i}" for i in range(x.ndim))
-        return adstock_pmm(x, alpha=alpha, l_max=l_max, normalize=normalize, dims=dims)
-    w = pt.power(alpha, pt.arange(l_max))
-    result = _batched_convolution(x, w, l_max=l_max)
-    if normalize:
-        result = result / pt.sum(w)
-    return result
+    require_pmm()
+    dims = tuple(f"d{i}" for i in range(x.ndim))
+    return adstock_pmm(x, alpha=alpha, l_max=l_max, normalize=normalize, dims=dims)
 
 
 def _delayed_adstock(
@@ -83,21 +71,16 @@ def _delayed_adstock(
     """Delayed adstock along the leading (time) axis."""
     if l_max < 1:
         raise ValueError(f"l_max must be >= 1, got {l_max}.")
-    if pmm_available():
-        dims = tuple(f"d{i}" for i in range(x.ndim))
-        return delayed_adstock_pmm(
-            x,
-            alpha=alpha,
-            theta=theta,
-            l_max=l_max,
-            normalize=normalize,
-            dims=dims,
-        )
-    lags = pt.arange(l_max, dtype=x.dtype)
-    w = pt.power(alpha, (lags - theta) ** 2)
-    if normalize:
-        w = w / pt.sum(w)
-    return _batched_convolution(x, w, l_max=l_max)
+    require_pmm()
+    dims = tuple(f"d{i}" for i in range(x.ndim))
+    return delayed_adstock_pmm(
+        x,
+        alpha=alpha,
+        theta=theta,
+        l_max=l_max,
+        normalize=normalize,
+        dims=dims,
+    )
 
 
 def _weibull_adstock(
@@ -109,46 +92,32 @@ def _weibull_adstock(
     normalize: bool = False,
     weibull_type: str = "PDF",
 ) -> Any:
-    """Weibull adstock along the leading (time) axis (PDF mode when vendored)."""
+    """Weibull adstock along the leading (time) axis."""
     if l_max < 1:
         raise ValueError(f"l_max must be >= 1, got {l_max}.")
-    if pmm_available():
-        dims = tuple(f"d{i}" for i in range(x.ndim))
-        return weibull_adstock_pmm(
-            x,
-            lam=lam,
-            k=k,
-            l_max=l_max,
-            normalize=normalize,
-            dims=dims,
-            weibull_type=weibull_type,
-        )
-    if weibull_type != "PDF":
-        raise NotImplementedError(
-            "Weibull CDF adstock requires pymc-marketing; install pathmc[marketing] "
-            "once a pymc-marketing release compatible with this PyMC version is "
-            "available."
-        )
-    t = pt.arange(l_max, dtype=x.dtype) + 1
-    w = (k / lam) * pt.power(t / lam, k - 1) * pt.exp(-pt.power(t / lam, k))
-    w = (w - pt.min(w)) / (pt.max(w) - pt.min(w))
-    if normalize:
-        w = w / pt.sum(w)
-    return _batched_convolution(x, w, l_max=l_max)
+    require_pmm()
+    dims = tuple(f"d{i}" for i in range(x.ndim))
+    return weibull_adstock_pmm(
+        x,
+        lam=lam,
+        k=k,
+        l_max=l_max,
+        normalize=normalize,
+        dims=dims,
+        weibull_type=weibull_type,
+    )
 
 
 def _logistic_saturation(x: Any, *, lam: Any) -> Any:
     """Pointwise logistic saturation: ``(1 - exp(-lam*x)) / (1 + exp(-lam*x))``."""
-    if pmm_available():
-        return logistic_saturation_pmm(x, lam=lam)
-    return (1 - pt.exp(-lam * x)) / (1 + pt.exp(-lam * x))
+    require_pmm()
+    return logistic_saturation_pmm(x, lam=lam)
 
 
 def _michaelis_menten(x: Any, *, alpha: Any, lam: Any) -> Any:
     """Pointwise Michaelis-Menten saturation: ``alpha * x / (lam + x)``."""
-    if pmm_available():
-        return michaelis_menten_pmm(x, alpha=alpha, lam=lam)
-    return alpha * x / (lam + x)
+    require_pmm()
+    return michaelis_menten_pmm(x, alpha=alpha, lam=lam)
 
 
 def _apply_conv_panel(
