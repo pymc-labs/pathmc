@@ -164,10 +164,24 @@ jobs:
             echo "::endgroup::"
           done < "$RUNNER_TEMP/prs.tsv"
 
-          # One push for the whole sweep. Non-force: the shared concurrency
-          # group means nothing else can have moved refs/notes/ai meanwhile.
+          # One non-force push for the whole sweep. The concurrency group only
+          # serialises this job and git-ai.yml; any developer with git-ai
+          # installed also pushes refs/notes/ai on every `git push`, so origin
+          # can move mid-sweep. On rejection, merge origin's notes in and retry,
+          # as git-ai's own push does. `-s ours` loses nothing: the sweep only
+          # adds notes to commits that had none.
           if git rev-parse --verify --quiet refs/notes/ai >/dev/null; then
-            git push origin refs/notes/ai:refs/notes/ai
+            for attempt in 1 2 3; do
+              if git push origin refs/notes/ai:refs/notes/ai; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "::error::could not push refs/notes/ai after 3 attempts"
+                exit 1
+              fi
+              git fetch --quiet origin '+refs/notes/ai:refs/notes/ai-remote/origin'
+              git notes --ref=ai merge -s ours refs/notes/ai-remote/origin
+            done
           fi
 
           {
@@ -179,6 +193,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${#failed[@]}" -gt 0 ]; then
-            echo "::error::attribution not recorded for ${failed[*]}; a later sweep will retry them"
+            echo "::error::attribution not recorded for ${failed[*]}; the next sweep retries them while they are inside its 14-day window (or re-run with since=<date>)"
             exit 1
           fi
