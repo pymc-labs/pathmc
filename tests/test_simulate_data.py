@@ -359,7 +359,7 @@ class TestSimulateValidation:
 
     def test_residual_cov_scan_panel_raises(self, panel_exog):
         df = panel_exog.rename(columns={"tv": "X"})
-        with pytest.raises(NotImplementedError, match="residual covariances"):
+        with pytest.raises(NotImplementedError, match="(?i)residual covariances"):
             pathmc.simulate(
                 "Y1 ~ X + lag(Y1)\nY2 ~ X\nY1 ~~ Y2",
                 data=df,
