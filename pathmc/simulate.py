@@ -1519,6 +1519,43 @@ def run_do_pymc(
     return DoResult(ds=xr.Dataset(predictive_vars))
 
 
+def _panel_predictive_sample_kwargs(
+    do_model: pm.Model,
+    graph_info: GraphInfo,
+    set: dict[str, float | np.ndarray],
+) -> dict[str, Any]:
+    """Keyword args for ``sample_posterior_predictive`` on intervened scan panels.
+
+    Masked panel outcomes split into ``{var}_observed`` and
+    ``{var}_unobserved`` free RVs. After ``pm.do()`` changes upstream
+    nodes, PyMC freezes the unobserved imputations unless they are listed
+    in ``sample_vars``. We resample every ``*_unobserved`` imputation RV in
+    the do-model, not only those downstream of the intervention, so
+    predictive draws stay consistent with the intervened generative graph.
+    Requesting only ``sample_vars`` drops the merged outcome from
+    ``posterior_predictive``, so ``var_names`` must name the non-latent
+    endogenous variables we still read from the PPC output. Latents not
+    in ``set`` are excluded from ``var_names`` and recovered through
+    ``compute_deterministics`` with the fitted posterior (including
+    ``innovations_{var}`` for stochastic latents), not fresh process noise.
+    """
+    if not set:
+        return {}
+    unobs = [rv.name for rv in do_model.free_RVs if rv.name.endswith("_unobserved")]
+    if not unobs:
+        return {}
+    var_names = [
+        var
+        for var in graph_info.topological_order
+        if var in graph_info.endogenous
+        and var not in set
+        and var not in graph_info.latent
+    ]
+    if not var_names:
+        return {"sample_vars": unobs}
+    return {"sample_vars": unobs, "var_names": var_names}
+
+
 def run_do_panel_unified(
     gen_model: pm.Model,
     graph_info: GraphInfo,
@@ -1576,6 +1613,9 @@ def run_do_panel_unified(
     n_times = scan_info.n_times
     n_units = scan_info.n_units
     latent = graph_info.latent
+    stochastic_latent = {
+        v for v in latent if families.get(v, "gaussian") == "latent_normal"
+    }
 
     replacements: dict[str, Any] = {}
     scan_intervene_updates: dict[str, np.ndarray] = {}
@@ -1595,7 +1635,10 @@ def run_do_panel_unified(
         # intervened var is no longer a free RV that compute_deterministics /
         # sample_posterior_predictive must bind from the posterior (the
         # fitted idata never sampled it -- it is observed during fit()).
-        key = f"mu_{var}" if var in latent else var
+        if var in latent and var not in stochastic_latent:
+            key = f"mu_{var}"
+        else:
+            key = var
         target_dtype = gen_model[key].dtype
         replacements[key] = mat.astype(target_dtype)
         if var in graph_info.endogenous:
@@ -1615,13 +1658,9 @@ def run_do_panel_unified(
             if var in graph_info.endogenous and var not in set and var not in latent:
                 replacements[var] = gen_model[f"mu_{var}"] * 1
 
-        stochastic_latent = {
-            v for v in latent if families.get(v, "gaussian") == "latent_normal"
-        }
-
         det_names = []
         for var in graph_info.topological_order:
-            if var in graph_info.endogenous:
+            if var in graph_info.endogenous and var not in set:
                 if var in stochastic_latent:
                     det_names.append(var)
                 else:
@@ -1669,9 +1708,6 @@ def run_do_panel_unified(
         )
 
     # kind == "predictive"
-    stochastic_latent = {
-        v for v in latent if families.get(v, "gaussian") == "latent_normal"
-    }
     latent_det_names = []
     for var in graph_info.topological_order:
         if var in latent and var not in set:
@@ -1687,7 +1723,11 @@ def run_do_panel_unified(
                 "ignore", message="Could not extract data from symbolic observation"
             )
             with do_model:
-                ppc = pm.sample_posterior_predictive(idata, progressbar=False)
+                ppc = pm.sample_posterior_predictive(
+                    idata,
+                    progressbar=False,
+                    **_panel_predictive_sample_kwargs(do_model, graph_info, set),
+                )
 
         if latent_det_names:
             latent_det = pm.compute_deterministics(
