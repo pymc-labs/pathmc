@@ -149,6 +149,71 @@ def _m_panel_lag_no_intercept():
     )
 
 
+def _panel_count_data(seed=1, ngeo=5, ntime=12):
+    """Panel frame with a small non-negative count outcome for negbinomial."""
+    df = _panel_data(seed=seed, ngeo=ngeo, ntime=ntime).copy()
+    rng = np.random.default_rng(seed + 7)
+    rate = np.exp(0.3 * df["x2"].to_numpy())
+    df["count"] = rng.poisson(rate)
+    return df
+
+
+def _m_panel_adstock():
+    # Geometric adstock forces the scan-panel compiler (same family as #316).
+    return pathmc.model(
+        "sales ~ adstock(spend, decay=d)",
+        data=_panel_data(),
+        panel=_PANEL,
+        pooling=None,
+    )
+
+
+def _m_panel_lag_adstock():
+    # Co-occurring terms: lag(adstock(...)) is a parse error.
+    return pathmc.model(
+        "sales ~ lag(spend) + adstock(x2, decay=d)",
+        data=_panel_data(),
+        panel=_PANEL,
+        pooling=None,
+    )
+
+
+def _m_xsec_negbinomial():
+    return pathmc.model(
+        "Ycount ~ X1",
+        data=_xsec_data(),
+        families={"Ycount": "negbinomial"},
+    )
+
+
+def _m_panel_negbinomial():
+    return pathmc.model(
+        "count ~ x2",
+        data=_panel_count_data(),
+        panel=_PANEL,
+        families={"count": "negbinomial"},
+    )
+
+
+def _m_panel_lag_slopes():
+    # Slopes bind to a raw column. lag(spend) is not a data column.
+    return pathmc.model(
+        "sales ~ lag(spend) + x2",
+        data=_panel_data(),
+        panel=_PANEL,
+        pooling={"intercept": True, "slopes": ["x2"]},
+    )
+
+
+def _m_panel_logistic_saturation():
+    return pathmc.model(
+        "sales ~ logistic_saturation(spend, lam=lam)",
+        data=_panel_data(),
+        panel=_PANEL,
+        pooling=None,
+    )
+
+
 # (id, builder). All cells must pass since issue #316 is fixed.
 _CELLS = [
     ("xsec-gaussian", _m_xsec_gaussian),
@@ -156,12 +221,18 @@ _CELLS = [
     ("xsec-interaction", _m_xsec_interaction),
     ("xsec-bernoulli", _m_xsec_bernoulli),
     ("xsec-poisson", _m_xsec_poisson),
+    ("xsec-negbinomial", _m_xsec_negbinomial),
     ("panel-plain-complete", _m_panel_plain_complete),
     ("panel-plain-partial", _m_panel_plain_partial),
     ("panel-lag(y)-complete", _m_panel_lag_endogenous),
     ("panel-lag(x)-complete", _m_panel_lag_complete),
     ("panel-lag(x)-partial", _m_panel_lag_partial),
     ("panel-lag(x)-no-intercept", _m_panel_lag_no_intercept),
+    ("panel-adstock-complete", _m_panel_adstock),
+    ("panel-lag(x)-adstock", _m_panel_lag_adstock),
+    ("panel-negbinomial", _m_panel_negbinomial),
+    ("panel-lag(x)-slopes", _m_panel_lag_slopes),
+    ("panel-logistic-saturation", _m_panel_logistic_saturation),
 ]
 
 
@@ -171,7 +242,12 @@ def _param(cell):
 
 
 _ALL = [_param(c) for c in _CELLS]
-_GAUSSIAN = [_param(c) for c in _CELLS if c[0].startswith(("xsec-gaussian", "panel"))]
+# Negbinomial has no sigma_* likelihood, so the Gaussian hand oracle does not apply.
+_GAUSSIAN = [
+    _param(c)
+    for c in _CELLS
+    if c[0].startswith(("xsec-gaussian", "panel")) and "negbinomial" not in c[0]
+]
 
 
 # ---------------------------------------------------------------------------
