@@ -8,14 +8,15 @@ image: thumbnails/categorical_predictors.png
 jupyter: pathmc
 ---
 
-Many causal questions are about *which group* a unit belongs to rather than *how much* of something it received: which sales region a store sits in, which message variant a customer saw, which policy regime a country adopted. These predictors arrive as strings or pandas categoricals, and a naive attempt to regress on them fails before any modeling starts:
+Many causal questions are about *which group* a unit belongs to rather than *how much* of something it received: which sales region a store sits in, which message variant a customer saw, which policy regime a country adopted. These predictors arrive as strings or pandas categoricals, and a regression cannot multiply a coefficient by `"north"`. The usual workaround is to build indicator columns by hand:
 
 ```python
-pathmc.model("y ~ region", data=df)
-# ValueError: could not convert string to float: 'north'
+dummies = pd.get_dummies(df["region"], drop_first=True)  # region_south, region_west
 ```
 
-pathmc handles categorical predictors as a first-class part of the DSL. When you build a model, it detects string and categorical columns, expands each one into indicator columns using **treatment coding**, gives every non-reference level its own named coefficient, and — the part that matters for causal work — **freezes the level set and reference** so that `predict()` and `do()` can never silently recompute the coding on new data. Interventions then read the way you would say them: `model.do(set={"region": "south"})`.
+That works until it doesn't: the reference level is whichever value happens to sort first, new data with a missing or extra level silently produces a different set of columns, and an intervention such as "move every store to the south region" has to be translated by hand into flipping two indicator columns.
+
+pathmc handles categorical predictors as a first-class part of the DSL instead. When you build a model, it detects string and categorical columns, expands each one into indicator columns using **treatment coding**, gives every non-reference level its own named coefficient, and — the part that matters for causal work — **freezes the level set and reference** so that `predict()` and `do()` can never silently recompute the coding on new data. Interventions then read the way you would say them: `model.do(set={"region": "south"})`.
 
 This notebook walks through the full surface: automatic inference, explicit `C()` syntax, the two coding schemes, priors (including hierarchical shrinkage), interventions by label, prediction on new rows, and the boundaries of what is supported today.
 
@@ -186,7 +187,7 @@ model = pathmc.model("y ~ x + region", data=df)
 model.equations()
 ```
 
-The equation display records everything the compiler froze: the variable, the reference level, and the full ordered level set. The design matrix confirms the indicator columns sit alongside the continuous predictor:
+The equation display is a term-level shorthand: `x` stands for the slope term $\beta_x x_i$, and `C(region; ...)` stands for the whole block of level indicators and their coefficients. What it records is everything the compiler froze about the categorical: the variable, the reference level, and the full ordered level set. The design matrix confirms the indicator columns sit alongside the continuous predictor:
 
 ```{python}
 model.design("y").head()
@@ -222,14 +223,20 @@ Because `beta_y_region` is indexed by level name rather than position, posterior
 
 ```{python}
 idata = model.fit(random_seed=42, progressbar=False)
-az.summary(idata, var_names=["beta_y", "beta_y_region", "sigma_y"], round_to=2)
+az.summary(
+    idata,
+    var_names=["beta_y", "beta_y_region", "sigma_y"],
+    ci_prob=0.94,
+    ci_kind="hdi",
+    round_to=2,
+)
 ```
 
 Before going further we verify that the workflow recovers the planted values. @fig-level-effects-recovery puts the posterior for each region contrast next to its truth: $\beta_{\text{south}} = 2$ and $\beta_{\text{west}} = -1$.
 
 ```{python}
 # | label: fig-level-effects-recovery
-# | fig-cap: "Posterior mean and 94% HDI for each treatment-coded region contrast (relative to north), with the true simulated effect marked as a black × in the region's color band. The wider interval for west reflects its smaller group size (n = 50)."
+# | fig-cap: "Posterior mean and 94% HDI for each treatment-coded region contrast (relative to north), with the true simulated effect marked as a black × on the region's HDI bar. The wider interval for west reflects its smaller group size (n = 50)."
 # | code-fold: true
 def forest_by_level(ax, post, coord, truth, colors, offset=0.0, label=None):
     """Horizontal forest plot of one coefficient vector keyed by level."""
@@ -292,7 +299,13 @@ model_south.design("y").head(3)
 
 ```{python}
 idata_south = model_south.fit(random_seed=42, progressbar=False)
-az.summary(idata_south, var_names=["beta_y_region"], round_to=2)
+az.summary(
+    idata_south,
+    var_names=["beta_y_region"],
+    ci_prob=0.94,
+    ci_kind="hdi",
+    round_to=2,
+)
 ```
 
 The coefficients now read "north relative to south" ($-2$) and "west relative to south" ($-3$). It is important to see that this is a **reparametrization, not a different model**: the fitted values, the residual scale, and any pairwise contrast are the same whichever reference you pick. @fig-reference-reparam demonstrates this by computing the west-minus-north contrast from both fits. Under `reference='north'` it is simply $\beta_{\text{west}}$; under `reference='south'` it is $\beta_{\text{west}} - \beta_{\text{north}}$.
@@ -365,7 +378,13 @@ Each coefficient is now the expected outcome for that level at $x = 0$ — a **c
 
 ```{python}
 idata_cells = model_cells.fit(random_seed=42, progressbar=False)
-az.summary(idata_cells, var_names=["beta_y_region"], round_to=2)
+az.summary(
+    idata_cells,
+    var_names=["beta_y_region"],
+    ci_prob=0.94,
+    ci_kind="hdi",
+    round_to=2,
+)
 ```
 
 ```{python}
@@ -406,16 +425,22 @@ model_prior.set_priors({"beta_y_region": Prior("Normal", mu=0, sigma=2)})
 model_prior.priors()
 ```
 
-To give **different levels different priors**, pass vectors and name the level dimension. The order follows the coordinate shown by `model.pymc_model.coords`, which is the non-reference levels in their frozen order:
+To give **different levels different priors**, pass vectors and name the level dimension. The order follows the coordinate shown by `model.pymc_model.coords`, which is the non-reference levels in their frozen order — here `south` then `west`. The values below are purely illustrative (a mildly informative belief that south is above the reference and west is below it), not the simulated truths:
 
 ```{python}
 model_prior.set_priors({
     "beta_y_region": Prior(
-        "Normal", mu=[2.0, -1.0], sigma=[1.0, 1.0], dims=("y_region_levels",)
+        "Normal", mu=[1.0, -0.5], sigma=[1.0, 1.0], dims=("y_region_levels",)
     )
 })
 model_prior.priors()
 ```
+
+::: {.callout-warning}
+## Integer codes sort as strings
+
+When levels come from `C()` on an integer column, coordinate order is the *string* sort of the codes: twelve stores coded `1..12` are ordered `1, 10, 11, 12, 2, 3, ...`. Always read the order from `model.pymc_model.coords` before writing a per-level vector prior, or declare the column as a pandas `Categorical` with the order you want.
+:::
 
 ### Hierarchical shrinkage
 
@@ -511,7 +536,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-**Takeaway:** for the three stores with only three or four observations, the independent posterior is wide and jumps towards whatever noise those few rows contained, while the hierarchical posterior is pulled towards the population mean and is markedly narrower. For stores with 40+ observations the two agree. This is partial pooling working as intended, and it is why `prior='hierarchical'` is the recommended choice whenever a categorical has many or sparsely observed levels.
+**Takeaway:** for the three stores with only three or four observations, the independent posterior is wide and jumps towards whatever noise those few rows contained, while the hierarchical posterior is pulled towards the population mean and is markedly narrower. From roughly 15 observations upward the two agree, because the data then dominate the prior. This is partial pooling working as intended, and it is why `prior='hierarchical'` is the recommended choice whenever a categorical has many or sparsely observed levels.
 
 ::: {.callout-warning}
 ## Shrinkage is not free
@@ -531,7 +556,7 @@ interventions = {level: model.do(set={"region": level}) for level in LEVELS}
 
 ```{python}
 # | label: fig-do-by-label
-# | fig-cap: "Posterior distribution of the interventional mean E[y | do(region = level)] for each region, obtained by setting every store to that level and averaging over x. Dashed lines mark the true population-average outcome for each level (1, 3, 0), which coincides with the group mean because x has mean zero."
+# | fig-cap: "Posterior distribution of the interventional mean E[y | do(region = level)] for each region, obtained by setting every store to that level and averaging over x. Dashed lines mark the true population-average outcome for each level (1, 3, 0); the g-computation estimates sit very close to them because the sample mean of x is near zero."
 # | code-fold: true
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 0.8))
 grid = np.linspace(-0.6, 3.6, 500)
@@ -569,7 +594,7 @@ model.ate("y", "region", values=("west", "south"))
 
 ### Mixing categorical and continuous interventions
 
-A single `do()` call can set a categorical label alongside a numeric value, and the other query helpers accept labels wherever an intervention or condition is specified:
+A single `do()` call can set a categorical label alongside a numeric value. Four query methods accept labels today — `do()`, `ate()`, `prob()`, and `cate()` — as interventions (`set=`, `values=`) and as conditions (`condition=`); the remaining helpers are listed under the boundaries at the end of this page:
 
 ```{python}
 # | warning: false
@@ -600,11 +625,12 @@ The predictive interval is far wider than the interval on the mean in @fig-do-by
 
 ## Predicting for new rows
 
-`predict(data=...)` runs posterior predictive sampling with replacement predictor values. Categorical columns in the new frame are encoded with the **fitted** level set and reference, so it does not matter whether the levels arrive in a different row order or whether a level happens to be absent from the new frame. Here we rotate the region labels so every row's region changes:
+`predict(data=...)` runs posterior predictive sampling with replacement predictor values. Categorical columns in the new frame are encoded with the **fitted** level set and reference, so it does not matter whether the levels arrive in a different row order or whether a level happens to be absent from the new frame. Here we move every store one region along a fixed cycle, so every row's region changes:
 
 ```{python}
 # | warning: false
-new_rows = df.assign(region=np.roll(df["region"].to_numpy(), 1))
+NEXT_REGION = {"north": "south", "south": "west", "west": "north"}
+new_rows = df.assign(region=df["region"].map(NEXT_REGION))
 pp = model.predict(data=new_rows, extend_inferencedata=False, progressbar=False)
 
 predicted_mean = pp.posterior_predictive["y"].mean(("chain", "draw")).values
@@ -622,6 +648,12 @@ pd.DataFrame({
 
 The replacement frame must have the same number of rows as the fitted data (variable-length posterior prediction is not supported yet), and it must contain every predictor column the model uses.
 
+::: {.callout-note collapse="true"}
+## If you see `RuntimeWarning: invalid value encountered in divide`
+
+Running these `predict()` and `do()` cells locally may print a NumPy `RuntimeWarning` from inside PyTensor. When PyMC checks whether the indicator matrix changed, PyTensor computes a relative error $|a-b|/(|a|+|b|)$ for a log message, which is $0/0$ wherever both the old and new indicator entries are zero. The warning is cosmetic: the comparison result is correct and the samples are unaffected. The rendered page hides it with `warning: false`.
+:::
+
 ### Unseen levels raise, never guess
 
 If a level appears at prediction or intervention time that was not observed during fitting, pathmc raises a `ValueError` that names the predictor, the offending level, and the levels it knows about. This is deliberate: the alternative — silently rebuilding the contrast matrix from the new data, as `pandas.get_dummies` or a fresh `patsy` call would — changes what every coefficient means without telling you.
@@ -637,9 +669,9 @@ for attempt in (
         print(f"ValueError: {err}")
 ```
 
-## Why the state is frozen
+## The frozen level set
 
-The behaviours above all follow from a single design decision, sketched in @fig-frozen-state. When `model()` is called with data, pathmc resolves each categorical term once: it reads the observed levels, fixes the reference and the level order, and names the design columns. That state is stored on the model and compiled into a mutable indicator matrix inside the PyMC graph. Every later operation — `predict()`, `do()`, `ate()`, `prob()` — rebuilds indicator rows *from the frozen state* and only ever swaps values into that matrix.
+The prediction and intervention behaviours above all follow from one design decision, sketched in @fig-frozen-state: the level set is resolved exactly once, at `model()` time, and every later call only swaps rows into the compiled indicator matrix.
 
 ```{mermaid}
 %%| label: fig-frozen-state
@@ -654,10 +686,9 @@ flowchart LR
   I -.-> E
 ```
 
-Two practical consequences are worth spelling out:
+### Controlling the reference without `C()`
 
-- **A pandas `Categorical` column keeps its declared order**, so you can control the reference without `C()` by making the desired baseline the first category. Categories declared but never observed are dropped from the level set (they cannot be estimated), and using one later triggers the unseen-level error.
-- **The same column cannot be both categorical and continuous** in one model, even across equations, because prediction and intervention need one canonical representation for each variable. Create a second numeric column if you need both.
+The "resolve once" step reads a pandas `Categorical` column's **declared category order**, so making the desired baseline the first category is an alternative to `reference=`. Declaring `["west", "south", "north"]` should make `west` the reference and leave indicator columns for `south` and `north`, in that order:
 
 ```{python}
 ordered = df.assign(
@@ -665,6 +696,8 @@ ordered = df.assign(
 )
 pathmc.model("y ~ x + region", data=ordered).design("y").columns.tolist()
 ```
+
+Categories that are declared but never observed are dropped from the level set (they cannot be estimated), and using one later triggers the unseen-level error.
 
 ## Numeric codes as categories
 
@@ -753,7 +786,7 @@ simulated.groupby("region", observed=True)["y"].mean().round(2)
 
 ## Capability reference
 
-Everything demonstrated above, in one place.
+The full surface in one place. Rows marked † were not exercised above; they follow the same rules and are covered in the [user guide](/user-guide/categorical-predictors.html).
 
 | Capability | How | Notes |
 |---|---|---|
@@ -763,32 +796,26 @@ Everything demonstrated above, in one place.
 | Cell-means coding | `y ~ 0 + region` | one coefficient per level, columns `region[level]` |
 | Independent priors | default; override `beta_{lhs}_{var}` | scalar broadcasts; vectors need `dims=("{lhs}_{var}_levels",)` |
 | Hierarchical priors | `C(region, prior='hierarchical')` | adds `mu_beta_{lhs}_{var}` and `sigma_beta_{lhs}_{var}` |
-| Introspection | `equations()`, `design()`, `priors()`, `graph()`, `summary()` | posteriors indexed by level name |
+| Introspection | `equations()`, `design()`, `priors()`, `graph()`† | posteriors indexed by level name |
 | Intervene by label | `do(set={"region": "south"})` | mixes freely with numeric `set=` values; `kind="predictive"` supported |
 | Causal contrasts | `ate(outcome, "region", values=(a, b))`, `DoResult` subtraction | any pair of observed labels |
 | Probability & subgroup queries | `prob(expr, set={...})`, `cate(..., condition={"region": ...})` | labels accepted as interventions and conditions |
 | Predict on new rows | `predict(data=new_df)` | same row count; frozen encoding; unseen levels raise |
 | Simulation | `simulate(..., params={"beta_{lhs}_{var}": [...]})` | one entry per represented level |
 | Multiple equations | `m ~ region; y ~ m + region` | one coefficient vector per equation |
-| Non-Gaussian outcomes | `families={"y": "bernoulli"}` etc. | coding is independent of the likelihood |
+| Non-Gaussian outcomes† | `families={"y": "bernoulli"}` etc. | coding is independent of the likelihood |
 | Scaling | `scaling=Scaling(channel=...)` | numeric labels excluded from channel scaling |
-| Polars and other frames | pass any narwhals-compatible frame | inspected via pandas |
+| Polars and other frames† | pass any narwhals-compatible frame | inspected via pandas |
 
-And the current boundaries. Each raises early with an error that names the problem and the workaround:
+The boundaries most likely to matter in practice are below; the complete error contract, with every message and its workaround, lives in the user guide's [errors table](/user-guide/categorical-predictors.html#errors-you-may-see).
 
-| Not supported today | Error | Workaround |
+| Not supported today | What happens | Workaround |
 |---|---|---|
-| Interactions involving a categorical (`region:x`, `C(region):x`) | `NotImplementedError` / `ParseError` | fit separate models per level, or build indicator × x columns by hand |
-| Coefficient prefixes (`b*region`, `2*region`) | `ParseError` | a categorical expands to several coefficients; refer to them via `beta_{lhs}_{var}` |
-| Transforms on a categorical (`adstock(region, ...)`) | `NotImplementedError` | transforms apply to numeric predictors only |
-| Categorical outcomes (`region ~ x`) | `NotImplementedError` | recode to a numeric or 0/1 outcome and choose a suitable family |
-| Panel models | `NotImplementedError` | fit cross-sectionally, or encode indicators manually |
-| Same column used categorically and continuously | `NotImplementedError` | create a separate numeric column |
-| Missing values in the categorical column | `ValueError` | drop or impute before fitting |
-| Unseen levels in `predict()` / `do()` | `ValueError` | only fitted levels can be predicted or intervened on |
-| Ordered or custom contrasts (`contrast=...`) | `ParseError` | only treatment / cell-means coding is available |
+| Interactions involving a categorical (`region:x`) | `NotImplementedError` at build | fit separate models per level, or build indicator × x columns by hand |
+| Categorical outcomes (`region ~ x`) | `NotImplementedError` at build | recode to a numeric or 0/1 outcome and choose a suitable family |
+| Panel models with a categorical | `NotImplementedError` at build | fit cross-sectionally, or encode indicators manually |
+| Unseen levels in `predict()` / `do()` | `ValueError` naming the level | only fitted levels can be predicted or intervened on |
 | Labels in `predictions()` / `comparisons()` / `slopes()` / `att()` / `atu()` / `effect()` | not yet routed | use `do()`, `ate()`, `prob()`, and `cate()` as shown above |
-| Data-free models (`data=None`) | builds, but levels are empty | levels are resolved from data; `equations()` shows `levels=[]` |
 
 ## Summary
 

@@ -48,7 +48,7 @@ Which indicator columns are built depends on whether the equation has an interce
 
 ```{dot}
 //| label: fig-coding-schemes
-//| fig-cap: "The two coding schemes for a three-level predictor. With an intercept (left), the reference level north is absorbed into the intercept and two contrast columns are created. Without an intercept (right), every level gets its own column and coefficient."
+//| fig-cap: "How one three-level column becomes design columns under the two coding schemes. With an intercept (left), the reference level north produces no column of its own (dashed edge) and two contrast columns are created. Without an intercept (right), every level gets its own column and coefficient. Colors identify levels."
 //| fig-width: 7
 digraph {
   rankdir=TB
@@ -63,7 +63,7 @@ digraph {
     labelloc=b
     style=rounded
     color="#999999"
-    i1 [label="Intercept\n(north absorbed)", fillcolor="#fcbba1"]
+    i1 [label="north → no column\n(absorbed by Intercept)", fillcolor="#c6dbef", style="filled,rounded,dashed"]
     c1 [label="region[T.south]", fillcolor="#fdd0a2"]
     c2 [label="region[T.west]", fillcolor="#c7e9c0"]
     {rank=same; i1 -> c1 -> c2 [style=invis]}
@@ -81,7 +81,7 @@ digraph {
     {rank=same; m1 -> m2 -> m3 [style=invis]}
   }
 
-  region -> i1
+  region -> i1 [style=dashed, label="reference"]
   region -> c1
   region -> c2
   region -> m1
@@ -122,6 +122,12 @@ Both schemes are full rank. The reference level is a **reparametrization**: pair
 
 Distinct values that render to the same string (the integer `1` and the string `"1"`) are rejected, because their coefficients would collide. Missing values are rejected: drop or impute before fitting.
 
+::: {.callout-warning}
+## Integer codes sort as strings
+
+Because `C()` on an integer column sorts by the string rendering, codes `1..12` are ordered `1, 10, 11, 12, 2, 3, ..., 9` and the reference is `1`. This is harmless for fitting but matters whenever you write a per-level vector (priors, `simulate()` parameters): read the order from `model.pymc_model.coords` or declare the column as a pandas `Categorical` with the order you want.
+:::
+
 ## Parameter names and coordinates
 
 Categorical coefficients never enter the equation's flat `beta_{lhs}` vector. They live in their own vector whose entries are indexed by level name:
@@ -149,7 +155,7 @@ The same variable can appear in several equations; each equation owns its own ve
 
 ### Independent (default)
 
-Every categorical coefficient defaults to `Normal(0, 10)`, matching ordinary slopes. Override by name. A scalar prior is broadcast across levels; to give levels different priors pass vectors and name the level dimension, in coordinate order:
+Every categorical coefficient defaults to `Normal(0, 10)`, matching ordinary slopes. Override by name. A scalar prior is broadcast across levels; to give levels different priors pass vectors and name the level dimension, in coordinate order (here `south`, then `west`):
 
 ```python
 from pathmc import Prior
@@ -158,7 +164,7 @@ model.set_priors({"beta_y_region": Prior("Normal", mu=0, sigma=2)})
 
 model.set_priors({
     "beta_y_region": Prior(
-        "Normal", mu=[2.0, -1.0], sigma=[1.0, 1.0], dims=("y_region_levels",)
+        "Normal", mu=[1.0, -0.5], sigma=[1.0, 1.0], dims=("y_region_levels",)
     )
 })
 ```
@@ -198,7 +204,7 @@ Everything the compiler froze is visible before fitting:
 
 ## Interventions and queries by label
 
-Treatment coding is internal. Every query that accepts an intervention or a condition accepts a **level label** for a categorical variable, and pathmc rebuilds the indicator rows against the frozen state:
+Treatment coding is internal. Four query methods — `do()`, `ate()`, `prob()`, and `cate()` — accept a **level label** for a categorical variable wherever they take an intervention (`set=`, `values=`) or a condition (`condition=`), and pathmc rebuilds the indicator rows against the frozen state. The remaining query helpers do not accept labels yet; see [Current limitations](#current-limitations).
 
 ```python
 model.fit()
