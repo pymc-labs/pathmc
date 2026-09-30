@@ -1,0 +1,27 @@
+README.md
+  s_1afa925eeb47ec::t_752c2d6ffa8cc9 34-40
+CONTRIBUTING.md
+  s_1afa925eeb47ec::t_8d2cb9de1eb836 18
+docs/user_guide/12-transforms-families.qmd
+  s_1afa925eeb47ec::t_1ec37435535b4f 10-13
+tests/test_mmm_transforms.py
+  s_1afa925eeb47ec::t_41769e12fca62e 21,23
+  s_1afa925eeb47ec::t_cad93911f3a2e4 29
+  s_1afa925eeb47ec::t_5fc41736315c5b 121-192
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1add491d6c347297aa79521af114ef7038f45653",
+  "prompts": {},
+  "sessions": {
+    "s_1afa925eeb47ec": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "bbd8444f-58c2-4c2f-8eea-175a0c6097e0",
+        "model": "composer-2.5"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

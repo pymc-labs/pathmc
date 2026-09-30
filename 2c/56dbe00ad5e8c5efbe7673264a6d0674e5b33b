@@ -1,0 +1,48 @@
+CITATION.cff
+  s_fbe8945a27fa8a::t_e5f5d3e2a23574 4-5
+pyproject.toml
+  s_fbe8945a27fa8a::t_ca2c22ddad6c19 7
+  s_1afa925eeb47ec::t_22809002a2db2b 43
+  s_1afa925eeb47ec::t_fcc5ef14b97721 72-75
+uv.lock
+  s_fbe8945a27fa8a::t_d291a41a0d6eb7 2267
+  s_1afa925eeb47ec::t_bfd5d93c1ff1e9 195-199,2288-2291,2327-2329,2332,2373,2521,2531,2533,2798,2806-2836,2838,2840,2861-2872,3303-3353,3415-3428
+pathmc/_pmm_backend.py
+  s_1afa925eeb47ec::t_dce50fd2a0cbc1 14-18,29-32,54-64
+pathmc/transforms.py
+  s_1afa925eeb47ec::t_9c84b246432bca 95,98-108
+  s_1afa925eeb47ec::t_0ad09fd1193bb5 113-114
+  s_1afa925eeb47ec::t_c0a044385415d5 74-83
+  s_1afa925eeb47ec::t_804ecdf6d8842c 36
+  s_1afa925eeb47ec::t_5f1aa435132b34 119-120
+  s_1afa925eeb47ec::t_3b9b6824ddcc20 19-21
+  s_1afa925eeb47ec::t_3f82cd4e9584b6 58-60
+tests/test_adstock_parity.py
+  s_1afa925eeb47ec::t_f5be0fe4fab704 36
+  s_1afa925eeb47ec::t_47e2a016d2cd32 57-82
+  s_1afa925eeb47ec::t_5336c74f229de0 23-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2c56dbe00ad5e8c5efbe7673264a6d0674e5b33b",
+  "prompts": {},
+  "sessions": {
+    "s_1afa925eeb47ec": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "bbd8444f-58c2-4c2f-8eea-175a0c6097e0",
+        "model": "composer-2.5"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    },
+    "s_fbe8945a27fa8a": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1b6d6f1c-1cbf-4c80-9be6-2e4110ae002a",
+        "model": "composer-2.5"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

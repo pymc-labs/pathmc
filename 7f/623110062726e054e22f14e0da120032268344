@@ -1,0 +1,33 @@
+tests/test_residual_cov.py
+  s_354a59521fdf39::t_d89072e1377115 201-226,228-235,237-242,252-256
+  s_354a59521fdf39::t_ba3eb73956e888 227,236
+  s_354a59521fdf39::t_9ecab0955d0e95 243-251
+pathmc/compile.py
+  s_354a59521fdf39::t_e729aafc15d064 569-570
+  s_354a59521fdf39::t_dd77e2b0a333af 56,58,61-62
+  s_354a59521fdf39::t_2f36fe2ec9d78d 2064-2069
+  s_354a59521fdf39::t_3b4276045728f0 57,59-60
+pathmc/_model.py
+  s_354a59521fdf39::t_de85333e970c33 2726
+  s_354a59521fdf39::t_aa772801ad5b1e 35
+tests/test_simulate_data.py
+  s_354a59521fdf39::t_774f965630dfc5 362
+docs/user_guide/18-panel-data.qmd
+  s_354a59521fdf39::t_1fed7cf436a747 273
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7f623110062726e054e22f14e0da120032268344",
+  "prompts": {},
+  "sessions": {
+    "s_354a59521fdf39": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1060bcb2-4638-4155-b2e3-8ab37293e751",
+        "model": "composer-2.5"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

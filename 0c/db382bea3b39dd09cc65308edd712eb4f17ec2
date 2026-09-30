@@ -1,0 +1,21 @@
+docs/user_guide/18-panel-data.qmd
+  s_354a59521fdf39::t_23fac72d91589c 273
+pathmc/compile.py
+  s_354a59521fdf39::t_3b4276045728f0 57,59-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0cdb382bea3b39dd09cc65308edd712eb4f17ec2",
+  "prompts": {},
+  "sessions": {
+    "s_354a59521fdf39": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1060bcb2-4638-4155-b2e3-8ab37293e751",
+        "model": "composer-2.5"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
