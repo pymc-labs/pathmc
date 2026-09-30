@@ -262,8 +262,33 @@ def _transform_param_names(spec: Spec) -> set[str]:
 
 
 def _is_shape_free_hyperprior(key: str) -> bool:
-    """True for scalar hierarchical categorical hyperpriors."""
+    """True for hierarchical categorical hyperprior names.
+
+    The name is not enough: ``mu`` or ``sigma`` may still be a vector ordered
+    by treatment coding. Callers must also check :func:`_is_scalar_prior`.
+    """
     return key.startswith(("mu_beta_", "sigma_beta_"))
+
+
+def _is_scalar_value(value: Any) -> bool:
+    """True when *value* does not carry one entry per level or predictor."""
+    if isinstance(value, (str, bytes, list, tuple)):
+        return isinstance(value, (str, bytes))
+    if isinstance(value, np.ndarray):
+        return value.ndim == 0
+    shape = getattr(value, "shape", None)
+    if shape is not None:
+        return tuple(shape) == ()
+    return True
+
+
+def _is_scalar_prior(prior: Any) -> bool:
+    """True when a prior has no dims and only scalar parameters."""
+    dims = getattr(prior, "dims", None) or ()
+    if tuple(dims):
+        return False
+    parameters = getattr(prior, "parameters", None) or {}
+    return all(_is_scalar_value(value) for value in parameters.values())
 
 
 def _reject_uninheritable_beta_prior(
@@ -272,18 +297,22 @@ def _reject_uninheritable_beta_prior(
     reduced_defaults: dict[str, Any],
     user_priors: dict[str, Any] | None,
 ) -> None:
-    """Raise when a parent coefficient prior would be silently replaced.
+    """Raise when a parent prior would be silently replaced by a default.
 
-    Coefficient priors (``beta_{outcome}`` and categorical ``beta_{outcome}_{var}``)
-    are never inherited: a reduced equation can use a different predictor set
-    or a different treatment coding, and a vector prior is ordered by that
-    coding. Shape-free priors are inherited instead.
+    Coefficient priors (``beta_{outcome}`` and categorical
+    ``beta_{outcome}_{var}``) are never inherited. Hierarchical hyperpriors
+    are inherited only when they are scalar; a vector ``mu_beta_*`` or
+    ``sigma_beta_*`` is ordered by treatment coding, so a different
+    ``reference=`` would attach those entries to different levels.
     """
     missing: list[str] = []
     for key in sorted(reduced_defaults):
-        if not key.startswith("beta_"):
-            continue
         if key not in parent_priors:
+            continue
+        vector_hyperprior = _is_shape_free_hyperprior(key) and not _is_scalar_prior(
+            parent_priors[key]
+        )
+        if not key.startswith("beta_") and not vector_hyperprior:
             continue
         if parent_priors[key] == parent_defaults.get(key):
             continue
@@ -327,7 +356,11 @@ def _inherit_reduced_priors(
     inheritable = {f"{suffix}_{outcome}" for suffix in _OUTCOME_PRIOR_SUFFIXES}
     inheritable.update(_transform_param_names(reduced_spec))
     inheritable.update(
-        key for key in reduced_defaults if _is_shape_free_hyperprior(key)
+        key
+        for key in reduced_defaults
+        if key in parent_priors
+        and _is_shape_free_hyperprior(key)
+        and _is_scalar_prior(parent_priors[key])
     )
     return {
         key: parent_priors[key]

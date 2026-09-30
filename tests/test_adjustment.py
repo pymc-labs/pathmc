@@ -474,16 +474,53 @@ class TestPriorInheritance:
 
     def test_hierarchical_categorical_hyperprior_is_inherited(self, rng):
         df = _region_fork_df(rng)
-        formula = "Y ~ X + C(region, prior='hierarchical')"
+        parent = "Y ~ X + C(region, prior='hierarchical', reference='north')"
+        reduced = "Y ~ X + C(region, prior='hierarchical', reference='south')"
         model = pathmc.model(
-            f"X ~ C(region)\n{formula}",
+            f"X ~ C(region)\n{parent}",
             data=df,
             priors={"mu_beta_Y_region": Prior("Normal", mu=2.0, sigma=1.0)},
         )
-        adjusted = model.adjustment_model("X -> Y", formula=formula)
+        adjusted = model.adjustment_model("X -> Y", formula=reduced)
         mu = adjusted.outcome_model._priors["mu_beta_Y_region"].to_dict()
         assert mu["kwargs"]["mu"] == 2.0
         assert "beta_Y_region" not in adjusted.outcome_model._priors
+
+    def test_vector_hierarchical_hyperprior_requires_override(self, rng):
+        df = _region_fork_df(rng)
+        parent = "Y ~ X + C(region, prior='hierarchical', reference='north')"
+        reduced = "Y ~ X + C(region, prior='hierarchical', reference='south')"
+        model = pathmc.model(
+            f"X ~ C(region)\n{parent}",
+            data=df,
+            priors={
+                "mu_beta_Y_region": Prior(
+                    "Normal",
+                    mu=[10.0, -10.0],
+                    sigma=1.0,
+                )
+            },
+        )
+
+        with pytest.raises(ValueError, match=r"priors=\{'mu_beta_Y_region'"):
+            model.adjustment_model("X -> Y", formula=reduced)
+
+        adjusted = model.adjustment_model(
+            "X -> Y",
+            formula=reduced,
+            priors={
+                "mu_beta_Y_region": Prior(
+                    "Normal",
+                    mu=[1.0, 2.0],
+                    sigma=1.0,
+                    dims=("Y_region_levels",),
+                )
+            },
+        )
+        mu = adjusted.outcome_model._priors["mu_beta_Y_region"].to_dict()["kwargs"][
+            "mu"
+        ]
+        assert mu == [1.0, 2.0]
 
 
 class TestInnerModelTypes:
