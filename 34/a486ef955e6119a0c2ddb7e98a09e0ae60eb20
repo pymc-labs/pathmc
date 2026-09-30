@@ -1,0 +1,28 @@
+pyproject.toml
+  s_54bbe6fbd47221::t_fa82f864131a6a 101
+tests/test_tier5_mcmc_sbc.py
+  s_54bbe6fbd47221::t_8b6c469b06eeb2 1-155,159-183,190
+  s_54bbe6fbd47221::t_7485c77952274e 184-189
+  s_54bbe6fbd47221::t_4a5a28637b60fd 156-158
+.github/workflows/nightly.yml
+  s_54bbe6fbd47221::t_5caa94719a8469 1-30
+Makefile
+  s_54bbe6fbd47221::t_3ab6a7f85d5755 35-36,39-42
+  s_54bbe6fbd47221::t_d5714597f4e430 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "34a486ef955e6119a0c2ddb7e98a09e0ae60eb20",
+  "prompts": {},
+  "sessions": {
+    "s_54bbe6fbd47221": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "f14b90ed-3412-4b6a-95c9-7994f5efbd9b",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
