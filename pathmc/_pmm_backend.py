@@ -11,15 +11,11 @@
 #   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
-"""Optional delegation to ``pymc_marketing.mmm.transformers``.
+"""Delegation to ``pymc_marketing.mmm.transformers``.
 
-``pymc-marketing`` 1.0.0 pins ``pymc<6.1``, which transitively constrains
-``pytensor<3.1``. pathmc requires ``pytensor>=3.1.1`` for exog-lag scan carry
-(#333), so the two stacks cannot be installed together until upstream relaxes
-its pins. When a compatible ``pymc-marketing`` release is installed, the
-built-in transforms delegate through the xtensor bridging helpers below;
-otherwise ``pathmc.transforms`` falls back to vendored pytensor kernels with
-matching numerics.
+Built-in MMM transforms (adstock, saturation) call into pymc-marketing via the
+xtensor bridging helpers below. Install ``pathmc[marketing]`` (``pymc-marketing``
+>= 1.1.0) for a stack compatible with pathmc's ``pytensor>=3.1.1`` floor.
 """
 
 from __future__ import annotations
@@ -27,10 +23,13 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-import pytensor.tensor as pt
 from pytensor.xtensor.type import as_xtensor
 
 _PMM_IMPORT_ERROR: str | None = None
+_PMM_INSTALL_HINT = (
+    "Built-in MMM transforms require pymc-marketing. "
+    "Install with: pip install pathmc[marketing]"
+)
 
 
 @lru_cache(maxsize=1)
@@ -50,6 +49,17 @@ def pmm_import_error() -> str | None:
     """Return the import error from the last failed availability check, if any."""
     pmm_available()
     return _PMM_IMPORT_ERROR
+
+
+def require_pmm() -> None:
+    """Raise :exc:`ImportError` when pymc-marketing is not available."""
+    if pmm_available():
+        return
+    detail = pmm_import_error()
+    msg = _PMM_INSTALL_HINT
+    if detail:
+        msg = f"{msg} (import failed: {detail})"
+    raise ImportError(msg)
 
 
 def _xtensor_dims(x: Any) -> tuple[str, ...]:
@@ -139,22 +149,3 @@ def michaelis_menten_pmm(x: Any, *, alpha: Any, lam: Any) -> Any:
 
     dims = _xtensor_dims(x)
     return michaelis_menten(as_xtensor(x, dims=dims), alpha=alpha, lam=lam).values
-
-
-def _batched_convolution(
-    x: Any,
-    w: Any,
-    *,
-    l_max: int,
-) -> Any:
-    """1D trailing convolution along the leading axis (``ConvMode.After``).
-
-    Vendored fallback matching ``pymc_marketing.mmm.transformers.batched_convolution``
-    for the default adstock padding mode.
-    """
-    result = w[0] * x
-    for i in range(1, l_max):
-        shifted = pt.zeros_like(x)
-        shifted = pt.set_subtensor(shifted[i:], x[:-i])
-        result = result + w[i] * shifted
-    return result

@@ -31,7 +31,13 @@ pathmc is a good fit when you want the interpretability of path / structural equ
 pip install pathmc
 ```
 
-pathmc requires Python ≥ 3.12 and PyMC ≥ 6.0.
+Built-in marketing transforms (`adstock`, `logistic_saturation`, and related MMM kernels) require [PyMC-Marketing](https://github.com/pymc-labs/pymc-marketing):
+
+```bash
+pip install pathmc[marketing]
+```
+
+pathmc requires Python ≥ 3.12 and PyMC ≥ 6.0 (`pathmc[marketing]` needs PyMC 6.2.x).
 
 ## Quickstart
 

@@ -18,12 +18,15 @@ from __future__ import annotations
 import numpy as np
 import pytensor.tensor as pt
 import pytest
+from pytensor.xtensor.type import as_xtensor
 
+from pathmc._pmm_backend import pmm_available
 from pathmc.transforms import (
     DelayedAdstock,
     MichaelisMenten,
     WeibullAdstock,
     _delayed_adstock,
+    _logistic_saturation,
     _michaelis_menten,
     _weibull_adstock,
     get_transform,
@@ -113,6 +116,78 @@ class TestMichaelisMentenKernel:
             pt.as_tensor_variable(x), alpha=alpha, lam=lam
         ).eval()
         np.testing.assert_allclose(actual, expected, rtol=1e-12)
+
+
+class TestMmmTransformsUpstream:
+    """Kernel outputs match pymc_marketing.mmm.transformers when installed."""
+
+    @pytest.mark.skipif(not pmm_available(), reason="pymc-marketing not installed")
+    def test_delayed_adstock_matches_upstream(self):
+        from pymc_marketing.mmm.transformers import delayed_adstock
+
+        rng = np.random.default_rng(2)
+        x = rng.uniform(0, 5, size=12)
+        alpha, theta, l_max = 0.5, 1.0, 4
+        xt = pt.as_tensor_variable(x)
+        pathmc_out = _delayed_adstock(
+            xt, alpha=alpha, theta=theta, l_max=l_max, normalize=True
+        ).eval()
+        pmm_out = delayed_adstock(
+            as_xtensor(xt, dims=("time",)),
+            alpha=alpha,
+            theta=theta,
+            l_max=l_max,
+            normalize=True,
+            dim="time",
+        ).values.eval()
+        np.testing.assert_allclose(pathmc_out, pmm_out, rtol=1e-10, atol=1e-10)
+
+    @pytest.mark.skipif(not pmm_available(), reason="pymc-marketing not installed")
+    def test_weibull_pdf_matches_upstream(self):
+        from pymc_marketing.mmm.transformers import WeibullType, weibull_adstock
+
+        rng = np.random.default_rng(3)
+        x = rng.uniform(0, 3, size=10)
+        lam, k, l_max = 2.0, 1.2, 5
+        xt = pt.as_tensor_variable(x)
+        pathmc_out = _weibull_adstock(
+            xt, lam=lam, k=k, l_max=l_max, weibull_type="PDF"
+        ).eval()
+        pmm_out = weibull_adstock(
+            as_xtensor(xt, dims=("time",)),
+            lam=lam,
+            k=k,
+            l_max=l_max,
+            type=WeibullType.PDF,
+            dim="time",
+        ).values.eval()
+        np.testing.assert_allclose(pathmc_out, pmm_out, rtol=1e-10, atol=1e-10)
+
+    @pytest.mark.skipif(not pmm_available(), reason="pymc-marketing not installed")
+    def test_logistic_saturation_matches_upstream(self):
+        from pymc_marketing.mmm.transformers import logistic_saturation
+
+        x = np.linspace(0.0, 2.0, 6)
+        lam = 1.5
+        xt = pt.as_tensor_variable(x)
+        pathmc_out = _logistic_saturation(xt, lam=lam).eval()
+        pmm_out = logistic_saturation(
+            as_xtensor(xt, dims=("channel",)), lam=lam
+        ).values.eval()
+        np.testing.assert_allclose(pathmc_out, pmm_out, rtol=1e-10, atol=1e-10)
+
+    @pytest.mark.skipif(not pmm_available(), reason="pymc-marketing not installed")
+    def test_michaelis_menten_matches_upstream(self):
+        from pymc_marketing.mmm.transformers import michaelis_menten
+
+        x = np.linspace(0.0, 3.0, 5)
+        alpha, lam = 2.0, 1.0
+        xt = pt.as_tensor_variable(x)
+        pathmc_out = _michaelis_menten(xt, alpha=alpha, lam=lam).eval()
+        pmm_out = michaelis_menten(
+            as_xtensor(xt, dims=("channel",)), alpha=alpha, lam=lam
+        ).values.eval()
+        np.testing.assert_allclose(pathmc_out, pmm_out, rtol=1e-10, atol=1e-10)
 
 
 class TestTransformApply:

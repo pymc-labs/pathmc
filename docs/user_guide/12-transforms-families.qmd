@@ -7,6 +7,10 @@ pathmc supports **named transforms with estimable parameters** directly in the D
 
 ## Built-in transforms
 
+::: {.callout-important}
+Built-in MMM transforms (`adstock`, `logistic_saturation`, `delayed_adstock`, `weibull_adstock`, `michaelis_menten`) delegate to [PyMC-Marketing](https://github.com/pymc-labs/pymc-marketing). Install `pathmc[marketing]` (PyMC-Marketing ≥ 1.1, PyMC 6.2.x) before using them in models.
+:::
+
 Transforms are applied to predictor columns before entering the regression, with their parameters learned from data alongside the structural coefficients.
 
 | Transform | Syntax | Behaviour |

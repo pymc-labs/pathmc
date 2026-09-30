@@ -20,10 +20,9 @@ plain-numpy reference that mirrors
     y[t] = sum_{i=0}^{l_max-1} alpha**i * x[t-i]   (zero-padded before t=0)
     y[t] /= sum_{i=0}^{l_max-1} alpha**i            (only when normalize=True)
 
-When ``pymc-marketing`` is not installed (or not yet compatible with the
-current PyMC stack — see :mod:`pathmc._pmm_backend`), parity is checked
-against this independently implemented oracle rather than by importing the
-upstream package directly.
+Parity is checked against this independently implemented oracle. When
+``pymc-marketing`` is installed (``pathmc[marketing]``), an additional test
+compares the pathmc kernel to the upstream implementation directly.
 """
 
 from __future__ import annotations
@@ -34,6 +33,7 @@ import pytensor.tensor as pt
 import pytest
 
 import pathmc
+from pathmc._pmm_backend import pmm_available
 from pathmc.transforms import REGISTRY, Adstock, _geometric_adstock, register_transform
 
 
@@ -52,6 +52,32 @@ def _reference_geometric_adstock(
     if normalize:
         y = y / weights.sum()
     return y
+
+
+class TestGeometricAdstockUpstream:
+    """_geometric_adstock matches pymc_marketing.mmm.transformers directly."""
+
+    @pytest.mark.skipif(not pmm_available(), reason="pymc-marketing not installed")
+    def test_matches_pymc_marketing_geometric_adstock(self):
+        from pytensor.xtensor.type import as_xtensor
+        from pymc_marketing.mmm.transformers import geometric_adstock
+
+        rng = np.random.default_rng(3)
+        x = rng.uniform(0, 10, size=20)
+        alpha, l_max = 0.6, 5
+        xt = pt.as_tensor_variable(x)
+        dims = ("time",)
+        pathmc_out = _geometric_adstock(
+            xt, alpha=alpha, l_max=l_max, normalize=True
+        ).eval()
+        pmm_out = geometric_adstock(
+            as_xtensor(xt, dims=dims),
+            alpha=alpha,
+            l_max=l_max,
+            normalize=True,
+            dim="time",
+        ).values.eval()
+        np.testing.assert_allclose(pathmc_out, pmm_out, rtol=1e-10, atol=1e-10)
 
 
 class TestGeometricAdstockParity:
