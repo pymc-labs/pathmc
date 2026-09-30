@@ -27,6 +27,9 @@ These helpers are the cheap, deterministic, *no-sampling* layer that does
 touch that graph. They are model-agnostic so they can be parametrized across
 the whole compile matrix (see ``test_graph_consistency.py``).
 
+Tier 3 metamorphic helpers (issue #412) compare two builds of the same
+structure. They do not need a known parameter value.
+
 This module is intentionally not named ``test_*`` so pytest does not collect
 it directly.
 """
@@ -217,3 +220,199 @@ def gaussian_likelihood_oracle_gap(model, *, seed=0):
     oracle = gaussian_loglike(y_obs, mu, sigma)
     model_loglike = float(pm_model.compile_logp(vars=[obs_rv])(point))
     return abs(model_loglike - oracle)
+
+
+def _jittered_point(pm_model, seed):
+    """Point dict in transformed space, jittered off the prior mode."""
+    point = pm_model.initial_point(random_seed=seed)
+    rng = np.random.default_rng(seed)
+    jittered = {}
+    for name, val in point.items():
+        base = np.asarray(val, dtype=float)
+        jittered[name] = base + 0.5 * rng.normal(size=base.shape)
+    return jittered
+
+
+def _shared_points(model_a, model_b, seed):
+    """Jitter *model_a*, then copy every same-shaped key onto *model_b*."""
+    point_a = _jittered_point(model_a.pymc_model, seed)
+    point_b = {
+        name: np.asarray(val, dtype=float)
+        for name, val in model_b.pymc_model.initial_point(random_seed=seed).items()
+    }
+    for name, val in point_a.items():
+        if name in point_b and np.shape(point_b[name]) == np.shape(val):
+            point_b[name] = np.array(val, copy=True)
+    return point_a, point_b
+
+
+def _eval_mu(model, outcome, point, *, with_logp):
+    """Evaluate ``mu_<outcome>`` at *point*.
+
+    When *with_logp* is true the mean is compiled in the same graph as
+    ``logp``, which is the graph ``pm.sample`` actually optimizes.
+    """
+    pm_model = model.pymc_model
+    value_vars = pm_model.value_vars
+    (mu_node,) = pm_model.replace_rvs_by_values([pm_model[f"mu_{outcome}"]])
+    outputs = [mu_node, pm_model.logp()] if with_logp else mu_node
+    fn = pytensor.function(value_vars, outputs, on_unused_input="ignore")
+    args = [point[v.name] for v in value_vars]
+    result = fn(*args)
+    mu = result[0] if with_logp else result
+    return np.asarray(mu, dtype=float)
+
+
+def _unit_major(mu, n_times, n_units):
+    """Flatten scan ``(n_times, n_units)`` mu into unit-then-time row order."""
+    mu = np.asarray(mu, dtype=float)
+    if n_times is not None and mu.shape == (n_times, n_units):
+        return np.swapaxes(mu, 0, 1).reshape(-1)
+    return mu.reshape(-1)
+
+
+def assert_row_order_invariant(model_a, model_b, *, seed=0, atol=1e-6):
+    """Joint logp is unchanged when observation rows are reordered.
+
+    Catches ordering and reshape bugs. A compiler that feeds rows to scan
+    in input order, instead of sorting by ``(unit, time)`` first, scores a
+    different likelihood after a shuffle. Look at the sort index in
+    ``_compile_scan_panel`` and the observe-path row order.
+    """
+    point_a, point_b = _shared_points(model_a, model_b, seed)
+    logp_a = float(model_a.pymc_model.compile_logp()(point_a))
+    logp_b = float(model_b.pymc_model.compile_logp()(point_b))
+    assert np.isfinite(logp_a) and np.isfinite(logp_b), (
+        "row-permutation invariance: joint logp is non-finite "
+        f"({logp_a}, {logp_b}). Look at the scan reshape before debugging "
+        "the permutation itself."
+    )
+    gap = abs(logp_a - logp_b)
+    assert gap <= atol, (
+        "row-permutation invariance failed: shuffling observation row order "
+        f"changed joint logp by {gap:.3g} ({logp_a:.6g} vs {logp_b:.6g}). "
+        "Look at panel sort/reshape in _compile_scan_panel."
+    )
+
+
+def assert_lag_matches_manual_shift(
+    model_lag,
+    model_shifted,
+    *,
+    outcome,
+    n_times,
+    n_units,
+    seed=0,
+    atol=1e-6,
+):
+    """Forward ``mu`` of ``y ~ lag(x)`` matches a hand-shifted column.
+
+    The hand shift must repeat the first period and then lag by one. That
+    is the scan init, not a zero pad. A mismatch means the carry used by
+    the generative graph is not that lag. Look at exogenous-lag init in
+    ``_compile_scan_panel``.
+
+    ``mu`` from a scan model is ``(n_times, n_units)``. It is compared in
+    unit-then-time order, which is the row order of a frame sorted by
+    ``(unit, time)``.
+    """
+    point_lag, point_shifted = _shared_points(model_lag, model_shifted, seed)
+    mu_lag = _unit_major(
+        _eval_mu(model_lag, outcome, point_lag, with_logp=False),
+        n_times,
+        n_units,
+    )
+    mu_shifted = _unit_major(
+        _eval_mu(model_shifted, outcome, point_shifted, with_logp=False),
+        n_times,
+        n_units,
+    )
+    gap = float(np.max(np.abs(mu_lag - mu_shifted)))
+    assert gap <= atol, (
+        "lag-definition equivalence failed: forward mu of y ~ lag(x) differs "
+        f"from y ~ x_shifted by {gap:.3g}. The manual column must repeat the "
+        "first period (scan init), not zero-pad. Look at exogenous-lag init "
+        "in _compile_scan_panel."
+    )
+
+
+def assert_duplicated_observations_double_likelihood(
+    model, model_dup, *, seed=0, rtol=1e-6, atol=1e-6
+):
+    """Duplicating every unit (or every cross-sectional row) doubles likelihood.
+
+    The check uses the observation likelihood only. Joint logp is not
+    doubled, because priors are counted once. A ratio far from 2 means
+    rows were dropped or scored twice. Look at the likelihood reshape in
+    the scan compiler.
+
+    Do not call this on partial pooling. Unit-shaped coefficients change
+    the parameter space when units are added, so there is no shared point.
+    """
+    point, point_dup = _shared_points(model, model_dup, seed)
+    observed = list(model.pymc_model.observed_RVs)
+    observed_dup = list(model_dup.pymc_model.observed_RVs)
+    like = float(model.pymc_model.compile_logp(vars=observed)(point))
+    like_dup = float(model_dup.pymc_model.compile_logp(vars=observed_dup)(point_dup))
+    assert np.isfinite(like) and np.isfinite(like_dup), (
+        "duplicate-data scaling: observation likelihood is non-finite "
+        f"({like}, {like_dup}). Look at the likelihood reshape in the scan "
+        "compiler."
+    )
+    expected = 2.0 * like
+    gap = abs(like_dup - expected)
+    tol = atol + rtol * abs(expected)
+    assert gap <= tol, (
+        "duplicate-data scaling failed: duplicating observations should "
+        f"double the likelihood ({like:.6g} -> {expected:.6g}) but got "
+        f"{like_dup:.6g}. Look at the likelihood reshape in the scan "
+        "compiler. This compares likelihood only, not joint logp."
+    )
+
+
+def assert_predictor_scale_covariance(
+    model,
+    model_scaled,
+    *,
+    outcome,
+    scale,
+    beta_index=0,
+    n_times=None,
+    n_units=None,
+    seed=0,
+    atol=1e-6,
+):
+    """``mu(c * x, beta / c)`` matches ``mu(x, beta)`` in both graphs.
+
+    *model_scaled* is the same specification on data whose target predictor
+    was multiplied by *scale*. The matching slope entry is divided by
+    *scale*. Both the forward ``mu`` and the ``mu`` compiled jointly with
+    ``logp`` are checked. A gap in only the joint graph is the issue #316
+    class: the likelihood mean does not see the scaled design. Look at
+    predictor wiring in the scan step.
+    """
+    point, point_scaled = _shared_points(model, model_scaled, seed)
+    beta_name = f"beta_{outcome}"
+    scaled_beta = np.array(point[beta_name], dtype=float, copy=True)
+    scaled_beta[beta_index] = scaled_beta[beta_index] / scale
+    point_scaled[beta_name] = scaled_beta
+
+    for with_logp, label in ((False, "forward"), (True, "logp-graph")):
+        mu = _unit_major(
+            _eval_mu(model, outcome, point, with_logp=with_logp),
+            n_times,
+            n_units,
+        )
+        mu_scaled = _unit_major(
+            _eval_mu(model_scaled, outcome, point_scaled, with_logp=with_logp),
+            n_times,
+            n_units,
+        )
+        gap = float(np.max(np.abs(mu - mu_scaled)))
+        assert gap <= atol, (
+            "scale/shift covariance failed: "
+            f"{label} mu(c * x, beta / c) differs from mu(x, beta) by "
+            f"{gap:.3g} (scale={scale}, beta index {beta_index}). "
+            "Look at predictor wiring in the scan step and in the logp "
+            "graph. A joint-graph-only gap is the issue #316 class."
+        )
