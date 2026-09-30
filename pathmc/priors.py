@@ -140,6 +140,14 @@ def default_priors(
                 priors[f"sigma_slope_{reg.lhs}_{svar}"] = Prior("HalfNormal", sigma=1)
 
         for term in reg.terms:
+            if term.categorical is not None:
+                beta_name = f"beta_{reg.lhs}_{term.variable}"
+                if term.categorical.prior == "hierarchical":
+                    priors[f"mu_{beta_name}"] = Prior("Normal", mu=0, sigma=10)
+                    priors[f"sigma_{beta_name}"] = Prior("HalfNormal", sigma=1)
+                else:
+                    dim = f"{reg.lhs}_{term.variable}_levels"
+                    priors[beta_name] = Prior("Normal", mu=0, sigma=10, dims=(dim,))
             if term.transform is not None:
                 _collect_transform_defaults(
                     term.transform, priors, seen_transform_params

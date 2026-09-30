@@ -94,6 +94,61 @@ Y ~ M + X
 
 Use labels when you need to refer to specific coefficients — for defined parameters, `effect()` path queries, or readability. Leave them off when you just need the structural relationship in the DAG.
 
+### Categorical predictors
+
+String and pandas categorical columns are treatment-coded automatically. With an intercept, one level is the reference and the model estimates one coefficient for every other level:
+
+```python
+model = pathmc.model("sales ~ region", data=df)
+model.design("sales")
+```
+
+For an ordinary string column with levels `north`, `south`, and `west`, the default design columns are `Intercept`, `region[T.south]`, and `region[T.west]`; the first sorted observed level (`north`) is the reference. For a pandas categorical column, pathmc preserves the declared category order and uses the first observed category in that order as the reference. Use `C()` when the reference must be explicit:
+
+```python
+model = pathmc.model(
+    "sales ~ C(region, reference='south')",
+    data=df,
+)
+```
+
+The fitted level set, reference, and coefficient names are recorded on the model and shown by `model.equations()` and `model.design("sales")`. `predict(data=new_data)` reuses that fitted coding even if levels arrive in a different row order. An unseen label raises an error naming the predictor and offending level instead of silently rebuilding the contrast matrix.
+
+Categorical effects have their own declared coefficient prior, separate from the equation's flat `beta_sales` vector. The default is independent coefficients:
+
+```python
+model = pathmc.model("sales ~ region", data=df)
+model.set_priors({
+    "beta_sales_region": Prior("Normal", mu=0, sigma=2),
+})
+```
+
+For many or sparsely observed levels, hierarchical shrinkage is usually preferable because it shares information across non-reference levels:
+
+```python
+model = pathmc.model(
+    "sales ~ C(region, reference='south', prior='hierarchical')",
+    data=df,
+    priors={
+        "mu_beta_sales_region": Prior("Normal", mu=0, sigma=2),
+        "sigma_beta_sales_region": Prior("HalfNormal", sigma=1),
+    },
+)
+```
+
+An intervention selects a level label. Treatment coding remains an internal representation: setting the reference selects the all-zero contrast row, while setting another level activates its fitted indicator.
+
+```python
+model.fit()
+north = model.do(set={"region": "north"})
+south = model.do(set={"region": "south"})
+contrast = south - north
+```
+
+Categorical predictors are currently cross-sectional and use unordered treatment contrasts. Categorical outcomes, panel models, ordered contrasts, categorical interactions, and unseen counterfactual levels are not supported.
+
+See [Categorical Predictors](../docs/examples/foundations/categorical_predictors.qmd) for a complete simulate-fit-intervene example.
+
 ### Interaction terms
 
 Interaction terms capture **effect modification** — when the effect of one variable depends on another. Use the `:` operator to create interactions:
