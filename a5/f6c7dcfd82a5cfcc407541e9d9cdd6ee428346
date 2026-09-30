@@ -1,0 +1,22 @@
+docs/user_guide/02-comparison.qmd
+  s_4de48420c0aa71::t_92e7741acbedc0 38
+  s_4de48420c0aa71::t_9ef137979358c7 136
+  s_4de48420c0aa71::t_0c4a1113d9b79d 138
+  s_4de48420c0aa71::t_000e17eea2f160 123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a5f6c7dcfd82a5cfcc407541e9d9cdd6ee428346",
+  "prompts": {},
+  "sessions": {
+    "s_4de48420c0aa71": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "fa2ec9e9-cbc2-4076-b45f-7c0226864425",
+        "model": "auto-smart"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
