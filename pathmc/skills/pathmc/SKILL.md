@@ -64,8 +64,9 @@ The DSL is lavaan-inspired:
 - `a*X` — labeled coefficient
 - Transforms: `adstock(x, decay=...)`, `logistic_saturation(x, lam=...)`
 - Categorical predictors: string columns are treatment-coded
-  automatically; `C(region, reference='north', prior='hierarchical')`
-  makes the coding explicit
+  automatically; `C(region, reference='north')` picks the reference and
+  `C(store, prior='hierarchical')` pools one coefficient per level (no
+  reference; the term takes over the intercept's role)
 
 ## Decision table
 

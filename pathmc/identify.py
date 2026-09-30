@@ -20,6 +20,7 @@ independence enumeration and testing using the DAG stored in GraphInfo.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import combinations
 
@@ -28,7 +29,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 
-from pathmc._ci import partial_correlation_ci
+from pathmc._ci import partial_correlation_ci, stack_blocks, variable_blocks
 from pathmc.graph import GraphInfo
 from pathmc.reprs import ResultReprMixin
 
@@ -675,6 +676,8 @@ def test_implications(
     independences: list[ConditionalIndependence],
     data: nw.DataFrame,
     alpha: float = 0.05,
+    *,
+    categorical_vars: Iterable[str] | None = None,
 ) -> ImplicationTestResult:
     """Test implied conditional independences against observed data.
 
@@ -682,6 +685,13 @@ def test_implications(
     an independence X ⊥⊥ Y | Z, regresses both X and Y on Z, then
     tests whether the correlation between residuals is significantly
     different from zero.
+
+    A categorical variable enters as its indicator columns: as a
+    conditioner this adjusts for group membership, and as X or Y the test
+    becomes the linear multivariate generalisation (Wilks' lambda with
+    Rao's F approximation, the partial F-test when the other side is a
+    single column). The reported ``partial_corr`` is then the largest
+    canonical correlation, which is non-negative.
 
     A significant result (p < alpha) indicates a *violation*: the data
     show an association that the DAG says should not exist, suggesting
@@ -696,6 +706,10 @@ def test_implications(
         in the independence statements.
     alpha : float
         Significance level for flagging violations (default 0.05).
+    categorical_vars : Iterable[str] | None
+        Variables to dummy-encode even though their column is numeric
+        (integer-coded labels declared with ``C()``). String and pandas
+        categorical columns are always encoded.
 
     Returns
     -------
@@ -720,7 +734,11 @@ def test_implications(
             )
 
         r, p, n = _partial_correlation_test(
-            data, ci.x, ci.y, sorted(ci.conditioning_set)
+            data,
+            ci.x,
+            ci.y,
+            sorted(ci.conditioning_set),
+            categorical_vars=categorical_vars,
         )
 
         cond_str = ", ".join(sorted(ci.conditioning_set))
@@ -756,22 +774,24 @@ def _partial_correlation_test(
     x: str,
     y: str,
     z_vars: list[str],
+    *,
+    categorical_vars: Iterable[str] | None = None,
 ) -> tuple[float, float, int]:
     """Test conditional independence via partial correlation.
 
     Thin adapter over :func:`pathmc._ci.partial_correlation_ci`, which
     drops rows with any missing value (null or float NaN) in the involved
-    columns and uses rank-aware degrees of freedom. Returns
-    (partial_r, p_value, n_obs); tests the engine cannot run (too few
-    complete observations, zero variance, non-positive degrees of
-    freedom) surface as (nan, nan, n_obs).
+    columns and uses rank-aware degrees of freedom. Categorical columns
+    (string, pandas categorical, or named in *categorical_vars*) enter as
+    indicator blocks. Returns (partial_r, p_value, n_obs); tests the
+    engine cannot run (too few complete observations, zero variance,
+    non-positive degrees of freedom) surface as (nan, nan, n_obs).
     """
-    cols = [x, y, *z_vars]
     # Convert in numpy space: nulls become NaN on conversion, so the
     # engine's isnan mask handles both pandas NaN and polars null/NaN
     # semantics.
-    arr = data.select(cols).to_numpy().astype(float)
-    result = partial_correlation_ci(arr[:, 0], arr[:, 1], arr[:, 2:])
+    blocks = variable_blocks(data, [x, y, *z_vars], categorical_vars)
+    result = partial_correlation_ci(blocks[x], blocks[y], stack_blocks(blocks, z_vars))
     if result.skip_reason is not None:
         return np.nan, np.nan, result.n
     assert result.r is not None and result.p is not None  # narrowing

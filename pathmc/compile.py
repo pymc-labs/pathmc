@@ -239,9 +239,13 @@ def _effective_has_intercept(
     panel_info: PanelInfo | None = None,
 ) -> bool:
     """Whether a regression keeps its formula intercept in the design matrix."""
+    from pathmc.categorical import absorbs_intercept
+
     if not reg.has_intercept:
         return False
     if _drops_formula_intercept(pooling, panel_info):
+        return False
+    if absorbs_intercept(reg):
         return False
     return True
 
@@ -819,7 +823,13 @@ def compile_to_pymc(
                 dim = f"{reg.lhs}_{term.variable}_levels"
                 beta_name = f"beta_{reg.lhs}_{term.variable}"
                 if call.prior == "hierarchical":
-                    mu = priors[f"mu_{beta_name}"].create_variable(f"mu_{beta_name}")
+                    from pathmc.categorical import has_population_mean
+
+                    mu: Any = 0.0
+                    if has_population_mean(call):
+                        mu = priors[f"mu_{beta_name}"].create_variable(
+                            f"mu_{beta_name}"
+                        )
                     sigma = priors[f"sigma_{beta_name}"].create_variable(
                         f"sigma_{beta_name}"
                     )

@@ -104,11 +104,14 @@ class BasisCall:
 
 @dataclass
 class CategoricalCall:
-    """A treatment-coded categorical predictor.
+    """A categorical predictor expanded into indicator columns.
 
-    ``levels`` and ``reference`` are fit-time state. They are populated from
-    the observed data before compilation and then reused for prediction and
-    interventions so contrast coding cannot silently change.
+    ``levels``, ``reference``, ``columns``, and ``cell_means`` are fit-time
+    state. They are populated from the observed data before compilation and
+    then reused for prediction and interventions so the coding cannot
+    silently change. ``cell_means`` is ``True`` when this term supplies the
+    equation's baseline (no intercept and it is the first categorical), so
+    its coefficients are per-level expected outcomes rather than contrasts.
     """
 
     variable: str
@@ -116,6 +119,7 @@ class CategoricalCall:
     prior: Literal["independent", "hierarchical"] = "independent"
     levels: tuple[Any, ...] = ()
     columns: tuple[str, ...] = ()
+    cell_means: bool = False
 
 
 @dataclass

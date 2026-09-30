@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import replace
 from typing import Any
 
@@ -23,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from pathmc.exceptions import ParseError
-from pathmc.parse import CategoricalCall, Spec
+from pathmc.parse import CategoricalCall, Regression, Spec
 
 __all__: list[str] = []
 
@@ -37,6 +38,27 @@ def _is_categorical_series(series: pd.Series) -> bool:
         return False
     inferred = pd.api.types.infer_dtype(series, skipna=True)
     return inferred in {"bytes", "string", "unicode"}
+
+
+def _reject_mixed_object_series(series: pd.Series) -> None:
+    """Reject object columns that mix labels with numbers.
+
+    Such a column is neither a clean set of labels (so it is not inferred as
+    categorical) nor numeric (so it cannot be a continuous predictor). Left
+    alone, patsy would expand it into its own dummy columns and the design
+    lookup would fail with a bare ``KeyError``.
+    """
+    if not pd.api.types.is_object_dtype(series.dtype):
+        return
+    inferred = pd.api.types.infer_dtype(series, skipna=True)
+    if inferred in {"mixed", "mixed-integer"}:
+        raise ValueError(
+            f"Predictor '{series.name}' is an object column mixing numbers and "
+            f"non-numeric values (pandas infers {inferred!r}), so it is neither "
+            "a numeric predictor nor a set of labels. Wrap it as "
+            f"C({series.name}) to treat every distinct value as a level, or "
+            "recode the column to one consistent type."
+        )
 
 
 def _validate_level_labels(name: str, levels: tuple[Any, ...]) -> None:
@@ -107,6 +129,12 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
 
     for reg in spec.regressions:
         seen_categorical: set[str] = set()
+        # Exactly one term per equation supplies the baseline of the linear
+        # predictor, so the design stays full rank: the first categorical when
+        # there is no intercept, or when it is hierarchical (its population
+        # mean then absorbs the formula intercept, as mu_alpha does for panel
+        # random intercepts); otherwise the intercept itself.
+        first_categorical = True
         for term in reg.terms:
             if term.interaction_of is not None:
                 categorical_components = [
@@ -134,6 +162,7 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
                     )
                 continue
             if not explicit and not _is_categorical_series(pandas_data[term.variable]):
+                _reject_mixed_object_series(pandas_data[term.variable])
                 continue
             if term.label is not None or term.fixed_value is not None:
                 raise ParseError(
@@ -171,16 +200,33 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
                     f"'{term.variable}' was not observed. Available levels: "
                     f"{list(levels)!r}."
                 )
+            cell_means = first_categorical and (
+                not reg.has_intercept or call.prior == "hierarchical"
+            )
+            first_categorical = False
+            # A hierarchical term always keeps one coefficient per level: when
+            # the baseline is supplied elsewhere its coefficients are zero-mean
+            # deviations, so no level escapes pooling by being the reference.
+            all_levels = cell_means or call.prior == "hierarchical"
+            if all_levels and call.reference is not None:
+                warnings.warn(
+                    f"reference={call.reference!r} for categorical predictor "
+                    f"'{term.variable}' in equation '{reg.lhs}' has no effect: "
+                    "the term gets one coefficient per level, so there is no "
+                    "reference level. Remove the reference= argument.",
+                    UserWarning,
+                    stacklevel=3,
+                )
             coefficient_levels = (
-                tuple(level for level in levels if level != reference)
-                if reg.has_intercept
-                else levels
+                levels
+                if all_levels
+                else tuple(level for level in levels if level != reference)
             )
             columns = tuple(
                 _level_column(
                     term.variable,
                     level,
-                    reference_coded=reg.has_intercept,
+                    reference_coded=not all_levels,
                 )
                 for level in coefficient_levels
             )
@@ -189,6 +235,7 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
                 reference=reference,
                 levels=levels,
                 columns=columns,
+                cell_means=cell_means,
             )
             categorical_vars.add(term.variable)
 
@@ -217,9 +264,38 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
     return categorical_vars
 
 
+def is_reference_coded(call: CategoricalCall) -> bool:
+    """Return whether the fitted term drops its reference level (k-1 columns)."""
+    return bool(call.levels) and len(call.columns) < len(call.levels)
+
+
+def has_population_mean(call: CategoricalCall) -> bool:
+    """Return whether a hierarchical term gets its own free population mean.
+
+    Only a cell-means term can carry ``mu_beta``: when the intercept (or an
+    earlier categorical) already supplies the equation's baseline, the pooled
+    coefficients are deviations around zero and a free mean would be
+    unidentified.
+    """
+    return call.prior == "hierarchical" and call.cell_means
+
+
+def absorbs_intercept(reg: Regression) -> bool:
+    """Return whether a categorical term replaces the equation's intercept.
+
+    True when the formula has an intercept but a fitted cell-means term
+    (a leading hierarchical categorical) supplies the baseline instead, so
+    the ``Intercept`` column must be left out of the design.
+    """
+    return reg.has_intercept and any(
+        term.categorical is not None and term.categorical.cell_means
+        for term in reg.terms
+    )
+
+
 def coefficient_levels(call: CategoricalCall) -> tuple[Any, ...]:
     """Return the levels represented by a categorical coefficient vector."""
-    if len(call.columns) == len(call.levels):
+    if not is_reference_coded(call):
         return call.levels
     return tuple(level for level in call.levels if level != call.reference)
 
