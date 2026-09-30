@@ -1,0 +1,19 @@
+tests/test_map_recovery.py
+  s_54bbe6fbd47221::t_822add5f5c5d13 1-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c402112fc9d3b71ff7639cf3aa903389d9a8c45a",
+  "prompts": {},
+  "sessions": {
+    "s_54bbe6fbd47221": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "f14b90ed-3412-4b6a-95c9-7994f5efbd9b",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
