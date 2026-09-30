@@ -157,11 +157,7 @@ The DSL is lavaan-inspired:
    sets exist, pass `adjustment_set=` explicitly; pathmc does not pick
    among them. Pass `data=` when the parent structural model is
    data-free. Panel models are not supported on the adjustment path.
-   Outcome dispersion priors (`sigma_Y`, `nu_Y`, `alpha_disp_Y`) and
-   transform-parameter priors used by the reduced formula are inherited
-   from the parent. Coefficient priors are not, because the reduced
-   predictor set can differ: if the parent has a custom `beta_Y`, pass
-   `priors={"beta_Y": ...}` to `adjustment_model()`.
+   Outcome dispersion priors (`sigma_Y`, `nu_Y`, `alpha_disp_Y`), transform-parameter priors used by the reduced formula, and scalar hierarchical categorical hyperpriors (`mu_beta_*`, `sigma_beta_*`) are inherited from the parent. Coefficient priors are not, including categorical level vectors `beta_Y_region`, because the reduced predictor set or treatment coding can differ: a vector prior ordered for one `reference=` is not valid for another. If the parent has a custom coefficient prior that the reduced equation also uses, pass that key in `priors=` to `adjustment_model()`; otherwise construction raises instead of silently replacing it.
 10. **`predictions()` / `comparisons()` / `slopes()` share one API on
    `PathModel` and `AdjustmentModel`.** On the structural model they
    use truncated-factorization g-computation; on

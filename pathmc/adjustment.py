@@ -30,11 +30,16 @@ from pathmc.graph import GraphInfo
 from pathmc.identify import adjustment_sets, is_valid_adjustment_set
 from pathmc.interpret import InterpretResult
 from pathmc.introspect import build_dag_viz
-from pathmc.parse import Spec, parse_spec
+from pathmc.parse import Spec, TransformCall, parse_spec
 from pathmc.priors import default_priors, merge_priors
 from pathmc.simulate import EstimandResult
 
 __all__ = ["AdjustmentModel"]
+
+# Dispersion priors are scalars. Categorical coefficient vectors are not:
+# their coordinate order follows treatment coding, so a prior fit under one
+# reference level is not a prior for another.
+_OUTCOME_PRIOR_SUFFIXES = ("sigma", "nu", "alpha_disp")
 
 
 def _parse_treatment_outcome_query(query: str) -> tuple[str, str]:
@@ -240,40 +245,94 @@ def _validate_reduced_spec(
                 )
 
 
+def _transform_param_names(spec: Spec) -> set[str]:
+    """Return random-variable names of transform parameters in *spec*."""
+    names: set[str] = set()
+
+    def walk(call: TransformCall) -> None:
+        if isinstance(call.input_expr, TransformCall):
+            walk(call.input_expr)
+        names.update(call.params.values())
+
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.transform is not None:
+                walk(term.transform)
+    return names
+
+
+def _is_shape_free_hyperprior(key: str) -> bool:
+    """True for scalar hierarchical categorical hyperpriors."""
+    return key.startswith(("mu_beta_", "sigma_beta_"))
+
+
 def _reject_uninheritable_beta_prior(
     parent_priors: dict[str, Any],
     parent_defaults: dict[str, Any],
+    reduced_defaults: dict[str, Any],
     user_priors: dict[str, Any] | None,
-    outcome: str,
 ) -> None:
-    """Raise when a parent beta prior would be silently replaced by defaults."""
-    beta_key = f"beta_{outcome}"
-    if beta_key not in parent_priors or parent_priors[beta_key] == parent_defaults.get(
-        beta_key
-    ):
+    """Raise when a parent coefficient prior would be silently replaced.
+
+    Coefficient priors (``beta_{outcome}`` and categorical ``beta_{outcome}_{var}``)
+    are never inherited: a reduced equation can use a different predictor set
+    or a different treatment coding, and a vector prior is ordered by that
+    coding. Shape-free priors are inherited instead.
+    """
+    missing: list[str] = []
+    for key in sorted(reduced_defaults):
+        if not key.startswith("beta_"):
+            continue
+        if key not in parent_priors:
+            continue
+        if parent_priors[key] == parent_defaults.get(key):
+            continue
+        if user_priors is not None and key in user_priors:
+            continue
+        missing.append(key)
+    if not missing:
         return
-    if user_priors is not None and beta_key in user_priors:
-        return
+    if len(missing) == 1:
+        beta_key = missing[0]
+        raise ValueError(
+            f"The structural model has a custom prior on '{beta_key}'. "
+            f"Adjustment models do not inherit coefficient priors because the "
+            f"reduced predictor set or coding can differ. Pass "
+            f"priors={{'{beta_key}': ...}} to adjustment_model() to set it on "
+            f"the reduced equation."
+        )
+    listed = ", ".join(f"'{key}'" for key in missing)
     raise ValueError(
-        f"The structural model has a custom prior on '{beta_key}'. "
+        f"The structural model has custom coefficient priors on {listed}. "
         f"Adjustment models do not inherit coefficient priors because the "
-        f"reduced predictor set can differ. Pass "
-        f"priors={{'{beta_key}': ...}} to adjustment_model() to set it on "
-        f"the reduced equation."
+        f"reduced predictor set or coding can differ. Pass priors= to "
+        f"adjustment_model() with an entry for each of {listed}."
     )
 
 
 def _inherit_reduced_priors(
     parent_priors: dict[str, Any],
     reduced_defaults: dict[str, Any],
+    reduced_spec: Spec,
     outcome: str,
 ) -> dict[str, Any]:
-    """Copy compatible outcome dispersion and transform priors from the parent."""
-    beta_key = f"beta_{outcome}"
+    """Copy shape-free outcome priors that the reduced equation also has.
+
+    Inherited keys are outcome dispersion (``sigma``, ``nu``, ``alpha_disp``),
+    transform parameters named in *reduced_spec*, and scalar hierarchical
+    categorical hyperpriors (``mu_beta_*``, ``sigma_beta_*``). Coefficient
+    vectors are omitted; :func:`_reject_uninheritable_beta_prior` requires an
+    explicit override when dropping one would be silent.
+    """
+    inheritable = {f"{suffix}_{outcome}" for suffix in _OUTCOME_PRIOR_SUFFIXES}
+    inheritable.update(_transform_param_names(reduced_spec))
+    inheritable.update(
+        key for key in reduced_defaults if _is_shape_free_hyperprior(key)
+    )
     return {
         key: parent_priors[key]
-        for key in reduced_defaults
-        if key != beta_key and key in parent_priors
+        for key in inheritable
+        if key in reduced_defaults and key in parent_priors
     }
 
 
@@ -427,18 +486,27 @@ class AdjustmentModel:
             latent=parent._latent,
             panel_info=parent._panel_info,
         )
-        _reject_uninheritable_beta_prior(
-            parent._priors,
-            parent_defaults,
-            priors,
-            outcome_name,
-        )
+        # Resolve inferred categoricals before choosing priors. The default
+        # reduced formula names confounders as bare variables, so a string
+        # column only becomes ``beta_{outcome}_{var}`` after fitting.
+        from pathmc.categorical import fit_categorical_terms
+
+        fit_categorical_terms(reduced_spec, nw_data)
         reduced_defaults = default_priors(
             reduced_spec,
             families=outcome_families or None,
         )
+        _reject_uninheritable_beta_prior(
+            parent._priors,
+            parent_defaults,
+            reduced_defaults,
+            priors,
+        )
         inherited_priors = _inherit_reduced_priors(
-            parent._priors, reduced_defaults, outcome_name
+            parent._priors,
+            reduced_defaults,
+            reduced_spec,
+            outcome_name,
         )
         merged_priors = merge_priors(reduced_defaults, inherited_priors)
         if priors is not None:

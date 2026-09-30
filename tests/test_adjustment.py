@@ -42,6 +42,14 @@ def _fork_df(rng: np.random.Generator, n: int = 200) -> pd.DataFrame:
     return pd.DataFrame({"X": x, "Z": z, "Y": y})
 
 
+def _region_fork_df(rng: np.random.Generator, n: int = 90) -> pd.DataFrame:
+    region = np.tile(["north", "south", "west"], n // 3)
+    coded = np.where(region == "south", 1.0, np.where(region == "west", -1.0, 0.0))
+    x = 0.7 * coded + rng.normal(scale=0.5, size=region.size)
+    y = 0.5 * x + 0.3 * coded + rng.normal(scale=0.5, size=region.size)
+    return pd.DataFrame({"X": x, "Y": y, "region": region})
+
+
 def _n_posterior_samples(model) -> int:
     ds = _posterior(model._idata)
     return ds.sizes["chain"] * ds.sizes["draw"]
@@ -402,6 +410,80 @@ class TestPriorInheritance:
         assert (
             overridden.outcome_model._priors["lam_x"].to_dict()["kwargs"]["sigma"] == 3
         )
+
+    def test_explicit_categorical_coefficient_requires_override(self, rng):
+        df = _region_fork_df(rng)
+        parent_formula = "Y ~ X + C(region, reference='north')"
+        model = pathmc.model(
+            f"X ~ C(region)\n{parent_formula}",
+            data=df,
+            priors={
+                "beta_Y_region": Prior(
+                    "Normal",
+                    mu=[10.0, -10.0],
+                    sigma=1.0,
+                    dims=("Y_region_levels",),
+                )
+            },
+        )
+        reduced = "Y ~ X + C(region, reference='south')"
+
+        with pytest.raises(ValueError, match=r"priors=\{'beta_Y_region'"):
+            model.adjustment_model("X -> Y", formula=reduced)
+
+        adjusted = model.adjustment_model(
+            "X -> Y",
+            formula=reduced,
+            priors={
+                "beta_Y_region": Prior(
+                    "Normal",
+                    mu=[1.0, 2.0],
+                    sigma=1.0,
+                    dims=("Y_region_levels",),
+                )
+            },
+        )
+        mu = adjusted.outcome_model._priors["beta_Y_region"].to_dict()["kwargs"]["mu"]
+        assert mu == [1.0, 2.0]
+
+    def test_inferred_categorical_coefficient_requires_override(self, rng):
+        df = _region_fork_df(rng)
+        model = pathmc.model(
+            "X ~ region\nY ~ X + region",
+            data=df,
+            priors={
+                "beta_Y_region": Prior(
+                    "Normal",
+                    mu=[10.0, -10.0],
+                    sigma=1.0,
+                    dims=("Y_region_levels",),
+                )
+            },
+        )
+
+        with pytest.raises(ValueError, match=r"priors=\{'beta_Y_region'"):
+            model.adjustment_model("X -> Y")
+
+    def test_default_categorical_coefficient_does_not_raise(self, rng):
+        df = _region_fork_df(rng)
+        model = pathmc.model("X ~ region\nY ~ X + region", data=df)
+        adjusted = model.adjustment_model("X -> Y")
+        beta = adjusted.outcome_model._priors["beta_Y_region"].to_dict()
+        assert beta["kwargs"]["sigma"] == 10
+        assert beta["kwargs"]["mu"] == 0
+
+    def test_hierarchical_categorical_hyperprior_is_inherited(self, rng):
+        df = _region_fork_df(rng)
+        formula = "Y ~ X + C(region, prior='hierarchical')"
+        model = pathmc.model(
+            f"X ~ C(region)\n{formula}",
+            data=df,
+            priors={"mu_beta_Y_region": Prior("Normal", mu=2.0, sigma=1.0)},
+        )
+        adjusted = model.adjustment_model("X -> Y", formula=formula)
+        mu = adjusted.outcome_model._priors["mu_beta_Y_region"].to_dict()
+        assert mu["kwargs"]["mu"] == 2.0
+        assert "beta_Y_region" not in adjusted.outcome_model._priors
 
 
 class TestInnerModelTypes:
