@@ -1,0 +1,52 @@
+pathmc/_ci.py
+  s_5020d2929798d9::t_ae3a0cedf3c8fb 259-272,281-284,286
+  s_5020d2929798d9::t_8e86623eceacd2 67,72-77,85,89-138
+  s_5020d2929798d9::t_eea61140c159c5 206-213,217-224
+  s_5020d2929798d9::t_f3f97096844889 23-27,32
+  s_5020d2929798d9::t_454d6753437f06 174-181,189
+  s_5020d2929798d9::t_2cab02c09215f3 292
+pathmc/falsify.py
+  s_5020d2929798d9::t_b1c7fa29682df7 710-711
+  s_5020d2929798d9::t_0bb24c7b3760ed 134-140
+  s_5020d2929798d9::t_f92a2aa0a6d9a6 588-598
+  s_5020d2929798d9::t_67d21d2dc1bb42 423,430-434,440-441,444,447,451-454,457-465
+  s_5020d2929798d9::t_94906bcea58fd2 59
+  s_5020d2929798d9::t_a62cd23f192752 549-550
+  s_5020d2929798d9::t_7a3755827ecf93 666,668-672,674
+pathmc/_model.py
+  s_5020d2929798d9::t_15f7b319af6745 1627-1631
+  s_5020d2929798d9::t_fe8fa082c0d01f 1448-1453
+tests/test_ci_engine.py
+  s_5020d2929798d9::t_416a0fc2ffc44e 469-473
+  s_5020d2929798d9::t_9e15fa82c05535 395-468,474-513
+  s_5020d2929798d9::t_cf30bc4129309b 164-165
+pathmc/identify.py
+  s_5020d2929798d9::t_194db24517823b 819-824,832
+  s_5020d2929798d9::t_69df68532eee2d 31
+  s_5020d2929798d9::t_aba072f4ee8167 523-530
+  s_5020d2929798d9::t_d1b86e0e9d4296 825-831,833-834,848-849,851
+  s_5020d2929798d9::t_24bb53605b027a 627-649
+  s_5020d2929798d9::t_ea917241cc15f6 601
+  s_5020d2929798d9::t_5a25be6a523bd0 734-744
+  s_5020d2929798d9::t_58cdc76c55c8f5 752,764-783,785,790-791,794,798-799,808-809
+docs/examples/03-identification/dag_falsification.qmd
+  s_5020d2929798d9::t_232608809af34d 192
+docs/examples/03-identification/dag_testing.qmd
+  s_5020d2929798d9::t_0f57b41f9d84cc 431-432
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2dd174c570421b4e7345dd709572e142868fd566",
+  "prompts": {},
+  "sessions": {
+    "s_5020d2929798d9": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "fc58a4ca-fe51-4054-9ab8-81c4b80686c8",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
