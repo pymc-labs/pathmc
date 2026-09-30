@@ -25,7 +25,7 @@ A retailer raises prices during the holiday season — when demand is also natur
 A regression of demand on price sees high prices paired with high demand and concludes that raising prices *increases* demand.
 
 The fix is to model the causal structure: season causes both price and demand.
-Once we condition on season (and other confounders), the coefficient on price captures the *causal* effect — which is negative, as economics predicts.
+Once we condition on season (and other confounders), the coefficient on price is the causal effect. In the simulation below that effect is −1.2, and the fitted model is checked against that planted value rather than assumed to have recovered it.
 
 ```{dot}
 //| label: fig-dag-confounding
@@ -179,7 +179,7 @@ true_effects_df
 
 ```{python}
 # | label: fig-price-demand-raw
-# | fig-cap: "Raw price vs demand across all regions. The naive positive association reflects confounding (seasonality drives both price and demand upward simultaneously), not a causal effect."
+# | fig-cap: "Raw price versus demand across all regions. The ordinary-least-squares slope on this scatter is about −0.51, well short of the planted elasticity of −1.2."
 # | code-fold: true
 
 fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -221,12 +221,11 @@ plt.tight_layout()
 plt.show()
 ```
 
-The left panel shows the confounding problem clearly: the raw scatter suggests a *positive* price-demand relationship.
-The right panel shows the time series structure with seasonal patterns and regional differences.
+The left panel is the confounded scatter: the fitted slope is negative, but much smaller than the causal elasticity. The right panel shows the seasonal pattern and the differences across regions.
 
 ## The naive regression
 
-Let's verify that a naive regression gets the sign wrong.
+A naive regression of demand on price ignores the DAG. Compare its slope with the planted elasticity of −1.2.
 
 ```{python}
 from numpy.linalg import lstsq
@@ -238,16 +237,13 @@ coefs_naive = lstsq(X_naive, y, rcond=None)[0]
 print(f"Naive regression: demand = {coefs_naive[0]:.1f} + {coefs_naive[1]:.2f} × price")
 print(f"Price coefficient: {coefs_naive[1]:+.2f}")
 print(f"True mean price effect: {true_mu_price:+.2f}")
-print(f"\nThe naive regression says higher prices INCREASE demand (wrong sign!)")
+print(f"Naive minus truth: {coefs_naive[1] - true_mu_price:+.2f}")
 ```
 
 ::: {.callout-important}
-## Endogeneity is not a minor nuisance
+## The naive slope is attenuated, not reversed
 
-The naive coefficient is not just slightly off — it has the **wrong sign**.
-This is a qualitative error that would lead to the worst possible business decision: raising prices when you should be lowering them.
-
-This is why causal inference matters for pricing. The correlation between price and demand reflects the common causes (seasonality, competitor actions) that drive both — and those common causes happen to push price and demand in the same direction.
+In this sample the OLS slope is −0.51. The planted mean elasticity is −1.2. The sign matches and the magnitude is about half, so a price increase still looks less damaging than it is. Stronger confounding can push that slope through zero — that is the trap in the callout above — but this notebook's regression does not.
 :::
 
 ## Specify and fit the model
@@ -307,8 +303,7 @@ idata = model.fit(
 model.summary()
 ```
 
-The fixed-effect coefficient on `price` should now be **negative** — close to the true value of −1.2.
-Compare this to the naive regression, which gave a positive coefficient.
+The fixed coefficient on `price` has posterior mean about +0.29, not −1.2. The lag (−0.43 versus −0.4) and the competitor effect (−0.28 versus −0.3) land close to the planted values. The hierarchical mean `mu_slope_demand_price` is centered near −1.2 with a standard deviation of about 8 and an r-hat above 1.05, so the price elasticity is not identified tightly enough to use. That geometry is tracked in [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
 
 ### Recovery of key parameters
 
@@ -337,7 +332,7 @@ print(
 
 ```{python}
 # | label: fig-price-coefficient
-# | fig-cap: "Posterior distribution of the population-level price elasticity. The naive regression estimate (red dashed) has the wrong sign; the path model correctly recovers the true negative effect (black dashed)."
+# | fig-cap: "Posterior of the fixed price coefficient. Black dashed line: planted mean elasticity (−1.2). Red dashed line: naive OLS slope (−0.51). The posterior is wide and its mean is not the planted value."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -364,12 +359,11 @@ plt.tight_layout()
 plt.show()
 ```
 
-The path model recovers the true negative elasticity, while the naive regression sits on the wrong side of zero.
+The fixed price coefficient does not recover −1.2. The naive slope is negative, and about half the planted elasticity.
 
 ### Cumulative price effect
 
-The total price effect includes both the immediate response and the lagged response.
-A permanent $1 price increase eventually costs:
+The long-run effect of a permanent price change is the immediate coefficient plus the lag.
 
 ```{python}
 cumulative = beta_price + beta_lag
@@ -379,9 +373,11 @@ print(f"Cumulative (long-run) effect: {cumulative.mean():.2f} units of demand")
 print(f"True cumulative: {true_mu_price + true_lag:.2f}")
 ```
 
+The printed long-run effect is about −0.14, against a planted −1.60, because the immediate coefficient did not recover. The lag term on its own is close to −0.4.
+
 ```{python}
 # | label: fig-cumulative-effect
-# | fig-cap: "Posterior distributions of the immediate (current-week), lagged (next-week), and cumulative (long-run) price effects on demand. The cumulative effect captures the full impact of a permanent price change."
+# | fig-cap: "Posteriors of the immediate, lagged, and cumulative price coefficients. The cumulative posterior is the sum of the other two; it is not a recovery of the planted long-run effect (−1.6)."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -625,7 +621,7 @@ The standardized coefficients put all predictors on the same scale (SD units), m
 
 ## Summary
 
-- **Price and demand are confounded.** Naive regression gives the wrong sign because managers set prices in response to the same factors that drive demand. The path model adjusts for these common causes and recovers the true negative elasticity.
+- **The confounded slope is attenuated here.** Naive regression gives −0.51 rather than −1.2. The hierarchical price slope does not recover the planted elasticity either; see [issue #538](https://github.com/pymc-labs/pathmc/issues/538). The lag and competitor coefficients do.
 - **Lagged effects matter.** A price change today affects demand both immediately and in subsequent weeks. The cumulative effect is larger than the immediate effect alone.
 - **Regional heterogeneity is real.** Random slopes reveal that price sensitivity varies across regions, enabling region-specific pricing strategies.
 - **Partial pooling** borrows strength across regions — critical when some regions have noisier data or fewer observations.

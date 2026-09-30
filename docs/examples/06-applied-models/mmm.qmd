@@ -1064,7 +1064,7 @@ idata = model.fit(
 
 #### Population-level coefficients
 
-The fixed effects represent the average media effectiveness across all regions.
+The fixed effects are the average media coefficients across regions. The first summary row, `mu_slope_sales_digital`, is not one of those estimates: its r-hat is about 1.10, so do not read it as digital effectiveness. See [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
 
 ```{python}
 model.summary()
