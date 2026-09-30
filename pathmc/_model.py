@@ -1276,8 +1276,13 @@ class PathModel:
         treatment: str,
         outcome: str,
     ) -> list[str]:
-        """Check if any variable in the proposed adjustment set is a
-        collider that could introduce bias.
+        """Warn when a proposed adjustment variable is a collider on a
+        path between treatment and outcome.
+
+        This is a structural heuristic. It flags the collider even when
+        the rest of the set keeps that path blocked.
+        ``is_valid_adjustment_set()`` decides whether the set satisfies
+        the backdoor criterion.
 
         .. note::
 

@@ -95,7 +95,7 @@ The DSL is lavaan-inspired:
 | Adjustment sets for identification                | `m.adjustment_sets(treatment, outcome)`                |
 | Yes/no identification check                       | `m.is_identifiable(treatment, outcome)`                |
 | Front-door identification                         | `m.frontdoor_identifiable(treatment, outcome)`         |
-| Warn about colliders in an adjustment set         | `m.collider_warnings(adjust, treatment, outcome)`      |
+| Flag colliders on any path (heuristic; validity is `is_valid_adjustment_set`) | `m.collider_warnings(adjust, treatment, outcome)` |
 | Enumerate implied conditional independences       | `m.implied_independences()`                            |
 | Test DAG implications against data                | `m.test_implications()`                                |
 | Falsify the whole DAG (permutation test)          | `m.falsify()`                                          |
