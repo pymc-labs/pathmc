@@ -49,7 +49,7 @@ indirect := a*b
 """
 
 m = pathmc.model(spec, data=df)   # returns a PathModel (NOT a fitted result)
-m.fit(draws=1000, chains=2)       # MCMC happens here
+m.fit()                            # MCMC happens here
 
 m.effects_summary()                # labeled coefficients + defined params
 m.ate("Y", "X", values=(0, 1))     # average treatment effect via do()
@@ -78,7 +78,7 @@ The DSL is lavaan-inspired:
 | Inspect priors only                               | `m.priors()`                                           |
 | Refine priors                                     | `m.set_priors({"beta_Y": Prior(...)})`                 |
 | Prior predictive check                            | `m.sample_prior_predictive()`                          |
-| Run MCMC                                          | `m.fit(draws=1000, chains=2)`                          |
+| Run MCMC                                          | `m.fit()`                                              |
 | Summarize posteriors                              | `m.summary()` or `m.effects_summary()`                 |
 | Standardized (stdyx) coefficients                 | `m.standardized()`                                     |
 | Path-specific effect (e.g. `X -> M -> Y`)         | `m.effect("X -> M -> Y")`                              |
@@ -251,7 +251,7 @@ m.is_identifiable("X", "Y")    # can we estimate the effect at all?
 
 ```python
 m = pathmc.model(spec, data=df)
-m.fit(draws=1000, chains=2)
+m.fit()
 m.effects_summary()                          # labeled coefs
 m.ate("Y", "X", values=(0, 1))               # ATE
 m.cate("Y", "X", condition={"Z": 1})         # CATE | Z=1
@@ -265,7 +265,7 @@ m = pathmc.model(spec, data=df)              # structural DAG + data
 adj = m.adjustment_model("X -> Y")           # inspect before fit
 adj.adjustment_set                           # validated backdoor set
 adj.formula                                  # reduced outcome equation
-adj.fit(draws=1000, chains=2)
+adj.fit()
 adj.ate(values=(0, 1))                       # outcome-regression standardization
 adj.comparisons(comparison="lift")             # same API as PathModel
 adj.slopes(wrt="X")                            # defaults to designated treatment

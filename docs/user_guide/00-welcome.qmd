@@ -21,7 +21,7 @@ html[data-bs-theme="dark"] .gd-hero-logo-dark { display: inline; }
 
 Specify your causal assumptions as equations. Fit with full Bayesian inference. Simulate interventions and ask "what if?"
 
-pathmc compiles a concise formula language into a generative Bayesian model where every variable is wired through its structural parents in the DAG. Call `model()` to build and inspect, then `fit()` to run MCMC. One object handles estimation, introspection, causal queries, identification checking, native regression adjustment, and sensitivity analysis, all with full posterior uncertainty.
+pathmc compiles a concise formula language into a generative Bayesian model where every variable is wired through its structural parents in the DAG. Call `model()` to build and inspect, then `fit()` to run MCMC. One object handles introspection, estimation, causal queries, identification checking, and sensitivity analysis, all with full posterior uncertainty. Estimation itself has two paths: fit the full structural model, or fit a regression-adjustment model for one total effect.
 
 ```{python}
 # | echo: true
@@ -43,13 +43,15 @@ m = pathmc.model(spec, data=df)
 Once the model is built, fit it and use its posterior and causal-query methods:
 
 ```{.python}
-m.fit(draws=1000, chains=2)
+# Path 1 — full structural model
+m.fit()
 m.effects_summary()  # labeled coefficients + defined params
 m.ate("Y", "X", values=(0, 1))  # average treatment effect via do-operator
 m.adjustment_sets("X", "Y")  # check identification from the DAG
 m.comparisons("Y", "X")  # interpret-layer contrast (diff, or ratio/lift)
 
-adj = m.adjustment_model("X -> Y")  # backdoor-adjusted outcome regression
+# Path 2 — regression adjustment for the total effect of X on Y
+adj = m.adjustment_model("X -> Y")
 adj.fit()
 adj.ate(values=(0, 1))
 ```
@@ -86,10 +88,10 @@ When data arrives, create a data-bound model and fit:
 
 ```python
 m = pathmc.model(spec, data=df)
-m.fit(draws=1000)
+m.fit()
 ```
 
-## One spec, six capabilities
+## One spec, five capabilities
 
 A single spec string unlocks the full causal analysis toolkit.
 
@@ -102,14 +104,24 @@ m.set_priors({"beta_Y": Prior(...)})  # refine priors
 m.sample_prior_predictive()  # check priors generate plausible data (requires data)
 ```
 
-**Estimation** — fit the structural model with MCMC. Get posterior summaries, labeled coefficients with uncertainty, path-specific effects, and stdyx-standardized coefficients for comparing effect sizes across variables on different scales.
+**Estimation** — two ways to learn from the same spec. Fit the full structural causal model when you need every equation, path-specific effects, or a `do()` query that propagates through mediators. Fit a regression adjustment when the question is the total effect of one treatment on one outcome: the DAG is used only to choose the adjustment set, then pathmc fits that one reduced outcome equation.
 
 ```python
+# Path 1 — full structural model
 m.fit()
 m.effects_summary()  # labeled coefficients + defined params
 m.standardized()  # stdyx-standardized effects
 m.effect("X -> M -> Y")  # indirect effect through M
+
+# Path 2 — regression adjustment for a total effect
+adj = m.adjustment_model("X -> Y")
+adj.formula  # e.g. "Y ~ X + Z"
+adj.fit()
+adj.ate(values=(0, 1))
+adj.comparisons(comparison="diff")
 ```
+
+Both paths share `ate()`, `comparisons()`, and `slopes()`. The structural path can also answer indirect effects and interventions on mediators; the adjustment path cannot, because those mediators were never given their own equation. See [Estimation Approaches](user-guide/estimation-approaches.qmd) and [SCM vs Regression Adjustment](user-guide/scm-vs-adjustment.qmd).
 
 **Causal queries** — simulate interventions via the do-operator and ask counterfactual questions. pathmc uses g-computation: it forward-simulates through the structural model under the intervention, propagating full posterior uncertainty through the causal chain. The shared interpret layer (`predictions()`, `comparisons()`, `slopes()`) generalizes two-point `ate()` to grids, ratio/lift contrasts, and local derivatives.
 
@@ -127,16 +139,6 @@ m.slopes("Y", "X")  # local derivative under intervention
 m.adjustment_sets("X", "Y")  # valid backdoor adjustment sets
 m.collider_warnings({"C"}, "X", "Y")
 m.test_implications()  # check DAG against data
-```
-
-**Regression adjustment** — when the question is the total effect of one treatment on one outcome, `adjustment_model()` uses the DAG only for identification, then fits a single reduced outcome equation and standardizes predictions. Same `ate()` / `comparisons()` / `slopes()` names as the structural model. See [Estimation Approaches](user-guide/estimation-approaches.qmd) and [SCM vs Regression Adjustment](user-guide/scm-vs-adjustment.qmd).
-
-```python
-adj = m.adjustment_model("X -> Y")
-adj.formula  # e.g. "Y ~ X + Z"
-adj.fit()
-adj.ate(values=(0, 1))
-adj.comparisons(comparison="diff")
 ```
 
 **Sensitivity analysis** — causal conclusions rest on untestable assumptions about unmeasured confounding. pathmc quantifies how strong an unmeasured confounder would need to be to overturn your finding.
@@ -199,12 +201,12 @@ Estimate true price elasticity from observational data where price and demand ar
 
 ```python
 spec = """
-demand ~ b_price*price + b_lag*lag(price)
+demand ~ 0 + b_price*price + b_lag*lag(price)
        + b_comp*competitor_price + b_season*season + trend
 """
 ```
 
-`lag(price)` creates the previous period's value automatically in panel mode. Random slopes on `price` (specified at `model()` time) let each region have its own elasticity, partially pooled toward a population mean.
+`lag(price)` creates the previous period's value automatically in panel mode. Random slopes on `price` (specified at `model()` time) let each region have its own elasticity, partially pooled toward a population mean. Partial pooling already drops the fixed intercept; `0 +` keeps `equations()` from printing a phantom `1 +` that is not in the design matrix.
 
 :::
 

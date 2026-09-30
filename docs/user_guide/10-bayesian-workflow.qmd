@@ -207,7 +207,7 @@ The refined priors concentrate probability mass in the plausible range — much 
 With priors that generate plausible data, run MCMC.
 
 ```{python}
-model.fit(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(random_seed=42)
 ```
 
 

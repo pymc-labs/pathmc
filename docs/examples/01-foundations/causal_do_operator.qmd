@@ -141,7 +141,7 @@ model.equations()
 ```
 
 ```{python}
-model.fit(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(random_seed=42)
 ```
 
 ```{python}
@@ -220,7 +220,7 @@ df_rand = pd.DataFrame({"X": X_rand, "Y": Y_rand})
 
 ```{python}
 model_rand = pathmc.model("Y ~ X", data=df_rand)
-model_rand.fit(draws=500, tune=500, chains=4, random_seed=42)
+model_rand.fit(random_seed=42)
 ```
 
 Without confounding, the regression slope of Y on X — the "seeing" estimate — should match the do-operator ATE. Both should recover the true causal effect.
@@ -437,7 +437,7 @@ Because `X` positively affects both treatment probability and the treatment effe
 
 ```{python}
 model_att = pathmc.model("Y ~ T + X + T:X", data=df_att)
-model_att.fit(draws=500, tune=500, chains=4, random_seed=42)
+model_att.fit(random_seed=42)
 ```
 
 ```{python}
