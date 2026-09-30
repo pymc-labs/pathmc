@@ -35,7 +35,7 @@ The table below compares pathmc against five packages that Python practitioners 
 | **do() operator** | ✅ `pm.do()` graph surgery | ✅ estimation-based | ❌ | ❌ | ❌ | ❌ |
 | **Time-forward simulation** | ✅ panel `do()` | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Transforms with estimable params** | ✅ adstock, saturation | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Nonparametric smooth terms** | ✅ `hsgp()`, `fourier()` (1-D) | ❌ | ❌ | ❌ | ✅ ML learners for CATE | ✅ `hsgp()` |
+| **Nonparametric smooth terms** | ✅ `hsgp()` (1-D); `fourier()` for periodic effects | ❌ | ❌ | ❌ | ❌ | ✅ `hsgp()` |
 | **Panel / longitudinal data** | ✅ random intercepts + slopes | ❌ | ✅ time series focus | ❌ | ❌ | ✅ via groups |
 | **Causal identification checks** | ✅ backdoor, front-door, colliders | ✅ comprehensive | ❌ | ❌ | ❌ | ❌ |
 | **Backdoor regression adjustment** | ✅ `adjustment_model()` | ✅ many estimators | ❌ | ❌ | ❌ | ✅ formula + `interpret` |
@@ -120,7 +120,7 @@ Bambi excels at rich single-equation regression; pathmc models the whole DAG and
 | You have a natural experiment (DiD, RDD, synthetic control) | **CausalPy** |
 | You need latent variable SEM with fit indices | **semopy** |
 | You have high-dimensional data and want nonparametric CATE | **EconML** |
-| You need a smooth nonlinear effect of one predictor inside a structural model | **pathmc** (`hsgp()`, `fourier()`) |
+| You need a smooth nonlinear effect of one predictor inside a structural model | **pathmc** (`hsgp()`; `fourier()` for periodic effects) |
 | You do not know the DAG and want candidate structure around one outcome | **pathmc** (`TBFPC`, experimental) or [causal-learn](https://causal-learn.readthedocs.io/) |
 | You need backdoor regression adjustment from a DAG | **pathmc** (`adjustment_model()`) |
 | You need a flexible single-equation Bayesian model (multi-dimensional GAMs, rich multilevel) | **Bambi** |
@@ -133,9 +133,9 @@ Being clear about limitations is as important as highlighting strengths:
 
 - **No latent factor models.** pathmc supports latent *deterministic mediators* (unobserved variables fully determined by their parents), but not measurement models, factor analysis, or CFA/SEM latent factors. For those, use semopy or lavaan (R).
 - **Causal discovery is experimental and target-oriented.** `TBFPC` learns a CPDAG around a single outcome from a list of candidate drivers, using a linear-Gaussian Bayes-factor test for conditional independence, and `same_markov_equivalence_class()` lets you check a hand-drawn DAG against the result. It is one PC-style algorithm, not a discovery library: there is no score-based search, no FCI-style handling of latent confounders, and no time-series discovery. For a broader toolkit, see [causal-learn](https://causal-learn.readthedocs.io/) or DoWhy's discovery plugins; see [Causal Discovery](causal-discovery.qmd) for what pathmc does provide.
-- **Nonparametric effects are limited to one-dimensional smooths.** The `hsgp()` and `fourier()` [basis terms](basis-terms.qmd) give a flexible smooth effect of a single predictor inside a structural equation. They are cross-sectional only (not yet available in panel models), one-dimensional, and cannot be nested inside transforms or residual-covariance blocks. For high-dimensional or multi-predictor nonparametric CATE estimation, use EconML or BART-based approaches.
+- **Nonparametric effects are limited to one-dimensional smooths.** The `hsgp()` [basis term](basis-terms.qmd) gives a flexible nonparametric smooth of a single *observed* predictor inside a structural equation; the companion `fourier()` term is a parametric periodic basis (a fixed number of harmonics at a given period) that can also take a latent mediator as input. Both are cross-sectional only (not yet available in panel models), one-dimensional, and cannot be nested inside a transform or used in an equation whose outcome participates in a `~~` residual-covariance block. For high-dimensional or multi-predictor nonparametric CATE estimation, use EconML or BART-based approaches.
 - **No instrumental variables.** Identification supports the backdoor criterion and front-door criterion (`frontdoor_identifiable()`), but not IV estimation.
-- **Structural equations are additive in their terms.** Each equation is a sum of terms — linear coefficients, interactions (`X:Z`), transforms with estimable parameters (adstock, saturation), and basis-term smooths — passed through the family's link function. This covers a lot of nonlinearity, but an outcome that is an arbitrary non-additive function of its parents (for example, a product of two smooths) still requires custom PyMC code.
+- **Structural equations are additive in their terms.** Each equation's right-hand side is a sum of terms — linear coefficients, interactions (`X:Z`), transforms with estimable parameters (adstock, saturation), and basis-term smooths — forming a linear predictor on the link scale. For an observed outcome, the response mean is the inverse link of that sum (identity for Gaussian and StudentT, logit for Bernoulli, log for Poisson and NegBinomial); a deterministic latent mediator simply equals the sum. This covers a lot of nonlinearity, but an outcome that is an arbitrary non-additive function of its parents (for example, a product of two smooths) still requires custom PyMC code.
 
 ## Complementary workflows
 
