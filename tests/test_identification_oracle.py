@@ -254,6 +254,8 @@ _RANDOM_DAGS: list[list[tuple[str, str]]] = [
     [("U", "X"), ("X", "M"), ("M", "Y"), ("U", "M")],
     [("A", "X"), ("B", "X"), ("A", "Y"), ("C", "Y"), ("X", "Y"), ("B", "C")],
     [("B", "X"), ("X", "A"), ("A", "Y"), ("X", "Y"), ("B", "Y"), ("B", "A")],
+    # M-bias with a direct effect: {A, M} is valid and contains a collider.
+    [("A", "M"), ("B", "M"), ("A", "X"), ("X", "Y"), ("B", "Y")],
 ]
 
 
@@ -293,7 +295,8 @@ def test_is_valid_adjustment_set_matches_d_separation_oracle(edges, treatment, o
     """Every non-descendant subset must match the backdoor oracle.
 
     ``adjustment_sets`` only returns minimal sets. This checks the
-    superset-aware validator, including sets that contain a collider.
+    superset-aware validator. The M-bias DAG in ``_RANDOM_DAGS`` includes
+    a valid set that contains a collider.
     """
     dag = nx.DiGraph()
     dag.add_edges_from(edges)
