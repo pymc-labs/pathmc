@@ -30,12 +30,15 @@ from pathmc.graph import GraphInfo
 from pathmc.identify import adjustment_sets, is_valid_adjustment_set
 from pathmc.interpret import InterpretResult
 from pathmc.introspect import build_dag_viz
-from pathmc.parse import Spec, parse_spec
+from pathmc.parse import Spec, TransformCall, parse_spec
 from pathmc.priors import default_priors, merge_priors
 from pathmc.simulate import EstimandResult
 
 __all__ = ["AdjustmentModel"]
 
+# Dispersion priors are scalars. Categorical coefficient vectors are not:
+# their coordinate order follows treatment coding, so a prior fit under one
+# reference level is not a prior for another.
 _OUTCOME_PRIOR_SUFFIXES = ("sigma", "nu", "alpha_disp")
 
 
@@ -242,37 +245,128 @@ def _validate_reduced_spec(
                 )
 
 
+def _transform_param_names(spec: Spec) -> set[str]:
+    """Return random-variable names of transform parameters in *spec*."""
+    names: set[str] = set()
+
+    def walk(call: TransformCall) -> None:
+        if isinstance(call.input_expr, TransformCall):
+            walk(call.input_expr)
+        names.update(call.params.values())
+
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.transform is not None:
+                walk(term.transform)
+    return names
+
+
+def _is_shape_free_hyperprior(key: str) -> bool:
+    """True for hierarchical categorical hyperprior names.
+
+    The name is not enough: ``mu`` or ``sigma`` may still be a vector ordered
+    by treatment coding. Callers must also check :func:`_is_scalar_prior`.
+    """
+    return key.startswith(("mu_beta_", "sigma_beta_"))
+
+
+def _is_scalar_value(value: Any) -> bool:
+    """True when *value* does not carry one entry per level or predictor."""
+    if isinstance(value, (str, bytes, list, tuple)):
+        return isinstance(value, (str, bytes))
+    if isinstance(value, np.ndarray):
+        return value.ndim == 0
+    shape = getattr(value, "shape", None)
+    if shape is not None:
+        return tuple(shape) == ()
+    return True
+
+
+def _is_scalar_prior(prior: Any) -> bool:
+    """True when a prior has no dims and only scalar parameters."""
+    dims = getattr(prior, "dims", None) or ()
+    if tuple(dims):
+        return False
+    parameters = getattr(prior, "parameters", None) or {}
+    return all(_is_scalar_value(value) for value in parameters.values())
+
+
 def _reject_uninheritable_beta_prior(
-    construction_priors: dict[str, Any] | None,
+    parent_priors: dict[str, Any],
+    parent_defaults: dict[str, Any],
+    reduced_defaults: dict[str, Any],
     user_priors: dict[str, Any] | None,
-    outcome: str,
 ) -> None:
-    """Raise when a parent beta prior would be silently replaced by defaults."""
-    beta_key = f"beta_{outcome}"
-    if not construction_priors or beta_key not in construction_priors:
+    """Raise when a parent prior would be silently replaced by a default.
+
+    Coefficient priors (``beta_{outcome}`` and categorical
+    ``beta_{outcome}_{var}``) are never inherited. Hierarchical hyperpriors
+    are inherited only when they are scalar; a vector ``mu_beta_*`` or
+    ``sigma_beta_*`` is ordered by treatment coding, so a different
+    ``reference=`` would attach those entries to different levels.
+    """
+    missing: list[str] = []
+    for key in sorted(reduced_defaults):
+        if key not in parent_priors:
+            continue
+        vector_hyperprior = _is_shape_free_hyperprior(key) and not _is_scalar_prior(
+            parent_priors[key]
+        )
+        if not key.startswith("beta_") and not vector_hyperprior:
+            continue
+        if parent_priors[key] == parent_defaults.get(key):
+            continue
+        if user_priors is not None and key in user_priors:
+            continue
+        missing.append(key)
+    if not missing:
         return
-    if user_priors is not None and beta_key in user_priors:
-        return
+    if len(missing) == 1:
+        beta_key = missing[0]
+        raise ValueError(
+            f"The structural model has a custom prior on '{beta_key}'. "
+            f"Adjustment models do not inherit coefficient priors because the "
+            f"reduced predictor set or coding can differ. Pass "
+            f"priors={{'{beta_key}': ...}} to adjustment_model() to set it on "
+            f"the reduced equation."
+        )
+    listed = ", ".join(f"'{key}'" for key in missing)
     raise ValueError(
-        f"The structural model has a custom prior on '{beta_key}'. "
+        f"The structural model has custom coefficient priors on {listed}. "
         f"Adjustment models do not inherit coefficient priors because the "
-        f"reduced predictor set can differ. Pass "
-        f"priors={{'{beta_key}': ...}} to adjustment_model() to set it on "
-        f"the reduced equation."
+        f"reduced predictor set or coding can differ. Pass priors= to "
+        f"adjustment_model() with an entry for each of {listed}."
     )
 
 
-def _inherit_outcome_priors(
+def _inherit_reduced_priors(
     parent_priors: dict[str, Any],
+    reduced_defaults: dict[str, Any],
+    reduced_spec: Spec,
     outcome: str,
 ) -> dict[str, Any]:
-    """Copy outcome dispersion priors from the parent."""
-    inherited: dict[str, Any] = {}
-    for suffix in _OUTCOME_PRIOR_SUFFIXES:
-        key = f"{suffix}_{outcome}"
-        if key in parent_priors:
-            inherited[key] = parent_priors[key]
-    return inherited
+    """Copy shape-free outcome priors that the reduced equation also has.
+
+    Inherited keys are outcome dispersion (``sigma``, ``nu``, ``alpha_disp``),
+    transform parameters named in *reduced_spec*, and scalar hierarchical
+    categorical hyperpriors (``mu_beta_*``, ``sigma_beta_*``). Coefficient
+    vectors are omitted; :func:`_reject_uninheritable_beta_prior` requires an
+    explicit override when dropping one would be silent.
+    """
+    inheritable = {f"{suffix}_{outcome}" for suffix in _OUTCOME_PRIOR_SUFFIXES}
+    inheritable.update(_transform_param_names(reduced_spec))
+    inheritable.update(
+        key
+        for key in reduced_defaults
+        if key in parent_priors
+        and _is_shape_free_hyperprior(key)
+        and _is_scalar_prior(parent_priors[key])
+    )
+    return {
+        key: parent_priors[key]
+        for key in inheritable
+        if key in reduced_defaults and key in parent_priors
+    }
 
 
 class AdjustmentModel:
@@ -418,18 +512,34 @@ class AdjustmentModel:
         if families is not None:
             outcome_families.update(families)
 
-        construction_priors = (
-            parent._construction.get("priors") if parent._construction else None
+        parent_defaults = default_priors(
+            parent._spec,
+            families=parent._families,
+            pooling=parent._pooling,
+            latent=parent._latent,
+            panel_info=parent._panel_info,
         )
-        _reject_uninheritable_beta_prior(
-            construction_priors,
-            priors,
-            outcome_name,
-        )
-        inherited_priors = _inherit_outcome_priors(parent._priors, outcome_name)
+        # Resolve inferred categoricals before choosing priors. The default
+        # reduced formula names confounders as bare variables, so a string
+        # column only becomes ``beta_{outcome}_{var}`` after fitting.
+        from pathmc.categorical import fit_categorical_terms
+
+        fit_categorical_terms(reduced_spec, nw_data)
         reduced_defaults = default_priors(
             reduced_spec,
             families=outcome_families or None,
+        )
+        _reject_uninheritable_beta_prior(
+            parent._priors,
+            parent_defaults,
+            reduced_defaults,
+            priors,
+        )
+        inherited_priors = _inherit_reduced_priors(
+            parent._priors,
+            reduced_defaults,
+            reduced_spec,
+            outcome_name,
         )
         merged_priors = merge_priors(reduced_defaults, inherited_priors)
         if priors is not None:
