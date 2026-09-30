@@ -428,6 +428,8 @@ This loop happens *before* fitting. It costs nothing computationally and can sav
 
 **Small samples reduce power.** With few observations or large conditioning sets, the test may fail to detect genuine violations. A passing test does not guarantee the independence holds — it may just mean the sample is too small to detect the association.
 
+**A rank-deficient conditioning set is not the set you wrote down.** If a conditioner is constant, duplicated, or a linear combination of the others, the partial-correlation test drops it and uses the effective rank. `test_implications()` reports that reduced size in `effective_k` (and the matching residual degrees of freedom in `df`) and warns when `effective_k` is smaller than the conditioning set. Read the p-value as a test of the smaller set, and remove the redundant variable before treating the row as evidence about the full independence.
+
 **Only observed variables are testable.** If your DAG includes latent variables, the implied independences involving those variables cannot be tested against data. The test automatically restricts to observable implications.
 :::
 

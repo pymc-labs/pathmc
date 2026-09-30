@@ -56,7 +56,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 
-from pathmc._ci import _PartialCorrelationTester
+from pathmc._ci import _PartialCorrelationTester, warn_conditioning_rank_collapse
 from pathmc.graph import GraphInfo
 from pathmc.reprs import ResultReprMixin
 
@@ -131,8 +131,13 @@ class FalsificationResult(ResultReprMixin):
         Significance level used for each conditional independence test.
     local_violations : pd.DataFrame
         One row per LMC test on the given DAG with columns ``node``,
-        ``non_descendant``, ``conditioning_set``, ``p_value``, and
-        ``violation``.
+        ``non_descendant``, ``conditioning_set``, ``effective_k``,
+        ``df``, ``p_value``, and ``violation``. ``effective_k`` is the
+        number of linearly independent parents actually conditioned on;
+        ``df`` is the residual degrees of freedom. A row with
+        ``effective_k`` below the number of names in
+        ``conditioning_set`` did not test the parental independence that
+        was requested.
     """
 
     given_lmc_violations: int
@@ -415,31 +420,49 @@ def _validate_lmc(
     tester: _PartialCorrelationTester,
     significance_ci: float,
     include_unconditional: bool,
+    collapse_notes: list[str] | None = None,
 ) -> tuple[int, int, list[dict]]:
     """Count Local Markov Condition violations of *dag* against the data.
 
     Returns ``(n_tests, n_violations, local)`` where ``local`` holds one
     record per executed test. Triples whose CI test cannot be run (missing
     data, too few observations) are skipped and not counted.
+
+    When *collapse_notes* is given, each executed test whose conditioning
+    set is rank-deficient appends a short label. Permuted DAGs omit the
+    list: their p-values still use the rank-aware test, but only the given
+    DAG's collapses are reported to the user.
     """
     n_tests = 0
     n_violations = 0
     local: list[dict] = []
     for node, non_desc, parents in _parental_triples(dag, include_unconditional):
-        p_value = tester.p_value(node, non_desc, parents)
-        if p_value is None:
+        result = tester.ci_result(node, non_desc, parents)
+        if result is None or result.skip_reason is not None or result.p is None:
             continue
         n_tests += 1
-        violation = p_value <= significance_ci
+        violation = result.p <= significance_ci
         if violation:
             n_violations += 1
+        cond = ", ".join(parents)
         local.append({
             "node": node,
             "non_descendant": non_desc,
-            "conditioning_set": ", ".join(parents),
-            "p_value": p_value,
+            "conditioning_set": cond,
+            "effective_k": result.effective_k,
+            "df": result.df,
+            "p_value": result.p,
             "violation": violation,
         })
+        if (
+            collapse_notes is not None
+            and result.effective_k is not None
+            and result.effective_k < len(parents)
+        ):
+            collapse_notes.append(
+                f"{node} ⊥⊥ {non_desc} | {{{cond}}} "
+                f"(requested {len(parents)}, effective_k {result.effective_k})"
+            )
     return n_tests, n_violations, local
 
 
@@ -523,7 +546,8 @@ def falsify_graph(
     :func:`pathmc.identify.test_implications`. Because the test is linear,
     purely nonlinear dependencies are not detected, so a "not rejected"
     verdict is only as strong as the linear-Gaussian assumption. The test
-    uses observed data directly and works before sampling.
+    uses observed data directly and works before sampling. Each local
+    violation row reports ``effective_k`` and ``df`` from that test.
 
     Parameters
     ----------
@@ -560,6 +584,17 @@ def falsify_graph(
     FalsificationResult
         Verdict (``.falsified``, ``.falsifiable``), permutation p-values,
         per-test local violations, and a ``.plot()`` helper.
+
+    Warns
+    -----
+    UserWarning
+        When an LMC test on the *given* DAG conditions on a
+        rank-deficient parent set. The test still runs at the smaller
+        effective rank; ``effective_k`` on that ``local_violations`` row
+        is below the requested parent count, and the p-value is not
+        evidence about the full parental independence. Permuted DAGs are
+        not warned about individually. Drop the redundant parent and
+        re-run.
 
     Raises
     ------
@@ -628,9 +663,15 @@ def falsify_graph(
     rng = np.random.default_rng(random_seed)
     tester = _PartialCorrelationTester(data, nodes)
 
+    collapse_notes: list[str] = []
     given_n_tests, given_violations, local = _validate_lmc(
-        dag, tester, significance_ci, include_unconditional
+        dag,
+        tester,
+        significance_ci,
+        include_unconditional,
+        collapse_notes=collapse_notes,
     )
+    warn_conditioning_rank_collapse(collapse_notes)
     given_fraction = given_violations / given_n_tests if given_n_tests else 0.0
 
     perm_lmc_fractions: list[float] = []
@@ -666,6 +707,8 @@ def falsify_graph(
                 "node",
                 "non_descendant",
                 "conditioning_set",
+                "effective_k",
+                "df",
                 "p_value",
                 "violation",
             ]
