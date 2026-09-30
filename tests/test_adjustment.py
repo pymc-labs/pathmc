@@ -24,7 +24,7 @@ from pymc_extras.prior import Prior
 
 import pathmc
 from pathmc.graph import build_graph
-from pathmc.identify import is_valid_adjustment_set
+from pathmc.identify import collider_warnings, is_valid_adjustment_set
 from pathmc.idata import posterior as _posterior
 from pathmc.parse import parse_spec
 
@@ -193,11 +193,52 @@ class TestInvalidAdjustmentAndFormulaVars:
             "Y": rng.normal(size=80),
         })
         model = pathmc.model("Z ~ X\nM ~ X + Z\nY ~ M + Z", data=df)
-        with pytest.raises(ValueError, match="descendant"):
+        with pytest.raises(ValueError, match="descendant") as exc_info:
             model.adjustment_model(
                 "X -> Y",
                 formula="Y ~ X + Z + M",
             )
+        assert "formula=" in str(exc_info.value)
+
+    def test_formula_extras_that_open_a_path_together(self, rng):
+        """Each collider is valid alone; conditioning on both opens the path.
+
+        X <- U1 -> M <- U2 -> N <- U3 -> Y, with X -> Y. ``{M}`` stays
+        blocked at N, and ``{N}`` stays blocked at M. ``{M, N}`` opens
+        the only backdoor.
+        """
+        n = 60
+        u1 = rng.normal(size=n)
+        u2 = rng.normal(size=n)
+        u3 = rng.normal(size=n)
+        x = u1 + rng.normal(scale=0.2, size=n)
+        spec = "M ~ U1 + U2\nN ~ U2 + U3\nX ~ U1\nY ~ X + U3"
+        g = build_graph(parse_spec(spec))
+        assert is_valid_adjustment_set(g, "X", "Y", {"M"})
+        assert is_valid_adjustment_set(g, "X", "Y", {"N"})
+        with pytest.raises(ValueError, match="does not block all backdoor"):
+            is_valid_adjustment_set(g, "X", "Y", {"M", "N"})
+
+        df = pd.DataFrame({
+            "U1": u1,
+            "U2": u2,
+            "U3": u3,
+            "M": u1 + u2 + rng.normal(scale=0.2, size=n),
+            "N": u2 + u3 + rng.normal(scale=0.2, size=n),
+            "X": x,
+            "Y": 0.4 * x + u3 + rng.normal(scale=0.2, size=n),
+        })
+        model = pathmc.model(spec, data=df)
+        with pytest.raises(ValueError, match="does not block all backdoor") as exc_info:
+            model.adjustment_model(
+                "X -> Y",
+                adjustment_set=set(),
+                formula="Y ~ X + M + N",
+            )
+        message = str(exc_info.value)
+        assert "Formula predictors ['M', 'N']" in message
+        assert "formula=" in message
+        assert "adjustment_set=" not in message
 
 
 class TestTreatmentAlwaysInFormula:
@@ -413,6 +454,37 @@ class TestIsValidAdjustmentSet:
         g = build_graph(parse_spec("M ~ X\nY ~ M"))
         with pytest.raises(ValueError, match="descendant"):
             is_valid_adjustment_set(g, "X", "Y", {"M"})
+
+    def test_blocked_collider_is_valid(self):
+        """M-bias plus a direct effect: {A, M} and {B, M} satisfy backdoor.
+
+        M is a collider on X <- A -> M <- B -> Y, but A (or B) already
+        blocks that path. Conditioning on M alone opens it.
+        """
+        g = build_graph(parse_spec("M ~ A + B\nX ~ A\nY ~ X + B"))
+        assert is_valid_adjustment_set(g, "X", "Y", {"A", "M"})
+        assert is_valid_adjustment_set(g, "X", "Y", {"B", "M"})
+        warnings = collider_warnings(g, {"A", "M"}, "X", "Y")
+        assert any("collider" in warning for warning in warnings)
+        with pytest.raises(ValueError, match="does not block all backdoor"):
+            is_valid_adjustment_set(g, "X", "Y", {"M"})
+
+    def test_adjustment_model_accepts_blocked_collider(self, rng):
+        n = 40
+        a = rng.normal(size=n)
+        b = rng.normal(size=n)
+        noise = rng.normal(scale=0.3, size=n)
+        x = a + rng.normal(scale=0.3, size=n)
+        df = pd.DataFrame({
+            "A": a,
+            "B": b,
+            "M": a + b + noise,
+            "X": x,
+            "Y": 0.5 * x + b + rng.normal(scale=0.3, size=n),
+        })
+        model = pathmc.model("M ~ A + B\nX ~ A\nY ~ X + B", data=df)
+        adjusted = model.adjustment_model("X -> Y", adjustment_set={"A", "M"})
+        assert adjusted.adjustment_set == frozenset({"A", "M"})
 
 
 class TestResidualBlockValidation:
