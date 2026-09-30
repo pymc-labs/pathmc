@@ -1,0 +1,22 @@
+tests/test_adjustment.py
+  s_ec233505aac067::t_136edd3f0128d2 417-443
+pathmc/identify.py
+  s_ec233505aac067::t_ebd350f1106a93 187-189
+  s_ec233505aac067::t_2f40c4f34cc588 185-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "101fd87a6927fef1da369a0912489829d05b200b",
+  "prompts": {},
+  "sessions": {
+    "s_ec233505aac067": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ad63dd39-c2d2-4b1a-9da4-008d6cf97aa4",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
