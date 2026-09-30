@@ -507,20 +507,6 @@ class TestPartialCorrelationTester:
         assert p_dup is not None
         assert p_dup == pytest.approx(p_one)
 
-    def test_non_numeric_column_skipped(self):
-        rng = np.random.default_rng(7)
-        x = rng.normal(size=40)
-        df = pd.DataFrame({
-            "X": x,
-            "Y": 0.5 * x + rng.normal(scale=0.5, size=40),
-            "G": ["a", "b"] * 20,
-        })
-        tester = self._tester(df, variables=["X", "Y", "G"])
-        # Numeric pair still works; any test needing the string column skips.
-        assert tester.p_value("X", "Y", ()) is not None
-        assert tester.p_value("X", "G", ()) is None
-        assert tester.p_value("X", "Y", ("G",)) is None
-
     def test_perfect_collinearity_returns_zero(self):
         rng = np.random.default_rng(3)
         x = rng.normal(size=100)

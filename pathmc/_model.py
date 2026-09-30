@@ -433,6 +433,9 @@ class PathModel:
         from pathmc.categorical import categorical_terms
 
         self._categorical_terms = categorical_terms(spec)
+        self._categorical_vars: set[str] = {
+            call.variable for _, call in self._categorical_terms
+        }
         # Original model() arguments, recorded so refutation can faithfully
         # re-fit on perturbed data. Set by model(); None for direct
         # construction (in which case refute_placebo raises).
@@ -1072,7 +1075,7 @@ class PathModel:
 
         from pathmc.categorical import encode_categorical
 
-        categorical_vars = {call.variable for _, call in self._categorical_terms}
+        categorical_vars = self._categorical_vars
         updates: dict[str, np.ndarray] = {}
         for var in self._graph_info.exogenous - categorical_vars:
             if var not in self._pymc_model.named_vars:
@@ -1471,7 +1474,12 @@ class PathModel:
         self._require_data("test_implications")
         assert self._data is not None
         indeps = self.implied_independences()
-        return _test_implications(indeps, self._data, alpha=alpha)
+        return _test_implications(
+            indeps,
+            self._data,
+            alpha=alpha,
+            categorical_vars=self._categorical_vars,
+        )
 
     def _run_do(
         self,
@@ -1499,7 +1507,7 @@ class PathModel:
             families=self._families,
             subgroup_indices=subgroup_indices,
             scaling_factors=self._scaling_factors,
-            categorical_vars={call.variable for _, call in self._categorical_terms},
+            categorical_vars=self._categorical_vars,
         )
 
     @contextmanager
@@ -1512,8 +1520,7 @@ class PathModel:
         assert self._data is not None
         from pathmc.categorical import encode_categorical
 
-        known = {call.variable for _, call in self._categorical_terms}
-        unknown = set(values) - known
+        unknown = set(values) - self._categorical_vars
         if unknown:
             raise KeyError(f"Unknown categorical intervention(s): {sorted(unknown)!r}.")
 
@@ -1669,6 +1676,7 @@ class PathModel:
             significance_ci=significance_ci,
             include_unconditional=include_unconditional,
             random_seed=random_seed,
+            categorical_vars=self._categorical_vars,
         )
 
     def _refit_permuted(
@@ -1688,10 +1696,13 @@ class PathModel:
         assert self._construction is not None
 
         rng = np.random.default_rng(seed)
-        treat_vals = np.asarray(self._data[treatment].to_numpy(), dtype=float)
-        permuted = rng.permutation(treat_vals)
+        # Gather rows rather than rebuilding the column from a numpy array so
+        # the dtype survives: a pandas Categorical keeps its declared level
+        # order, which fixes the default reference on the refit.
+        row_order = rng.permutation(len(self._data))
+        permuted_column = self._data[row_order][treatment]
         permuted_data = self._data.with_columns(
-            nw.new_series(treatment, permuted, backend=self._data.implementation)
+            permuted_column.alias(treatment)
         ).to_native()
 
         c = self._construction
@@ -1873,7 +1884,7 @@ class PathModel:
                 "ate(), cate(), prob(), or sensitivity()."
             )
 
-        categorical_vars = {call.variable for _, call in self._categorical_terms}
+        categorical_vars = self._categorical_vars
         categorical_set = {
             var: value for var, value in (set or {}).items() if var in categorical_vars
         }
@@ -1944,8 +1955,8 @@ class PathModel:
 
     def counterfactual(
         self,
-        evidence: dict[str, float],
-        do: dict[str, float],
+        evidence: dict[str, Any],
+        do: dict[str, Any],
         allow_partial_evidence: bool = False,
     ) -> DoResult:
         """Compute unit-level counterfactual outcomes.
@@ -1958,16 +1969,20 @@ class PathModel:
 
         Parameters
         ----------
-        evidence : dict[str, float]
+        evidence : dict[str, Any]
             Observed values for a specific individual. Used in the
-            abduction step to recover their exogenous (U) terms.
-        do : dict[str, float]
-            Intervention values (same format as ``do(set=...)``).
+            abduction step to recover their exogenous (U) terms. A
+            categorical predictor is given as one of its fitted level
+            labels and must always be supplied, since a label has no
+            population mean to fall back on.
+        do : dict[str, Any]
+            Intervention values (same format as ``do(set=...)``); a
+            categorical predictor takes a level label.
         allow_partial_evidence : bool
-            If ``True``, missing evidence is assigned its population mean
-            (U = 0) with a warning. By default, all model variables must be
-            supplied so a counterfactual cannot silently mix individual and
-            population information.
+            If ``True``, missing numeric evidence is assigned its population
+            mean (U = 0) with a warning. By default, all model variables
+            must be supplied so a counterfactual cannot silently mix
+            individual and population information.
 
         Returns
         -------
@@ -1999,16 +2014,31 @@ class PathModel:
                 "every structural variable."
             )
         assert self._data is not None
-        scaled_do = _scale_set_for_bounds(do, self._scaling_factors, self._data)
+        # Labels have no range to extrapolate beyond and no scale factor, so
+        # only the numeric interventions go through the bounds and scaling
+        # checks; the categorical ones are validated against fitted levels
+        # by run_counterfactual.
+        numeric_do = {
+            var: val for var, val in do.items() if var not in self._categorical_vars
+        }
+        scaled_do = _scale_set_for_bounds(numeric_do, self._scaling_factors, self._data)
         _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_do)
         _warn_extrapolation(self._data, scaled_do)
         if self._scaling_factors is not None:
             do = {
-                var: _scale_scalar_intervention(var, val, self._scaling_factors)
+                var: (
+                    val
+                    if var in self._categorical_vars
+                    else _scale_scalar_intervention(var, val, self._scaling_factors)
+                )
                 for var, val in do.items()
             }
             evidence = {
-                var: _scale_scalar_intervention(var, val, self._scaling_factors)
+                var: (
+                    val
+                    if var in self._categorical_vars
+                    else _scale_scalar_intervention(var, val, self._scaling_factors)
+                )
                 for var, val in evidence.items()
             }
         result = run_counterfactual(

@@ -23,11 +23,49 @@ import re
 
 import graphviz
 
+from pathmc.categorical import (
+    absorbs_intercept,
+    has_population_mean,
+    is_reference_coded,
+)
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
-from pathmc.parse import Spec, Term, TransformCall
+from pathmc.parse import CategoricalCall, Spec, Term, TransformCall
 
 __all__: list[str] = []
+
+
+def _format_categorical(call: CategoricalCall) -> str:
+    """Render a ``C(...)`` term, showing only the state that applies to it.
+
+    The reference is shown only under treatment coding (a cell-means or
+    hierarchical term has no reference level), and levels only once they have
+    been resolved from data.
+    """
+    parts = [call.variable]
+    if _shows_reference(call):
+        parts.append(f"reference={call.reference!r}")
+    if call.prior == "hierarchical":
+        parts.append("prior='hierarchical'")
+    if call.levels:
+        levels = ", ".join(repr(level) for level in call.levels)
+        parts.append(f"levels=[{levels}]")
+    return f"C({', '.join(parts)})"
+
+
+def _shows_reference(call: CategoricalCall) -> bool:
+    """Whether the reference level is meaningful enough to display.
+
+    Before data resolution only an explicit ``reference=`` is known, and it
+    is shown unless the formula alone already says the term keeps every
+    level (cell means or hierarchical); after resolution the reference
+    matters only under treatment coding.
+    """
+    if not call.levels:
+        keeps_all_levels = call.cell_means or call.prior == "hierarchical"
+        return call.reference is not None and not keeps_all_levels
+    return is_reference_coded(call)
+
 
 _GREEK = {
     "alpha": r"\alpha",
@@ -346,7 +384,7 @@ def build_equations(
     for reg in spec.regressions:
         terms: list[str] = []
         latex_terms: list[str] = []
-        if reg.has_intercept:
+        if reg.has_intercept and not absorbs_intercept(reg):
             terms.append("1")
             latex_terms.append(rf"\beta_{{0,\,{_latex_index(reg.lhs)}}}")
         for t in reg.terms:
@@ -397,9 +435,7 @@ def _format_term(t: Term) -> str:
 
         return get_basis(t.basis.name).render(t.basis)
     if t.categorical is not None:
-        call = t.categorical
-        levels = ", ".join(repr(level) for level in call.levels)
-        return f"C({call.variable}, reference={call.reference!r}, levels=[{levels}])"
+        return _format_categorical(t.categorical)
     if t.transform is not None:
         return f"{prefix}{_format_transform(t.transform)}"
     if t.interaction_of is not None:
@@ -509,12 +545,16 @@ def _format_term_latex(t: Term) -> str:
         return get_basis(t.basis.name).render_latex(_latex_symbol(t.basis.variable))
     if t.categorical is not None:
         call = t.categorical
-        levels = ", ".join(str(level) for level in call.levels)
-        return (
-            rf"\operatorname{{C}}({_latex_symbol(call.variable)};\,"
-            rf"\mathrm{{ref}}={_latex_escape(str(call.reference))};\,"
-            rf"\mathrm{{levels}}=\{{{_latex_escape(levels)}\}})"
-        )
+        parts = [_latex_symbol(call.variable)]
+        if _shows_reference(call):
+            parts.append(rf"\mathrm{{ref}}={_latex_escape(str(call.reference))}")
+        if call.prior == "hierarchical":
+            parts.append(r"\mathrm{prior}=\mathrm{hierarchical}")
+        if call.levels:
+            levels = ", ".join(str(level) for level in call.levels)
+            parts.append(rf"\mathrm{{levels}}=\{{{_latex_escape(levels)}\}}")
+        separator = r";\,"
+        return rf"\operatorname{{C}}({separator.join(parts)})"
     if t.transform is not None:
         return f"{prefix}{_format_transform_latex(t.transform)}"
     if t.interaction_of is not None:
@@ -703,13 +743,17 @@ def build_priors(
             if term.categorical is not None:
                 beta_name = f"beta_{reg.lhs}_{term.variable}"
                 if term.categorical.prior == "hierarchical":
-                    entries[f"mu_{beta_name}"] = _entry(
-                        f"mu_{beta_name}", "Normal(0, 10)"
-                    )
+                    if has_population_mean(term.categorical):
+                        entries[f"mu_{beta_name}"] = _entry(
+                            f"mu_{beta_name}", "Normal(0, 10)"
+                        )
+                        mean = f"mu_{beta_name}"
+                    else:
+                        mean = "0"
                     entries[f"sigma_{beta_name}"] = _entry(
                         f"sigma_{beta_name}", "HalfNormal(1)"
                     )
-                    entries[beta_name] = f"Normal(mu_{beta_name}, sigma_{beta_name})"
+                    entries[beta_name] = f"Normal({mean}, sigma_{beta_name})"
                 else:
                     entries[beta_name] = _entry(beta_name, "Normal(0, 10)")
             if term.transform is not None:

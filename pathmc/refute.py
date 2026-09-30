@@ -50,6 +50,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import pandas as pd
 import pymc as pm
 
 from pathmc.idata import hdi, posterior
@@ -475,6 +476,28 @@ class PlaceboRefutationResult(ResultReprMixin):
         ax.legend(loc="best", fontsize="small")
 
 
+def _validate_categorical_values(
+    model: PathModel, treatment: str, values: tuple[Any, Any]
+) -> None:
+    """Check that a categorical treatment's ``(lo, hi)`` are distinct levels."""
+    levels: tuple[Any, ...] = ()
+    for _, call in model._categorical_terms:
+        if call.variable == treatment:
+            levels = call.levels
+            break
+    unseen = [value for value in values if value not in levels]
+    if unseen:
+        raise ValueError(
+            f"values for categorical treatment '{treatment}' must be fitted "
+            f"level labels, got {unseen!r}. Fitted levels are {list(levels)!r}."
+        )
+    if values[0] == values[1]:
+        raise ValueError(
+            f"values must have distinct (lo, hi) labels, got {values}. Pick two "
+            f"different levels of '{treatment}' so the ATE contrast is non-trivial."
+        )
+
+
 def _permute_and_refit(
     model: PathModel,
     outcome: str,
@@ -646,7 +669,10 @@ def refute_placebo(
         (non-latent) data column.
     values : tuple[float, float]
         ``(lo, hi)`` intervention values for the ATE contrast, matching
-        :meth:`pathmc.PathModel.ate` (default ``(0.0, 1.0)``).
+        :meth:`pathmc.PathModel.ate` (default ``(0.0, 1.0)``). For a
+        categorical treatment pass two of its fitted level labels, e.g.
+        ``values=("north", "south")``; the placebo permutes the labels and
+        re-estimates that contrast.
     n_permutations : int
         Number of placebo permutations / folds (default 4). Four is a
         floor: with so few folds the between-fold volatility ``tau_het`` is
@@ -710,15 +736,28 @@ def refute_placebo(
             f"values must be a (lo, hi) pair, got {len(values)} entries: "
             f"{values}. Use e.g. values=(0.0, 1.0)."
         )
-    if not np.all(np.isfinite(np.asarray(values, dtype=float))):
-        raise ValueError(
-            f"values must be finite numbers, got {values}. Use e.g. values=(0.0, 1.0)."
-        )
-    if float(values[0]) == float(values[1]):
-        raise ValueError(
-            f"values must have distinct (lo, hi) endpoints, got {values}. "
-            f"Use e.g. values=(0.0, 1.0) so the ATE contrast is non-trivial."
-        )
+    categorical_treatment = treatment in model._categorical_vars
+    if categorical_treatment:
+        _validate_categorical_values(model, treatment, values)
+    else:
+        try:
+            numeric_values = np.asarray(values, dtype=float)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"values must be numbers for the numeric treatment "
+                f"'{treatment}', got {values}. Labels are accepted only for "
+                "categorical predictors (string columns or C(...) terms)."
+            ) from None
+        if not np.all(np.isfinite(numeric_values)):
+            raise ValueError(
+                f"values must be finite numbers, got {values}. "
+                "Use e.g. values=(0.0, 1.0)."
+            )
+        if float(values[0]) == float(values[1]):
+            raise ValueError(
+                f"values must have distinct (lo, hi) endpoints, got {values}. "
+                f"Use e.g. values=(0.0, 1.0) so the ATE contrast is non-trivial."
+            )
 
     if treatment == outcome:
         raise ValueError(
@@ -758,8 +797,13 @@ def refute_placebo(
             f"Treatment '{treatment}' has no column in the data and cannot "
             f"be permuted. Available columns: {sorted(model._data.columns)}"
         )
-    treat_col = np.asarray(model._data[treatment].to_numpy(), dtype=float)
-    if np.unique(treat_col[~np.isnan(treat_col)]).size < 2:
+    treat_col = model._data[treatment].to_numpy()
+    if categorical_treatment:
+        n_distinct = pd.Series(treat_col).dropna().nunique()
+    else:
+        treat_col = np.asarray(treat_col, dtype=float)
+        n_distinct = np.unique(treat_col[~np.isnan(treat_col)]).size
+    if n_distinct < 2:
         raise ValueError(
             f"Treatment '{treatment}' is constant, so permuting it is a no-op "
             f"and the placebo test is meaningless. Provide a treatment that "

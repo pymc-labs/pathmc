@@ -104,11 +104,15 @@ class BasisCall:
 
 @dataclass
 class CategoricalCall:
-    """A treatment-coded categorical predictor.
+    """A categorical predictor expanded into indicator columns.
 
-    ``levels`` and ``reference`` are fit-time state. They are populated from
-    the observed data before compilation and then reused for prediction and
-    interventions so contrast coding cannot silently change.
+    ``levels``, ``reference``, and ``columns`` are fit-time state. They are
+    populated from the observed data before compilation and then reused for
+    prediction and interventions so the coding cannot silently change.
+    ``cell_means`` is ``True`` when this term supplies the equation's
+    baseline (see :func:`supplies_baseline`), so its coefficients are
+    per-level expected outcomes rather than contrasts. It is set from the
+    formula alone for explicit ``C()`` terms and confirmed at fit time.
     """
 
     variable: str
@@ -116,6 +120,7 @@ class CategoricalCall:
     prior: Literal["independent", "hierarchical"] = "independent"
     levels: tuple[Any, ...] = ()
     columns: tuple[str, ...] = ()
+    cell_means: bool = False
 
 
 @dataclass
@@ -149,6 +154,41 @@ class Regression:
     lhs: str
     terms: list[Term]
     has_intercept: bool = True
+
+
+def supplies_baseline(
+    call: CategoricalCall, *, has_intercept: bool, baseline_taken: bool
+) -> bool:
+    """Return whether a categorical term supplies its equation's baseline.
+
+    Exactly one term per equation carries the baseline of the linear
+    predictor. A categorical takes it (cell-means coding, one coefficient
+    per level) when no earlier categorical already has and either the
+    formula has no intercept or the term is hierarchical, whose population
+    mean then stands in for the intercept. Treatment-coded terms leave the
+    baseline with the intercept, so they never count as having taken it.
+    """
+    return not baseline_taken and (not has_intercept or call.prior == "hierarchical")
+
+
+def mark_cell_means(reg: Regression) -> None:
+    """Set ``cell_means`` on the explicit ``C()`` terms of a parsed equation.
+
+    This is the data-free application of the one-baseline rule, so that
+    ``priors()``, ``equations()`` and ``set_priors()`` on an unfitted spec
+    describe the model that will compile once data are attached. Fitting
+    re-applies the same rule over every categorical term, including string
+    columns that are only recognised from the data, and its result wins.
+    """
+    baseline_taken = False
+    for term in reg.terms:
+        call = term.categorical
+        if call is None:
+            continue
+        call.cell_means = supplies_baseline(
+            call, has_intercept=reg.has_intercept, baseline_taken=baseline_taken
+        )
+        baseline_taken = baseline_taken or call.cell_means
 
 
 @dataclass
@@ -354,7 +394,9 @@ def _parse_regression(stmt: str) -> Regression:
             "equation (multiple smooths of one variable are a follow-up)."
         )
 
-    return Regression(lhs=lhs, terms=terms, has_intercept=has_intercept)
+    regression = Regression(lhs=lhs, terms=terms, has_intercept=has_intercept)
+    mark_cell_means(regression)
+    return regression
 
 
 #: A float mantissa immediately followed by its exponent marker, anchored so

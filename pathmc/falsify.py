@@ -46,7 +46,7 @@ https://arxiv.org/abs/2305.09565
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from itertools import permutations
 from typing import TYPE_CHECKING
@@ -505,6 +505,7 @@ def falsify_graph(
     significance_ci: float = 0.05,
     include_unconditional: bool = True,
     random_seed: int | None = None,
+    categorical_vars: Iterable[str] | None = None,
 ) -> FalsificationResult:
     """Falsify a whole DAG against data via a node-permutation test.
 
@@ -534,9 +535,11 @@ def falsify_graph(
         cross-sectional (observed-variable) structure. Residual
         covariances (``~~``) are not supported and raise ``ValueError``.
     data : nw.DataFrame
-        Observed data. Variables without a usable numeric column (latent
-        nodes, or non-numeric columns) are skipped in CI tests but still
-        participate in the d-separation oracle and node permutations.
+        Observed data. Categorical columns (string, pandas categorical, or
+        named in *categorical_vars*) enter the CI tests as indicator
+        blocks. Variables without a data column (latent nodes) are skipped
+        in CI tests but still participate in the d-separation oracle and
+        node permutations.
     n_permutations : int | None
         Number of permuted DAGs in the baseline. Defaults to
         ``round(1 / significance_level)`` (20 at the default level). For
@@ -554,6 +557,9 @@ def falsify_graph(
         root nodes (default ``True``).
     random_seed : int | None
         Seed for the permutation sampler, for reproducible results.
+    categorical_vars : Iterable[str] | None
+        Variables to dummy-encode even though their column is numeric
+        (integer-coded labels declared with ``C()``).
 
     Returns
     -------
@@ -626,7 +632,7 @@ def falsify_graph(
 
     nodes = sorted(dag.nodes)
     rng = np.random.default_rng(random_seed)
-    tester = _PartialCorrelationTester(data, nodes)
+    tester = _PartialCorrelationTester(data, nodes, categorical_vars)
 
     given_n_tests, given_violations, local = _validate_lmc(
         dag, tester, significance_ci, include_unconditional
