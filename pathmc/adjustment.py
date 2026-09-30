@@ -215,12 +215,23 @@ def _validate_reduced_spec(
     # and open it only when both are conditioned on.
     structural_extras = extra_dag_vars & dag_nodes
     if structural_extras:
-        is_valid_adjustment_set(
-            graph_info,
-            treatment,
-            outcome,
-            set(adjustment_set | structural_extras),
-        )
+        try:
+            is_valid_adjustment_set(
+                graph_info,
+                treatment,
+                outcome,
+                set(adjustment_set | structural_extras),
+            )
+        except ValueError as exc:
+            # The set was already valid before these predictors were added,
+            # so the fix is in formula=, not adjustment_set=.
+            extras = sorted(structural_extras)
+            detail = str(exc).replace("adjustment_set=", "formula=")
+            raise ValueError(
+                f"Formula predictors {extras} make conditioning set "
+                f"{sorted(set(adjustment_set) | structural_extras)} invalid "
+                f"for '{treatment}' -> '{outcome}'. {detail}"
+            ) from exc
     if data is not None:
         for var in sorted(extra_dag_vars - dag_nodes):
             if var not in data.columns:

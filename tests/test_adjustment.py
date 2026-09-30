@@ -193,11 +193,12 @@ class TestInvalidAdjustmentAndFormulaVars:
             "Y": rng.normal(size=80),
         })
         model = pathmc.model("Z ~ X\nM ~ X + Z\nY ~ M + Z", data=df)
-        with pytest.raises(ValueError, match="descendant"):
+        with pytest.raises(ValueError, match="descendant") as exc_info:
             model.adjustment_model(
                 "X -> Y",
                 formula="Y ~ X + Z + M",
             )
+        assert "formula=" in str(exc_info.value)
 
     def test_formula_extras_that_open_a_path_together(self, rng):
         """Each collider is valid alone; conditioning on both opens the path.
@@ -228,12 +229,16 @@ class TestInvalidAdjustmentAndFormulaVars:
             "Y": 0.4 * x + u3 + rng.normal(scale=0.2, size=n),
         })
         model = pathmc.model(spec, data=df)
-        with pytest.raises(ValueError, match="does not block all backdoor"):
+        with pytest.raises(ValueError, match="does not block all backdoor") as exc_info:
             model.adjustment_model(
                 "X -> Y",
                 adjustment_set=set(),
                 formula="Y ~ X + M + N",
             )
+        message = str(exc_info.value)
+        assert "Formula predictors ['M', 'N']" in message
+        assert "formula=" in message
+        assert "adjustment_set=" not in message
 
 
 class TestTreatmentAlwaysInFormula:
