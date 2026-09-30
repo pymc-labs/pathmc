@@ -11,7 +11,7 @@ REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' !
 # COMMANDS                                                                      #
 #################################################################################
 
-.PHONY: setup lint check_lint test-fast test jupyter-kernel docs freeze-page refreeze-docs cleandocs build check-build help
+.PHONY: setup lint check_lint test-fast test test-nightly jupyter-kernel docs freeze-page refreeze-docs cleandocs build check-build help
 
 setup: ## Set up the complete development environment (uv)
 	uv sync --all-extras
@@ -32,11 +32,14 @@ check_lint: ## Check formatting, linting, and types without making changes
 
 TEST_ENV = OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 
-test-fast: ## Run fast tests, excluding slow MCMC tests
-	$(TEST_ENV) uv run pytest -x -v -n auto --dist loadscope -m "not slow"
+test-fast: ## Run fast tests, excluding slow MCMC tests and nightly Tier 5
+	$(TEST_ENV) uv run pytest -x -v -n auto --dist loadscope -m "not slow and not nightly"
 
 test: ## Run all tests with coverage, including slow integration tests
-	$(TEST_ENV) uv run pytest -x -v -n auto --dist loadscope --cov=pathmc --cov-report=term-missing
+	$(TEST_ENV) uv run pytest -x -v -n auto --dist loadscope -m "not nightly" --cov=pathmc --cov-report=term-missing
+
+test-nightly: ## Run Tier 5 MCMC recovery and light SBC (issue #326)
+	$(TEST_ENV) uv run pytest -x -v -n auto --dist loadscope -m nightly
 
 docs: jupyter-kernel ## Build the documentation site
 	JUPYTER_PATH=$(VENV_JUPYTER) uv run great-docs build

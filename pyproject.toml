@@ -98,6 +98,7 @@ addopts = [
 ]
 markers = [
     "slow: marks tests that require MCMC sampling (deselect with '-m \"not slow\"')",
+    "nightly: Tier 5 MCMC recovery and SBC; not on the per-commit path (issue #326)",
 ]
 
 [tool.coverage.run]
