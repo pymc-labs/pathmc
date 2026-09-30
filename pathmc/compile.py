@@ -43,12 +43,13 @@ from typing import Any, Callable, Literal
 import narwhals.stable.v1 as nw
 import networkx as nx
 import numpy as np
+import pandas as pd
 import patsy
 import pymc as pm
 
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
-from pathmc.parse import Regression, Spec, Term, TransformCall
+from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
 from pathmc.transforms import get_transform
 
 __all__: list[str] = []
@@ -163,21 +164,30 @@ class PredictorSlot:
     """
 
     name: str
-    coeff_type: Literal["free", "fixed", "basis"]
+    coeff_type: Literal["free", "fixed", "basis", "categorical"]
     coeff_value: float | None = None
-    kind: Literal["intercept", "plain", "interaction", "transform", "lag", "basis"] = (
-        "plain"
-    )
+    kind: Literal[
+        "intercept",
+        "plain",
+        "interaction",
+        "transform",
+        "lag",
+        "basis",
+        "categorical",
+    ] = "plain"
     lag_of: str | None = None
     interaction_parts: tuple[str, ...] | None = None
     transform: TransformCall | None = None
     basis: Any | None = None
+    categorical: CategoricalCall | None = None
     # NOTE: a ``basis`` slot carries its own basis weights and never draws a
     # scalar coefficient from ``beta``. Its ``coeff_type`` is the inert
     # ``"basis"`` marker (not ``"free"``) so that any ``coeff_type``-based
     # counting -- ``build_mu``'s ``free_idx`` and ``_compile_residual_block``'s
     # ``has_free`` -- automatically excludes it.  Every consumer must
     # short-circuit ``kind == "basis"`` before reading ``coeff_type``.
+    # ``categorical`` slots follow the same rule: they own a per-level
+    # coefficient vector and never consume a ``beta`` entry.
 
 
 @dataclass
@@ -263,7 +273,11 @@ def get_predictor_columns(
     cols: list[str] = []
     if _effective_has_intercept(reg, pooling, panel_info):
         cols.append("Intercept")
-    cols.extend(t.variable for t in reg.terms)
+    for term in reg.terms:
+        if term.categorical is not None and term.categorical.columns:
+            cols.extend(term.categorical.columns)
+        else:
+            cols.append(term.variable)
     return cols
 
 
@@ -283,7 +297,9 @@ def get_free_predictor_columns(
     # Basis terms carry their own weights (not a scalar beta column), so
     # they are excluded here to keep ``beta`` sized to the plain/free terms.
     cols.extend(
-        t.variable for t in reg.terms if t.fixed_value is None and t.basis is None
+        t.variable
+        for t in reg.terms
+        if t.fixed_value is None and t.basis is None and t.categorical is None
     )
     return cols
 
@@ -347,6 +363,16 @@ def build_mu_specs(
             )
 
         for term in reg.terms:
+            if term.categorical is not None:
+                slots.append(
+                    PredictorSlot(
+                        name=term.variable,
+                        coeff_type="categorical",
+                        kind="categorical",
+                        categorical=term.categorical,
+                    )
+                )
+                continue
             # Basis dispatch takes priority: it carries its own weights and
             # uses the inert ``coeff_type="basis"`` marker so free/fixed
             # coefficient bookkeeping skips it.
@@ -367,7 +393,13 @@ def build_mu_specs(
 
             if term.transform is not None:
                 kind: Literal[
-                    "intercept", "plain", "interaction", "transform", "lag", "basis"
+                    "intercept",
+                    "plain",
+                    "interaction",
+                    "transform",
+                    "lag",
+                    "basis",
+                    "categorical",
                 ] = "transform"
             elif term.interaction_of is not None:
                 kind = "interaction"
@@ -424,7 +456,9 @@ def build_design_matrix(
     rewrapped to the input backend with ``nw.from_dict(...)``. Do not remove
     the ``.to_pandas()`` call — polars (and other non-pandas) inputs rely on it.
     """
-    rhs_parts = [t.variable for t in reg.terms]
+    from pathmc.categorical import encode_categorical
+
+    rhs_parts = [t.variable for t in reg.terms if t.categorical is None]
     n = len(data)
 
     missing: list[str] = []
@@ -439,7 +473,14 @@ def build_design_matrix(
             columns["Intercept"] = np.ones(n)
         for term in reg.terms:
             v = term.variable
-            if term.interaction_of is not None:
+            if term.categorical is not None and v in data.columns:
+                encoded = encode_categorical(term.categorical, data[v].to_numpy())
+                for idx, name in enumerate(term.categorical.columns):
+                    columns[name] = encoded[:, idx]
+            elif term.categorical is not None:
+                for name in term.categorical.columns:
+                    columns[name] = np.full(n, np.nan)
+            elif term.interaction_of is not None:
                 product = np.ones(n)
                 for part in term.interaction_of:
                     if part in data.columns:
@@ -462,13 +503,36 @@ def build_design_matrix(
         )
 
     if _effective_has_intercept(reg, pooling, panel_info):
-        formula_str = " + ".join(rhs_parts)
+        formula_str = " + ".join(rhs_parts) if rhs_parts else "1"
     else:
-        formula_str = "0 + " + " + ".join(rhs_parts)
+        formula_str = "0 + " + " + ".join(rhs_parts) if rhs_parts else "0"
 
-    dm = patsy.dmatrix(formula_str, data=data.to_pandas(), return_type="dataframe")
+    pandas_data = data.to_pandas()
+    base_vars = {v for term in reg.terms for v in _term_base_vars(term)}
+    numeric_object_kinds = {"complex", "decimal", "floating", "integer"}
+    for variable in base_vars & set(pandas_data.columns):
+        series = pandas_data[variable]
+        if not pd.api.types.is_object_dtype(series.dtype):
+            continue
+        inferred = pd.api.types.infer_dtype(series, skipna=True)
+        if inferred in numeric_object_kinds or inferred == "mixed-integer-float":
+            pandas_data[variable] = pd.to_numeric(series)
+
+    dm = patsy.dmatrix(formula_str, data=pandas_data, return_type="dataframe")
+    columns = {str(col): dm[col].to_numpy() for col in dm.columns}
+    for term in reg.terms:
+        if term.categorical is None:
+            continue
+        encoded = encode_categorical(term.categorical, data[term.variable].to_numpy())
+        for idx, name in enumerate(term.categorical.columns):
+            columns[name] = encoded[:, idx]
     return nw.from_dict(
-        {str(col): dm[col].to_numpy() for col in dm.columns},
+        {
+            name: columns[name]
+            for name in get_predictor_columns(
+                reg, pooling=pooling, panel_info=panel_info
+            )
+        },
         backend=data.implementation,
     )
 
@@ -564,7 +628,19 @@ def compile_to_pymc(
 
     _validate_basis_capabilities(spec, panel_info)
     _reject_basis_in_residual_blocks(spec)
-    _reject_nan_predictors(data, graph_info)
+    if panel_info is not None and _spec_has_categorical(spec):
+        raise NotImplementedError(
+            "Categorical predictors are not supported in panel models yet. "
+            "Fit the categorical effect in a cross-sectional model or encode "
+            "the predictor manually."
+        )
+    categorical_vars = {
+        term.variable
+        for reg in spec.regressions
+        for term in reg.terms
+        if term.categorical is not None
+    }
+    _reject_nan_predictors(data, graph_info, categorical_vars=categorical_vars)
 
     _reject_scan_panel_residual_cov(spec, panel_info)
 
@@ -620,6 +696,12 @@ def compile_to_pymc(
                 coords[basis.weights_dim(reg.lhs, term.basis)] = list(
                     range(basis.n_basis(term.basis))
                 )
+            if term.categorical is not None:
+                from pathmc.categorical import coefficient_levels
+
+                coords[f"{reg.lhs}_{term.variable}_levels"] = [
+                    str(level) for level in coefficient_levels(term.categorical)
+                ]
 
     needs_unit_coord = bool(coef_entries) or none_transform_flag
     if (has_random_intercepts or needs_unit_coord) and panel_info is not None:
@@ -675,8 +757,18 @@ def compile_to_pymc(
                     transform_param_rvs[pname] = transform_param_rvs[pname][unit_idx]
 
         data_vars: dict[str, Any] = {}
+        categorical_source_vars = {
+            term.variable
+            for reg in spec.regressions
+            for term in reg.terms
+            if term.categorical is not None
+        }
         for var in graph_info.topological_order:
-            if var in graph_info.exogenous and var in data.columns:
+            if (
+                var in graph_info.exogenous
+                and var in data.columns
+                and var not in categorical_source_vars
+            ):
                 data_vars[var] = pm.Data(var, data[var].to_numpy().astype(float))
 
         basis_states: dict[tuple[str, str, str, str | None], Any] = {}
@@ -709,6 +801,35 @@ def compile_to_pymc(
                     )
         pymc_model._pathmc_basis_states = basis_states
         pymc_model._pathmc_data_bases = basis_bindings
+
+        categorical_bases: dict[tuple[str, str], Any] = {}
+        categorical_coefficients: dict[tuple[str, str], Any] = {}
+        for reg in spec.regressions:
+            for term in reg.terms:
+                call = term.categorical
+                if call is None:
+                    continue
+                cat_key = (reg.lhs, term.variable)
+                indicator_name = f"_cat_{reg.lhs}_{term.variable}"
+                indicators = np.column_stack([
+                    design_matrices[reg.lhs][column].to_numpy()
+                    for column in call.columns
+                ])
+                categorical_bases[cat_key] = pm.Data(indicator_name, indicators)
+                dim = f"{reg.lhs}_{term.variable}_levels"
+                beta_name = f"beta_{reg.lhs}_{term.variable}"
+                if call.prior == "hierarchical":
+                    mu = priors[f"mu_{beta_name}"].create_variable(f"mu_{beta_name}")
+                    sigma = priors[f"sigma_{beta_name}"].create_variable(
+                        f"sigma_{beta_name}"
+                    )
+                    categorical_coefficients[cat_key] = pm.Normal(
+                        beta_name, mu=mu, sigma=sigma, dims=dim
+                    )
+                else:
+                    categorical_coefficients[cat_key] = _ensure_dims(
+                        priors[beta_name], dim
+                    ).create_variable(beta_name)
 
         endogenous_rvs: dict[str, Any] = {}
 
@@ -749,6 +870,8 @@ def compile_to_pymc(
                 transform_param_rvs,
                 panel_info,
                 priors,
+                categorical_bases=categorical_bases,
+                categorical_coefficients=categorical_coefficients,
                 topological_order=block_topo,
                 generative=generative,
             )
@@ -799,6 +922,8 @@ def compile_to_pymc(
                 basis_data_vars=basis_data_vars,
                 block_vars=block_vars,
                 prefer_observed_block_members=False,
+                categorical_bases=categorical_bases,
+                categorical_coefficients=categorical_coefficients,
             )
             mu_gen = build_mu(mu_specs[var], resolver_gen, beta, pt.zeros(len(data)))
 
@@ -818,6 +943,8 @@ def compile_to_pymc(
                     basis_data_vars=basis_data_vars,
                     block_vars=block_vars,
                     prefer_observed_block_members=True,
+                    categorical_bases=categorical_bases,
+                    categorical_coefficients=categorical_coefficients,
                 )
                 mu_est = build_mu(
                     mu_specs[var], resolver_est, beta, pt.zeros(len(data))
@@ -862,6 +989,7 @@ def compile_to_pymc(
                 endogenous_rvs[var] = rv
 
     pymc_model._pathmc_block_joint_rvs = block_joint_rvs
+    pymc_model._pathmc_categorical_vars = categorical_source_vars
     return pymc_model
 
 
@@ -903,11 +1031,12 @@ def build_mu(
     free_idx = 0
 
     for slot in mu_spec.slots:
-        # A basis is handled first, before any coefficient bookkeeping: the
-        # resolver returns its full owned-coefficient contribution, and we
-        # must not advance ``free_idx`` (which is aligned with ``beta``, sized
-        # by ``get_free_predictor_columns`` and excludes basis slots).
-        if slot.kind == "basis":
+        # Basis and categorical slots are handled first, before any
+        # coefficient bookkeeping: the resolver returns their full
+        # owned-coefficient contribution, and we must not advance
+        # ``free_idx`` (which is aligned with ``beta``, sized by
+        # ``get_free_predictor_columns`` and excludes both slot kinds).
+        if slot.kind in ("basis", "categorical"):
             mu = mu + resolver(slot)
             continue
 
@@ -940,6 +1069,8 @@ def _predictor_names_in_mu_spec(mu_spec: MuSpec) -> list[str]:
         elif slot.kind == "transform" and slot.transform is not None:
             names.append(_get_adstock_input(slot.transform))
         elif slot.kind == "basis" and slot.name is not None:
+            names.append(slot.name)
+        elif slot.kind == "categorical" and slot.name is not None:
             names.append(slot.name)
     return names
 
@@ -978,6 +1109,8 @@ def _make_cross_sectional_resolver(
     *,
     block_vars: set[str] | None = None,
     prefer_observed_block_members: bool = False,
+    categorical_bases: dict[tuple[str, str], Any] | None = None,
+    categorical_coefficients: dict[tuple[str, str], Any] | None = None,
 ) -> Callable[[PredictorSlot], Any]:
     """Create a resolver for cross-sectional mu construction.
 
@@ -1012,6 +1145,12 @@ def _make_cross_sectional_resolver(
         return pt.as_tensor_variable(data[name].to_numpy().astype(float))
 
     def resolve(slot: PredictorSlot) -> Any:
+        if slot.kind == "categorical":
+            assert lhs is not None
+            assert categorical_bases is not None
+            assert categorical_coefficients is not None
+            cat_key = (lhs, slot.name)
+            return categorical_bases[cat_key] @ categorical_coefficients[cat_key]
         if slot.kind == "basis":
             assert slot.basis is not None
             assert lhs is not None and priors is not None, (
@@ -1583,6 +1722,8 @@ def _compile_residual_block(
     transform_param_rvs: dict[str, Any],
     panel_info: PanelInfo | None = None,
     priors: dict[str, Any] | None = None,
+    categorical_bases: dict[tuple[str, str], Any] | None = None,
+    categorical_coefficients: dict[tuple[str, str], Any] | None = None,
     topological_order: list[str] | None = None,
     *,
     generative: bool = False,
@@ -1652,6 +1793,10 @@ def _compile_residual_block(
             transform_map,
             transform_param_rvs,
             panel_info,
+            lhs=var,
+            priors=priors,
+            categorical_bases=categorical_bases,
+            categorical_coefficients=categorical_coefficients,
         )
         mu = build_mu(ms, resolver, beta, pt.zeros(len(data)))
 
@@ -1669,6 +1814,13 @@ def _compile_residual_block(
     for i, var in enumerate(block_sorted):
         endogenous_rvs[var] = pm.Deterministic(var, joint[:, i])
     return str(joint.name)
+
+
+def _spec_has_categorical(spec: Spec) -> bool:
+    """Return True if any regression uses a categorical predictor."""
+    return any(
+        term.categorical is not None for reg in spec.regressions for term in reg.terms
+    )
 
 
 def _reject_basis_in_residual_blocks(spec: Spec) -> None:
@@ -1722,7 +1874,12 @@ def _validate_basis_capabilities(spec: Spec, panel_info: PanelInfo | None) -> No
                     )
 
 
-def _reject_nan_predictors(data: nw.DataFrame, graph_info: GraphInfo) -> None:
+def _reject_nan_predictors(
+    data: nw.DataFrame,
+    graph_info: GraphInfo,
+    *,
+    categorical_vars: set[str] | None = None,
+) -> None:
     """Raise if a purely-exogenous (predictor) column contains NaN/inf.
 
     Outcome (endogenous, LHS) variables get first-class missing-data
@@ -1746,6 +1903,8 @@ def _reject_nan_predictors(data: nw.DataFrame, graph_info: GraphInfo) -> None:
     """
     for var in sorted(graph_info.exogenous):
         if var not in data.columns:
+            continue
+        if categorical_vars and var in categorical_vars:
             continue
         vals = np.asarray(data[var].to_numpy(), dtype=float)
         n_bad = int((~np.isfinite(vals)).sum())

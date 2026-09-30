@@ -94,6 +94,26 @@ Y ~ M + X
 
 Use labels when you need to refer to specific coefficients — for defined parameters, `effect()` path queries, or readability. Leave them off when you just need the structural relationship in the DAG.
 
+### Categorical predictors
+
+String and pandas categorical columns are recognised automatically and expanded with **treatment coding**: one level is the reference (absorbed into the intercept) and every other level gets a named coefficient in its own vector, `beta_{lhs}_{variable}`, indexed by level name. Use `C()` to make the coding explicit, to declare an integer-coded column as labels, to choose the reference, or to request hierarchical shrinkage across levels:
+
+```python
+pathmc.model("sales ~ region", data=df)  # inferred from dtype
+pathmc.model("sales ~ C(region, reference='south')", data=df)  # explicit reference
+pathmc.model("sales ~ C(store, prior='hierarchical')", data=df)
+pathmc.model("sales ~ 0 + region", data=df)  # one coefficient per level
+```
+
+| Column | Treated as |
+|---|---|
+| strings, `StringDtype`, pandas `Categorical` | categorical |
+| integers / floats | continuous unless wrapped in `C()` |
+
+The level set and reference are **frozen when the model is built**. `model.equations()` and `model.design("sales")` show exactly what was frozen, `do(set={"region": "south"})` and `ate("sales", "region", values=("north", "south"))` accept labels, and `predict(data=...)` re-encodes new rows against the fitted levels — an unseen label raises rather than silently changing the coding.
+
+Categorical predictors are currently cross-sectional and support treatment or cell-means coding only; interactions, transforms, categorical outcomes, and panel models are rejected with an explanatory error. See [Categorical Predictors](categorical-predictors.qmd) for the full reference — inference rules, coding schemes, parameter names, priors, scaling, and the error contract — and the [worked example](/docs/examples/foundations/categorical_predictors.html) for a simulate → fit → intervene walkthrough with figures.
+
 ### Interaction terms
 
 Interaction terms capture **effect modification** — when the effect of one variable depends on another. Use the `:` operator to create interactions:
