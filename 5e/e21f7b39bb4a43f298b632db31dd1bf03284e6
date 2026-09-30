@@ -1,0 +1,52 @@
+docs/user_guide/19-panel-data.qmd
+  s_d5b556c77433bd::t_bdc00dbeb484f9 60
+docs/examples/05-panel-time/did.qmd
+  s_d5b556c77433bd::t_4c4ff2496ae5c2 117
+docs/examples/06-applied-models/mmm_awareness.qmd
+  s_d5b556c77433bd::t_7bd4896f8451a5 564
+docs/examples/06-applied-models/mmm.qmd
+  s_d5b556c77433bd::t_9a701d576c5e7b 153
+  s_d5b556c77433bd::t_40167acd17df27 1028
+  s_d5b556c77433bd::t_d3c5e40dbf6231 1055
+docs/examples/06-applied-models/dynamic_pricing.qmd
+  s_d5b556c77433bd::t_5d866071cbed99 257
+  s_d5b556c77433bd::t_064a9cbc2367d1 290
+docs/examples/05-panel-time/panel_data.qmd
+  s_d5b556c77433bd::t_22fe1354770d80 268
+docs/user_guide/20-panel-interventions.qmd
+  s_d5b556c77433bd::t_72344f6dc0863f 264
+docs/user_guide/00-welcome.qmd
+  s_d5b556c77433bd::t_7c5c98a566b7dc 209
+_freeze/docs/examples/applied-models/dynamic_pricing/execute-results/html.json
+  s_d5b556c77433bd::t_23b497245c06ce 5
+_freeze/docs/examples/applied-models/mmm/execute-results/html.json
+  s_d5b556c77433bd::t_566db829f2b88d 5
+_freeze/docs/examples/panel-time/did/execute-results/html.json
+  s_d5b556c77433bd::t_a699e65aa3f86e 5
+_freeze/docs/examples/panel-time/panel_data/execute-results/html.json
+  s_d5b556c77433bd::t_0e62c5896123ce 5
+_freeze/index/execute-results/html.json
+  s_d5b556c77433bd::t_34af3861c4b45b 5
+_freeze/user-guide/panel-interventions/execute-results/html.json
+  s_d5b556c77433bd::t_293fc034d7e8d0 5
+_freeze/docs/examples/applied-models/mmm_awareness/execute-results/html.json
+  s_d5b556c77433bd::t_6f521c546bcd57 2,5,15
+_freeze/docs/examples/applied-models/mmm_awareness/figure-html/cell-15-output-1.svg
+  s_d5b556c77433bd::t_233b05ad72e1a7 16-25,41-47,49-55,57-61,63-75,78,80-83,85-89,91-97,99-103,105,107-109,111-149,152,154-167,172-175,178,180-181,183-187,189-193,196,198-201,204,206-207,209-213,215-219,221-227,238,240-241,252,254-255,257-271,273-286,294,296-297,299-303,305-309,320,326,347-351,354,356-357,359-363,373-377,380,382-383,385-389,399-403,406,408-409,411-415
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5ee21f7b39bb4a43f298b632db31dd1bf03284e6",
+  "prompts": {},
+  "sessions": {
+    "s_d5b556c77433bd": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "4c9c9677-1745-42e3-ab46-6b281f344757",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
