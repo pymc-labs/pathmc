@@ -414,6 +414,33 @@ class TestIsValidAdjustmentSet:
         with pytest.raises(ValueError, match="descendant"):
             is_valid_adjustment_set(g, "X", "Y", {"M"})
 
+    def test_blocked_collider_is_valid(self):
+        """M-bias plus a direct effect: {A, M} and {B, M} satisfy backdoor.
+
+        M is a collider on X <- A -> M <- B -> Y, but A (or B) already
+        blocks that path. Conditioning on M alone opens it.
+        """
+        g = build_graph(parse_spec("M ~ A + B\nX ~ A\nY ~ X + B"))
+        assert is_valid_adjustment_set(g, "X", "Y", {"A", "M"})
+        assert is_valid_adjustment_set(g, "X", "Y", {"B", "M"})
+        with pytest.raises(ValueError, match="does not block all backdoor"):
+            is_valid_adjustment_set(g, "X", "Y", {"M"})
+
+    def test_adjustment_model_accepts_blocked_collider(self, rng):
+        n = 40
+        a = rng.normal(size=n)
+        b = rng.normal(size=n)
+        df = pd.DataFrame({
+            "A": a,
+            "B": b,
+            "M": a + b,
+            "X": a,
+            "Y": a + b,
+        })
+        model = pathmc.model("M ~ A + B\nX ~ A\nY ~ X + B", data=df)
+        adjusted = model.adjustment_model("X -> Y", adjustment_set={"A", "M"})
+        assert adjusted.adjustment_set == frozenset({"A", "M"})
+
 
 class TestResidualBlockValidation:
     """``is_valid_adjustment_set`` must honor ``~~`` blocks like ``adjustment_sets``."""

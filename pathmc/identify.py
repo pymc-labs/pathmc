@@ -182,8 +182,11 @@ def is_valid_adjustment_set(
 
     A set is valid when every member is an observed DAG node, excludes
     treatment and outcome, contains no treatment descendants or latents,
-    introduces no collider bias, and blocks all backdoor paths. The set
-    need not be minimal; supersets of a valid set are accepted.
+    and blocks all backdoor paths. A member may be a collider on some
+    treatment–outcome path when the rest of the set already blocks that
+    path. The set need not be minimal; supersets of a valid set are
+    accepted. ``collider_warnings()`` still lists colliders in *z* as
+    an advisory check.
 
     Parameters
     ----------
@@ -245,10 +248,6 @@ def is_valid_adjustment_set(
             f"{descendants_in_z}. Descendants of the treatment cannot be "
             f"in an adjustment set — remove them from adjustment_set=."
         )
-
-    warnings_list = collider_warnings(graph_info, z, treatment, outcome)
-    if warnings_list:
-        raise ValueError(warnings_list[0])
 
     mutilated = dag.copy()
     mutilated.remove_edges_from(list(dag.in_edges(treatment)))
