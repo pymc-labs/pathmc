@@ -173,7 +173,7 @@ The custom priors concentrate probability mass in the plausible range. The model
 With priors that encode our domain knowledge, we can proceed to posterior inference.
 
 ```{python}
-model.fit(draws=500, tune=500, chains=4, random_seed=42)
+model.fit(random_seed=42)
 ```
 
 ```{python}

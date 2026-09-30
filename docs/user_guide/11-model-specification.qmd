@@ -8,6 +8,8 @@ It lets you specify a system of structural equations using a concise, [lavaan](h
 
 ```{mermaid}
 %%| fig-cap: "The pathmc pipeline: a spec string is parsed, compiled into a generative PyMC model, then used for estimation (`pm.observe`) and intervention (`pm.do`)."
+%%| fig-width: 8
+%%| fig-align: center
 flowchart LR
   A["DSL spec<br/>(~ , ~~ , :=)"] --> B["Parsed Spec + Causal DAG<br/>(networkx GraphInfo)"]
   B --> C["Compile generative PyMC model"]

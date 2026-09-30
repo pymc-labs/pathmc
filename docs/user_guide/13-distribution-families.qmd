@@ -1,0 +1,38 @@
+---
+title: "Distribution Families"
+guide-section: "Concepts"
+---
+
+The default outcome is Gaussian. Pass `families=` when an outcome is a probability, a count, an overdispersed count, or a continuous variable with heavy tails. The family changes the likelihood and the link; it does not change the structural equation you write in the spec. Predictor [transforms](transforms.qmd) are the other extension, and the two combine: a transformed predictor can feed a non-Gaussian outcome.
+
+| Family | Syntax | Link | Extra parameters |
+|--------|--------|------|-----------------|
+| Gaussian | (default) | identity | σ |
+| Bernoulli | `families={"Y": "bernoulli"}` | logit | — |
+| Poisson | `families={"Y": "poisson"}` | log | — |
+| NegBinomial | `families={"Y": "negbinomial"}` | log | dispersion α |
+| StudentT | `families={"Y": "studentt"}` | identity | degrees of freedom ν |
+
+```python
+model = pathmc.model(
+    """
+    click ~ ad_spend + placement
+    """,
+    data=df,
+    families={"click": "bernoulli"},
+)
+model.fit(random_seed=42)
+```
+
+The structural equation is still on the link scale. A Bernoulli coefficient is a change in log-odds, not a change in probability. Read probability-scale effects from `ate()`, `comparisons()`, or `slopes()` after fitting, not from the coefficient itself.
+
+## Posterior predictive checks
+
+After sampling, `.predict()` draws new outcomes from the fitted likelihood. That is the check that the family, and not only the mean structure, is plausible: simulated clicks should look like binary data, and simulated counts should look like counts.
+
+```python
+idata = model.predict()
+# idata.posterior_predictive contains simulated outcomes
+```
+
+See the [Media Mix Models](../docs/examples/applied-models/mmm.qmd) example for transforms and a posterior predictive check together.
