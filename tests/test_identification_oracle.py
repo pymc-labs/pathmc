@@ -43,7 +43,7 @@ import networkx as nx
 import pytest
 
 from pathmc.graph import GraphInfo
-from pathmc.identify import adjustment_sets, is_identifiable
+from pathmc.identify import adjustment_sets, is_identifiable, is_valid_adjustment_set
 
 
 def _graph_info(
@@ -254,6 +254,8 @@ _RANDOM_DAGS: list[list[tuple[str, str]]] = [
     [("U", "X"), ("X", "M"), ("M", "Y"), ("U", "M")],
     [("A", "X"), ("B", "X"), ("A", "Y"), ("C", "Y"), ("X", "Y"), ("B", "C")],
     [("B", "X"), ("X", "A"), ("A", "Y"), ("X", "Y"), ("B", "Y"), ("B", "A")],
+    # M-bias with a direct effect: {A, M} is valid and contains a collider.
+    [("A", "M"), ("B", "M"), ("A", "X"), ("X", "Y"), ("B", "Y")],
 ]
 
 
@@ -285,6 +287,44 @@ def test_adjustment_sets_matches_d_separation_oracle(edges, treatment, outcome):
 
     # is_identifiable must agree with "oracle found at least one valid set".
     assert is_identifiable(g, treatment, outcome) == bool(oracle_all)
+
+
+@pytest.mark.parametrize("edges", _RANDOM_DAGS, ids=range(len(_RANDOM_DAGS)))
+@pytest.mark.parametrize("treatment,outcome", [("X", "Y")])
+def test_is_valid_adjustment_set_matches_d_separation_oracle(edges, treatment, outcome):
+    """Every non-descendant subset must match the backdoor oracle.
+
+    ``adjustment_sets`` only returns minimal sets. This checks the
+    superset-aware validator. The M-bias DAG in ``_RANDOM_DAGS`` includes
+    a valid set that contains a collider.
+    """
+    dag = nx.DiGraph()
+    dag.add_edges_from(edges)
+    if treatment not in dag.nodes or outcome not in dag.nodes:
+        pytest.skip("DAG does not contain both X and Y")
+
+    g = GraphInfo(
+        topological_order=list(nx.topological_sort(dag)),
+        exogenous={n for n in dag.nodes if dag.in_degree(n) == 0},
+        endogenous={n for n in dag.nodes if dag.in_degree(n) > 0},
+        residual_blocks=[],
+        latent=set(),
+        _dag=dag,
+    )
+    oracle_all = _oracle_valid_sets(dag, treatment, outcome)
+    descendants = nx.descendants(dag, treatment)
+    candidates = set(dag.nodes) - {treatment, outcome} - descendants
+    checked = 0
+    for size in range(len(candidates) + 1):
+        for subset in combinations(sorted(candidates), size):
+            z = set(subset)
+            checked += 1
+            if frozenset(z) in oracle_all:
+                assert is_valid_adjustment_set(g, treatment, outcome, z)
+            else:
+                with pytest.raises(ValueError, match="does not block all backdoor"):
+                    is_valid_adjustment_set(g, treatment, outcome, z)
+    assert checked > 0
 
 
 @pytest.mark.parametrize("n_nodes", [4, 5, 6])

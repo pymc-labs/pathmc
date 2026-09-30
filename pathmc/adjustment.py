@@ -211,20 +211,35 @@ def _validate_reduced_spec(
     dag = graph_info.contemporaneous_dag
     dag_nodes = set(dag.nodes)
     extra_dag_vars = predictors - adjustment_set - {treatment}
-    for var in sorted(extra_dag_vars):
-        if var in dag_nodes:
+    # One joint check: two colliders can each leave the backdoor closed
+    # and open it only when both are conditioned on.
+    structural_extras = extra_dag_vars & dag_nodes
+    if structural_extras:
+        try:
             is_valid_adjustment_set(
                 graph_info,
                 treatment,
                 outcome,
-                set(adjustment_set | {var}),
+                set(adjustment_set | structural_extras),
             )
-        elif data is not None and var not in data.columns:
+        except ValueError as exc:
+            # The set was already valid before these predictors were added,
+            # so the fix is in formula=, not adjustment_set=.
+            extras = sorted(structural_extras)
+            detail = str(exc).replace("adjustment_set=", "formula=")
             raise ValueError(
-                f"Formula variable '{var}' is not in the DAG and not found "
-                f"in data columns. Available columns: "
-                f"{sorted(data.columns)}."
-            )
+                f"Formula predictors {extras} make conditioning set "
+                f"{sorted(set(adjustment_set) | structural_extras)} invalid "
+                f"for '{treatment}' -> '{outcome}'. {detail}"
+            ) from exc
+    if data is not None:
+        for var in sorted(extra_dag_vars - dag_nodes):
+            if var not in data.columns:
+                raise ValueError(
+                    f"Formula variable '{var}' is not in the DAG and not found "
+                    f"in data columns. Available columns: "
+                    f"{sorted(data.columns)}."
+                )
 
 
 def _inherit_outcome_priors(

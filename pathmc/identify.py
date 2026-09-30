@@ -182,8 +182,11 @@ def is_valid_adjustment_set(
 
     A set is valid when every member is an observed DAG node, excludes
     treatment and outcome, contains no treatment descendants or latents,
-    introduces no collider bias, and blocks all backdoor paths. The set
-    need not be minimal; supersets of a valid set are accepted.
+    and blocks all backdoor paths. A member may be a collider on some
+    treatment–outcome path when that path stays blocked elsewhere. The
+    set need not be minimal. Non-minimal sets are accepted when they
+    still block all backdoor paths. ``collider_warnings()`` lists
+    colliders in *z* as a heuristic and does not decide validity.
 
     Parameters
     ----------
@@ -245,10 +248,6 @@ def is_valid_adjustment_set(
             f"{descendants_in_z}. Descendants of the treatment cannot be "
             f"in an adjustment set — remove them from adjustment_set=."
         )
-
-    warnings_list = collider_warnings(graph_info, z, treatment, outcome)
-    if warnings_list:
-        raise ValueError(warnings_list[0])
 
     mutilated = dag.copy()
     mutilated.remove_edges_from(list(dag.in_edges(treatment)))
@@ -416,11 +415,13 @@ def collider_warnings(
     treatment: str,
     outcome: str,
 ) -> list[str]:
-    """Check if any variable in the adjustment set is a collider
-    on a path between treatment and outcome.
+    """Warn when an adjustment variable is a collider on a path
+    between treatment and outcome.
 
-    Conditioning on a collider opens a spurious path and introduces
-    bias. This function warns about such variables.
+    This is a structural heuristic. It flags the collider even when
+    the rest of the set, or another unconditioned collider, keeps that
+    path blocked. ``is_valid_adjustment_set()`` decides whether the
+    set satisfies the backdoor criterion.
 
     .. note::
 
