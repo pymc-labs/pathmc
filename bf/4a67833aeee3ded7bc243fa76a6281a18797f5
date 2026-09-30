@@ -30,6 +30,12 @@ pathmc/_model.py
   s_aff722155995c8::t_be82f07deea1c8 220-221,1019,1021-1025
   s_aff722155995c8::t_5879ca40b84086 433-435,1498-1538,1799,1868-1881,1898
   s_aff722155995c8::t_28f3a5d6d33921 324-333,335,337-338,2625,2629,2694-2696,2917,2950-2951
+  s_e76142691d7a06::t_a31f05569cce74 336
+  s_e76142691d7a06::t_da35d1f25c20b8 2947
+  s_e76142691d7a06::t_bf358a7ebe139b 334
+  s_e76142691d7a06::t_8d90cb3b3e94dd 2693
+  s_e76142691d7a06::t_b58c3abe55ebab 233-235,240,244,246
+  s_e76142691d7a06::t_d76376ae24565b 1031-1042,1044-1054,1096-1097
 pathmc/simulate.py
   s_aff722155995c8::t_eb60a1be0cda77 28,1386
   s_aff722155995c8::t_4ea89b7184a0c4 1332,1385,1461-1462,1513-1514
@@ -53,6 +59,13 @@ pathmc/compile.py
   s_aff722155995c8::t_04a61b8d6b17f7 46,510-519,521
   s_aff722155995c8::t_4dfa798fa5e01c 1798-1799
   s_aff722155995c8::t_841a1ae7dc795f 509
+  s_e76142691d7a06::t_89434702daedb9 167,175,189-190
+  s_e76142691d7a06::t_4b857d63cd906c 52
+  s_e76142691d7a06::t_567b3886862038 1152-1153
+  s_e76142691d7a06::t_ad774faebd14b6 812-814,818,826,830
+  s_e76142691d7a06::t_1d2068f8af878d 1034-1039
+  s_e76142691d7a06::t_1ce8f728e8d95e 300-302
+  s_e76142691d7a06::t_0ec069a6448893 401
 pathmc/categorical.py
   s_aff722155995c8::t_cfd8262325b01b 116-123
   s_aff722155995c8::t_be82f07deea1c8 124,176-197
@@ -87,6 +100,14 @@ pathmc/parse.py
         "tool": "codex",
         "id": "01a0bb70-dce3-7941-b287-d842d9962a61",
         "model": "gpt-5.6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    },
+    "s_e76142691d7a06": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "05e5326e-455f-43c5-bbad-b291cf852c3f",
+        "model": "claude-fable-5-1"
       },
       "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
     }
