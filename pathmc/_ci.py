@@ -206,7 +206,13 @@ def _orthonormal_residual_basis(
     u, s, _ = np.linalg.svd(resid, full_matrices=False)
     if s.size == 0:
         return u[:, :0]
-    tol = s.max() * max(resid.shape) * np.finfo(resid.dtype).eps
+    # The cutoff is relative to the centred block, not to the residual: when
+    # [1, Z] spans the block entirely the residual is pure rounding noise,
+    # and a residual-relative cutoff would keep every noise direction.
+    scale = float(np.linalg.norm(block - block.mean(axis=0), 2))
+    if scale == 0.0:
+        return u[:, :0]
+    tol = scale * max(resid.shape) * np.finfo(resid.dtype).eps
     return u[:, s > tol]
 
 

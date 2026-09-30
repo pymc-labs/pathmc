@@ -143,15 +143,40 @@ class TestHierarchicalCategorical:
         assert "mu_y = x + C(region, prior='hierarchical'" in text
         assert "reference=" not in text
 
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            "y ~ x + C(region, prior='hierarchical') + ch",
+            "y ~ x + ch + C(region, prior='hierarchical')",
+        ],
+    )
+    def test_treatment_coded_term_does_not_block_absorption(
+        self, two_categorical_data, spec
+    ):
+        model = pathmc.model(spec, data=two_categorical_data)
+        design = model.design("y")
+        assert "Intercept" not in design.columns
+        assert set(design.columns) == {
+            "x",
+            "ch[T.b]",
+            "region[north]",
+            "region[south]",
+            "region[west]",
+        }
+        assert np.linalg.matrix_rank(design.to_numpy(dtype=float)) == 5
+        rv_names = {rv.name for rv in model.pymc_model.free_RVs}
+        assert "mu_beta_y_region" in rv_names
+
     def test_later_hierarchical_term_is_zero_mean_deviation(self, two_categorical_data):
         model = pathmc.model(
-            "y ~ x + C(region) + C(ch, prior='hierarchical')", data=two_categorical_data
+            "y ~ 0 + x + C(region) + C(ch, prior='hierarchical')",
+            data=two_categorical_data,
         )
         assert list(model.design("y").columns) == [
-            "Intercept",
             "x",
-            "region[T.south]",
-            "region[T.west]",
+            "region[north]",
+            "region[south]",
+            "region[west]",
             "ch[a]",
             "ch[b]",
         ]
@@ -159,6 +184,29 @@ class TestHierarchicalCategorical:
         assert "sigma_beta_y_ch" in rv_names
         assert "mu_beta_y_ch" not in rv_names
         assert "beta_y_ch: Normal(0, sigma_beta_y_ch)" in str(model.priors())
+
+    def test_data_free_introspection_matches_fitted_model(self, two_categorical_data):
+        spec = "y ~ x + C(region, prior='hierarchical')"
+        free = pathmc.model(spec)
+        fitted = pathmc.model(spec, data=two_categorical_data)
+        free_priors = str(free.priors())
+        assert "mu_beta_y_region: Normal(mu=0, sigma=10)" in free_priors
+        assert "beta_y_region: Normal(mu_beta_y_region, sigma_beta_y_region)" in (
+            free_priors
+        )
+        assert "\nmu_y = x + C(region" in str(free.equations())
+        assert "\nmu_y = x + C(region" in str(fitted.equations())
+        free.set_priors({"mu_beta_y_region": pathmc.Prior("Normal", mu=1, sigma=2)})
+        assert "mu_beta_y_region: Normal(mu=1, sigma=2)" in str(free.priors())
+
+    def test_data_free_second_hierarchical_term_has_no_population_mean(self):
+        model = pathmc.model(
+            "y ~ C(region, prior='hierarchical') + C(ch, prior='hierarchical')"
+        )
+        text = str(model.priors())
+        assert "mu_beta_y_region" in text
+        assert "mu_beta_y_ch" not in text
+        assert "beta_y_ch: Normal(0, sigma_beta_y_ch)" in text
 
     def test_reference_does_not_change_the_hierarchical_model(
         self, two_categorical_data
@@ -305,6 +353,15 @@ class TestBlockCIEngine:
             indicator_block(np.array(["only"] * 30)), rng.normal(size=30)
         )
         assert result.skip_reason == "zero_variance"
+
+    def test_block_fully_explained_by_conditioners_is_a_named_skip(self):
+        rng = np.random.default_rng(6)
+        labels = rng.choice(["a", "b", "c"], size=120)
+        onehot = pd.get_dummies(labels).to_numpy(dtype=float)
+        result = partial_correlation_ci(
+            indicator_block(labels), rng.normal(size=120), onehot
+        )
+        assert result.skip_reason == "zero_residual_variance"
 
     def test_tester_uses_string_columns_instead_of_skipping(self):
         rng = np.random.default_rng(7)

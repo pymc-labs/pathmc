@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from pathmc.exceptions import ParseError
-from pathmc.parse import CategoricalCall, Regression, Spec
+from pathmc.parse import CategoricalCall, Regression, Spec, supplies_baseline
 
 __all__: list[str] = []
 
@@ -131,10 +131,14 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
         seen_categorical: set[str] = set()
         # Exactly one term per equation supplies the baseline of the linear
         # predictor, so the design stays full rank: the first categorical when
-        # there is no intercept, or when it is hierarchical (its population
-        # mean then absorbs the formula intercept, as mu_alpha does for panel
-        # random intercepts); otherwise the intercept itself.
-        first_categorical = True
+        # there is no intercept, or the first hierarchical categorical (its
+        # population mean then absorbs the formula intercept, as mu_alpha does
+        # for panel random intercepts); otherwise the intercept itself. A
+        # treatment-coded term leaves the baseline with the intercept, so it
+        # must not stop a later hierarchical term from taking it over. Keep in
+        # step with parse.mark_cell_means(), which applies the same rule to the
+        # explicit C() terms before any data are seen.
+        baseline_taken = False
         for term in reg.terms:
             if term.interaction_of is not None:
                 categorical_components = [
@@ -200,10 +204,10 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
                     f"'{term.variable}' was not observed. Available levels: "
                     f"{list(levels)!r}."
                 )
-            cell_means = first_categorical and (
-                not reg.has_intercept or call.prior == "hierarchical"
+            cell_means = supplies_baseline(
+                call, has_intercept=reg.has_intercept, baseline_taken=baseline_taken
             )
-            first_categorical = False
+            baseline_taken = baseline_taken or cell_means
             # A hierarchical term always keeps one coefficient per level: when
             # the baseline is supplied elsewhere its coefficients are zero-mean
             # deviations, so no level escapes pooling by being the reference.
@@ -272,10 +276,9 @@ def is_reference_coded(call: CategoricalCall) -> bool:
 def has_population_mean(call: CategoricalCall) -> bool:
     """Return whether a hierarchical term gets its own free population mean.
 
-    Only a cell-means term can carry ``mu_beta``: when the intercept (or an
-    earlier categorical) already supplies the equation's baseline, the pooled
-    coefficients are deviations around zero and a free mean would be
-    unidentified.
+    Only a cell-means term can carry ``mu_beta``: when an earlier categorical
+    already supplies the equation's baseline, the pooled coefficients are
+    deviations around zero and a free mean would be unidentified.
     """
     return call.prior == "hierarchical" and call.cell_means
 
@@ -283,9 +286,9 @@ def has_population_mean(call: CategoricalCall) -> bool:
 def absorbs_intercept(reg: Regression) -> bool:
     """Return whether a categorical term replaces the equation's intercept.
 
-    True when the formula has an intercept but a fitted cell-means term
-    (a leading hierarchical categorical) supplies the baseline instead, so
-    the ``Intercept`` column must be left out of the design.
+    True when the formula has an intercept but a cell-means term (the
+    equation's first hierarchical categorical) supplies the baseline
+    instead, so the ``Intercept`` column must be left out of the design.
     """
     return reg.has_intercept and any(
         term.categorical is not None and term.categorical.cell_means

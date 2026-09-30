@@ -96,7 +96,7 @@ Use labels when you need to refer to specific coefficients — for defined param
 
 ### Categorical predictors
 
-String and pandas categorical columns are recognised automatically and expanded with **treatment coding**: one level is the reference (absorbed into the intercept) and every other level gets a named coefficient in its own vector, `beta_{lhs}_{variable}`, indexed by level name. Use `C()` to make the coding explicit, to declare an integer-coded column as labels, to choose the reference, or to request hierarchical shrinkage across levels:
+String and pandas categorical columns are recognised automatically and expanded with **treatment coding**: one level is the reference (absorbed into the intercept) and every other level gets a named coefficient in its own vector, `beta_{lhs}_{variable}`, indexed by level name. Use `C()` to make the coding explicit, to declare an integer-coded column as labels, to choose the reference, or to request hierarchical shrinkage across levels. A hierarchical term pools every level around its own population mean, `mu_beta_{lhs}_{variable}`, and takes over the intercept's role instead of dropping a reference level:
 
 ```python
 pathmc.model("sales ~ region", data=df)  # inferred from dtype
