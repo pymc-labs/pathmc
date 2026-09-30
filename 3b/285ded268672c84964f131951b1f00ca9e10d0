@@ -1,0 +1,37 @@
+docs/examples/06-applied-models/dynamic_pricing.qmd
+  s_d5b556c77433bd::t_bb65590d1c636f 335
+  s_d5b556c77433bd::t_e0068c766f117b 366,376-377,380
+  s_d5b556c77433bd::t_0b473c05214c75 228
+  s_d5b556c77433bd::t_2464b70dee87c4 624
+  s_d5b556c77433bd::t_2ed2647da282bb 244,246
+  s_d5b556c77433bd::t_e050e6efcffe12 182
+  s_d5b556c77433bd::t_a2c00c6bccc459 240
+  s_d5b556c77433bd::t_1c82bf7bbedad3 224
+  s_d5b556c77433bd::t_1361620335fb10 362
+  s_d5b556c77433bd::t_518c99ffc21aa0 28
+  s_d5b556c77433bd::t_9b73c048d2bf8a 306
+docs/examples/06-applied-models/mmm.qmd
+  s_d5b556c77433bd::t_853473eb9a91b7 1067
+_freeze/docs/examples/applied-models/dynamic_pricing/execute-results/html.json
+  s_d5b556c77433bd::t_d6e21ea771e916 2,5,15
+_freeze/docs/examples/applied-models/mmm/execute-results/html.json
+  s_d5b556c77433bd::t_e58fee092a980c 5
+_freeze/docs/examples/applied-models/dynamic_pricing/figure-html/fig-pymc-graph-output-1.svg
+  s_d5b556c77433bd::t_0cb495821c8805 7-8,10,21-26,28-32,35,37-40,42-46,48-62,64-68,70-74,79-82,85,87-102,105,107-110,113,115-116,121-124,137-138,140,142-146,156-169,173-174,179-182,187-188,193-196,198,200-204,206-210,213,215-216,219,221-222,233,235-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3b285ded268672c84964f131951b1f00ca9e10d0",
+  "prompts": {},
+  "sessions": {
+    "s_d5b556c77433bd": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "4c9c9677-1745-42e3-ab46-6b281f344757",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
