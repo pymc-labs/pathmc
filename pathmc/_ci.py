@@ -20,10 +20,16 @@ falsification). Degrees of freedom follow the *effective rank* of the
 conditioning design, so constant, duplicated, or collinear conditioners
 behave as if they were absent, and every degenerate input maps to a
 named skip instead of a NaN or a runtime warning.
+
+The engine itself stays silent about that collapse: ``effective_k`` on
+:class:`CIResult` is the number of linearly independent conditioners
+actually used. Callers that show a result to a user compare it with the
+requested conditioning-set size and warn when the two differ.
 """
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -58,11 +64,17 @@ class CIResult:
         Number of complete observations after dropping rows with any
         missing value. Always reported, including for skips.
     df : int | None
-        Degrees of freedom of the t-test, ``n - rank([1, Z]) - 1``
+        Degrees of freedom of the t-test, ``n - effective_k - 2``
         (``n - 2`` for the marginal test). ``None`` when the test was
         skipped.
     skip_reason : CISkipReason | None
         Why the test could not be run, or ``None`` if it ran.
+    effective_k : int | None
+        Number of linearly independent conditioning columns,
+        ``rank([1, Z]) - 1`` (``0`` for the marginal test). Smaller than
+        the number of columns in ``Z`` when a conditioner is constant,
+        duplicated, or a linear combination of the others. ``None`` when
+        the test was skipped.
     """
 
     r: float | None
@@ -70,10 +82,60 @@ class CIResult:
     n: int
     df: int | None
     skip_reason: CISkipReason | None
+    effective_k: int | None
 
 
 def _skip(reason: CISkipReason, n: int) -> CIResult:
-    return CIResult(r=None, p=None, n=n, df=None, skip_reason=reason)
+    return CIResult(
+        r=None,
+        p=None,
+        n=n,
+        df=None,
+        skip_reason=reason,
+        effective_k=None,
+    )
+
+
+def _caller_stacklevel() -> int:
+    """Stack level that attributes a warning to the first non-pathmc frame."""
+    import sys
+
+    frame = sys._getframe(1)
+    level = 1
+    while frame.f_back is not None:
+        frame = frame.f_back
+        level += 1
+        module = frame.f_globals.get("__name__", "")
+        if module != "pathmc" and not module.startswith("pathmc."):
+            return level
+    return level
+
+
+def warn_conditioning_rank_collapse(statements: list[str]) -> None:
+    """Warn once that executed CI tests conditioned on a smaller set.
+
+    Parameters
+    ----------
+    statements : list[str]
+        One short label per collapsed test, including the requested size
+        and ``effective_k``. No warning is emitted when empty.
+    """
+    if not statements:
+        return
+    n_collapsed = len(statements)
+    noun = "test" if n_collapsed == 1 else "tests"
+    subject = "This test" if n_collapsed == 1 else "These tests"
+    warnings.warn(
+        f"Conditioning-set rank collapse in {n_collapsed} "
+        f"conditional-independence {noun}: {'; '.join(statements)}. "
+        f"{subject} used fewer linearly independent conditioners than "
+        f"requested, so the p-value is not evidence about the full "
+        f"independence. Drop the constant, duplicated, or collinear "
+        f"conditioner — compare effective_k with the conditioning set — "
+        f"before reading the result.",
+        UserWarning,
+        stacklevel=_caller_stacklevel(),
+    )
 
 
 def partial_correlation_ci(
@@ -109,7 +171,14 @@ def partial_correlation_ci(
         if np.std(x_vals) == 0.0 or np.std(y_vals) == 0.0:
             return _skip("zero_variance", n)
         r, p = stats.pearsonr(x_vals, y_vals)
-        return CIResult(r=float(r), p=float(p), n=n, df=n - 2, skip_reason=None)
+        return CIResult(
+            r=float(r),
+            p=float(p),
+            n=n,
+            df=n - 2,
+            skip_reason=None,
+            effective_k=0,
+        )
 
     z_with_intercept = np.column_stack([np.ones(n), arr[:, 2:]])
     # Effective rank handles constant or collinear conditioning columns:
@@ -117,6 +186,7 @@ def partial_correlation_ci(
     # reduces to the marginal one and the degrees of freedom must reflect
     # the true number of independent predictors, not the column count.
     rank = int(np.linalg.matrix_rank(z_with_intercept))
+    effective_k = rank - 1
     df = n - rank - 1
     if df <= 0:
         return _skip("nonpositive_df", n)
@@ -133,11 +203,25 @@ def partial_correlation_ci(
     if np.isnan(r):
         return _skip("nan_correlation", n)
     if r * r >= 1.0:
-        return CIResult(r=r, p=0.0, n=n, df=df, skip_reason=None)
+        return CIResult(
+            r=r,
+            p=0.0,
+            n=n,
+            df=df,
+            skip_reason=None,
+            effective_k=effective_k,
+        )
 
     t_stat = r * np.sqrt(df) / np.sqrt(1.0 - r * r)
     p = float(2.0 * stats.t.sf(np.abs(t_stat), df))
-    return CIResult(r=r, p=p, n=n, df=df, skip_reason=None)
+    return CIResult(
+        r=r,
+        p=p,
+        n=n,
+        df=df,
+        skip_reason=None,
+        effective_k=effective_k,
+    )
 
 
 class _PartialCorrelationTester:
@@ -172,7 +256,20 @@ class _PartialCorrelationTester:
             matrix = np.empty((0, 0), dtype=float)
         self._matrix = matrix
         self._col_idx = {name: i for i, name in enumerate(numeric)}
-        self._cache: dict[tuple[frozenset[str], frozenset[str]], float | None] = {}
+        self._cache: dict[tuple[frozenset[str], frozenset[str]], CIResult | None] = {}
+
+    def ci_result(self, x: str, y: str, z_vars: tuple[str, ...]) -> CIResult | None:
+        """Return the full CI result, or ``None`` if a variable is missing.
+
+        A missing numeric column has no :class:`CIResult`. A degenerate
+        test still returns one, with ``skip_reason`` set, so callers can
+        tell a skip from a rank collapse (``effective_k`` below the
+        requested conditioner count).
+        """
+        key = (frozenset((x, y)), frozenset(z_vars))
+        if key not in self._cache:
+            self._cache[key] = self._compute(x, y, z_vars)
+        return self._cache[key]
 
     def p_value(self, x: str, y: str, z_vars: tuple[str, ...]) -> float | None:
         """Return the CI test p-value, or ``None`` if it cannot be run.
@@ -181,20 +278,15 @@ class _PartialCorrelationTester:
         column, there are too few complete observations, or the test is
         otherwise degenerate (see :class:`CIResult`).
         """
-        key = (frozenset((x, y)), frozenset(z_vars))
-        if key in self._cache:
-            return self._cache[key]
-        result = self._compute(x, y, z_vars)
-        self._cache[key] = result
-        return result
+        result = self.ci_result(x, y, z_vars)
+        if result is None or result.skip_reason is not None:
+            return None
+        return result.p
 
-    def _compute(self, x: str, y: str, z_vars: tuple[str, ...]) -> float | None:
+    def _compute(self, x: str, y: str, z_vars: tuple[str, ...]) -> CIResult | None:
         needed = [x, y, *z_vars]
         if any(v not in self._col_idx for v in needed):
             return None
         cols = [self._col_idx[v] for v in needed]
         arr = self._matrix[:, cols]
-        result = partial_correlation_ci(arr[:, 0], arr[:, 1], arr[:, 2:])
-        if result.skip_reason is not None:
-            return None
-        return result.p
+        return partial_correlation_ci(arr[:, 0], arr[:, 1], arr[:, 2:])

@@ -28,7 +28,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 
-from pathmc._ci import partial_correlation_ci
+from pathmc._ci import CIResult, partial_correlation_ci, warn_conditioning_rank_collapse
 from pathmc.graph import GraphInfo
 from pathmc.reprs import ResultReprMixin
 
@@ -520,7 +520,14 @@ class ImplicationTestResult(ResultReprMixin):
     ----------
     results : pd.DataFrame
         One row per independence test with columns: ``x``, ``y``,
-        ``conditioning_set``, ``partial_corr``, ``p_value``, ``significant``.
+        ``conditioning_set``, ``effective_k``, ``df``, ``partial_corr``,
+        ``p_value``, ``n_obs``, ``significant``. ``effective_k`` is the
+        number of linearly independent conditioners actually used;
+        ``df`` is the residual degrees of freedom (``n_obs - effective_k
+        - 2``). Both are missing when the test was skipped. A row with
+        ``effective_k`` below the number of names in
+        ``conditioning_set`` did not test the independence that was
+        requested.
     alpha : float
         Significance level used for the ``significant`` column.
     """
@@ -591,6 +598,7 @@ class ImplicationTestResult(ResultReprMixin):
                 else "—"
             )
             p_str = f"{row['p_value']:.4f}" if not pd.isna(row["p_value"]) else "—"
+            statement += _rank_collapse_note(row)
 
             rows.append(
                 f"<tr{style}>"
@@ -614,6 +622,29 @@ class ImplicationTestResult(ResultReprMixin):
         )
 
         return header + table
+
+
+def _requested_conditioner_count(conditioning_set: str) -> int:
+    """Count names in a ``", "``-joined conditioning set (``""`` is empty)."""
+    if not conditioning_set:
+        return 0
+    return len(conditioning_set.split(", "))
+
+
+def _rank_collapse_note(row: pd.Series) -> str:
+    """Mark a displayed independence whose conditioning set collapsed.
+
+    Frames built before ``effective_k`` existed, or rows whose test was
+    skipped, get no marker. The marker is the only HTML change, so a
+    full-rank result renders as it did before.
+    """
+    if "effective_k" not in row.index or pd.isna(row["effective_k"]):
+        return ""
+    requested = _requested_conditioner_count(str(row["conditioning_set"]))
+    effective_k = int(row["effective_k"])
+    if effective_k >= requested:
+        return ""
+    return f" [effective_k={effective_k}]"
 
 
 def implied_independences(
@@ -700,7 +731,17 @@ def test_implications(
     Returns
     -------
     ImplicationTestResult
-        Test results with partial correlations and p-values.
+        Test results with partial correlations, p-values, residual
+        degrees of freedom (``df``), and ``effective_k``.
+
+    Warns
+    -----
+    UserWarning
+        When a conditioning set is rank-deficient (constant, duplicated,
+        or collinear columns). The test still runs on the smaller
+        effective set; ``effective_k`` is below the number of requested
+        conditioners, and the p-value is not evidence about the full
+        independence. Drop the redundant variable and re-test.
 
     Raises
     ------
@@ -708,6 +749,7 @@ def test_implications(
         If required columns are missing from *data*.
     """
     rows: list[dict] = []
+    collapsed: list[str] = []
 
     for ci in independences:
         all_vars = {ci.x, ci.y} | set(ci.conditioning_set)
@@ -719,20 +761,41 @@ def test_implications(
                 f"{sorted(data.columns)}"
             )
 
-        r, p, n = _partial_correlation_test(
-            data, ci.x, ci.y, sorted(ci.conditioning_set)
-        )
+        z_vars = sorted(ci.conditioning_set)
+        result = _partial_correlation_result(data, ci.x, ci.y, z_vars)
+        if result.skip_reason is not None:
+            r: float = np.nan
+            p: float = np.nan
+            df_value: float | int = np.nan
+            effective_k: float | int = np.nan
+        else:
+            assert result.r is not None and result.p is not None  # narrowing
+            assert result.df is not None and result.effective_k is not None
+            r = result.r
+            p = result.p
+            df_value = result.df
+            effective_k = result.effective_k
+            if result.effective_k < len(z_vars):
+                cond = ", ".join(z_vars)
+                collapsed.append(
+                    f"{ci.x} ⊥⊥ {ci.y} | {{{cond}}} "
+                    f"(requested {len(z_vars)}, effective_k {result.effective_k})"
+                )
 
-        cond_str = ", ".join(sorted(ci.conditioning_set))
+        cond_str = ", ".join(z_vars)
         rows.append({
             "x": ci.x,
             "y": ci.y,
             "conditioning_set": cond_str,
+            "effective_k": effective_k,
+            "df": df_value,
             "partial_corr": r,
             "p_value": p,
-            "n_obs": n,
+            "n_obs": result.n,
             "significant": (not np.isnan(p)) and p < alpha,
         })
+
+    warn_conditioning_rank_collapse(collapsed)
 
     if rows:
         df = pd.DataFrame(rows)
@@ -742,6 +805,8 @@ def test_implications(
                 "x",
                 "y",
                 "conditioning_set",
+                "effective_k",
+                "df",
                 "partial_corr",
                 "p_value",
                 "n_obs",
@@ -749,6 +814,22 @@ def test_implications(
             ]
         )
     return ImplicationTestResult(results=df, alpha=alpha)
+
+
+def _partial_correlation_result(
+    data: nw.DataFrame,
+    x: str,
+    y: str,
+    z_vars: list[str],
+) -> CIResult:
+    """Run the shared CI engine on named columns of *data*.
+
+    Nulls become NaN on conversion to NumPy, so the engine's ``isnan``
+    mask handles both pandas NaN and polars null/NaN.
+    """
+    cols = [x, y, *z_vars]
+    arr = data.select(cols).to_numpy().astype(float)
+    return partial_correlation_ci(arr[:, 0], arr[:, 1], arr[:, 2:])
 
 
 def _partial_correlation_test(
@@ -764,14 +845,10 @@ def _partial_correlation_test(
     columns and uses rank-aware degrees of freedom. Returns
     (partial_r, p_value, n_obs); tests the engine cannot run (too few
     complete observations, zero variance, non-positive degrees of
-    freedom) surface as (nan, nan, n_obs).
+    freedom) surface as (nan, nan, n_obs). Rank collapse is not a skip:
+    it is reported on :func:`test_implications` via ``effective_k``.
     """
-    cols = [x, y, *z_vars]
-    # Convert in numpy space: nulls become NaN on conversion, so the
-    # engine's isnan mask handles both pandas NaN and polars null/NaN
-    # semantics.
-    arr = data.select(cols).to_numpy().astype(float)
-    result = partial_correlation_ci(arr[:, 0], arr[:, 1], arr[:, 2:])
+    result = _partial_correlation_result(data, x, y, z_vars)
     if result.skip_reason is not None:
         return np.nan, np.nan, result.n
     assert result.r is not None and result.p is not None  # narrowing

@@ -189,7 +189,7 @@ print(f"falsifiable: {result.falsifiable}, falsified: {result.falsified}")
 ::: {.callout-warning}
 ## What this test can and cannot do
 
-**Conditional independence is tested with partial correlation** — the same linear-Gaussian test as `test_implications()`. Purely nonlinear dependencies are not detected, so a "not rejected" verdict is only as strong as the linear-Gaussian assumption.
+**Conditional independence is tested with partial correlation** — the same linear-Gaussian test as `test_implications()`. Purely nonlinear dependencies are not detected, so a "not rejected" verdict is only as strong as the linear-Gaussian assumption. A rank-deficient parent set is reported the same way: `local_violations` carries `effective_k` and `df`, and `falsify()` warns when `effective_k` is smaller than the parents you conditioned on. That p-value is for the smaller set.
 
 **The permutation baseline needs structure.** Tiny or sparsely connected graphs are frequently *not informative*; the test will say so rather than pretend to validate them.
 

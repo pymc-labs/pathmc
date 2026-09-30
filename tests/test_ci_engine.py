@@ -161,6 +161,8 @@ class TestImplicationsEndToEndCharacterization:
             "x",
             "y",
             "conditioning_set",
+            "effective_k",
+            "df",
             "partial_corr",
             "p_value",
             "n_obs",
@@ -390,3 +392,122 @@ class TestIdentifyDelegation:
             r, p, n = _partial_correlation_test(data, "X", "Y", ["Z"])
         assert np.isnan(r) and np.isnan(p)
         assert n == 50
+
+
+def _constant_conditioner_frame() -> pd.DataFrame:
+    """C is constant, so any set that includes C is rank-deficient.
+
+    The DAG ``M ~ C`` / ``Z ~ X`` implies two independences that condition
+    on C: M ⊥⊥ X | C, and M ⊥⊥ Z | {C, X}.
+    """
+    rng = np.random.default_rng(11)
+    n = 50
+    x = rng.normal(size=n)
+    c = np.ones(n)
+    return pd.DataFrame({
+        "C": c,
+        "X": x,
+        "M": 0.4 * c + rng.normal(size=n),
+        "Z": 0.7 * x + rng.normal(size=n),
+    })
+
+
+class TestRankCollapseIsVisible:
+    """A collapsed conditioning set must not look like the one requested (#376)."""
+
+    def test_core_reports_effective_k_without_warning(self, frame):
+        x, y = frame["X"].to_numpy(), frame["Y"].to_numpy()
+        z = _cols(frame, ["M"])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            marginal = partial_correlation_ci(x, y)
+            const = partial_correlation_ci(x, y, np.ones((len(x), 1)))
+            doubled = partial_correlation_ci(x, y, np.column_stack([z, z]))
+        assert marginal.effective_k == 0
+        assert const.effective_k == 0
+        assert const.df == marginal.df == len(x) - 2
+        assert doubled.effective_k == 1
+        assert doubled.df == len(x) - doubled.effective_k - 2
+
+    def test_skip_has_no_effective_k(self):
+        result = partial_correlation_ci(np.array([1.0, 2.0]), np.array([2.0, 1.0]))
+        assert result.effective_k is None
+
+    def test_adapter_stays_a_triple_and_does_not_warn(self):
+        data = nw.from_native(_constant_conditioner_frame(), eager_only=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            r, p, n = _partial_correlation_test(data, "M", "X", ["C"])
+        assert n == 50
+        assert not np.isnan(p)
+        assert r == _approx(_partial_correlation_test(data, "M", "X", [])[0])
+
+    def test_implications_frame_and_single_warning(self):
+        frame = _constant_conditioner_frame()
+        model = pathmc.model("M ~ C\nZ ~ X", data=frame)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = model.test_implications()
+        collapses = [w for w in caught if issubclass(w.category, UserWarning)]
+        assert len(collapses) == 1
+        assert "rank collapse" in str(collapses[0].message)
+        assert "M ⊥⊥ X | {C}" in str(collapses[0].message)
+        assert "M ⊥⊥ Z | {C, X}" in str(collapses[0].message)
+
+        by_pair = {
+            (row.x, row.y, row.conditioning_set): row
+            for row in result.results.itertuples(index=False)
+        }
+        only_c = by_pair[("M", "X", "C")]
+        assert only_c.effective_k == 0
+        assert only_c.df == only_c.n_obs - 2
+        both = by_pair[("M", "Z", "C, X")]
+        assert both.effective_k == 1
+        assert both.df == both.n_obs - both.effective_k - 2
+        # C is constant, so the marginal C ⊥⊥ X test is skipped outright
+        # (zero variance) rather than reported as a rank collapse.
+        skipped = by_pair[("C", "X", "")]
+        assert np.isnan(skipped.effective_k)
+        assert np.isnan(skipped.p_value)
+        assert "[effective_k=0]" in result._repr_html_()
+        assert "[effective_k=1]" in result._repr_html_()
+
+    def test_well_conditioned_implications_do_not_warn(self, frame):
+        model = pathmc.model("M ~ X\nY ~ M", data=frame[["X", "M", "Y"]])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = model.test_implications()
+        row = result.results.iloc[0]
+        assert row["effective_k"] == 1
+        assert row["df"] == row["n_obs"] - row["effective_k"] - 2
+        assert "effective_k" not in result._repr_html_()
+
+    def test_falsify_warns_once_for_the_given_dag(self):
+        frame = _constant_conditioner_frame()
+        model = pathmc.model("M ~ C\nZ ~ X", data=frame)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = model.falsify(n_permutations=24, random_seed=0)
+        collapses = [
+            w
+            for w in caught
+            if issubclass(w.category, UserWarning) and "rank collapse" in str(w.message)
+        ]
+        assert len(collapses) == 1
+        collapsed = result.local_violations[
+            result.local_violations["effective_k"]
+            < result.local_violations["conditioning_set"].map(
+                lambda text: 0 if text == "" else len(text.split(", "))
+            )
+        ]
+        assert set(collapsed["conditioning_set"]) == {"C"}
+        assert (collapsed["effective_k"] == 0).all()
+        assert (collapsed["df"] == len(frame) - 2).all()
+
+    def test_falsify_full_rank_parents_do_not_warn(self, frame):
+        model = pathmc.model("M ~ X\nY ~ M", data=frame[["X", "M", "Y"]])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = model.falsify(n_permutations=6, random_seed=0)
+        assert "effective_k" in result.local_violations.columns
+        assert "df" in result.local_violations.columns
