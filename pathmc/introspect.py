@@ -56,11 +56,14 @@ def _format_categorical(call: CategoricalCall) -> str:
 def _shows_reference(call: CategoricalCall) -> bool:
     """Whether the reference level is meaningful enough to display.
 
-    Before data resolution only an explicit ``reference=`` is known; after
-    resolution the reference matters only under treatment coding.
+    Before data resolution only an explicit ``reference=`` is known, and it
+    is shown unless the formula alone already says the term keeps every
+    level (cell means or hierarchical); after resolution the reference
+    matters only under treatment coding.
     """
     if not call.levels:
-        return call.reference is not None
+        keeps_all_levels = call.cell_means or call.prior == "hierarchical"
+        return call.reference is not None and not keeps_all_levels
     return is_reference_coded(call)
 
 

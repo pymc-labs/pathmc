@@ -119,6 +119,21 @@ class TestNoInterceptMultipleCategoricals:
         assert "C(region, reference='south')" in text
         assert "levels=[]" not in text
 
+    @pytest.mark.parametrize(
+        ("spec", "rendered"),
+        [
+            ("y ~ 0 + C(region, reference='south')", "C(region)"),
+            (
+                "y ~ C(region, reference='south', prior='hierarchical')",
+                "C(region, prior='hierarchical')",
+            ),
+        ],
+    )
+    def test_data_free_render_omits_ineffective_reference(self, spec, rendered):
+        text = str(pathmc.model(spec).equations())
+        assert rendered in text
+        assert "reference=" not in text
+
 
 # ---------------------------------------------------------------------------
 # Item 7: hierarchical terms keep every level and never depend on the reference
