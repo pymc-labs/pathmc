@@ -217,7 +217,8 @@ def _layout_unscaled_column(
 
 def _unscale_predict_groups(
     idata: Any,
-    data: nw.DataFrame,
+    prediction_data: nw.DataFrame,
+    fitted_data: nw.DataFrame,
     scaling_factors: ScalingFactors,
     scan_info: Any | None,
 ) -> None:
@@ -229,18 +230,20 @@ def _unscale_predict_groups(
     pp = getattr(idata, "posterior_predictive", None)
     if pp is not None:
         for var in list(pp.data_vars):
-            pp[var] = _to_business_units(var, pp[var], data, scaling_factors, scan_info)
+            pp[var] = _to_business_units(
+                var, pp[var], prediction_data, scaling_factors, scan_info
+            )
     obs = getattr(idata, "observed_data", None)
     if obs is None:
         return
     for var in list(obs.data_vars):
-        if not scaling_factors.has_factor(var) or var not in data.columns:
+        if not scaling_factors.has_factor(var) or var not in fitted_data.columns:
             continue
         raw = np.asarray(
             scaling_factors.to_business(
-                np.asarray(data[var].to_numpy(), dtype=float),
+                np.asarray(fitted_data[var].to_numpy(), dtype=float),
                 kind="outcome",
-                dims=ScaleContext(term=var, data=data),
+                dims=ScaleContext(term=var, data=fitted_data),
             )
         )
         template = obs[var]
@@ -316,6 +319,21 @@ def _exclude_scaled_basis_inputs(
             stacklevel=3,
         )
     return scaling, excluded
+
+
+def _exclude_categorical_scaling(
+    factors: ScalingFactors,
+    categorical_vars: set[str],
+) -> ScalingFactors:
+    """Return fitted factors without categorical source columns.
+
+    Numeric category labels identify groups rather than magnitudes. Filtering
+    here also protects callers that reuse a pre-fitted ``ScalingFactors``
+    object containing a column that is categorical in the current model.
+    """
+    if not any(factors.has_factor(column) for column in categorical_vars):
+        return factors
+    return factors.without_columns(categorical_vars)
 
 
 def _warn_extrapolation(
@@ -412,6 +430,9 @@ class PathModel:
         self._pooling = pooling
         self._latent: set[str] = latent if latent is not None else set()
         self._families: dict[str, str] = families if families is not None else {}
+        from pathmc.categorical import categorical_terms
+
+        self._categorical_terms = categorical_terms(spec)
         # Original model() arguments, recorded so refutation can faithfully
         # re-fit on perturbed data. Set by model(); None for direct
         # construction (in which case refute_placebo raises).
@@ -926,7 +947,13 @@ class PathModel:
                 )
         return self._idata
 
-    def predict(self, *, one_step_ahead: bool = True, **kwargs: Any) -> xr.DataTree:
+    def predict(
+        self,
+        data: IntoFrame | None = None,
+        *,
+        one_step_ahead: bool = True,
+        **kwargs: Any,
+    ) -> xr.DataTree:
         """Run posterior predictive sampling.
 
         Wraps ``pm.sample_posterior_predictive()`` and extends the
@@ -934,6 +961,11 @@ class PathModel:
 
         Parameters
         ----------
+        data : IntoFrame | None
+            Optional predictor data for out-of-sample prediction. It must have
+            the same number of rows as the fitted cross-sectional model.
+            Categorical columns are encoded with the fitted level order and
+            reference; unseen levels raise a clear error.
         one_step_ahead : bool
             Only meaningful for panel models with a lagged endogenous
             term such as ``y ~ lag(y)``. When ``True`` (default) each
@@ -979,28 +1011,100 @@ class PathModel:
         scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
         if scan_info is not None:
             validate_panel_scan_shape(self._pymc_model, scan_info)
-        data_basis_bindings = getattr(self._pymc_model, "_pathmc_data_bases", {})
-        if data_basis_bindings:
-            from pathmc.basis import replay_data_bases
-
-            raw_values = {
-                binding.call.variable: self._pymc_model[
-                    binding.call.variable
-                ].get_value()
-                for binding in data_basis_bindings.values()
-            }
-            updates = replay_data_bases(data_basis_bindings, raw_values)
-            if updates:
-                with self._pymc_model:
-                    pm.set_data(updates)
-        with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
-            pp = pm.sample_posterior_predictive(idata, **kwargs)
+        with self._prediction_data(data) as prediction_data:
+            with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
+                pp = pm.sample_posterior_predictive(idata, **kwargs)
         result = pp if not kwargs["extend_inferencedata"] else idata
-        if self._scaling_factors is not None and self._data is not None:
+        if self._scaling_factors is not None and prediction_data is not None:
+            assert self._data is not None
             _unscale_predict_groups(
-                result, self._data, self._scaling_factors, scan_info
+                result,
+                prediction_data,
+                self._data,
+                self._scaling_factors,
+                scan_info,
             )
         return result
+
+    @contextmanager
+    def _prediction_data(self, data: IntoFrame | None) -> Iterator[nw.DataFrame | None]:
+        """Temporarily update mutable predictor nodes for ``predict(data=...)``.
+
+        Data-backed basis columns (e.g. ``fourier()``) are always replayed
+        from the active raw input values so a caller who swapped raw data
+        in with ``pm.set_data`` gets matching basis columns. Categorical
+        indicator matrices are rebuilt from the frozen fit-time level set.
+        """
+        assert self._pymc_model is not None
+        from pathmc.basis import replay_data_bases
+
+        data_basis_bindings = getattr(self._pymc_model, "_pathmc_data_bases", {})
+
+        if data is None:
+            if data_basis_bindings:
+                raw_values = {
+                    binding.call.variable: self._pymc_model[
+                        binding.call.variable
+                    ].get_value()
+                    for binding in data_basis_bindings.values()
+                }
+                basis_updates = replay_data_bases(data_basis_bindings, raw_values)
+                if basis_updates:
+                    with self._pymc_model:
+                        pm.set_data(basis_updates)
+            yield self._data
+            return
+        assert self._data is not None
+        if self._panel_info is not None:
+            raise NotImplementedError(
+                "predict(data=...) with replacement data is currently supported "
+                "for cross-sectional models only."
+            )
+        new_data = nw.from_native(data, eager_only=True)
+        if len(new_data) != len(self._data):
+            raise ValueError(
+                f"predict(data=...) received {len(new_data)} row(s), but this "
+                f"model was fitted with {len(self._data)}. Provide the same row "
+                "count; variable-size posterior prediction is not supported yet."
+            )
+        if self._scaling_factors is not None:
+            new_data = self._scaling_factors.transform(new_data)
+
+        from pathmc.categorical import encode_categorical
+
+        categorical_vars = {call.variable for _, call in self._categorical_terms}
+        updates: dict[str, np.ndarray] = {}
+        for var in self._graph_info.exogenous - categorical_vars:
+            if var not in self._pymc_model.named_vars:
+                continue
+            if var not in new_data.columns:
+                raise ValueError(
+                    f"Prediction data is missing predictor column '{var}'. Add "
+                    "the column using values in the model's fitted scale."
+                )
+            updates[var] = np.asarray(new_data[var].to_numpy(), dtype=float)
+        for lhs, call in self._categorical_terms:
+            if call.variable not in new_data.columns:
+                raise ValueError(
+                    f"Prediction data is missing categorical predictor "
+                    f"'{call.variable}'."
+                )
+            updates[f"_cat_{lhs}_{call.variable}"] = encode_categorical(
+                call,
+                new_data[call.variable].to_numpy(),
+            )
+        if data_basis_bindings:
+            updates.update(replay_data_bases(data_basis_bindings, updates))
+
+        shared: dict[str, Any] = {name: self._pymc_model[name] for name in updates}
+        previous = {name: shared_var.get_value() for name, shared_var in shared.items()}
+        for name, shared_var in shared.items():
+            shared_var.set_value(updates[name])
+        try:
+            yield new_data
+        finally:
+            for name, shared_var in shared.items():
+                shared_var.set_value(previous[name])
 
     def latent_trajectory(self, var: str) -> xr.DataArray:
         """Return the posterior latent state of a panel variable over time.
@@ -1387,7 +1491,50 @@ class PathModel:
             families=self._families,
             subgroup_indices=subgroup_indices,
             scaling_factors=self._scaling_factors,
+            categorical_vars={call.variable for _, call in self._categorical_terms},
         )
+
+    @contextmanager
+    def _categorical_intervention(self, values: Mapping[str, Any]) -> Iterator[None]:
+        """Temporarily replace fitted categorical bases for a hard intervention."""
+        if not values:
+            yield
+            return
+        assert self._gen_model is not None
+        assert self._data is not None
+        from pathmc.categorical import encode_categorical
+
+        known = {call.variable for _, call in self._categorical_terms}
+        unknown = set(values) - known
+        if unknown:
+            raise KeyError(f"Unknown categorical intervention(s): {sorted(unknown)!r}.")
+
+        shared: dict[str, Any] = {}
+        updates: dict[str, np.ndarray] = {}
+        for lhs, call in self._categorical_terms:
+            if call.variable not in values:
+                continue
+            value = values[call.variable]
+            if np.asarray(value).ndim != 0:
+                raise ValueError(
+                    f"Categorical intervention for '{call.variable}' must be one "
+                    "level label, not an array."
+                )
+            basis_name = f"_cat_{lhs}_{call.variable}"
+            shared[basis_name] = self._gen_model[basis_name]
+            updates[basis_name] = encode_categorical(
+                call,
+                np.repeat(value, len(self._data)),
+            )
+
+        previous = {name: var.get_value() for name, var in shared.items()}
+        for name, var in shared.items():
+            var.set_value(updates[name])
+        try:
+            yield
+        finally:
+            for name, var in shared.items():
+                var.set_value(previous[name])
 
     def _subgroup_effect(
         self,
@@ -1649,7 +1796,7 @@ class PathModel:
 
     def do(
         self,
-        set: dict[str, float | np.ndarray] | None = None,
+        set: dict[str, Any] | None = None,
         shift: dict[str, float] | None = None,
         kind: str = "mean",
         simulate_over: str | None = None,
@@ -1718,8 +1865,20 @@ class PathModel:
                 "ate(), cate(), prob(), or sensitivity()."
             )
 
-        if set:
-            scaled_set = _scale_set_for_bounds(set, self._scaling_factors, self._data)
+        categorical_vars = {call.variable for _, call in self._categorical_terms}
+        categorical_set = {
+            var: value for var, value in (set or {}).items() if var in categorical_vars
+        }
+        numeric_set = {
+            var: value
+            for var, value in (set or {}).items()
+            if var not in categorical_vars
+        }
+
+        if numeric_set:
+            scaled_set = _scale_set_for_bounds(
+                numeric_set, self._scaling_factors, self._data
+            )
             _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_set)
             _warn_extrapolation(self._data, scaled_set)
 
@@ -1736,8 +1895,8 @@ class PathModel:
                 else len(self._data[self._panel_info.time].unique())
             )
 
-            if set:
-                for var, val in set.items():
+            if numeric_set:
+                for var, val in numeric_set.items():
                     if isinstance(val, np.ndarray) and len(val) != n_times:
                         raise ValueError(
                             f"Intervention array for '{var}' has length "
@@ -1763,7 +1922,7 @@ class PathModel:
                     idata=idata,
                     panel_info=self._panel_info,
                     scan_info=scan_info,
-                    set=set,
+                    set=numeric_set,
                     kind=kind,
                     families=self._families,
                     observed_by_time=observed_by_time,
@@ -1772,7 +1931,8 @@ class PathModel:
                 )
             # Non-scan panel models fall through to the cross-sectional path.
 
-        return self._run_do(set, kind)
+        with self._categorical_intervention(categorical_set):
+            return self._run_do(numeric_set, kind)
 
     def counterfactual(
         self,
@@ -2460,9 +2620,14 @@ def model(
     """
     spec = parse_spec(spec_string)
     latent_set = set(latent) if latent is not None else set()
-    graph_info = build_graph(spec, latent=latent_set)
 
     nw_data = nw.from_native(data, eager_only=True) if data is not None else None
+    categorical_vars: set[str] = set()
+    if nw_data is not None:
+        from pathmc.categorical import fit_categorical_terms
+
+        categorical_vars = fit_categorical_terms(spec, nw_data)
+    graph_info = build_graph(spec, latent=latent_set)
 
     has_lag_terms = any(
         term.lag_of is not None for reg in spec.regressions for term in reg.terms
@@ -2525,7 +2690,10 @@ def model(
             nw_data,
             panel_info=panel_info,
             target_columns=target_columns - excluded,
-            channel_columns=channel_columns - excluded,
+            channel_columns=channel_columns - excluded - categorical_vars,
+        )
+        scaling_factors = _exclude_categorical_scaling(
+            scaling_factors, categorical_vars
         )
         nw_data = scaling_factors.transform(nw_data)
 
@@ -2717,8 +2885,6 @@ def simulate(
     spec = parse_spec(spec_string)
     latent_set = set(latent) if latent else set()
     block_var_set, blocks = _identify_residual_blocks(spec)
-    graph_info = build_graph(spec, latent=latent_set)
-
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
 
@@ -2746,6 +2912,10 @@ def simulate(
             )
 
     nw_data = nw.from_native(data, eager_only=True)
+    from pathmc.categorical import fit_categorical_terms
+
+    categorical_vars = fit_categorical_terms(spec, nw_data)
+    graph_info = build_graph(spec, latent=latent_set)
 
     panel_info: PanelInfo | None = None
     if panel is not None:
@@ -2774,8 +2944,11 @@ def simulate(
             nw_data,
             panel_info=panel_info,
             target_columns=target_columns - excluded,
-            channel_columns=channel_columns - excluded,
+            channel_columns=channel_columns - excluded - categorical_vars,
             roles_with_data=frozenset({"channel"}),
+        )
+        scaling_factors = _exclude_categorical_scaling(
+            scaling_factors, categorical_vars
         )
 
     data_sim = _prepare_simulation_frame(spec, nw_data, panel_info, scaling_factors)
@@ -3071,9 +3244,12 @@ def simulate_params_template(
     spec = parse_spec(spec_string)
     validate_scaling_config(scaling)
     latent_set = set(latent) if latent else set()
-    graph_info = build_graph(spec, latent=latent_set)
 
     nw_data = nw.from_native(data, eager_only=True)
+    from pathmc.categorical import fit_categorical_terms
+
+    fit_categorical_terms(spec, nw_data)
+    graph_info = build_graph(spec, latent=latent_set)
 
     has_lag_terms = any(
         term.lag_of is not None for reg in spec.regressions for term in reg.terms
