@@ -63,6 +63,9 @@ The DSL is lavaan-inspired:
 - `indirect := a*b` — defined parameter
 - `a*X` — labeled coefficient
 - Transforms: `adstock(x, decay=...)`, `logistic_saturation(x, lam=...)`
+- Categorical predictors: string columns are treatment-coded
+  automatically; `C(region, reference='north', prior='hierarchical')`
+  makes the coding explicit
 
 ## Decision table
 
@@ -91,6 +94,8 @@ The DSL is lavaan-inspired:
 | Same interpret API on adjustment model          | `adj.comparisons(...)`, `adj.slopes(...)`, etc.         |
 | Probability under intervention                    | `m.prob("Y > 0", set={"X": 1})`                        |
 | Manual intervention                               | `m.do(set={"X": 1})`                                   |
+| Intervene on a categorical level                  | `m.do(set={"region": "south"})`, `m.ate("Y", "region", values=("north", "south"))` |
+| Declare an integer-coded column as labels         | `Y ~ C(store_type)`                                    |
 | Counterfactual / time-forward (panel)             | `m.do(set={...}, kind="time-forward")`                 |
 | Adjustment sets for identification                | `m.adjustment_sets(treatment, outcome)`                |
 | Yes/no identification check                       | `m.is_identifiable(treatment, outcome)`                |
@@ -165,13 +170,23 @@ The DSL is lavaan-inspired:
    slopes or contrasts on adjustment covariates are interventional on
    the fitted surface, not causal effects of those covariates. See the
    user guide page *Predictions, Comparisons, and Slopes*.
+11. **String columns become treatment-coded categoricals; integers stay
+   continuous.** `Y ~ region` on a string column creates
+   `beta_Y_region` indexed by level name (coordinate
+   `Y_region_levels`), with the first sorted level as reference. Wrap
+   integer codes in `C(...)` to treat them as labels. The level set is
+   frozen at `model()` time: `do()`, `ate()`, `prob()`, and
+   `predict(data=...)` accept labels, and an unseen label raises rather
+   than re-inferring the coding. Categorical interactions, transforms,
+   outcomes, and panel models are rejected with an explanatory error.
 
 ## Capabilities and boundaries
 
 **Agents using pathmc can:**
 
 - Write spec strings in the DSL (regressions, residual covariances,
-  defined parameters, labeled coefficients, transforms).
+  defined parameters, labeled coefficients, transforms, categorical
+  predictors via inference or `C(...)`).
 - Configure custom priors via `Prior` objects from `pymc_extras`.
 - Run `fit()` with PyMC's NUTS sampler (or `nutpie` / `numpyro` via
   the `samplers` extra).
@@ -204,9 +219,13 @@ The DSL is lavaan-inspired:
 
 - **Latent variables / SEM measurement models** (the `=~` operator).
   Out of scope in v0.1; on the post-v1 roadmap.
-- **Categorical mediators or treatments with >2 levels in
-  `ate()`/`cate()`** without manual `do()` calls. Use `m.do(set={...})`
-  with explicit values for non-binary interventions.
+- **Categorical labels in the interpret API** (`predictions()`,
+  `comparisons()`, `slopes()`, `att()`, `atu()`, `effect()`). Use
+  `m.do(set={"region": "south"})`, `m.ate("Y", "region", values=(a, b))`,
+  `m.prob(...)`, or `m.cate(..., condition={"region": ...})` instead.
+- **Categorical outcomes, interactions, transforms, or panel models.**
+  Only cross-sectional treatment / cell-means coding of predictors is
+  supported.
 - **Editing the compiled `pm.Model` object directly.** pathmc owns the
   graph; mutating it bypasses the introspection layer and breaks
   `do()` propagation. To customize, change the spec or pass `priors=`

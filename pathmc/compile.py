@@ -13,18 +13,21 @@
 #   limitations under the License.
 """Structural equation compiler: Spec + data -> pm.Model.
 
-Builds a **generative** PyMC model where all endogenous variables are
-free random variables (not observed). Exogenous inputs use ``pm.Data``,
-linear predictors are tracked as ``pm.Deterministic("mu_{var}", ...)``,
-and each endogenous variable is emitted as ``pm.Normal("{var}", ...)``.
+Builds a **generative** PyMC model. Non-block endogenous variables are
+free random variables (not observed). Residual-covariance members are an
+observed ``MvNormal`` under estimation, or ``Deterministic`` slices of a
+free ``{block}_joint`` RV when ``generative=True``. Exogenous inputs use
+``pm.Data``, and linear predictors are tracked as
+``pm.Deterministic("mu_{var}", ...)``.
 
-The caller uses ``pm.observe()`` to condition the free RVs on observed
-data for estimation, and ``pm.do()`` on the generative model for
+The caller uses ``pm.observe()`` to condition free RVs on observed data
+for estimation, and ``pm.do()`` on the generative model for
 interventional simulation.
 
-Regressions are compiled in topological order so downstream equations
-wire through upstream free RVs, enabling PyMC-native do() interventions
-via graph surgery.
+Regressions are compiled so residual blocks land before any equation that
+reads them, and downstream equations wire through upstream RVs (or
+realized block slices), enabling PyMC-native do() interventions via
+graph surgery.
 
 Panel models with temporal dependencies (adstock transforms or lag
 terms) are compiled using ``pytensor.scan`` so that the generative model
@@ -34,21 +37,29 @@ panel interventions natively — no separate simulation engine needed.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Literal
 
 import narwhals.stable.v1 as nw
 import networkx as nx
 import numpy as np
+import pandas as pd
 import patsy
 import pymc as pm
 
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
-from pathmc.parse import HSGPCall, Regression, Spec, Term, TransformCall
+from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
 from pathmc.transforms import get_transform
 
 __all__: list[str] = []
+
+_SCAN_PANEL_RESIDUAL_COV_MSG = (
+    "Residual covariances (~~) are not supported yet on scan-compiled panel models "
+    "(lag() or adstock()). Drop the ~~ clause, or remove lag() and adstock() "
+    "so the model is not scan-compiled. "
+    "Future support is tracked in https://github.com/pymc-labs/pathmc/issues/520."
+)
 
 
 def _user_stacklevel() -> int:
@@ -153,21 +164,30 @@ class PredictorSlot:
     """
 
     name: str
-    coeff_type: Literal["free", "fixed", "hsgp"]
+    coeff_type: Literal["free", "fixed", "basis", "categorical"]
     coeff_value: float | None = None
-    kind: Literal["intercept", "plain", "interaction", "transform", "lag", "hsgp"] = (
-        "plain"
-    )
+    kind: Literal[
+        "intercept",
+        "plain",
+        "interaction",
+        "transform",
+        "lag",
+        "basis",
+        "categorical",
+    ] = "plain"
     lag_of: str | None = None
     interaction_parts: tuple[str, ...] | None = None
     transform: TransformCall | None = None
-    hsgp: HSGPCall | None = None
-    # NOTE: an ``hsgp`` slot carries its own basis weights and never draws a
-    # scalar coefficient from ``beta``.  Its ``coeff_type`` is the inert
-    # ``"hsgp"`` marker (not ``"free"``) so that any ``coeff_type``-based
+    basis: Any | None = None
+    categorical: CategoricalCall | None = None
+    # NOTE: a ``basis`` slot carries its own basis weights and never draws a
+    # scalar coefficient from ``beta``. Its ``coeff_type`` is the inert
+    # ``"basis"`` marker (not ``"free"``) so that any ``coeff_type``-based
     # counting -- ``build_mu``'s ``free_idx`` and ``_compile_residual_block``'s
     # ``has_free`` -- automatically excludes it.  Every consumer must
-    # short-circuit ``kind == "hsgp"`` before reading ``coeff_type``.
+    # short-circuit ``kind == "basis"`` before reading ``coeff_type``.
+    # ``categorical`` slots follow the same rule: they own a per-level
+    # coefficient vector and never consume a ``beta`` entry.
 
 
 @dataclass
@@ -253,7 +273,11 @@ def get_predictor_columns(
     cols: list[str] = []
     if _effective_has_intercept(reg, pooling, panel_info):
         cols.append("Intercept")
-    cols.extend(t.variable for t in reg.terms)
+    for term in reg.terms:
+        if term.categorical is not None and term.categorical.columns:
+            cols.extend(term.categorical.columns)
+        else:
+            cols.append(term.variable)
     return cols
 
 
@@ -270,10 +294,12 @@ def get_free_predictor_columns(
     cols: list[str] = []
     if _effective_has_intercept(reg, pooling, panel_info):
         cols.append("Intercept")
-    # HSGP terms carry their own basis weights (not a scalar beta column), so
+    # Basis terms carry their own weights (not a scalar beta column), so
     # they are excluded here to keep ``beta`` sized to the plain/free terms.
     cols.extend(
-        t.variable for t in reg.terms if t.fixed_value is None and t.hsgp is None
+        t.variable
+        for t in reg.terms
+        if t.fixed_value is None and t.basis is None and t.categorical is None
     )
     return cols
 
@@ -337,16 +363,26 @@ def build_mu_specs(
             )
 
         for term in reg.terms:
-            # HSGP dispatch takes priority: it carries its own basis weights
-            # and uses the inert ``coeff_type="hsgp"`` marker so free/fixed
-            # coefficient bookkeeping skips it.
-            if term.hsgp is not None:
+            if term.categorical is not None:
                 slots.append(
                     PredictorSlot(
                         name=term.variable,
-                        coeff_type="hsgp",
-                        kind="hsgp",
-                        hsgp=term.hsgp,
+                        coeff_type="categorical",
+                        kind="categorical",
+                        categorical=term.categorical,
+                    )
+                )
+                continue
+            # Basis dispatch takes priority: it carries its own weights and
+            # uses the inert ``coeff_type="basis"`` marker so free/fixed
+            # coefficient bookkeeping skips it.
+            if term.basis is not None:
+                slots.append(
+                    PredictorSlot(
+                        name=term.variable,
+                        coeff_type="basis",
+                        kind="basis",
+                        basis=term.basis,
                     )
                 )
                 continue
@@ -357,7 +393,13 @@ def build_mu_specs(
 
             if term.transform is not None:
                 kind: Literal[
-                    "intercept", "plain", "interaction", "transform", "lag", "hsgp"
+                    "intercept",
+                    "plain",
+                    "interaction",
+                    "transform",
+                    "lag",
+                    "basis",
+                    "categorical",
                 ] = "transform"
             elif term.interaction_of is not None:
                 kind = "interaction"
@@ -414,7 +456,9 @@ def build_design_matrix(
     rewrapped to the input backend with ``nw.from_dict(...)``. Do not remove
     the ``.to_pandas()`` call — polars (and other non-pandas) inputs rely on it.
     """
-    rhs_parts = [t.variable for t in reg.terms]
+    from pathmc.categorical import encode_categorical
+
+    rhs_parts = [t.variable for t in reg.terms if t.categorical is None]
     n = len(data)
 
     missing: list[str] = []
@@ -429,7 +473,14 @@ def build_design_matrix(
             columns["Intercept"] = np.ones(n)
         for term in reg.terms:
             v = term.variable
-            if term.interaction_of is not None:
+            if term.categorical is not None and v in data.columns:
+                encoded = encode_categorical(term.categorical, data[v].to_numpy())
+                for idx, name in enumerate(term.categorical.columns):
+                    columns[name] = encoded[:, idx]
+            elif term.categorical is not None:
+                for name in term.categorical.columns:
+                    columns[name] = np.full(n, np.nan)
+            elif term.interaction_of is not None:
                 product = np.ones(n)
                 for part in term.interaction_of:
                     if part in data.columns:
@@ -452,13 +503,36 @@ def build_design_matrix(
         )
 
     if _effective_has_intercept(reg, pooling, panel_info):
-        formula_str = " + ".join(rhs_parts)
+        formula_str = " + ".join(rhs_parts) if rhs_parts else "1"
     else:
-        formula_str = "0 + " + " + ".join(rhs_parts)
+        formula_str = "0 + " + " + ".join(rhs_parts) if rhs_parts else "0"
 
-    dm = patsy.dmatrix(formula_str, data=data.to_pandas(), return_type="dataframe")
+    pandas_data = data.to_pandas()
+    base_vars = {v for term in reg.terms for v in _term_base_vars(term)}
+    numeric_object_kinds = {"complex", "decimal", "floating", "integer"}
+    for variable in base_vars & set(pandas_data.columns):
+        series = pandas_data[variable]
+        if not pd.api.types.is_object_dtype(series.dtype):
+            continue
+        inferred = pd.api.types.infer_dtype(series, skipna=True)
+        if inferred in numeric_object_kinds or inferred == "mixed-integer-float":
+            pandas_data[variable] = pd.to_numeric(series)
+
+    dm = patsy.dmatrix(formula_str, data=pandas_data, return_type="dataframe")
+    columns = {str(col): dm[col].to_numpy() for col in dm.columns}
+    for term in reg.terms:
+        if term.categorical is None:
+            continue
+        encoded = encode_categorical(term.categorical, data[term.variable].to_numpy())
+        for idx, name in enumerate(term.categorical.columns):
+            columns[name] = encoded[:, idx]
     return nw.from_dict(
-        {str(col): dm[col].to_numpy() for col in dm.columns},
+        {
+            name: columns[name]
+            for name in get_predictor_columns(
+                reg, pooling=pooling, panel_info=panel_info
+            )
+        },
         backend=data.implementation,
     )
 
@@ -473,10 +547,15 @@ def compile_to_pymc(
     latent: set[str] | None = None,
     graph_info: GraphInfo | None = None,
     priors: dict[str, Any] | None = None,
+    *,
+    generative: bool = False,
 ) -> pm.Model:
     """Compile a structural specification into a generative PyMC model.
 
-    All endogenous variables are emitted as **free random variables**.
+    Non-block endogenous variables are emitted as **free random variables**.
+    Residual-covariance members are an observed ``MvNormal`` under
+    estimation (``generative=False``) or ``Deterministic`` slices of a
+    free ``{block}_joint`` RV when ``generative=True`` (``simulate()``).
     The caller should use ``pm.observe()`` to condition on observed data
     for estimation, and ``pm.do()`` on this generative model for
     interventional simulation.
@@ -509,12 +588,20 @@ def compile_to_pymc(
         objects from ``pymc_extras``. If ``None``, sensible defaults are
         used. See :func:`pathmc.priors.default_priors` for the full
         list of parameter keys.
+    generative : bool
+        When True (``simulate()`` / ``simulate_params_template()`` only),
+        residual-covariance blocks emit a free joint RV so descendants
+        read realized correlated noise. Estimation must leave this False
+        so the observed MvNormal likelihood is unchanged.
 
     Returns
     -------
     pm.Model
-        Generative PyMC model (all endogenous vars are free RVs).
-        Use ``pm.observe()`` to condition on data before sampling.
+        Compiled PyMC model. Non-block endogenous variables are free RVs;
+        residual-block members are an observed ``MvNormal`` (estimation)
+        or ``Deterministic`` slices of a free ``{block}_joint`` RV
+        (``generative=True``). Use ``pm.observe()`` to condition on data
+        before sampling.
 
     Raises
     ------
@@ -539,18 +626,26 @@ def compile_to_pymc(
     _validate_residual_cov_families(spec, families)
     _validate_latent_families(families, latent)
 
-    if panel_info is not None and _spec_has_hsgp(spec):
+    _validate_basis_capabilities(spec, panel_info)
+    _reject_basis_in_residual_blocks(spec)
+    if panel_info is not None and _spec_has_categorical(spec):
         raise NotImplementedError(
-            "HSGP terms are not supported in panel models yet (see follow-up). "
-            "Fit the HSGP smooth in a cross-sectional model, or remove the "
-            "hsgp() term."
+            "Categorical predictors are not supported in panel models yet. "
+            "Fit the categorical effect in a cross-sectional model or encode "
+            "the predictor manually."
         )
+    categorical_vars = {
+        term.variable
+        for reg in spec.regressions
+        for term in reg.terms
+        if term.categorical is not None
+    }
+    _reject_nan_predictors(data, graph_info, categorical_vars=categorical_vars)
 
-    _reject_hsgp_in_residual_blocks(spec)
-    _reject_endogenous_hsgp_inputs(spec)
-    _reject_nan_predictors(data, graph_info)
+    _reject_scan_panel_residual_cov(spec, panel_info)
 
-    if panel_info is not None and _has_temporal_deps(spec, graph_info):
+    if _is_scan_panel(spec, panel_info):
+        assert panel_info is not None
         return _compile_scan_panel(
             spec=spec,
             data=data,
@@ -567,6 +662,16 @@ def compile_to_pymc(
 
     has_random_intercepts = _has_random_intercepts(pooling)
     slope_vars = _get_slope_vars(pooling)
+    by_var_entries = _parse_by_var_pooling(
+        pooling, spec, panel_info.unit_columns if panel_info is not None else None
+    )
+    coef_entries, none_transform_flag = _split_by_var_entries(by_var_entries)
+    pooled_by_lhs: dict[str, set[str]] = {}
+    for reg_ in spec.regressions:
+        term_vars = {t.variable for t in reg_.terms}
+        names = {n for n in coef_entries if n in term_vars}
+        if names:
+            pooled_by_lhs[reg_.lhs] = names
 
     unit_idx: np.ndarray | None = None
 
@@ -574,23 +679,50 @@ def compile_to_pymc(
 
     coords: dict[str, Any] = {}
     for reg in spec.regressions:
-        free_cols = get_free_predictor_columns(
-            reg, pooling=pooling, panel_info=panel_info
-        )
+        free_cols = [
+            c
+            for c in get_free_predictor_columns(
+                reg, pooling=pooling, panel_info=panel_info
+            )
+            if c not in pooled_by_lhs.get(reg.lhs, ())
+        ]
         if free_cols:
             coords[f"{reg.lhs}_predictors"] = free_cols
         for term in reg.terms:
-            if term.hsgp is not None:
-                coords[f"{reg.lhs}_{term.hsgp.variable}_hsgp"] = list(
-                    range(term.hsgp.m)
-                )
+            if term.basis is not None:
+                from pathmc.basis import get_basis
 
-    if has_random_intercepts and panel_info is not None:
+                basis = get_basis(term.basis.name)
+                coords[basis.weights_dim(reg.lhs, term.basis)] = list(
+                    range(basis.n_basis(term.basis))
+                )
+            if term.categorical is not None:
+                from pathmc.categorical import coefficient_levels
+
+                coords[f"{reg.lhs}_{term.variable}_levels"] = [
+                    str(level) for level in coefficient_levels(term.categorical)
+                ]
+
+    needs_unit_coord = bool(coef_entries) or none_transform_flag
+    if (has_random_intercepts or needs_unit_coord) and panel_info is not None:
         coords["unit"] = panel_info.unit_labels
         unit_idx = _build_unit_index(data, panel_info)
 
+    if coef_entries and panel_info is not None:
+        for pname, entry in coef_entries.items():
+            if entry["kind"] != "coefficient":
+                continue
+            entry["dim_idx"], levels = _build_cell_group_index(
+                data, panel_info, entry["dims"]
+            )
+            _warn_missing_by_var_cells(data, entry["dims"], levels, pname)
+            for dim_name, level_list in levels.items():
+                if dim_name not in coords:
+                    coords[dim_name] = level_list
+
     transform_map = _build_transform_map(spec)
     mu_specs = build_mu_specs(spec, pooling=pooling, panel_info=panel_info)
+    _exclude_pooled_from_flat_beta(mu_specs, pooled_by_lhs)
 
     sparse_data: dict[str, np.ma.MaskedArray] = {}
     for reg in spec.regressions:
@@ -603,12 +735,101 @@ def compile_to_pymc(
     with pm.Model(coords=coords) as pymc_model:
         import pytensor.tensor as pt
 
-        transform_param_rvs = _emit_transform_priors(spec, transform_map, priors)
+        transform_param_rvs: dict[str, Any] = {}
+        # Per-cell transform parameters ("none") are emitted first, with
+        # dims enforced so a dim-less user override cannot silently collapse
+        # to a shared scalar; the generic emitter below fills in the rest.
+        if unit_idx is not None:
+            for pname, entry in by_var_entries.items():
+                if entry["kind"] == "none_transform" and pname in priors:
+                    transform_param_rvs[pname] = _ensure_dims(
+                        priors[pname], ("unit",)
+                    ).create_variable(pname)
+
+        transform_param_rvs.update(
+            _emit_transform_priors(spec, priors, existing=transform_param_rvs)
+        )
+
+        if unit_idx is not None:
+            for pname, entry in by_var_entries.items():
+                if entry["kind"] == "none_transform" and pname in priors:
+                    # Expand per-cell values to unsorted data rows.
+                    transform_param_rvs[pname] = transform_param_rvs[pname][unit_idx]
 
         data_vars: dict[str, Any] = {}
+        categorical_source_vars = {
+            term.variable
+            for reg in spec.regressions
+            for term in reg.terms
+            if term.categorical is not None
+        }
         for var in graph_info.topological_order:
-            if var in graph_info.exogenous and var in data.columns:
+            if (
+                var in graph_info.exogenous
+                and var in data.columns
+                and var not in categorical_source_vars
+            ):
                 data_vars[var] = pm.Data(var, data[var].to_numpy().astype(float))
+
+        basis_states: dict[tuple[str, str, str, str | None], Any] = {}
+        basis_data_vars: dict[tuple[str, str, str, str | None], Any] = {}
+        from pathmc.basis import DataBasisBinding, get_basis
+
+        basis_bindings: dict[str, DataBasisBinding] = {}
+
+        for reg in spec.regressions:
+            for term in reg.terms:
+                if (
+                    term.basis is None
+                    or term.basis.variable not in graph_info.exogenous
+                ):
+                    continue
+                basis = get_basis(term.basis.name)
+                if basis.has_data_contract():
+                    key = basis.binding_key(reg.lhs, term.basis)
+                    state = basis.freeze_data_state(
+                        data[term.basis.variable].to_numpy(), term.basis
+                    )
+                    columns, _ = basis.build_data(
+                        data[term.basis.variable].to_numpy(), term.basis, state=state
+                    )
+                    data_name = basis.data_name(reg.lhs, term.basis)
+                    basis_states[key] = state
+                    basis_data_vars[key] = pm.Data(data_name, columns)
+                    basis_bindings[data_name] = DataBasisBinding(
+                        basis=basis, call=term.basis, state=state
+                    )
+        pymc_model._pathmc_basis_states = basis_states
+        pymc_model._pathmc_data_bases = basis_bindings
+
+        categorical_bases: dict[tuple[str, str], Any] = {}
+        categorical_coefficients: dict[tuple[str, str], Any] = {}
+        for reg in spec.regressions:
+            for term in reg.terms:
+                call = term.categorical
+                if call is None:
+                    continue
+                cat_key = (reg.lhs, term.variable)
+                indicator_name = f"_cat_{reg.lhs}_{term.variable}"
+                indicators = np.column_stack([
+                    design_matrices[reg.lhs][column].to_numpy()
+                    for column in call.columns
+                ])
+                categorical_bases[cat_key] = pm.Data(indicator_name, indicators)
+                dim = f"{reg.lhs}_{term.variable}_levels"
+                beta_name = f"beta_{reg.lhs}_{term.variable}"
+                if call.prior == "hierarchical":
+                    mu = priors[f"mu_{beta_name}"].create_variable(f"mu_{beta_name}")
+                    sigma = priors[f"sigma_{beta_name}"].create_variable(
+                        f"sigma_{beta_name}"
+                    )
+                    categorical_coefficients[cat_key] = pm.Normal(
+                        beta_name, mu=mu, sigma=sigma, dims=dim
+                    )
+                else:
+                    categorical_coefficients[cat_key] = _ensure_dims(
+                        priors[beta_name], dim
+                    ).create_variable(beta_name)
 
         endogenous_rvs: dict[str, Any] = {}
 
@@ -618,41 +839,70 @@ def compile_to_pymc(
                 var_to_block_idx[v] = idx
         block_members_seen: dict[int, set[str]] = {i: set() for i in range(len(blocks))}
         compiled_blocks: set[int] = set()
+        compiling_blocks: set[int] = set()
+        block_joint_rvs: set[str] = set()
+
+        def _ensure_residual_block(bidx: int) -> None:
+            if bidx in compiled_blocks or bidx in compiling_blocks:
+                return
+            # A block needs every member to be a regression outcome: the
+            # joint distribution correlates their residuals around
+            # ``mu_{var}``, and an exogenous member has none. Such a block
+            # is left uncompiled (its members stay plain data columns) and
+            # is rejected further up by falsify()/identify().
+            if not blocks[bidx] <= reg_by_lhs.keys():
+                return
+            compiling_blocks.add(bidx)
+            for member in blocks[bidx]:
+                for dep_idx in _block_indices_referenced(
+                    mu_specs[member], var_to_block_idx
+                ):
+                    if dep_idx != bidx:
+                        _ensure_residual_block(dep_idx)
+            block_topo = [v for v in graph_info.topological_order if v in blocks[bidx]]
+            joint_name = _compile_residual_block(
+                blocks[bidx],
+                data,
+                mu_specs,
+                data_vars,
+                endogenous_rvs,
+                transform_map,
+                transform_param_rvs,
+                panel_info,
+                priors,
+                categorical_bases=categorical_bases,
+                categorical_coefficients=categorical_coefficients,
+                topological_order=block_topo,
+                generative=generative,
+            )
+            if joint_name is not None:
+                block_joint_rvs.add(joint_name)
+            compiling_blocks.remove(bidx)
+            compiled_blocks.add(bidx)
 
         for var in graph_info.topological_order:
             if var not in reg_by_lhs:
                 continue
 
-            if var in block_vars:
+            if var not in block_vars:
+                for bidx in _block_indices_referenced(mu_specs[var], var_to_block_idx):
+                    _ensure_residual_block(bidx)
+            else:
                 bidx = var_to_block_idx[var]
                 block_members_seen[bidx].add(var)
-                if (
-                    block_members_seen[bidx] == blocks[bidx]
-                    and bidx not in compiled_blocks
-                ):
-                    block_topo = [
-                        v for v in graph_info.topological_order if v in blocks[bidx]
-                    ]
-                    _compile_residual_block(
-                        blocks[bidx],
-                        data,
-                        mu_specs,
-                        data_vars,
-                        endogenous_rvs,
-                        transform_map,
-                        transform_param_rvs,
-                        panel_info,
-                        priors,
-                        topological_order=block_topo,
-                    )
-                    compiled_blocks.add(bidx)
+                if block_members_seen[bidx] == blocks[bidx]:
+                    _ensure_residual_block(bidx)
                 continue
 
             reg = reg_by_lhs[var]
             family = families.get(var, "gaussian")
-            free_cols = get_free_predictor_columns(
-                reg, pooling=pooling, panel_info=panel_info
-            )
+            free_cols = [
+                c
+                for c in get_free_predictor_columns(
+                    reg, pooling=pooling, panel_info=panel_info
+                )
+                if c not in pooled_by_lhs.get(var, ())
+            ]
 
             beta = None
             if free_cols:
@@ -668,12 +918,18 @@ def compile_to_pymc(
                 panel_info,
                 lhs=var,
                 priors=priors,
+                basis_states=basis_states,
+                basis_data_vars=basis_data_vars,
                 block_vars=block_vars,
                 prefer_observed_block_members=False,
+                categorical_bases=categorical_bases,
+                categorical_coefficients=categorical_coefficients,
             )
             mu_gen = build_mu(mu_specs[var], resolver_gen, beta, pt.zeros(len(data)))
 
-            if _references_block_members(mu_specs[var], block_vars):
+            if (not generative) and _references_block_members(
+                mu_specs[var], block_vars
+            ):
                 resolver_est = _make_cross_sectional_resolver(
                     data,
                     data_vars,
@@ -683,8 +939,12 @@ def compile_to_pymc(
                     panel_info,
                     lhs=var,
                     priors=priors,
+                    basis_states=basis_states,
+                    basis_data_vars=basis_data_vars,
                     block_vars=block_vars,
                     prefer_observed_block_members=True,
+                    categorical_bases=categorical_bases,
+                    categorical_coefficients=categorical_coefficients,
                 )
                 mu_est = build_mu(
                     mu_specs[var], resolver_est, beta, pt.zeros(len(data))
@@ -708,6 +968,18 @@ def compile_to_pymc(
                 mu_gen = mu_gen + rs
                 mu_est = mu_est + rs
 
+            if pooled_by_lhs.get(var):
+                assert unit_idx is not None, "by_var pooling requires a unit index"
+                contribution = _compile_by_var_coefficients(
+                    reg,
+                    {n: coef_entries[n] for n in sorted(pooled_by_lhs[var])},
+                    data_vars,
+                    unit_idx,
+                    priors,
+                )
+                mu_gen = mu_gen + contribution
+                mu_est = mu_est + contribution
+
             pm.Deterministic(f"mu_{var}", mu_gen)
 
             rv = _emit_free_rv(var, mu_est, family, latent, sparse_data, priors)
@@ -716,6 +988,8 @@ def compile_to_pymc(
             else:
                 endogenous_rvs[var] = rv
 
+    pymc_model._pathmc_block_joint_rvs = block_joint_rvs
+    pymc_model._pathmc_categorical_vars = categorical_source_vars
     return pymc_model
 
 
@@ -757,11 +1031,12 @@ def build_mu(
     free_idx = 0
 
     for slot in mu_spec.slots:
-        # HSGP is handled first, before any coefficient bookkeeping: the
-        # resolver returns the full ``phi @ (beta * sqrt_psd)`` smooth, and we
-        # must not advance ``free_idx`` (which is aligned with ``beta``, sized
-        # by ``get_free_predictor_columns`` and excludes HSGP slots).
-        if slot.kind == "hsgp":
+        # Basis and categorical slots are handled first, before any
+        # coefficient bookkeeping: the resolver returns their full
+        # owned-coefficient contribution, and we must not advance
+        # ``free_idx`` (which is aligned with ``beta``, sized by
+        # ``get_free_predictor_columns`` and excludes both slot kinds).
+        if slot.kind in ("basis", "categorical"):
             mu = mu + resolver(slot)
             continue
 
@@ -781,22 +1056,43 @@ def build_mu(
     return mu
 
 
+def _predictor_names_in_mu_spec(mu_spec: MuSpec) -> list[str]:
+    """Return predictor variable names referenced by *mu_spec* slots."""
+    names: list[str] = []
+    for slot in mu_spec.slots:
+        if slot.kind == "plain" and slot.name is not None:
+            names.append(slot.name)
+        elif slot.kind == "interaction" and slot.interaction_parts is not None:
+            names.extend(slot.interaction_parts)
+        elif slot.kind == "lag" and slot.lag_of is not None:
+            names.append(slot.lag_of)
+        elif slot.kind == "transform" and slot.transform is not None:
+            names.append(_get_adstock_input(slot.transform))
+        elif slot.kind == "basis" and slot.name is not None:
+            names.append(slot.name)
+        elif slot.kind == "categorical" and slot.name is not None:
+            names.append(slot.name)
+    return names
+
+
+def _block_indices_referenced(
+    mu_spec: MuSpec, var_to_block_idx: dict[str, int]
+) -> set[int]:
+    """Return residual-block indices whose members appear in *mu_spec*."""
+    if not var_to_block_idx:
+        return set()
+    return {
+        var_to_block_idx[name]
+        for name in _predictor_names_in_mu_spec(mu_spec)
+        if name in var_to_block_idx
+    }
+
+
 def _references_block_members(mu_spec: MuSpec, block_vars: set[str]) -> bool:
     """Return True if any predictor slot references a residual-block member."""
     if not block_vars:
         return False
-    for slot in mu_spec.slots:
-        if slot.kind == "plain" and slot.name in block_vars:
-            return True
-        if slot.kind == "interaction" and slot.interaction_parts is not None:
-            if any(part in block_vars for part in slot.interaction_parts):
-                return True
-        if slot.kind == "lag" and slot.lag_of in block_vars:
-            return True
-        if slot.kind == "transform" and slot.transform is not None:
-            if _get_adstock_input(slot.transform) in block_vars:
-                return True
-    return False
+    return any(name in block_vars for name in _predictor_names_in_mu_spec(mu_spec))
 
 
 def _make_cross_sectional_resolver(
@@ -808,17 +1104,20 @@ def _make_cross_sectional_resolver(
     panel_info: PanelInfo | None,
     lhs: str | None = None,
     priors: dict[str, Any] | None = None,
+    basis_states: dict[tuple[str, str, str, str | None], Any] | None = None,
+    basis_data_vars: dict[tuple[str, str, str, str | None], Any] | None = None,
     *,
     block_vars: set[str] | None = None,
     prefer_observed_block_members: bool = False,
+    categorical_bases: dict[tuple[str, str], Any] | None = None,
+    categorical_coefficients: dict[tuple[str, str], Any] | None = None,
 ) -> Callable[[PredictorSlot], Any]:
     """Create a resolver for cross-sectional mu construction.
 
     Resolves tensors through ``pm.Data`` for exogenous inputs and
     upstream free RVs for endogenous inputs, enabling ``pm.do()``
-    propagation.  ``lhs`` and ``priors`` are required to resolve HSGP
-    slots (which need the equation LHS to name RVs and the prior config
-    for hyperpriors); they may be omitted for HSGP-free equations.
+    propagation. ``lhs`` and ``priors`` are required to resolve basis
+    slots (which need equation context for their owned coefficients).
 
     When *prefer_observed_block_members* is True, block-member names are
     removed from the endogenous-RV map passed to resolution (including
@@ -846,15 +1145,37 @@ def _make_cross_sectional_resolver(
         return pt.as_tensor_variable(data[name].to_numpy().astype(float))
 
     def resolve(slot: PredictorSlot) -> Any:
-        if slot.kind == "hsgp":
-            assert slot.hsgp is not None
+        if slot.kind == "categorical":
+            assert lhs is not None
+            assert categorical_bases is not None
+            assert categorical_coefficients is not None
+            cat_key = (lhs, slot.name)
+            return categorical_bases[cat_key] @ categorical_coefficients[cat_key]
+        if slot.kind == "basis":
+            assert slot.basis is not None
             assert lhs is not None and priors is not None, (
-                "HSGP slot requires lhs and priors in the resolver."
+                "Basis slot requires lhs and priors in the resolver."
             )
-            from pathmc.hsgp import assemble_hsgp_term
+            from pathmc.basis import get_basis
 
             x = _resolve_var(slot.name)[:, None]
-            return assemble_hsgp_term(slot.hsgp, x, lhs=lhs, priors=priors)
+            basis = get_basis(slot.basis.name)
+            key = basis.binding_key(lhs, slot.basis)
+            if basis_data_vars is not None and key in basis_data_vars:
+                return basis.contribution(
+                    basis_data_vars[key],
+                    (basis_states or {}).get(key),
+                    lhs=lhs,
+                    call=slot.basis,
+                    priors=priors,
+                )
+            return basis.assemble_graph(
+                x,
+                lhs=lhs,
+                call=slot.basis,
+                priors=priors,
+                state=(basis_states or {}).get(key),
+            )
         if slot.kind == "transform":
             tc = transform_map[slot.name]
             return _apply_transform_chain(
@@ -904,11 +1225,10 @@ def _make_scan_resolver(
         return pt.zeros(n_units)
 
     def resolve(slot: PredictorSlot) -> Any:
-        if slot.kind == "hsgp":
+        if slot.kind == "basis":
             raise NotImplementedError(
-                "HSGP terms are not supported in panel/scan models yet "
-                "(see follow-up). Use a cross-sectional model or remove the "
-                "hsgp() term."
+                "Basis terms are not supported in panel/scan models yet. "
+                "Use a cross-sectional model or remove the basis term."
             )
         if slot.kind == "transform":
             tc = transform_map[slot.name]
@@ -941,6 +1261,387 @@ def _make_scan_resolver(
 # ---------------------------------------------------------------------------
 # Helpers: pooling / random effects (continued)
 # ---------------------------------------------------------------------------
+
+
+def _parse_by_var_pooling(
+    pooling: str | dict | None,
+    spec: Spec | None = None,
+    unit_columns: tuple[str, ...] | None = None,
+    *,
+    require_panel: bool = True,
+) -> dict[str, dict[str, Any]]:
+    """Validate and normalize ``pooling["by_var"]``.
+
+    Returns a mapping from variable name to a normalized entry:
+
+    - ``{"kind": "coefficient", "dims": (...), "key": "geo"}`` --
+      hierarchical coefficient pooled over the requested panel dims
+      (``dim_idx`` is filled in later by the compiler once data is at hand).
+    - ``{"kind": "none_coefficient"}`` -- unpooled per-cell coefficient.
+    - ``{"kind": "none_transform"}`` -- unpooled per-cell transform parameter.
+
+    Parameters
+    ----------
+    pooling : str | dict | None
+        Pooling specification; only ``pooling["by_var"]`` is read.
+    spec : Spec | None
+        Parsed specification, used to resolve which names are predictors
+        vs transform parameters and to validate the entries.
+    unit_columns : tuple[str, ...] | None
+        The panel dimension columns. ``None`` means the dims cannot be
+        checked here (compile time will validate them against the panel).
+    require_panel : bool
+        When True (the compiler paths), a non-empty ``by_var`` without
+        *unit_columns* raises immediately. Priors registration passes
+        False so defaults can be built before the panel is validated.
+    """
+    if not (isinstance(pooling, dict) and pooling.get("by_var")):
+        return {}
+
+    if unit_columns is None and require_panel:
+        raise ValueError(
+            "pooling['by_var'] requires a panel model. Pass "
+            "panel={'unit': ..., 'time': ...} with the columns named in "
+            "the by_var entries."
+        )
+
+    by_var = pooling["by_var"]
+    if not isinstance(by_var, dict):
+        raise ValueError(
+            f"pooling['by_var'] must be a dict mapping variable names to "
+            f"pooling specs, got {type(by_var).__name__}."
+        )
+
+    free_predictors: set[str] = set()
+    fixed_predictors: set[str] = set()
+    transform_leaves: set[str] = set()
+    lhs_vars: set[str] = set()
+    users: dict[str, list[str]] = {}
+    transform_params: set[str] = set()
+    if spec is not None:
+        lhs_vars = {reg.lhs for reg in spec.regressions}
+        for reg in spec.regressions:
+            for t in reg.terms:
+                if t.basis is not None:
+                    continue
+                if t.fixed_value is not None:
+                    fixed_predictors.add(t.variable)
+                else:
+                    free_predictors.add(t.variable)
+                    users.setdefault(t.variable, []).append(reg.lhs)
+                if t.transform is not None:
+                    transform_leaves.add(t.variable)
+        transform_params = _collect_transform_param_names(spec)
+
+    parsed: dict[str, dict[str, Any]] = {}
+    for name, entry in by_var.items():
+        if name in lhs_vars:
+            raise ValueError(
+                f"by_var entry '{name}' is an endogenous variable (the LHS of "
+                f"a regression). by_var pooling applies to predictors and "
+                f"transform parameters only; endogenous predictors are not "
+                f"supported. Valid predictor names: {sorted(free_predictors)}."
+            )
+        if name in fixed_predictors:
+            raise ValueError(
+                f"by_var entry '{name}' has a fixed coefficient in the formula "
+                f"(e.g. '1*{name}'). Fixed-coefficient terms cannot be pooled; "
+                f"remove the fixed value or drop the by_var entry."
+            )
+
+        eq_users = users.get(name, [])
+        if len(eq_users) > 1:
+            raise ValueError(
+                f"Predictor '{name}' appears in multiple equations "
+                f"{sorted(set(eq_users))}. by_var pooling currently requires "
+                f"each pooled predictor to appear in exactly one equation so "
+                f"that its RV names stay unambiguous."
+            )
+        if name in transform_leaves:
+            raise ValueError(
+                f"by_var coefficient pooling is not supported for '{name}' "
+                f"because it appears as a transformed term "
+                f"(e.g. {name}(...) or a transform over {name}). Pooling its "
+                f"raw column would bypass the transform. To express the MMM "
+                f"pattern, pool the transform parameters instead (e.g. "
+                f'"theta_{name}": "none" for one decay per cell), or pool an '
+                f"untransformed predictor."
+            )
+
+        if isinstance(entry, str):
+            if entry != "none":
+                raise ValueError(
+                    f"by_var entry for '{name}' must be \"none\" or "
+                    f"a dict like {{'coefficient': dims}}, got {entry!r}."
+                )
+            if name in transform_params:
+                parsed[name] = {"kind": "none_transform"}
+            elif name in free_predictors:
+                parsed[name] = {"kind": "none_coefficient"}
+            else:
+                raise ValueError(
+                    f"Unknown by_var name '{name}'. Valid names are predictor "
+                    f"variables {sorted(free_predictors)} or transform parameter "
+                    f"names {sorted(transform_params)}."
+                )
+            continue
+
+        if not (isinstance(entry, dict) and set(entry) == {"coefficient"}):
+            raise ValueError(
+                f"by_var entry for '{name}' must be \"none\" or a dict like "
+                f"{{'coefficient': dims}} where dims names panel dimensions, "
+                f"got {entry!r}."
+            )
+        raw_dims = entry["coefficient"]
+        if isinstance(raw_dims, str):
+            dims = (raw_dims,)
+        elif isinstance(raw_dims, (tuple, list)):
+            dims = tuple(raw_dims)
+        else:
+            raise ValueError(
+                f"by_var coefficient dims for '{name}' must be a dim name or a "
+                f"tuple of dim names, got {raw_dims!r}."
+            )
+        if not dims:
+            raise ValueError(
+                f"by_var coefficient dims for '{name}' must name at least one "
+                f"panel dimension."
+            )
+        bad_types = [d for d in dims if not isinstance(d, str)]
+        if bad_types:
+            raise ValueError(
+                f"by_var coefficient dims for '{name}' must all be strings, "
+                f"got {bad_types!r}."
+            )
+        if len(set(dims)) != len(dims):
+            raise ValueError(
+                f"by_var coefficient dims for '{name}' contain duplicates: {dims}."
+            )
+        if unit_columns is not None:
+            unknown = [d for d in dims if d not in unit_columns]
+            if unknown:
+                raise ValueError(
+                    f"Unknown panel dimension(s) {unknown} in the by_var entry "
+                    f"for '{name}'. Valid dimensions are the panel['unit'] "
+                    f"columns: {list(unit_columns)}."
+                )
+        if name not in free_predictors:
+            raise ValueError(
+                f"by_var coefficient pooling applies to predictor variables, "
+                f"but '{name}' is not a free predictor in this spec. Valid "
+                f"predictor names: {sorted(free_predictors)}; transform "
+                f'parameters accept only "none".'
+            )
+        generated = {
+            f"beta_{name}",
+            f"mu_{name}_{'_'.join(dims)}",
+            f"sigma_{name}_{'_'.join(dims)}",
+        }
+        collisions = sorted(generated & transform_params)
+        if collisions:
+            raise ValueError(
+                f"by_var entry for '{name}' would generate RV name(s) "
+                f"{collisions} that collide with transform parameter name(s) "
+                f"in the spec. Rename the transform parameter or the predictor."
+            )
+        parsed[name] = {
+            "kind": "coefficient",
+            "dims": dims,
+            "key": "_".join(dims),
+        }
+    return parsed
+
+
+def _collect_transform_param_names(spec: Spec) -> set[str]:
+    """Collect every user-chosen transform parameter name in *spec*."""
+    names: set[str] = set()
+
+    def _walk(tc: TransformCall) -> None:
+        if isinstance(tc.input_expr, TransformCall):
+            _walk(tc.input_expr)
+        names.update(tc.params.values())
+
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.transform is not None:
+                _walk(term.transform)
+    return names
+
+
+def _warn_missing_by_var_cells(
+    data: nw.DataFrame,
+    dims: tuple[str, ...],
+    levels: dict[str, list[Any]],
+    var_name: str,
+) -> None:
+    """Warn when a rank-N hyperprior grid has cells with no observed units."""
+    import itertools
+    import warnings
+
+    observed = {
+        tuple(row[d] for d in dims)
+        for row in data.select(dims).unique().iter_rows(named=True)
+    }
+    all_cells = set(itertools.product(*(levels[d] for d in dims)))
+    missing = sorted(all_cells - observed)
+    if not missing:
+        return
+    shown = ", ".join(str(cell) for cell in missing[:5])
+    more = f" (and {len(missing) - 5} more)" if len(missing) > 5 else ""
+    warnings.warn(
+        f"by_var coefficient pooling for '{var_name}' over {dims} leaves "
+        f"hyperprior cell(s) {shown}{more} without observed units; those "
+        "cells sample from the prior and appear in the posterior as if "
+        "estimated. Add rows for the missing combinations or pool over a "
+        "dimension with full coverage.",
+        UserWarning,
+        stacklevel=4,
+    )
+
+
+def _build_cell_group_index(
+    data: nw.DataFrame,
+    panel_info: PanelInfo,
+    dims: tuple[str, ...],
+) -> tuple[tuple[np.ndarray, ...], dict[str, list[Any]]]:
+    """Map each panel cell to per-dim indices for dim-subset pooling.
+
+    Returns ``(dim_idx, levels)`` where *dim_idx* is a tuple of index
+    arrays (one per dim in *dims*), each aligned with
+    ``panel_info.unit_labels``, suitable for advanced indexing into a
+    rank-N hyperprior tensor.
+    """
+    cols = [panel_info.unit] + [d for d in dims if d != panel_info.unit]
+    combos = data.select(cols).unique(maintain_order=True)
+    labels = combos[panel_info.unit].to_list()
+    dim_values = [combos[d].to_list() for d in dims]
+    label_to_vals = {
+        lab: tuple(vals[i] for vals in dim_values) for i, lab in enumerate(labels)
+    }
+
+    levels = {d: sorted(data[d].unique().to_list()) for d in dims}
+    level_idx = {d: {v: i for i, v in enumerate(levels[d])} for d in dims}
+
+    dim_idx_arrays = [
+        np.empty(len(panel_info.unit_labels), dtype=np.int64) for _ in dims
+    ]
+    for ci, lab in enumerate(panel_info.unit_labels):
+        if lab not in label_to_vals:
+            raise ValueError(
+                f"Panel unit {lab!r} has no rows in the data; cannot derive "
+                f"its ({', '.join(dims)}) group membership for by_var pooling."
+            )
+        vals = label_to_vals[lab]
+        for di, d in enumerate(dims):
+            dim_idx_arrays[di][ci] = level_idx[d][vals[di]]
+    return tuple(dim_idx_arrays), levels
+
+
+def _index_hyperprior(mu_hp: Any, dim_idx: tuple[np.ndarray, ...]) -> Any:
+    """Index a rank-N hyperprior with per-dim unit index arrays."""
+    if len(dim_idx) > 1:
+        return mu_hp[dim_idx]
+    return mu_hp[dim_idx[0]]
+
+
+def _exclude_pooled_from_flat_beta(
+    mu_specs: dict[str, MuSpec],
+    pooled_by_lhs: dict[str, set[str]],
+) -> dict[str, MuSpec]:
+    """Zero out flat-beta slots replaced by ``by_var`` coefficients.
+
+    Replaces ``mu_specs[lhs]`` with ``dataclasses.replace`` copies (the
+    dict is mutated; the original ``MuSpec`` objects are not). The
+    hierarchical contribution is added separately by the compiler,
+    mirroring how random slopes bypass the flat beta vector.
+    """
+    for lhs, names in pooled_by_lhs.items():
+        if not names:
+            continue
+        mu_spec = mu_specs[lhs]
+        new_slots = [
+            replace(s, coeff_type="fixed", coeff_value=0.0)
+            if s.coeff_type == "free" and s.kind != "intercept" and s.name in names
+            else s
+            for s in mu_spec.slots
+        ]
+        mu_specs[lhs] = replace(mu_spec, slots=new_slots)
+    return mu_specs
+
+
+def _compile_by_var_coefficients(
+    reg: Regression,
+    entries: dict[str, dict[str, Any]],
+    data_vars: dict[str, Any],
+    unit_idx: np.ndarray,
+    priors: dict[str, Any],
+) -> Any:
+    """Emit per-cell coefficients from ``by_var`` entries for one equation.
+
+    Mirrors :func:`_compile_random_slopes`: uses the symbolic ``pm.Data``
+    variables so ``pm.do()`` interventions propagate through the terms.
+    """
+    from pathmc.priors import _ensure_dims
+
+    contribution = 0
+    term_variables = {t.variable for t in reg.terms}
+    for name, entry in entries.items():
+        if name not in term_variables:
+            continue
+        if entry["kind"] == "coefficient":
+            key = entry["key"]
+            mu_hp = _ensure_dims(
+                priors[f"mu_{name}_{key}"], entry["dims"]
+            ).create_variable(f"mu_{name}_{key}")
+            sigma_hp = priors[f"sigma_{name}_{key}"].create_variable(
+                f"sigma_{name}_{key}"
+            )
+            beta = pm.Normal(
+                f"beta_{name}",
+                mu=_index_hyperprior(mu_hp, entry["dim_idx"]),
+                sigma=sigma_hp,
+                dims="unit",
+            )
+        else:
+            beta = _ensure_dims(priors[f"beta_{name}"], ("unit",)).create_variable(
+                f"beta_{name}"
+            )
+        contribution = contribution + beta[unit_idx] * data_vars[name]
+    return contribution
+
+
+def _split_by_var_entries(
+    by_var_entries: dict[str, dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], bool]:
+    """Split normalized by_var entries into coefficient entries plus a flag.
+
+    Returns ``(coefficient_entries, needs_transform_indexing)`` where the
+    flag is True when any ``"none"`` transform parameter must be indexed
+    per cell (cross-sectional path only).
+    """
+    coef_entries = {
+        n: e for n, e in by_var_entries.items() if e["kind"] != "none_transform"
+    }
+    needs_indexing = any(e["kind"] == "none_transform" for e in by_var_entries.values())
+    return coef_entries, needs_indexing
+
+
+def _emit_transform_priors(
+    spec: Spec,
+    priors: dict[str, Any] | None = None,
+    existing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Emit PyMC priors for all transform parameters. Returns name->RV mapping.
+
+    Names already present in *existing* are skipped, so callers can
+    pre-create RVs with custom dims.
+    """
+    emitted: dict[str, Any] = dict(existing) if existing else {}
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.transform is not None:
+                _emit_transform_call_priors(term.transform, emitted, priors)
+    return emitted
 
 
 def _build_unit_index(data: nw.DataFrame, panel_info: PanelInfo) -> np.ndarray:
@@ -1021,8 +1722,12 @@ def _compile_residual_block(
     transform_param_rvs: dict[str, Any],
     panel_info: PanelInfo | None = None,
     priors: dict[str, Any] | None = None,
+    categorical_bases: dict[tuple[str, str], Any] | None = None,
+    categorical_coefficients: dict[tuple[str, str], Any] | None = None,
     topological_order: list[str] | None = None,
-) -> None:
+    *,
+    generative: bool = False,
+) -> str | None:
     """Compile a residual-covariance block.
 
     Uses ``MuSpec`` + resolver so that endogenous predictors wire
@@ -1030,6 +1735,10 @@ def _compile_residual_block(
     Creates ``mu_{var}`` deterministics and registers block variables
     in *endogenous_rvs* so downstream equations wire through the model
     graph (enabling ``pm.do()`` propagation through block variables).
+
+    On the estimation path, *endogenous_rvs* stores structural means.
+    On the generative path, it stores realized noisy slices of the joint
+    residual RV so descendants read correlated noise, not ``mu_{var}``.
 
     Delegates the covariance parameterization and likelihood emission
     to an :class:`~pathmc.residuals.LKJResidual`.
@@ -1040,6 +1749,14 @@ def _compile_residual_block(
         Block members in topological order.  When provided, variables
         are processed in this order to ensure correct wiring when one
         block member depends on another.
+    generative : bool
+        When True, emit a free joint RV and expose realized values
+        under each member's name.
+
+    Returns
+    -------
+    str | None
+        Name of the free joint RV on the generative path, else None.
     """
     import pytensor.tensor as pt
 
@@ -1076,6 +1793,10 @@ def _compile_residual_block(
             transform_map,
             transform_param_rvs,
             panel_info,
+            lhs=var,
+            priors=priors,
+            categorical_bases=categorical_bases,
+            categorical_coefficients=categorical_coefficients,
         )
         mu = build_mu(ms, resolver, beta, pt.zeros(len(data)))
 
@@ -1085,57 +1806,80 @@ def _compile_residual_block(
         data_dict[var] = data[var].to_numpy()
 
     structure = LKJResidual()
-    structure.emit(block_sorted, mu_dict, data_dict, priors)
+    joint = structure.emit(
+        block_sorted, mu_dict, data_dict, priors, observed=not generative
+    )
+    if not generative:
+        return None
+    for i, var in enumerate(block_sorted):
+        endogenous_rvs[var] = pm.Deterministic(var, joint[:, i])
+    return str(joint.name)
 
 
-def _spec_has_hsgp(spec: Spec) -> bool:
-    """Return True if any regression term is an HSGP smooth."""
-    return any(term.hsgp is not None for reg in spec.regressions for term in reg.terms)
+def _spec_has_categorical(spec: Spec) -> bool:
+    """Return True if any regression uses a categorical predictor."""
+    return any(
+        term.categorical is not None for reg in spec.regressions for term in reg.terms
+    )
 
 
-def _reject_hsgp_in_residual_blocks(spec: Spec) -> None:
-    """Raise if an HSGP term sits on a variable in a ``~~`` block.
+def _reject_basis_in_residual_blocks(spec: Spec) -> None:
+    """Raise if a basis term sits on a variable in a ``~~`` block.
 
     The residual-block compiler sizes ``beta`` from ``{var}_predictors``,
-    which excludes HSGP basis weights, so an HSGP term on a block member
+    which excludes basis weights, so a basis term on a block member
     cannot be wired safely in Phase 1.
     """
     block_vars, _ = _identify_residual_blocks(spec)
     if not block_vars:
         return
     for reg in spec.regressions:
-        if reg.lhs in block_vars and any(t.hsgp is not None for t in reg.terms):
+        if reg.lhs in block_vars and any(t.basis is not None for t in reg.terms):
             raise NotImplementedError(
-                f"HSGP terms are not supported on '{reg.lhs}', which participates "
+                f"Basis terms are not supported on '{reg.lhs}', which participates "
                 "in a ~~ residual-covariance block yet (see follow-up). Model the "
                 "smooth outside the covariance block."
             )
 
 
-def _reject_endogenous_hsgp_inputs(spec: Spec) -> None:
-    """Raise if an HSGP smooth is applied to an endogenous variable.
+def _validate_basis_capabilities(spec: Spec, panel_info: PanelInfo | None) -> None:
+    """Reject combinations not declared by a basis's capability metadata."""
+    from pathmc.basis import get_basis
 
-    ``pm.gp.HSGP.prior_linearized`` calls ``.eval()`` on the input to freeze
-    the centering midpoint and the boundary ``L``.  When the input is an
-    upstream random variable that ``.eval()`` is a draw from the prior, so the
-    basis -- and therefore the fitted smooth -- depends on compilation-time
-    RNG rather than on the data.  Phase 1 only supports exogenous inputs.
-    """
     endogenous = {reg.lhs for reg in spec.regressions}
     for reg in spec.regressions:
         for term in reg.terms:
-            if term.hsgp is not None and term.hsgp.variable in endogenous:
+            if term.basis is None:
+                continue
+            basis = get_basis(term.basis.name)
+            if panel_info is not None and not basis.capabilities.supports_panel:
                 raise NotImplementedError(
-                    f"hsgp() input '{term.hsgp.variable}' in the '{reg.lhs}' "
-                    "equation is endogenous (it is the outcome of another "
-                    "regression). The HSGP basis is built by evaluating its "
-                    "input, so an endogenous input would freeze the basis at a "
-                    "random prior draw and make the fit non-reproducible. "
-                    "Phase 1 supports exogenous hsgp() inputs only."
+                    f"{basis.name}() is not supported in panel models yet. "
+                    "Fit a cross-sectional model or remove the basis term."
                 )
+            if term.basis.variable in endogenous:
+                if not basis.capabilities.supports_endogenous:
+                    raise NotImplementedError(
+                        f"{basis.name}() input '{term.basis.variable}' in the "
+                        f"'{reg.lhs}' equation is endogenous. This basis does not "
+                        "support graph inputs; use an exogenous input or choose a "
+                        "basis with graph-input support."
+                    )
+                if not basis.has_graph_contract():
+                    raise NotImplementedError(
+                        f"{basis.name}() input '{term.basis.variable}' in the "
+                        f"'{reg.lhs}' equation is endogenous, but this basis does "
+                        "not implement build_graph(). Implement build_graph() "
+                        "for symbolic inputs or use an exogenous input."
+                    )
 
 
-def _reject_nan_predictors(data: nw.DataFrame, graph_info: GraphInfo) -> None:
+def _reject_nan_predictors(
+    data: nw.DataFrame,
+    graph_info: GraphInfo,
+    *,
+    categorical_vars: set[str] | None = None,
+) -> None:
     """Raise if a purely-exogenous (predictor) column contains NaN/inf.
 
     Outcome (endogenous, LHS) variables get first-class missing-data
@@ -1159,6 +1903,8 @@ def _reject_nan_predictors(data: nw.DataFrame, graph_info: GraphInfo) -> None:
     """
     for var in sorted(graph_info.exogenous):
         if var not in data.columns:
+            continue
+        if categorical_vars and var in categorical_vars:
             continue
         vals = np.asarray(data[var].to_numpy(), dtype=float)
         n_bad = int((~np.isfinite(vals)).sum())
@@ -1262,20 +2008,6 @@ def _build_transform_map(spec: Spec) -> dict[str, TransformCall]:
             if term.transform is not None:
                 tmap[term.variable] = term.transform
     return tmap
-
-
-def _emit_transform_priors(
-    spec: Spec,
-    transform_map: dict[str, TransformCall],
-    priors: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Emit PyMC priors for all transform parameters. Returns name->RV mapping."""
-    emitted: dict[str, Any] = {}
-    for reg in spec.regressions:
-        for term in reg.terms:
-            if term.transform is not None:
-                _emit_transform_call_priors(term.transform, emitted, priors)
-    return emitted
 
 
 def _emit_transform_call_priors(
@@ -1432,12 +2164,12 @@ def _build_lag_map(spec: Spec) -> dict[str, str]:
     return lag_map
 
 
-def _has_temporal_deps(spec: Spec, graph_info: GraphInfo) -> bool:
+def _has_temporal_deps(spec: Spec) -> bool:
     """Return True if the model has adstock transforms or any lag terms.
 
     Detects temporal dependencies from:
     - ``lag()`` DSL syntax (``Term.lag_of``)
-    - ``adstock()`` transforms
+    - ``adstock()`` transforms (geometric only — triggers scan compilation)
     """
     for reg in spec.regressions:
         for term in reg.terms:
@@ -1454,6 +2186,44 @@ def _has_temporal_deps(spec: Spec, graph_info: GraphInfo) -> bool:
                         else None
                     )
     return False
+
+
+_CONV_ADSTOCK_TRANSFORMS = frozenset({"adstock", "delayed_adstock", "weibull_adstock"})
+
+
+def _requires_rectangular_panel(spec: Spec, graph_info: GraphInfo) -> bool:
+    """Return True if panel data must form a dense unit x time grid.
+
+    The scan compiler and vectorized convolution transforms both reshape
+    panel rows to ``(n_times, n_units)``; unbalanced panels must be
+    rejected for either path.
+    """
+    if _has_temporal_deps(spec):
+        return True
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.transform is not None:
+                tc: TransformCall | None = term.transform
+                while tc is not None:
+                    if tc.name in _CONV_ADSTOCK_TRANSFORMS:
+                        return True
+                    tc = (
+                        tc.input_expr
+                        if isinstance(tc.input_expr, TransformCall)
+                        else None
+                    )
+    return False
+
+
+def _is_scan_panel(spec: Spec, panel_info: PanelInfo | None) -> bool:
+    """True when compile_to_pymc will take the scan-panel path."""
+    return panel_info is not None and _has_temporal_deps(spec)
+
+
+def _reject_scan_panel_residual_cov(spec: Spec, panel_info: PanelInfo | None) -> None:
+    """Reject ~~ on scan-compiled panel models before the scan early-return."""
+    if spec.residual_covs and _is_scan_panel(spec, panel_info):
+        raise NotImplementedError(_SCAN_PANEL_RESIDUAL_COV_MSG)
 
 
 def _transform_base_vars(tc: TransformCall) -> list[str]:
@@ -1669,6 +2439,21 @@ def _compile_scan_panel(
     mu_specs = build_mu_specs(spec, pooling=pooling, panel_info=panel_info)
     has_ri = _has_random_intercepts(pooling)
     slope_vars = _get_slope_vars(pooling)
+    by_var_entries = _parse_by_var_pooling(pooling, spec, panel_info.unit_columns)
+    coef_entries, _none_transform_flag = _split_by_var_entries(by_var_entries)
+    pooled_by_lhs: dict[str, set[str]] = {}
+    for reg_ in spec.regressions:
+        term_vars = {t.variable for t in reg_.terms}
+        names = {n for n in coef_entries if n in term_vars}
+        if names:
+            pooled_by_lhs[reg_.lhs] = names
+    for pname, entry in coef_entries.items():
+        if entry["kind"] == "coefficient":
+            entry["dim_idx"], entry["levels"] = _build_cell_group_index(
+                data, panel_info, entry["dims"]
+            )
+            _warn_missing_by_var_cells(data, entry["dims"], entry["levels"], pname)
+    _exclude_pooled_from_flat_beta(mu_specs, pooled_by_lhs)
 
     endogenous_order = [
         v for v in graph_info.topological_order if v in graph_info.endogenous
@@ -1719,18 +2504,41 @@ def _compile_scan_panel(
     coords: dict[str, Any] = {}
     fixed_coeffs_by_var: dict[str, dict[str, float]] = {}
     for reg in spec.regressions:
-        free_cols = get_free_predictor_columns(
-            reg, pooling=pooling, panel_info=panel_info
-        )
+        free_cols = [
+            c
+            for c in get_free_predictor_columns(
+                reg, pooling=pooling, panel_info=panel_info
+            )
+            if c not in pooled_by_lhs.get(reg.lhs, ())
+        ]
         if free_cols:
             coords[f"{reg.lhs}_predictors"] = free_cols
         fixed_coeffs_by_var[reg.lhs] = get_fixed_coefficients(reg)
-    if has_ri:
+    needs_unit_coord = bool(coef_entries) or any(
+        e["kind"] == "none_transform" for e in by_var_entries.values()
+    )
+    if has_ri or needs_unit_coord or latent:
+        # Latents need the coord so ``init_{var}`` priors resolve to a
+        # per-unit (n_units,) shape via _ensure_dims.
         coords["unit"] = units
+        for entry in coef_entries.values():
+            if entry["kind"] != "coefficient":
+                continue
+            for dim_name, level_list in entry["levels"].items():
+                if dim_name not in coords:
+                    coords[dim_name] = level_list
 
     with pm.Model(coords=coords) as scan_model:
         # --- transform parameter priors ---
         tparam_rvs: dict[str, Any] = {}
+        # Per-cell transform parameters ("none") are emitted first, with
+        # dims enforced so a dim-less user override cannot silently collapse
+        # to a shared scalar; the generic emitter below fills in the rest.
+        for pname, entry in by_var_entries.items():
+            if entry["kind"] == "none_transform" and pname in priors:
+                tparam_rvs[pname] = _ensure_dims(
+                    priors[pname], ("unit",)
+                ).create_variable(pname)
         for reg in spec.regressions:
             for term in reg.terms:
                 if term.transform is not None:
@@ -1740,10 +2548,14 @@ def _compile_scan_panel(
         beta_rvs: dict[str, Any] = {}
         sigma_rvs: dict[str, Any] = {}
         for var in endogenous_order:
+            free_cols = [
+                c
+                for c in get_free_predictor_columns(
+                    reg_by_lhs[var], pooling=pooling, panel_info=panel_info
+                )
+                if c not in pooled_by_lhs.get(var, ())
+            ]
             family = families.get(var, "gaussian")
-            free_cols = get_free_predictor_columns(
-                reg_by_lhs[var], pooling=pooling, panel_info=panel_info
-            )
             if free_cols:
                 beta_prior = _ensure_dims(priors[f"beta_{var}"], f"{var}_predictors")
                 beta_rvs[var] = beta_prior.create_variable(f"beta_{var}")
@@ -1789,6 +2601,29 @@ def _compile_scan_panel(
                         sigma=sig_s,
                         dims="unit",
                     )
+
+        # --- by_var pooled / unpooled coefficients ---
+        byvar_rvs: dict[str, Any] = {}
+
+        for name, entry in sorted(coef_entries.items()):
+            if entry["kind"] == "coefficient":
+                key = entry["key"]
+                mu_hp = _ensure_dims(
+                    priors[f"mu_{name}_{key}"], entry["dims"]
+                ).create_variable(f"mu_{name}_{key}")
+                sigma_hp = priors[f"sigma_{name}_{key}"].create_variable(
+                    f"sigma_{name}_{key}"
+                )
+                byvar_rvs[name] = pm.Normal(
+                    f"beta_{name}",
+                    mu=_index_hyperprior(mu_hp, entry["dim_idx"]),
+                    sigma=sigma_hp,
+                    dims="unit",
+                )
+            else:
+                byvar_rvs[name] = _ensure_dims(
+                    priors[f"beta_{name}"], ("unit",)
+                ).create_variable(f"beta_{name}")
 
         # --- exogenous data as pm.Data (n_times, n_units) ---
         # Include both direct exogenous vars and base vars of lag columns
@@ -1907,6 +2742,26 @@ def _compile_scan_panel(
                 f"carry_innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
 
+        # --- estimated latent initial conditions ---
+        # Latent variables have no data column, so their t=0 scan carry
+        # state cannot be seeded from data. Instead of defaulting to
+        # zeros, each latent that feeds a ``lag()`` term gets an
+        # ``init_{var}`` free parameter (one value per unit) used as the
+        # scan outputs_info initial value. The default prior is
+        # Normal(0, 1); override it via the priors config under the
+        # ``init_{var}`` name. Applies to both deterministic and
+        # stochastic (latent_normal) latents. Latents without a lag term
+        # never read their carry state, so no init parameter is emitted.
+        latent_init_rvs: dict[str, Any] = {}
+        for var in sorted(set(latent) & set(endo_lag_bases)):
+            # _ensure_dims forces the per-unit (n_units,) shape even when
+            # the override was authored as a scalar prior.
+            latent_init_rvs[var] = _ensure_dims(
+                priors[f"init_{var}"], ("unit",)
+            ).create_variable(f"init_{var}")
+
+        # Exog lags use scan carry state (restored in #395 after pytensor#2252 / #333).
+
         discrete_uniform_nodes: dict[str, Any] = {}
         for var in discrete_bernoulli_vars:
             discrete_uniform_nodes[var] = pm.Uniform(
@@ -1969,7 +2824,12 @@ def _compile_scan_panel(
             return pt.as_tensor_variable(arr)
 
         outputs_info = (
-            [_init_carry(init_endo[k]) for k in endo_keys]
+            [
+                latent_init_rvs[k]
+                if k in latent_init_rvs
+                else _init_carry(init_endo[k])
+                for k in endo_keys
+            ]
             + [_init_carry(init_adstock[k]) for k in adstock_keys]
             + [_init_carry(init_exog_lag[k]) for k in exog_lag_bases]
             + [None for _ in carry_mu_vars]
@@ -1986,15 +2846,14 @@ def _compile_scan_panel(
         for var in endo_keys:
             if beta_rvs[var] is not None:
                 beta_component_names[var] = []
-                for idx in range(
-                    len(
-                        get_free_predictor_columns(
-                            reg_by_lhs[var],
-                            pooling=pooling,
-                            panel_info=panel_info,
-                        )
+                n_flat = len([
+                    c
+                    for c in get_free_predictor_columns(
+                        reg_by_lhs[var], pooling=pooling, panel_info=panel_info
                     )
-                ):
+                    if c not in pooled_by_lhs.get(var, ())
+                ])
+                for idx in range(n_flat):
                     component_name = f"beta_{var}__{idx}"
                     non_seq_list.append(beta_rvs[var][idx])
                     non_seq_names.append(component_name)
@@ -2010,6 +2869,9 @@ def _compile_scan_panel(
             for svar, srv in slope_rvs.get(var, {}).items():
                 non_seq_list.append(srv)
                 non_seq_names.append(f"slope_{var}_{svar}")
+        for name, rv in byvar_rvs.items():
+            non_seq_list.append(rv)
+            non_seq_names.append(f"beta_{name}")
         for var in stochastic_latent:
             non_seq_list.append(sigma_rvs[var])
             non_seq_names.append(f"sigma_{var}")
@@ -2117,6 +2979,14 @@ def _compile_scan_panel(
                         x_val = exog_t.get(svar, new_endo.get(svar, pt.zeros(n_units)))
                         mu = mu + ns_map[skey] * x_val
 
+                for bname in sorted(pooled_by_lhs.get(var, ())):
+                    bkey = f"beta_{bname}"
+                    if bkey in ns_map:
+                        x_val = exog_t.get(
+                            bname, new_endo.get(bname, pt.zeros(n_units))
+                        )
+                        mu = mu + ns_map[bkey] * x_val
+
                 family = families.get(var, "gaussian")
                 if var in latent:
                     if var in stochastic_latent_set:
@@ -2207,8 +3077,8 @@ def _compile_scan_panel(
             fn=step_fn,
             sequences=sequences,
             outputs_info=outputs_info,
-            n_steps=n_times,
             non_sequences=non_seq_list,
+            n_steps=n_times,
             strict=True,
             return_updates=False,
         )

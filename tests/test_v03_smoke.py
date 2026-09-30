@@ -28,30 +28,38 @@ import pathmc
 def mmm_transform_data():
     """Panel MMM data with known adstock + saturation structure.
 
-    True DGP:
+    True DGP (generated via ``pathmc.simulate()``):
       adstocked_tv = adstock(tv, decay=0.7)
-      saturated_tv = 1 - exp(-0.3 * adstocked_tv)
+      saturated_tv = logistic_saturation(adstocked_tv, lam=0.3)
       sales = intercept[region] + 2.5 * saturated_tv + noise
+
+    Unit intercepts are supplied in sorted-unit order (East, North, South).
     """
     rng = np.random.default_rng(42)
     regions = ["North", "South", "East"]
     n_weeks = 25
-    true_intercepts = {"North": 50, "South": 60, "East": 55}
-    rows = []
-    for region in regions:
-        adstocked = 0.0
-        for week in range(1, n_weeks + 1):
-            tv = rng.uniform(5, 30)
-            adstocked = tv + 0.7 * adstocked
-            saturated = 1 - np.exp(-0.3 * adstocked)
-            sales = true_intercepts[region] + 2.5 * saturated + rng.normal(scale=0.5)
-            rows.append({
-                "region": region,
-                "week": week,
-                "tv": tv,
-                "sales": sales,
-            })
-    return pd.DataFrame(rows)
+    true_intercepts = {"East": 55.0, "North": 50.0, "South": 60.0}
+    exog = pd.DataFrame({
+        "region": [r for r in regions for _ in range(n_weeks)],
+        "week": list(range(1, n_weeks + 1)) * len(regions),
+        "tv": rng.uniform(5, 30, size=len(regions) * n_weeks),
+    })
+    return pathmc.simulate(
+        "sales ~ 0 + b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)",
+        data=exog,
+        params={
+            "beta_sales": [2.5],
+            "theta_tv": 0.7,
+            "lam_tv": 0.3,
+            "alpha_sales": [true_intercepts[r] for r in sorted(true_intercepts)],
+            "mu_alpha_sales": 55.0,
+            "sigma_alpha_sales": 5.0,
+            "sigma_sales": 0.5,
+        },
+        panel={"unit": "region", "time": "week"},
+        pooling="partial",
+        random_seed=42,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -141,12 +149,12 @@ class TestTransformParameterRecovery:
         """True decay=0.7 — posterior mean should be in (0.3, 0.95)."""
         rng = np.random.default_rng(42)
         n = 80
-        x = rng.uniform(0, 10, size=n)
-        adstocked = np.zeros(n)
-        for t in range(n):
-            adstocked[t] = x[t] + (0.7 * adstocked[t - 1] if t > 0 else 0)
-        y = 2.0 + 0.5 * adstocked + rng.normal(scale=1, size=n)
-        df = pd.DataFrame({"X": x, "Y": y})
+        df = pathmc.simulate(
+            "Y ~ adstock(X, decay=theta)",
+            data=pd.DataFrame({"X": rng.uniform(0, 10, size=n)}),
+            params={"beta_Y": [2.0, 0.5], "theta": 0.7, "sigma_Y": 1.0},
+            random_seed=42,
+        )
 
         model = pathmc.model("Y ~ adstock(X, decay=theta)", data=df)
         model.fit(draws=500, tune=500, chains=2, cores=1, random_seed=42)

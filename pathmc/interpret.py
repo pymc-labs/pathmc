@@ -30,6 +30,7 @@ from pathmc.compile import build_design_matrix, get_predictor_columns
 from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.idata import hdi as compute_hdi
 from pathmc.reprs import ReprSpec, ResultReprMixin
+from pathmc.scaling import ScaleContext
 from pathmc.simulate import (
     EstimandResult,
     _DrawStorageMixin,
@@ -388,6 +389,7 @@ def _unit_prediction(
             kind="mean",
             families=model._families,
             average_units=False,
+            scaling_factors=model._scaling_factors,
         )
         if outcome not in result.dataset:
             raise KeyError(
@@ -484,7 +486,41 @@ def _to_frame(model: PathModel, newdata: IntoFrame | None) -> tuple[nw.DataFrame
     if newdata is None:
         assert model._data is not None
         return model._data, False
-    return nw.from_native(newdata, eager_only=True), True
+    df = nw.from_native(newdata, eager_only=True)
+    factors = model._scaling_factors
+    if factors is None or not factors:
+        return df, True
+    needed = factors.required_dimensions(df.columns)
+    missing = [d for d in needed if d not in df.columns]
+    if missing:
+        raise ValueError(
+            f"predictions(newdata=) on a scaled model needs unit column(s) "
+            f"{missing} in the grid so per-unit scale factors can be applied. "
+            "Add those columns to newdata, or use do(set=...) which applies "
+            "factors from the fitted frame."
+        )
+    return factors.to_internal(
+        df,
+        kind="regressor",
+        dims=ScaleContext(columns=factors.columns_present_in(df.columns)),
+    ), True
+
+
+def _column_in_business_units(
+    model: PathModel, data: nw.DataFrame, column: str
+) -> np.ndarray:
+    """Values of *column* in user-facing units (inverse of internal scale)."""
+    x = np.asarray(data[column].to_numpy(), dtype=float)
+    factors = model._scaling_factors
+    if factors is None:
+        return x
+    return np.asarray(
+        factors.to_business(
+            x,
+            kind="regressor",
+            dims=ScaleContext(term=column, data=data),
+        )
+    )
 
 
 def predictions(
@@ -494,7 +530,11 @@ def predictions(
     set: dict[str, float | np.ndarray] | None = None,
     newdata: IntoFrame | None = None,
 ) -> InterpretResult:
-    """Response-mean predictions on the fitted frame or a covariate grid."""
+    """Response-mean predictions on the fitted frame or a covariate grid.
+
+    *newdata* is in business units: scaled-model grids are divided by the
+    fitted factors before compilation, matching ``do(set=)``.
+    """
     model._require_fitted("predictions")
     if model._panel_info is not None:
         _panel_not_implemented("predictions")
@@ -579,7 +619,7 @@ def slopes(
 
     cond = _validate_conditional(conditional)
     data, _swap = _to_frame(model, None)
-    x = np.asarray(data[wrt].to_numpy(), dtype=float)
+    x = _column_in_business_units(model, data, wrt)
     set_lo: dict[str, float | np.ndarray] = {wrt: x, **cond}
     set_hi: dict[str, float | np.ndarray] = {wrt: x + eps, **cond}
     identifiable = _identifiable_flag(model, wrt, outcome)

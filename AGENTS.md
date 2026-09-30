@@ -10,6 +10,8 @@ Remember, when running into bugs or complex issues, it is not impossible we are 
 2. Run the relevant gate tests, e.g. `uv run pytest tests/test_<module>.py -x -v`. `make test-fast` skips MCMC sampling; `make test` runs everything.
 3. Run `make lint` before considering work done or committing. It runs `prek run --all-files` (ruff, ruff-format, mypy, YAML/TOML, license checks).
 
+For `simulate()` and scaling, prefer tests that leave the module under test: hand-written NumPy oracles, or round-trips into a different entry point (`model()` on simulated frames, `do(raw)` vs `intercept + beta * raw/factor`). Simulate-and-recover alone is blind to silent DGP bugs because the same code generates and checks the data.
+
 Line-level AI attribution is recorded by [git-ai](https://usegitai.com/docs/get-started) into `refs/notes/ai`. It is optional and installed per machine, never per repo — see the "AI code attribution with git-ai" section of [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the `allow_repositories` gotcha.
 
 ## Scratch space (`.scratch/`)
@@ -40,6 +42,7 @@ pathmc/
   falsify.py      # Whole-DAG falsification (permutation test)
   sensitivity.py  # Unmeasured-confounding sensitivity analysis
   panel.py        # PanelInfo and panel validation
+  scaling.py      # Scaling layer for heterogeneous units (Scaling, ScalingFactors)
   priors.py       # default_priors(), merge_priors(); Prior-based config
   residuals.py    # Residual covariance structures (LKJ Cholesky, pluggable)
   idata.py        # Internal ArviZ InferenceData accessors
@@ -99,6 +102,3 @@ Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
 ### Autonomous workflows
 
 - **Bugs**: `fix-bug` skill — `fix bug #N`
-- **Features**: `work` skill — `work #N` (orchestrates grill-with-docs, to-spec, implement, tdd, code-review)
-
-Matt Pocock sub-skills live under `.agents/skills/` (installed via `skills-lock.json`). Update with `npx skills update`. See `.agents/skills/THIRD_PARTY.md` for attribution and licenses.

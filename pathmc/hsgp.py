@@ -36,6 +36,7 @@ import numpy as np
 import pymc as pm
 from pytensor.tensor.variable import TensorVariable
 
+from pathmc.basis import Basis, BasisCapabilities, Call
 from pathmc.parse import HSGPCall, Spec
 from pathmc.priors import PriorConfig
 
@@ -48,6 +49,109 @@ COV_FUNCS: dict[str, type] = {
     "matern52": pm.gp.cov.Matern52,
     "matern32": pm.gp.cov.Matern32,
 }
+
+
+class HSGPBasis(Basis):
+    """Registry adapter for HSGP's parameter-dependent graph basis."""
+
+    name = "hsgp"
+    capabilities = BasisCapabilities(supports_endogenous=False)
+    supports_data_contract = False
+
+    def n_basis(self, call: Call) -> int:
+        """Return the requested number of Laplacian eigenfunctions."""
+        assert isinstance(call, HSGPCall)
+        return call.m
+
+    def build_data(
+        self, x: np.ndarray, call: Call, *, state: Any | None = None
+    ) -> tuple[np.ndarray, Any]:
+        """Reject numeric materialization because HSGP depends on parameters."""
+        raise NotImplementedError(
+            "hsgp() is a graph basis because its columns depend on the "
+            "estimated ell and eta parameters."
+        )
+
+    def build_graph(
+        self,
+        x: TensorLike,
+        call: Call,
+        *,
+        lhs: str,
+        priors: PriorConfig,
+        state: Any | None = None,
+    ) -> tuple[TensorLike, TensorLike]:
+        """Build HSGP columns and their spectral scaling state."""
+        assert isinstance(call, HSGPCall)
+        ell = priors[f"ell_{lhs}_{call.variable}"].create_variable(
+            f"ell_{lhs}_{call.variable}"
+        )
+        eta = priors[f"eta_{lhs}_{call.variable}"].create_variable(
+            f"eta_{lhs}_{call.variable}"
+        )
+        columns, sqrt_psd, n_basis = hsgp_basis(
+            call, x, cov_func=make_cov_func(call.cov, eta=eta, ell=ell)
+        )
+        if n_basis != call.m:
+            raise ValueError(
+                f"HSGP basis count {n_basis} != requested m={call.m} for "
+                f"'{lhs}_{call.variable}'."
+            )
+        return columns, sqrt_psd
+
+    def default_priors(self, lhs: str, call: Call, priors: PriorConfig) -> None:
+        """Register HSGP hyperpriors and non-centered weight priors."""
+        from pymc_extras.prior import Prior
+
+        assert isinstance(call, HSGPCall)
+        var = call.variable
+        priors.setdefault(f"ell_{lhs}_{var}", Prior("InverseGamma", alpha=3, beta=1))
+        priors.setdefault(f"eta_{lhs}_{var}", Prior("HalfNormal", sigma=1))
+        if not call.centered:
+            priors.setdefault(
+                self.beta_name(lhs, call),
+                Prior("Normal", mu=0, sigma=1, dims=(self.weights_dim(lhs, call),)),
+            )
+
+    def prior_descriptions(self, lhs: str, call: Call) -> dict[str, str]:
+        """Return the HSGP hyperprior labels used by introspection."""
+        assert isinstance(call, HSGPCall)
+        descriptions = {
+            f"ell_{lhs}_{call.variable}": "InverseGamma(3, 1)",
+            f"eta_{lhs}_{call.variable}": "HalfNormal(1)",
+        }
+        if not call.centered:
+            descriptions[self.beta_name(lhs, call)] = "Normal(0, 1)"
+        return descriptions
+
+    def contribution(
+        self,
+        columns: TensorLike,
+        sqrt_psd: TensorLike,
+        *,
+        lhs: str,
+        call: Call,
+        priors: PriorConfig,
+    ) -> TensorVariable:
+        """Apply HSGP's centered or non-centered spectral prior structure."""
+        from pathmc.priors import _ensure_dims
+
+        assert isinstance(call, HSGPCall)
+        beta_name = self.beta_name(lhs, call)
+        if call.centered:
+            beta = pm.Normal(
+                beta_name,
+                mu=0.0,
+                sigma=sqrt_psd,
+                dims=self.weights_dim(lhs, call),
+            )
+            contribution = columns @ beta
+        else:
+            beta = _ensure_dims(
+                priors[beta_name], self.weights_dim(lhs, call)
+            ).create_variable(beta_name)
+            contribution = columns @ (beta * sqrt_psd)
+        return pm.Deterministic(self.contribution_name(lhs, call), contribution)
 
 
 def make_cov_func(
@@ -207,33 +311,4 @@ def assemble_hsgp_term(
     TensorVariable
         The ``f_{lhs}_{var}`` deterministic smooth of shape ``(n,)``.
     """
-    from pathmc.priors import _ensure_dims
-
-    var = call.variable
-    ell = priors[f"ell_{lhs}_{var}"].create_variable(f"ell_{lhs}_{var}")
-    eta = priors[f"eta_{lhs}_{var}"].create_variable(f"eta_{lhs}_{var}")
-
-    cov_func = make_cov_func(call.cov, eta=eta, ell=ell)
-    phi, sqrt_psd, n_basis = hsgp_basis(call, x, cov_func=cov_func)
-    # Invariant on the basis count. Raised rather than ``assert`` so it still
-    # fires under ``python -O`` (which strips asserts).
-    if n_basis != call.m:
-        raise ValueError(
-            f"HSGP basis count {n_basis} != requested m={call.m} for '{lhs}_{var}'."
-        )
-
-    weights_dim = f"{lhs}_{var}_hsgp"
-    beta_name = f"beta_hsgp_{lhs}_{var}"
-
-    if call.centered:
-        # Coefficient scale is data-derived (sqrt_psd), so beta is built
-        # directly rather than from the Prior config; a user override on
-        # beta_hsgp has no effect in centered mode (tune ell/eta instead).
-        beta = pm.Normal(beta_name, mu=0.0, sigma=sqrt_psd, dims=weights_dim)
-        f = phi @ beta
-    else:
-        beta_prior = _ensure_dims(priors[beta_name], weights_dim)
-        beta = beta_prior.create_variable(beta_name)
-        f = phi @ (beta * sqrt_psd)
-
-    return pm.Deterministic(f"f_{lhs}_{var}", f)
+    return HSGPBasis().assemble_graph(x, lhs=lhs, call=call, priors=priors)

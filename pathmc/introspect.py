@@ -24,6 +24,7 @@ import re
 import graphviz
 
 from pathmc.graph import GraphInfo
+from pathmc.panel import PanelInfo
 from pathmc.parse import Spec, Term, TransformCall
 
 __all__: list[str] = []
@@ -391,8 +392,14 @@ def _format_term(t: Term) -> str:
     elif t.label:
         prefix = f"{t.label}*"
 
-    if t.hsgp is not None:
-        return f"f_hsgp({t.hsgp.variable})"
+    if t.basis is not None:
+        from pathmc.basis import get_basis
+
+        return get_basis(t.basis.name).render(t.basis)
+    if t.categorical is not None:
+        call = t.categorical
+        levels = ", ".join(repr(level) for level in call.levels)
+        return f"C({call.variable}, reference={call.reference!r}, levels=[{levels}])"
     if t.transform is not None:
         return f"{prefix}{_format_transform(t.transform)}"
     if t.interaction_of is not None:
@@ -496,8 +503,18 @@ def _format_term_latex(t: Term) -> str:
     else:
         prefix = ""
 
-    if t.hsgp is not None:
-        return rf"f_{{\mathrm{{hsgp}}}}({_latex_symbol(t.hsgp.variable)})"
+    if t.basis is not None:
+        from pathmc.basis import get_basis
+
+        return get_basis(t.basis.name).render_latex(_latex_symbol(t.basis.variable))
+    if t.categorical is not None:
+        call = t.categorical
+        levels = ", ".join(str(level) for level in call.levels)
+        return (
+            rf"\operatorname{{C}}({_latex_symbol(call.variable)};\,"
+            rf"\mathrm{{ref}}={_latex_escape(str(call.reference))};\,"
+            rf"\mathrm{{levels}}=\{{{_latex_escape(levels)}\}})"
+        )
     if t.transform is not None:
         return f"{prefix}{_format_transform_latex(t.transform)}"
     if t.interaction_of is not None:
@@ -563,6 +580,7 @@ def build_priors(
     pooling: str | dict | None = None,
     latent: set[str] | None = None,
     prior_config: dict[str, object] | None = None,
+    panel_info: PanelInfo | None = None,
 ) -> PriorTable:
     """Build a prior summary table from the model specification.
 
@@ -594,10 +612,42 @@ def build_priors(
         isinstance(pooling, dict) and pooling.get("intercept", False)
     )
     slope_vars: list[str] = []
+
+    from pathmc.compile import (
+        _is_scan_panel,
+        _parse_by_var_pooling,
+        get_free_predictor_columns,
+    )
+
+    by_var_entries: dict[str, dict[str, object]] = {}
     if isinstance(pooling, dict):
         slope_vars = list(pooling.get("slopes", []))
+        try:
+            by_var_entries = _parse_by_var_pooling(pooling, spec, require_panel=False)
+        except ValueError:
+            # Introspection is display-only; a malformed config will be
+            # reported with full context when the model is compiled.
+            pass
 
-    from pathmc.compile import get_free_predictor_columns
+    coef_names = {
+        n
+        for n, e in by_var_entries.items()
+        if e["kind"] in ("coefficient", "none_coefficient")
+    }
+
+    # Estimated initial conditions (``init_{var}``) exist only for latent
+    # variables that feed a ``lag()`` term in scan-compiled panel models:
+    # those are the latents whose recursion actually reads its t=0 state.
+    lag_base_vars = (
+        {
+            term.lag_of
+            for reg in spec.regressions
+            for term in reg.terms
+            if term.lag_of is not None
+        }
+        if _is_scan_panel(spec, panel_info)
+        else set()
+    )
 
     def _entry(key: str, default_str: str) -> str:
         if prior_config and key in prior_config:
@@ -607,7 +657,8 @@ def build_priors(
     entries: dict[str, str] = {}
     seen_transform_params: set[str] = set()
     for reg in spec.regressions:
-        if get_free_predictor_columns(reg):
+        free_cols = [c for c in get_free_predictor_columns(reg) if c not in coef_names]
+        if free_cols:
             entries[f"beta_{reg.lhs}"] = _entry(f"beta_{reg.lhs}", "Normal(0, 10)")
 
         family = families.get(reg.lhs, "gaussian")
@@ -616,6 +667,8 @@ def build_priors(
                 entries[f"sigma_{reg.lhs}"] = _entry(
                     f"sigma_{reg.lhs}", "HalfNormal(1)"
                 )
+            if reg.lhs in lag_base_vars:
+                entries[f"init_{reg.lhs}"] = _entry(f"init_{reg.lhs}", "Normal(0, 1)")
         else:
             if family not in ("bernoulli", "poisson", "negbinomial"):
                 entries[f"sigma_{reg.lhs}"] = _entry(
@@ -647,26 +700,42 @@ def build_priors(
                 )
                 entries[f"slope_{reg.lhs}_{svar}"] = "Normal(mu_slope, sigma_slope)"
         for term in reg.terms:
+            if term.categorical is not None:
+                beta_name = f"beta_{reg.lhs}_{term.variable}"
+                if term.categorical.prior == "hierarchical":
+                    entries[f"mu_{beta_name}"] = _entry(
+                        f"mu_{beta_name}", "Normal(0, 10)"
+                    )
+                    entries[f"sigma_{beta_name}"] = _entry(
+                        f"sigma_{beta_name}", "HalfNormal(1)"
+                    )
+                    entries[beta_name] = f"Normal(mu_{beta_name}, sigma_{beta_name})"
+                else:
+                    entries[beta_name] = _entry(beta_name, "Normal(0, 10)")
             if term.transform is not None:
                 _collect_transform_priors(
                     term.transform, entries, seen_transform_params, prior_config
                 )
-            if term.hsgp is not None:
-                var = term.hsgp.variable
-                entries[f"ell_{reg.lhs}_{var}"] = _entry(
-                    f"ell_{reg.lhs}_{var}", "InverseGamma(3, 1)"
-                )
-                entries[f"eta_{reg.lhs}_{var}"] = _entry(
-                    f"eta_{reg.lhs}_{var}", "HalfNormal(1)"
-                )
-                # beta_hsgp is only a tunable prior in the non-centered
-                # parametrization; in centered mode beta uses the data-derived
-                # sqrt_psd scale, so it is intentionally not listed to match
-                # what default_priors registers (tune ell/eta instead).
-                if not term.hsgp.centered:
-                    entries[f"beta_hsgp_{reg.lhs}_{var}"] = _entry(
-                        f"beta_hsgp_{reg.lhs}_{var}", "Normal(0, 1)"
-                    )
+            if term.basis is not None:
+                from pathmc.basis import get_basis
+
+                basis = get_basis(term.basis.name)
+                for name, description in basis.prior_descriptions(
+                    reg.lhs, term.basis
+                ).items():
+                    entries[name] = _entry(name, description)
+
+    # --- by_var structured pooling ---
+    for name, entry in by_var_entries.items():
+        if entry["kind"] == "coefficient":
+            key = str(entry["key"])
+            entries[f"mu_{name}_{key}"] = _entry(f"mu_{name}_{key}", "Normal(0, 10)")
+            entries[f"sigma_{name}_{key}"] = _entry(
+                f"sigma_{name}_{key}", "HalfNormal(1)"
+            )
+            entries[f"beta_{name}"] = f"Normal(mu_{name}_{key}, sigma_{name}_{key})"
+        elif entry["kind"] == "none_coefficient":
+            entries[f"beta_{name}"] = _entry(f"beta_{name}", "Normal(0, 10)")
 
     if spec.residual_covs:
         import networkx as nx

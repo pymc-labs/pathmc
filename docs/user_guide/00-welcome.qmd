@@ -23,8 +23,13 @@ Specify your causal assumptions as equations. Fit with full Bayesian inference. 
 
 pathmc compiles a concise formula language into a generative Bayesian model where every variable is wired through its structural parents in the DAG. Call `model()` to build and inspect, then `fit()` to run MCMC. One object handles estimation, introspection, causal queries, identification checking, native regression adjustment, and sensitivity analysis, all with full posterior uncertainty.
 
-```python
+```{python}
+# | echo: true
+import pandas as pd
 import pathmc
+from pathmc.paths import data_dir
+
+df = pd.read_csv(data_dir / "mediation.csv")
 
 spec = """
 M ~ a*X
@@ -33,8 +38,12 @@ indirect := a*b
 """
 
 m = pathmc.model(spec, data=df)
-m.fit(draws=1000, chains=2)
+```
 
+Once the model is built, fit it and use its posterior and causal-query methods:
+
+```{.python}
+m.fit(draws=1000, chains=2)
 m.effects_summary()  # labeled coefficients + defined params
 m.ate("Y", "X", values=(0, 1))  # average treatment effect via do-operator
 m.adjustment_sets("X", "Y")  # check identification from the DAG
@@ -43,28 +52,6 @@ m.comparisons("Y", "X")  # interpret-layer contrast (diff, or ratio/lift)
 adj = m.adjustment_model("X -> Y")  # backdoor-adjusted outcome regression
 adj.fit()
 adj.ate(values=(0, 1))
-```
-
-```{python}
-# | echo: false
-import numpy as np
-import pandas as pd
-import pathmc
-
-rng = np.random.default_rng(42)
-n = 500
-X = rng.normal(size=n)
-M = 0.5 * X + rng.normal(scale=0.5, size=n)
-Y = 0.8 * M + 0.3 * X + rng.normal(scale=0.5, size=n)
-df = pd.DataFrame({"X": X, "M": M, "Y": Y})
-
-spec = """
-M ~ a*X
-Y ~ b*M + c*X
-indirect := a*b
-"""
-
-m = pathmc.model(spec, data=df)
 ```
 
 ```{python}
