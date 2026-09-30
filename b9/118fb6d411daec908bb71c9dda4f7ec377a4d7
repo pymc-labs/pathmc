@@ -1,0 +1,20 @@
+tests/test_identification_oracle.py
+  s_ec233505aac067::t_0aee76ac841ec7 257-258
+  s_ec233505aac067::t_7e61a1daa2268f 298-299
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b9118fb6d411daec908bb71c9dda4f7ec377a4d7",
+  "prompts": {},
+  "sessions": {
+    "s_ec233505aac067": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ad63dd39-c2d2-4b1a-9da4-008d6cf97aa4",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
