@@ -184,9 +184,9 @@ def is_valid_adjustment_set(
     treatment and outcome, contains no treatment descendants or latents,
     and blocks all backdoor paths. A member may be a collider on some
     treatment–outcome path when the rest of the set already blocks that
-    path. The set need not be minimal; supersets of a valid set are
-    accepted. ``collider_warnings()`` still lists colliders in *z* as
-    an advisory check.
+    path. The set need not be minimal. Non-minimal sets are accepted
+    when they still block all backdoor paths. ``collider_warnings()``
+    still lists colliders in *z* as an advisory check.
 
     Parameters
     ----------
