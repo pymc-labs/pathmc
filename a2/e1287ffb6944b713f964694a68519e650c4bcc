@@ -1,0 +1,47 @@
+docs/user_guide/categorical-predictors.qmd
+  s_1f7a252e0240fc::t_f3053f9a6a4f87 117
+  s_1f7a252e0240fc::t_5ab15faf7ec271 188
+docs/user_guide/11-model-specification.qmd
+  s_1f7a252e0240fc::t_526e822a6d1e57 99
+pathmc/categorical.py
+  s_1f7a252e0240fc::t_aaa6c515a6abdb 279-281
+  s_1f7a252e0240fc::t_f7002f744bb921 207-208,210
+  s_1f7a252e0240fc::t_4a10f31d415cf6 289-291
+  s_1f7a252e0240fc::t_2e7a6f0a088347 27
+  s_1f7a252e0240fc::t_667b3535130cce 134-141
+pathmc/parse.py
+  s_1f7a252e0240fc::t_1348869a5de5ea 397-399
+  s_1f7a252e0240fc::t_4f7cb33b2e4616 159-193
+  s_1f7a252e0240fc::t_02be1baee2aaf7 109-115
+tests/test_categorical_edges.py
+  s_1f7a252e0240fc::t_f9177f0afc08b8 197-198
+  s_1f7a252e0240fc::t_1d230a7d82fd75 146-169,172-173,177-179,188-196,199-209
+  s_1f7a252e0240fc::t_a2985cd4460fb9 357-365
+  s_d5b556c77433bd::t_85de81cf356438 210
+pathmc/_ci.py
+  s_1f7a252e0240fc::t_b215d95594eb04 209-215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a2e1287ffb6944b713f964694a68519e650c4bcc",
+  "prompts": {},
+  "sessions": {
+    "s_1f7a252e0240fc": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c7a20db6-eefe-4237-b773-25c23060bcad",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    },
+    "s_d5b556c77433bd": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "4c9c9677-1745-42e3-ab46-6b281f344757",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
