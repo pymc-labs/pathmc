@@ -114,7 +114,7 @@ plt.show()
 
 ## Specify and fit the model
 
-We use panel mode with partial pooling (random intercepts per unit) to account for baseline differences. The formula starts with `0 +` so those random intercepts are the only intercept; a fixed intercept beside them is not identified.
+We use panel mode with partial pooling (random intercepts per unit) to account for baseline differences. Partial pooling already drops the fixed intercept, and the formula starts with `0 +` so `equations()` does not print a phantom `1 +` intercept that is not in the design matrix.
 
 ```{python}
 spec = "Y ~ 0 + treated + time + treat_post"

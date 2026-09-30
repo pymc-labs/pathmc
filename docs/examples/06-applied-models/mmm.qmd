@@ -150,7 +150,7 @@ plt.show()
 
 The DSL supports transforms directly in the formula.
 Adstock and logistic saturation compose naturally: `logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)`.
-`pooling="partial"` adds a random intercept per region, so the formula starts with `0 +` and does not also include a fixed intercept.
+`pooling="partial"` adds a random intercept per region and drops the fixed intercept. The formula starts with `0 +` so `equations()` does not print a phantom `1 +` intercept that is not in the design matrix.
 
 ```{python}
 spec = """
@@ -1025,7 +1025,7 @@ plt.show()
 
 The `pooling` argument controls the hierarchical structure:
 
-- `"intercept": True` gives each region its own baseline sales level, which is why the formula uses `0 +` instead of a fixed intercept
+- `"intercept": True` gives each region its own baseline sales level. The compiler drops the fixed intercept either way; `0 +` keeps `equations()` from printing a phantom `1 +`
 - `"slopes": ["tv", "digital"]` gives each region its own media coefficients, partially pooled toward a shared mean
 
 ```{python}
@@ -1052,7 +1052,7 @@ pm.model_to_graphviz(model.pymc_model)
 
 ### Sample
 
-Default NUTS reports well over a thousand divergences on this random-slope spec, so the fit keeps nutpie. See [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
+This fit pins `nuts_sampler="nutpie"`. PyMC's own NUTS (`nuts_sampler="pymc"`) reports well over a thousand divergences here, and the nutpie summary below is still not converged: `mu_slope_sales_digital` has an r-hat of about 1.10 and an ESS of about 40. See [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
 
 ```{python}
 idata = model.fit(

@@ -265,7 +265,7 @@ print(f"True total effect:           {TRUE_CONTEMP + TRUE_LAG}")
 
 The `lag(promo)` term tells pathmc to include last week's promo as a predictor.
 The `panel` argument identifies units and time; `pooling="partial"` adds random intercepts per store.
-Those random intercepts replace the usual fixed intercept, so each equation starts with `0 +`. Leaving the fixed intercept in as well is not identified: only the sum of the two intercepts is pinned down by the data. The two partial-pooling fits below keep a shorter run (`draws=500`, `tune=500`, `chains=2`). Default NUTS still diverges on them after the fixed intercept is removed; that geometry is tracked in [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
+Partial pooling already drops that fixed intercept and uses `mu_alpha` in its place, with no warning. Each equation still starts with `0 +` so `equations()` does not print a phantom `1 +` intercept that is not in the design matrix. The two partial-pooling fits below keep a shorter run (`draws=500`, `tune=500`, `chains=2`). A 4-chain, 1,000-draw PyMC NUTS run (`nuts_sampler="pymc"`) still diverges on them; that geometry is tracked in [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
 
 ```{python}
 spec_panel = """

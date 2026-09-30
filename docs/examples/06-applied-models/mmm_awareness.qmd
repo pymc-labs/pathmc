@@ -561,7 +561,7 @@ idata = model.fit(
     tune=1000,
     chains=4,
     target_accept=0.99,
-    nuts_sampler_kwargs={"max_treedepth": 16},
+    nuts={"max_treedepth": 16},
     random_seed=42,
 )
 ```

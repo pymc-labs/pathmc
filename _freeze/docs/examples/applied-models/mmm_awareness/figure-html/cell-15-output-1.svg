@@ -13,6 +13,16 @@
 <path fill="none" stroke="black" d="M633.67,-8C633.67,-8 1703.67,-8 1703.67,-8 1709.67,-8 1715.67,-14 1715.67,-20 1715.67,-20 1715.67,-356.95 1715.67,-356.95 1715.67,-362.95 1709.67,-368.95 1703.67,-368.95 1703.67,-368.95 633.67,-368.95 633.67,-368.95 627.67,-368.95 621.67,-362.95 621.67,-356.95 621.67,-356.95 621.67,-20 621.67,-20 621.67,-14 627.67,-8 633.67,-8"/>
 <text text-anchor="middle" x="1690.42" y="-15.2" font-family="Times,serif" font-size="14.00">52 x 1</text>
 </g>
+<g id="clust2" class="cluster">
+<title>clustersales_predictors (3)</title>
+<path fill="none" stroke="black" d="M177.67,-247.13C177.67,-247.13 275.67,-247.13 275.67,-247.13 281.67,-247.13 287.67,-253.13 287.67,-259.13 287.67,-259.13 287.67,-356.95 287.67,-356.95 287.67,-362.95 281.67,-368.95 275.67,-368.95 275.67,-368.95 177.67,-368.95 177.67,-368.95 171.67,-368.95 165.67,-362.95 165.67,-356.95 165.67,-356.95 165.67,-259.13 165.67,-259.13 165.67,-253.13 171.67,-247.13 177.67,-247.13"/>
+<text text-anchor="middle" x="226.42" y="-254.33" font-family="Times,serif" font-size="14.00">sales_predictors (3)</text>
+</g>
+<g id="clust3" class="cluster">
+<title>clusterawareness_predictors (2)</title>
+<path fill="none" stroke="black" d="M307.67,-247.13C307.67,-247.13 441.67,-247.13 441.67,-247.13 447.67,-247.13 453.67,-253.13 453.67,-259.13 453.67,-259.13 453.67,-356.95 453.67,-356.95 453.67,-362.95 447.67,-368.95 441.67,-368.95 441.67,-368.95 307.67,-368.95 307.67,-368.95 301.67,-368.95 295.67,-362.95 295.67,-356.95 295.67,-356.95 295.67,-259.13 295.67,-259.13 295.67,-253.13 301.67,-247.13 307.67,-247.13"/>
+<text text-anchor="middle" x="377.79" y="-254.33" font-family="Times,serif" font-size="14.00">awareness_predictors (2)</text>
+</g>
 <g id="clust4" class="cluster">
 <title>clusterunit (1)</title>
 <path fill="none" stroke="black" d="M473.67,-247.13C473.67,-247.13 601.67,-247.13 601.67,-247.13 607.67,-247.13 613.67,-253.13 613.67,-259.13 613.67,-259.13 613.67,-356.95 613.67,-356.95 613.67,-362.95 607.67,-368.95 601.67,-368.95 601.67,-368.95 473.67,-368.95 473.67,-368.95 467.67,-368.95 461.67,-362.95 461.67,-356.95 461.67,-356.95 461.67,-259.13 461.67,-259.13 461.67,-253.13 467.67,-247.13 473.67,-247.13"/>
@@ -28,217 +38,193 @@
 <path fill="none" stroke="black" d="M1735.67,-8C1735.67,-8 1987.67,-8 1987.67,-8 1993.67,-8 1999.67,-14 1999.67,-20 1999.67,-20 1999.67,-117.82 1999.67,-117.82 1999.67,-123.82 1993.67,-129.82 1987.67,-129.82 1987.67,-129.82 1735.67,-129.82 1735.67,-129.82 1729.67,-129.82 1723.67,-123.82 1723.67,-117.82 1723.67,-117.82 1723.67,-20 1723.67,-20 1723.67,-14 1729.67,-8 1735.67,-8"/>
 <text text-anchor="middle" x="1984.92" y="-15.2" font-family="Times,serif" font-size="14.00">40</text>
 </g>
-<g id="clust2" class="cluster">
-<title>clustersales_predictors (3)</title>
-<path fill="none" stroke="black" d="M177.67,-247.13C177.67,-247.13 275.67,-247.13 275.67,-247.13 281.67,-247.13 287.67,-253.13 287.67,-259.13 287.67,-259.13 287.67,-356.95 287.67,-356.95 287.67,-362.95 281.67,-368.95 275.67,-368.95 275.67,-368.95 177.67,-368.95 177.67,-368.95 171.67,-368.95 165.67,-362.95 165.67,-356.95 165.67,-356.95 165.67,-259.13 165.67,-259.13 165.67,-253.13 171.67,-247.13 177.67,-247.13"/>
-<text text-anchor="middle" x="226.42" y="-254.33" font-family="Times,serif" font-size="14.00">sales_predictors (3)</text>
+<!-- lower_funnel -->
+<g id="node1" class="node">
+<title>lower_funnel</title>
+<path fill="lightgrey" stroke="black" d="M811.67,-349.04C811.67,-349.04 747.67,-349.04 747.67,-349.04 741.67,-349.04 735.67,-343.04 735.67,-337.04 735.67,-337.04 735.67,-303.54 735.67,-303.54 735.67,-297.54 741.67,-291.54 747.67,-291.54 747.67,-291.54 811.67,-291.54 811.67,-291.54 817.67,-291.54 823.67,-297.54 823.67,-303.54 823.67,-303.54 823.67,-337.04 823.67,-337.04 823.67,-343.04 817.67,-349.04 811.67,-349.04"/>
+<text text-anchor="middle" x="779.67" y="-331.74" font-family="Times,serif" font-size="14.00">lower_funnel</text>
+<text text-anchor="middle" x="779.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="779.67" y="-298.74" font-family="Times,serif" font-size="14.00">Data</text>
 </g>
-<g id="clust3" class="cluster">
-<title>clusterawareness_predictors (2)</title>
-<path fill="none" stroke="black" d="M307.67,-247.13C307.67,-247.13 441.67,-247.13 441.67,-247.13 447.67,-247.13 453.67,-253.13 453.67,-259.13 453.67,-259.13 453.67,-356.95 453.67,-356.95 453.67,-362.95 447.67,-368.95 441.67,-368.95 441.67,-368.95 307.67,-368.95 307.67,-368.95 301.67,-368.95 295.67,-362.95 295.67,-356.95 295.67,-356.95 295.67,-259.13 295.67,-259.13 295.67,-253.13 301.67,-247.13 307.67,-247.13"/>
-<text text-anchor="middle" x="377.79" y="-254.33" font-family="Times,serif" font-size="14.00">awareness_predictors (2)</text>
+<!-- mu_awareness_survey -->
+<g id="node8" class="node">
+<title>mu_awareness_survey</title>
+<polygon fill="none" stroke="black" points="985.17,-227.23 846.17,-227.23 846.17,-169.73 985.17,-169.73 985.17,-227.23"/>
+<text text-anchor="middle" x="915.67" y="-209.93" font-family="Times,serif" font-size="14.00">mu_awareness_survey</text>
+<text text-anchor="middle" x="915.67" y="-193.43" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="915.67" y="-176.93" font-family="Times,serif" font-size="14.00">Deterministic</text>
+</g>
+<!-- lower_funnel&#45;&gt;mu_awareness_survey -->
+<g id="edge7" class="edge">
+<title>lower_funnel&#45;&gt;mu_awareness_survey</title>
+<path fill="none" stroke="black" d="M796.4,-291.06C805.83,-276.75 818.53,-259.77 832.67,-247.13 837.95,-242.41 843.78,-237.94 849.82,-233.77"/>
+<polygon fill="black" stroke="black" points="851.74,-236.7 858.18,-228.29 847.9,-230.84 851.74,-236.7"/>
+</g>
+<!-- mu_sales -->
+<g id="node9" class="node">
+<title>mu_sales</title>
+<polygon fill="none" stroke="black" points="719.79,-227.23 629.54,-227.23 629.54,-169.73 719.79,-169.73 719.79,-227.23"/>
+<text text-anchor="middle" x="674.67" y="-209.93" font-family="Times,serif" font-size="14.00">mu_sales</text>
+<text text-anchor="middle" x="674.67" y="-193.43" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="674.67" y="-176.93" font-family="Times,serif" font-size="14.00">Deterministic</text>
+</g>
+<!-- lower_funnel&#45;&gt;mu_sales -->
+<g id="edge17" class="edge">
+<title>lower_funnel&#45;&gt;mu_sales</title>
+<path fill="none" stroke="black" d="M760.99,-291.24C751.34,-277.46 739.02,-260.9 726.67,-247.13 723.12,-243.18 719.29,-239.2 715.36,-235.32"/>
+<polygon fill="black" stroke="black" points="717.97,-232.97 708.33,-228.57 713.12,-238.02 717.97,-232.97"/>
+</g>
+<!-- awareness -->
+<g id="node10" class="node">
+<title>awareness</title>
+<polygon fill="none" stroke="black" points="827.79,-227.23 737.54,-227.23 737.54,-169.73 827.79,-169.73 827.79,-227.23"/>
+<text text-anchor="middle" x="782.67" y="-209.93" font-family="Times,serif" font-size="14.00">awareness</text>
+<text text-anchor="middle" x="782.67" y="-193.43" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="782.67" y="-176.93" font-family="Times,serif" font-size="14.00">Deterministic</text>
+</g>
+<!-- lower_funnel&#45;&gt;awareness -->
+<g id="edge27" class="edge">
+<title>lower_funnel&#45;&gt;awareness</title>
+<path fill="none" stroke="black" d="M780.37,-291.2C780.76,-275.58 781.25,-255.89 781.68,-238.76"/>
+<polygon fill="black" stroke="black" points="785.18,-238.99 781.93,-228.9 778.18,-238.81 785.18,-238.99"/>
+</g>
+<!-- upper_funnel -->
+<g id="node2" class="node">
+<title>upper_funnel</title>
+<path fill="lightgrey" stroke="black" d="M705.67,-349.04C705.67,-349.04 641.67,-349.04 641.67,-349.04 635.67,-349.04 629.67,-343.04 629.67,-337.04 629.67,-337.04 629.67,-303.54 629.67,-303.54 629.67,-297.54 635.67,-291.54 641.67,-291.54 641.67,-291.54 705.67,-291.54 705.67,-291.54 711.67,-291.54 717.67,-297.54 717.67,-303.54 717.67,-303.54 717.67,-337.04 717.67,-337.04 717.67,-343.04 711.67,-349.04 705.67,-349.04"/>
+<text text-anchor="middle" x="673.67" y="-331.74" font-family="Times,serif" font-size="14.00">upper_funnel</text>
+<text text-anchor="middle" x="673.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="673.67" y="-298.74" font-family="Times,serif" font-size="14.00">Data</text>
+</g>
+<!-- upper_funnel&#45;&gt;mu_awareness_survey -->
+<g id="edge8" class="edge">
+<title>upper_funnel&#45;&gt;mu_awareness_survey</title>
+<path fill="none" stroke="black" d="M686.69,-291.16C695.59,-275.36 708.98,-256.91 726.67,-247.13 748.12,-235.28 813.04,-245.65 836.67,-239.13 843.36,-237.29 850.17,-234.85 856.82,-232.1"/>
+<polygon fill="black" stroke="black" points="858.02,-235.4 865.75,-228.15 855.18,-229 858.02,-235.4"/>
+</g>
+<!-- upper_funnel&#45;&gt;mu_sales -->
+<g id="edge18" class="edge">
+<title>upper_funnel&#45;&gt;mu_sales</title>
+<path fill="none" stroke="black" d="M673.9,-291.2C674.03,-275.58 674.19,-255.89 674.34,-238.76"/>
+<polygon fill="black" stroke="black" points="677.84,-238.93 674.42,-228.91 670.84,-238.88 677.84,-238.93"/>
+</g>
+<!-- upper_funnel&#45;&gt;awareness -->
+<g id="edge28" class="edge">
+<title>upper_funnel&#45;&gt;awareness</title>
+<path fill="none" stroke="black" d="M692.13,-291.05C701.72,-277.22 714.06,-260.67 726.67,-247.13 730.48,-243.03 734.64,-238.94 738.9,-234.97"/>
+<polygon fill="black" stroke="black" points="740.96,-237.82 746.04,-228.53 736.27,-232.62 740.96,-237.82"/>
+</g>
+<!-- innovations_awareness -->
+<g id="node3" class="node">
+<title>innovations_awareness</title>
+<ellipse fill="none" stroke="black" cx="1475.67" cy="-320.29" rx="99.88" ry="40.66"/>
+<text text-anchor="middle" x="1475.67" y="-331.74" font-family="Times,serif" font-size="14.00">innovations_awareness</text>
+<text text-anchor="middle" x="1475.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="1475.67" y="-298.74" font-family="Times,serif" font-size="14.00">Normal</text>
+</g>
+<!-- innovations_awareness&#45;&gt;mu_awareness_survey -->
+<g id="edge9" class="edge">
+<title>innovations_awareness&#45;&gt;mu_awareness_survey</title>
+<path fill="none" stroke="black" d="M1431.89,-283.33C1412.95,-269.69 1389.84,-255.46 1366.67,-247.13 1300.65,-223.41 1108.02,-209.62 997.03,-203.43"/>
+<polygon fill="black" stroke="black" points="997.25,-199.94 987.07,-202.89 996.87,-206.93 997.25,-199.94"/>
+</g>
+<!-- innovations_awareness&#45;&gt;mu_sales -->
+<g id="edge19" class="edge">
+<title>innovations_awareness&#45;&gt;mu_sales</title>
+<path fill="none" stroke="black" d="M1433.29,-283.01C1414.22,-268.97 1390.63,-254.51 1366.67,-247.13 1298.91,-226.28 795.89,-261.64 728.67,-239.13 724.26,-237.66 719.92,-235.68 715.72,-233.39"/>
+<polygon fill="black" stroke="black" points="717.88,-230.61 707.53,-228.36 714.22,-236.58 717.88,-230.61"/>
+</g>
+<!-- innovations_awareness&#45;&gt;awareness -->
+<g id="edge29" class="edge">
+<title>innovations_awareness&#45;&gt;awareness</title>
+<path fill="none" stroke="black" d="M1433.28,-283.04C1414.21,-269 1390.62,-254.54 1366.67,-247.13 1310.51,-229.77 893.47,-257.62 837.67,-239.13 833.2,-237.66 828.79,-235.67 824.53,-233.38"/>
+<polygon fill="black" stroke="black" points="826.55,-230.51 816.19,-228.34 822.94,-236.51 826.55,-230.51"/>
+</g>
+<!-- _do_intervene_awareness -->
+<g id="node4" class="node">
+<title>_do_intervene_awareness</title>
+<path fill="lightgrey" stroke="black" d="M1345.42,-349.04C1345.42,-349.04 1213.92,-349.04 1213.92,-349.04 1207.92,-349.04 1201.92,-343.04 1201.92,-337.04 1201.92,-337.04 1201.92,-303.54 1201.92,-303.54 1201.92,-297.54 1207.92,-291.54 1213.92,-291.54 1213.92,-291.54 1345.42,-291.54 1345.42,-291.54 1351.42,-291.54 1357.42,-297.54 1357.42,-303.54 1357.42,-303.54 1357.42,-337.04 1357.42,-337.04 1357.42,-343.04 1351.42,-349.04 1345.42,-349.04"/>
+<text text-anchor="middle" x="1279.67" y="-331.74" font-family="Times,serif" font-size="14.00">_do_intervene_awareness</text>
+<text text-anchor="middle" x="1279.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="1279.67" y="-298.74" font-family="Times,serif" font-size="14.00">Data</text>
+</g>
+<!-- _do_intervene_awareness&#45;&gt;mu_awareness_survey -->
+<g id="edge10" class="edge">
+<title>_do_intervene_awareness&#45;&gt;mu_awareness_survey</title>
+<path fill="none" stroke="black" d="M1253.28,-291.09C1237.23,-275.68 1215.48,-257.64 1192.67,-247.13 1130.64,-218.58 1053.67,-207.01 996.62,-202.38"/>
+<polygon fill="black" stroke="black" points="997.23,-198.91 986.99,-201.65 996.7,-205.89 997.23,-198.91"/>
+</g>
+<!-- _do_intervene_awareness&#45;&gt;mu_sales -->
+<g id="edge20" class="edge">
+<title>_do_intervene_awareness&#45;&gt;mu_sales</title>
+<path fill="none" stroke="black" d="M1255.3,-291.24C1239.33,-275.04 1216.95,-256.13 1192.67,-247.13 1144.31,-229.22 777.52,-255.62 728.67,-239.13 724.26,-237.65 719.92,-235.66 715.73,-233.37"/>
+<polygon fill="black" stroke="black" points="717.89,-230.59 707.54,-228.33 714.22,-236.55 717.89,-230.59"/>
+</g>
+<!-- _do_intervene_awareness&#45;&gt;awareness -->
+<g id="edge30" class="edge">
+<title>_do_intervene_awareness&#45;&gt;awareness</title>
+<path fill="none" stroke="black" d="M1255.28,-291.28C1239.3,-275.1 1216.93,-256.2 1192.67,-247.13 1155.71,-233.33 875.07,-251.68 837.67,-239.13 833.39,-237.7 829.17,-235.81 825.07,-233.63"/>
+<polygon fill="black" stroke="black" points="826.88,-230.63 816.5,-228.49 823.28,-236.63 826.88,-230.63"/>
+</g>
+<!-- _do_intervene_awareness_survey -->
+<g id="node5" class="node">
+<title>_do_intervene_awareness_survey</title>
+<path fill="lightgrey" stroke="black" d="M1171.79,-349.04C1171.79,-349.04 997.54,-349.04 997.54,-349.04 991.54,-349.04 985.54,-343.04 985.54,-337.04 985.54,-337.04 985.54,-303.54 985.54,-303.54 985.54,-297.54 991.54,-291.54 997.54,-291.54 997.54,-291.54 1171.79,-291.54 1171.79,-291.54 1177.79,-291.54 1183.79,-297.54 1183.79,-303.54 1183.79,-303.54 1183.79,-337.04 1183.79,-337.04 1183.79,-343.04 1177.79,-349.04 1171.79,-349.04"/>
+<text text-anchor="middle" x="1084.67" y="-331.74" font-family="Times,serif" font-size="14.00">_do_intervene_awareness_survey</text>
+<text text-anchor="middle" x="1084.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="1084.67" y="-298.74" font-family="Times,serif" font-size="14.00">Data</text>
+</g>
+<!-- _do_intervene_awareness_survey&#45;&gt;mu_awareness_survey -->
+<g id="edge14" class="edge">
+<title>_do_intervene_awareness_survey&#45;&gt;mu_awareness_survey</title>
+<path fill="none" stroke="black" d="M1045.04,-291.2C1020.97,-274.14 990.06,-252.22 964.49,-234.09"/>
+<polygon fill="black" stroke="black" points="966.75,-231.4 956.57,-228.47 962.7,-237.11 966.75,-231.4"/>
+</g>
+<!-- _do_intervene_awareness_survey&#45;&gt;mu_sales -->
+<g id="edge24" class="edge">
+<title>_do_intervene_awareness_survey&#45;&gt;mu_sales</title>
+<path fill="none" stroke="black" d="M1053.14,-291.31C1032.84,-275.13 1005.01,-256.23 976.67,-247.13 924.16,-230.28 780.78,-257.15 728.67,-239.13 724.46,-237.68 720.3,-235.77 716.27,-233.58"/>
+<polygon fill="black" stroke="black" points="718.22,-230.67 707.87,-228.44 714.57,-236.64 718.22,-230.67"/>
+</g>
+<!-- _do_intervene_awareness_survey&#45;&gt;awareness -->
+<g id="edge34" class="edge">
+<title>_do_intervene_awareness_survey&#45;&gt;awareness</title>
+<path fill="none" stroke="black" d="M1052.6,-291.19C1032.3,-275.19 1004.68,-256.52 976.67,-247.13 917.99,-227.48 895.98,-259.84 837.67,-239.13 833.48,-237.65 829.33,-235.74 825.3,-233.56"/>
+<polygon fill="black" stroke="black" points="827.25,-230.65 816.88,-228.48 823.63,-236.64 827.25,-230.65"/>
+</g>
+<!-- _do_intervene_sales -->
+<g id="node6" class="node">
+<title>_do_intervene_sales</title>
+<path fill="lightgrey" stroke="black" d="M955.79,-349.04C955.79,-349.04 853.54,-349.04 853.54,-349.04 847.54,-349.04 841.54,-343.04 841.54,-337.04 841.54,-337.04 841.54,-303.54 841.54,-303.54 841.54,-297.54 847.54,-291.54 853.54,-291.54 853.54,-291.54 955.79,-291.54 955.79,-291.54 961.79,-291.54 967.79,-297.54 967.79,-303.54 967.79,-303.54 967.79,-337.04 967.79,-337.04 967.79,-343.04 961.79,-349.04 955.79,-349.04"/>
+<text text-anchor="middle" x="904.67" y="-331.74" font-family="Times,serif" font-size="14.00">_do_intervene_sales</text>
+<text text-anchor="middle" x="904.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="904.67" y="-298.74" font-family="Times,serif" font-size="14.00">Data</text>
+</g>
+<!-- _do_intervene_sales&#45;&gt;mu_awareness_survey -->
+<g id="edge13" class="edge">
+<title>_do_intervene_sales&#45;&gt;mu_awareness_survey</title>
+<path fill="none" stroke="black" d="M907.24,-291.2C908.68,-275.58 910.49,-255.89 912.06,-238.76"/>
+<polygon fill="black" stroke="black" points="915.54,-239.18 912.96,-228.9 908.56,-238.54 915.54,-239.18"/>
+</g>
+<!-- _do_intervene_sales&#45;&gt;mu_sales -->
+<g id="edge23" class="edge">
+<title>_do_intervene_sales&#45;&gt;mu_sales</title>
+<path fill="none" stroke="black" d="M884.7,-291.05C871.8,-275.22 853.56,-256.76 832.67,-247.13 790.56,-227.74 772.13,-255.25 728.67,-239.13 724.55,-237.61 720.47,-235.67 716.52,-233.48"/>
+<polygon fill="black" stroke="black" points="718.6,-230.65 708.25,-228.37 714.92,-236.6 718.6,-230.65"/>
+</g>
+<!-- _do_intervene_sales&#45;&gt;awareness -->
+<g id="edge33" class="edge">
+<title>_do_intervene_sales&#45;&gt;awareness</title>
+<path fill="none" stroke="black" d="M877.13,-291.37C863.78,-277.92 847.47,-261.61 832.67,-247.13 828.8,-243.35 824.74,-239.42 820.67,-235.51"/>
+<polygon fill="black" stroke="black" points="823.13,-233.02 813.49,-228.63 818.29,-238.07 823.13,-233.02"/>
 </g>
 <!-- awareness_survey -->
-<g id="node1" class="node">
+<g id="node7" class="node">
 <title>awareness_survey</title>
 <polygon fill="none" stroke="black" points="1707.79,-349.04 1593.54,-349.04 1593.54,-291.54 1707.79,-291.54 1707.79,-349.04"/>
 <text text-anchor="middle" x="1650.67" y="-331.74" font-family="Times,serif" font-size="14.00">awareness_survey</text>
 <text text-anchor="middle" x="1650.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
 <text text-anchor="middle" x="1650.67" y="-298.74" font-family="Times,serif" font-size="14.00">Deterministic</text>
-</g>
-<!-- sales -->
-<g id="node2" class="node">
-<title>sales</title>
-<ellipse fill="lightgrey" stroke="black" cx="688.67" cy="-81.16" rx="41.01" ry="40.66"/>
-<text text-anchor="middle" x="688.67" y="-92.61" font-family="Times,serif" font-size="14.00">sales</text>
-<text text-anchor="middle" x="688.67" y="-76.11" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="688.67" y="-59.61" font-family="Times,serif" font-size="14.00">Normal</text>
-</g>
-<!-- awareness -->
-<g id="node3" class="node">
-<title>awareness</title>
-<polygon fill="none" stroke="black" points="904.79,-227.23 814.54,-227.23 814.54,-169.73 904.79,-169.73 904.79,-227.23"/>
-<text text-anchor="middle" x="859.67" y="-209.93" font-family="Times,serif" font-size="14.00">awareness</text>
-<text text-anchor="middle" x="859.67" y="-193.43" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="859.67" y="-176.93" font-family="Times,serif" font-size="14.00">Deterministic</text>
-</g>
-<!-- _do_intervene_awareness -->
-<g id="node4" class="node">
-<title>_do_intervene_awareness</title>
-<path fill="lightgrey" stroke="black" d="M773.42,-349.04C773.42,-349.04 641.92,-349.04 641.92,-349.04 635.92,-349.04 629.92,-343.04 629.92,-337.04 629.92,-337.04 629.92,-303.54 629.92,-303.54 629.92,-297.54 635.92,-291.54 641.92,-291.54 641.92,-291.54 773.42,-291.54 773.42,-291.54 779.42,-291.54 785.42,-297.54 785.42,-303.54 785.42,-303.54 785.42,-337.04 785.42,-337.04 785.42,-343.04 779.42,-349.04 773.42,-349.04"/>
-<text text-anchor="middle" x="707.67" y="-331.74" font-family="Times,serif" font-size="14.00">_do_intervene_awareness</text>
-<text text-anchor="middle" x="707.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="707.67" y="-298.74" font-family="Times,serif" font-size="14.00">Data</text>
-</g>
-<!-- _do_intervene_awareness&#45;&gt;awareness -->
-<g id="edge28" class="edge">
-<title>_do_intervene_awareness&#45;&gt;awareness</title>
-<path fill="none" stroke="black" d="M740.75,-291.07C756.84,-277.54 776.56,-261.26 794.67,-247.13 800.1,-242.9 805.84,-238.53 811.58,-234.23"/>
-<polygon fill="black" stroke="black" points="813.39,-237.25 819.33,-228.48 809.21,-231.63 813.39,-237.25"/>
-</g>
-<!-- mu_sales -->
-<g id="node9" class="node">
-<title>mu_sales</title>
-<polygon fill="none" stroke="black" points="752.79,-227.23 662.54,-227.23 662.54,-169.73 752.79,-169.73 752.79,-227.23"/>
-<text text-anchor="middle" x="707.67" y="-209.93" font-family="Times,serif" font-size="14.00">mu_sales</text>
-<text text-anchor="middle" x="707.67" y="-193.43" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="707.67" y="-176.93" font-family="Times,serif" font-size="14.00">Deterministic</text>
-</g>
-<!-- _do_intervene_awareness&#45;&gt;mu_sales -->
-<g id="edge18" class="edge">
-<title>_do_intervene_awareness&#45;&gt;mu_sales</title>
-<path fill="none" stroke="black" d="M707.67,-291.2C707.67,-275.58 707.67,-255.89 707.67,-238.76"/>
-<polygon fill="black" stroke="black" points="711.17,-238.91 707.67,-228.91 704.17,-238.91 711.17,-238.91"/>
-</g>
-<!-- mu_awareness_survey -->
-<g id="node11" class="node">
-<title>mu_awareness_survey</title>
-<polygon fill="none" stroke="black" points="1099.17,-227.23 960.17,-227.23 960.17,-169.73 1099.17,-169.73 1099.17,-227.23"/>
-<text text-anchor="middle" x="1029.67" y="-209.93" font-family="Times,serif" font-size="14.00">mu_awareness_survey</text>
-<text text-anchor="middle" x="1029.67" y="-193.43" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="1029.67" y="-176.93" font-family="Times,serif" font-size="14.00">Deterministic</text>
-</g>
-<!-- _do_intervene_awareness&#45;&gt;mu_awareness_survey -->
-<g id="edge8" class="edge">
-<title>_do_intervene_awareness&#45;&gt;mu_awareness_survey</title>
-<path fill="none" stroke="black" d="M732.56,-291.3C748.57,-275.34 770.79,-256.66 794.67,-247.13 819.28,-237.31 887.68,-244.36 913.67,-239.13 925.33,-236.79 937.43,-233.58 949.22,-229.99"/>
-<polygon fill="black" stroke="black" points="950.01,-233.41 958.49,-227.06 947.9,-226.74 950.01,-233.41"/>
-</g>
-<!-- _do_intervene_awareness_survey -->
-<g id="node5" class="node">
-<title>_do_intervene_awareness_survey</title>
-<path fill="lightgrey" stroke="black" d="M1563.79,-349.04C1563.79,-349.04 1389.54,-349.04 1389.54,-349.04 1383.54,-349.04 1377.54,-343.04 1377.54,-337.04 1377.54,-337.04 1377.54,-303.54 1377.54,-303.54 1377.54,-297.54 1383.54,-291.54 1389.54,-291.54 1389.54,-291.54 1563.79,-291.54 1563.79,-291.54 1569.79,-291.54 1575.79,-297.54 1575.79,-303.54 1575.79,-303.54 1575.79,-337.04 1575.79,-337.04 1575.79,-343.04 1569.79,-349.04 1563.79,-349.04"/>
-<text text-anchor="middle" x="1476.67" y="-331.74" font-family="Times,serif" font-size="14.00">_do_intervene_awareness_survey</text>
-<text text-anchor="middle" x="1476.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="1476.67" y="-298.74" font-family="Times,serif" font-size="14.00">Data</text>
-</g>
-<!-- _do_intervene_awareness_survey&#45;&gt;awareness -->
-<g id="edge29" class="edge">
-<title>_do_intervene_awareness_survey&#45;&gt;awareness</title>
-<path fill="none" stroke="black" d="M1445.19,-291.18C1424.89,-274.95 1397.07,-256.05 1368.67,-247.13 1324.45,-233.26 996.96,-248.94 951.67,-239.13 939.56,-236.52 927.07,-232.29 915.35,-227.54"/>
-<polygon fill="black" stroke="black" points="916.8,-224.36 906.23,-223.67 914.06,-230.8 916.8,-224.36"/>
-</g>
-<!-- _do_intervene_awareness_survey&#45;&gt;mu_sales -->
-<g id="edge19" class="edge">
-<title>_do_intervene_awareness_survey&#45;&gt;mu_sales</title>
-<path fill="none" stroke="black" d="M1445.2,-291.13C1424.91,-274.89 1397.09,-255.98 1368.67,-247.13 1308.93,-228.55 866.99,-251.53 805.67,-239.13 791.61,-236.29 777.01,-231.5 763.5,-226.2"/>
-<polygon fill="black" stroke="black" points="764.92,-222.99 754.34,-222.44 762.26,-229.47 764.92,-222.99"/>
-</g>
-<!-- _do_intervene_awareness_survey&#45;&gt;mu_awareness_survey -->
-<g id="edge9" class="edge">
-<title>_do_intervene_awareness_survey&#45;&gt;mu_awareness_survey</title>
-<path fill="none" stroke="black" d="M1443.37,-291.29C1423.06,-275.74 1395.85,-257.5 1368.67,-247.13 1284.5,-215.04 1181.17,-204.24 1110.87,-200.77"/>
-<polygon fill="black" stroke="black" points="1111.1,-197.28 1100.96,-200.33 1110.79,-204.27 1111.1,-197.28"/>
-</g>
-<!-- lower_funnel -->
-<g id="node6" class="node">
-<title>lower_funnel</title>
-<path fill="lightgrey" stroke="black" d="M1347.67,-349.04C1347.67,-349.04 1283.67,-349.04 1283.67,-349.04 1277.67,-349.04 1271.67,-343.04 1271.67,-337.04 1271.67,-337.04 1271.67,-303.54 1271.67,-303.54 1271.67,-297.54 1277.67,-291.54 1283.67,-291.54 1283.67,-291.54 1347.67,-291.54 1347.67,-291.54 1353.67,-291.54 1359.67,-297.54 1359.67,-303.54 1359.67,-303.54 1359.67,-337.04 1359.67,-337.04 1359.67,-343.04 1353.67,-349.04 1347.67,-349.04"/>
-<text text-anchor="middle" x="1315.67" y="-331.74" font-family="Times,serif" font-size="14.00">lower_funnel</text>
-<text text-anchor="middle" x="1315.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="1315.67" y="-298.74" font-family="Times,serif" font-size="14.00">Data</text>
-</g>
-<!-- lower_funnel&#45;&gt;awareness -->
-<g id="edge30" class="edge">
-<title>lower_funnel&#45;&gt;awareness</title>
-<path fill="none" stroke="black" d="M1303.01,-291.23C1294.17,-275.24 1280.71,-256.56 1262.67,-247.13 1232.03,-231.13 985.43,-246.56 951.67,-239.13 939.57,-236.48 927.09,-232.23 915.36,-227.48"/>
-<polygon fill="black" stroke="black" points="916.81,-224.29 906.24,-223.6 914.08,-230.74 916.81,-224.29"/>
-</g>
-<!-- lower_funnel&#45;&gt;mu_sales -->
-<g id="edge20" class="edge">
-<title>lower_funnel&#45;&gt;mu_sales</title>
-<path fill="none" stroke="black" d="M1303.03,-291.17C1294.21,-275.17 1280.75,-256.49 1262.67,-247.13 1240.11,-235.47 830.55,-244.2 805.67,-239.13 791.62,-236.27 777.02,-231.46 763.51,-226.16"/>
-<polygon fill="black" stroke="black" points="764.92,-222.96 754.34,-222.41 762.27,-229.44 764.92,-222.96"/>
-</g>
-<!-- lower_funnel&#45;&gt;mu_awareness_survey -->
-<g id="edge10" class="edge">
-<title>lower_funnel&#45;&gt;mu_awareness_survey</title>
-<path fill="none" stroke="black" d="M1301.73,-291.26C1292.67,-275.9 1279.42,-257.86 1262.67,-247.13 1217.52,-218.23 1158.23,-206.38 1110.76,-201.73"/>
-<polygon fill="black" stroke="black" points="1111.36,-198.27 1101.09,-200.88 1110.74,-205.24 1111.36,-198.27"/>
-</g>
-<!-- _do_intervene_sales -->
-<g id="node7" class="node">
-<title>_do_intervene_sales</title>
-<path fill="lightgrey" stroke="black" d="M1241.79,-349.04C1241.79,-349.04 1139.54,-349.04 1139.54,-349.04 1133.54,-349.04 1127.54,-343.04 1127.54,-337.04 1127.54,-337.04 1127.54,-303.54 1127.54,-303.54 1127.54,-297.54 1133.54,-291.54 1139.54,-291.54 1139.54,-291.54 1241.79,-291.54 1241.79,-291.54 1247.79,-291.54 1253.79,-297.54 1253.79,-303.54 1253.79,-303.54 1253.79,-337.04 1253.79,-337.04 1253.79,-343.04 1247.79,-349.04 1241.79,-349.04"/>
-<text text-anchor="middle" x="1190.67" y="-331.74" font-family="Times,serif" font-size="14.00">_do_intervene_sales</text>
-<text text-anchor="middle" x="1190.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="1190.67" y="-298.74" font-family="Times,serif" font-size="14.00">Data</text>
-</g>
-<!-- _do_intervene_sales&#45;&gt;awareness -->
-<g id="edge31" class="edge">
-<title>_do_intervene_sales&#45;&gt;awareness</title>
-<path fill="none" stroke="black" d="M1171.09,-291.2C1158.22,-275.2 1139.86,-256.53 1118.67,-247.13 1084.7,-232.08 987.86,-247.51 951.67,-239.13 939.6,-236.34 927.13,-232.04 915.41,-227.27"/>
-<polygon fill="black" stroke="black" points="916.86,-224.08 906.29,-223.39 914.12,-230.53 916.86,-224.08"/>
-</g>
-<!-- _do_intervene_sales&#45;&gt;mu_sales -->
-<g id="edge21" class="edge">
-<title>_do_intervene_sales&#45;&gt;mu_sales</title>
-<path fill="none" stroke="black" d="M1171.46,-291.4C1158.6,-275.26 1140.13,-256.36 1118.67,-247.13 1086.7,-233.39 839.73,-246.22 805.67,-239.13 791.63,-236.22 777.03,-231.38 763.53,-226.08"/>
-<polygon fill="black" stroke="black" points="764.94,-222.88 754.36,-222.33 762.29,-229.36 764.94,-222.88"/>
-</g>
-<!-- _do_intervene_sales&#45;&gt;mu_awareness_survey -->
-<g id="edge11" class="edge">
-<title>_do_intervene_sales&#45;&gt;mu_awareness_survey</title>
-<path fill="none" stroke="black" d="M1166.38,-291.26C1153.16,-277 1136,-260.01 1118.67,-247.13 1112.19,-242.32 1105.16,-237.69 1097.98,-233.35"/>
-<polygon fill="black" stroke="black" points="1099.86,-230.39 1089.46,-228.36 1096.33,-236.43 1099.86,-230.39"/>
-</g>
-<!-- upper_funnel -->
-<g id="node8" class="node">
-<title>upper_funnel</title>
-<path fill="lightgrey" stroke="black" d="M1097.67,-349.04C1097.67,-349.04 1033.67,-349.04 1033.67,-349.04 1027.67,-349.04 1021.67,-343.04 1021.67,-337.04 1021.67,-337.04 1021.67,-303.54 1021.67,-303.54 1021.67,-297.54 1027.67,-291.54 1033.67,-291.54 1033.67,-291.54 1097.67,-291.54 1097.67,-291.54 1103.67,-291.54 1109.67,-297.54 1109.67,-303.54 1109.67,-303.54 1109.67,-337.04 1109.67,-337.04 1109.67,-343.04 1103.67,-349.04 1097.67,-349.04"/>
-<text text-anchor="middle" x="1065.67" y="-331.74" font-family="Times,serif" font-size="14.00">upper_funnel</text>
-<text text-anchor="middle" x="1065.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="1065.67" y="-298.74" font-family="Times,serif" font-size="14.00">Data</text>
-</g>
-<!-- upper_funnel&#45;&gt;awareness -->
-<g id="edge32" class="edge">
-<title>upper_funnel&#45;&gt;awareness</title>
-<path fill="none" stroke="black" d="M1052.22,-291.17C1043.25,-275.58 1029.93,-257.34 1012.67,-247.13 989.13,-233.22 978.03,-246.39 951.67,-239.13 939.73,-235.85 927.31,-231.32 915.61,-226.5"/>
-<polygon fill="black" stroke="black" points="917.06,-223.31 906.49,-222.61 914.31,-229.75 917.06,-223.31"/>
-</g>
-<!-- upper_funnel&#45;&gt;mu_sales -->
-<g id="edge22" class="edge">
-<title>upper_funnel&#45;&gt;mu_sales</title>
-<path fill="none" stroke="black" d="M1052.96,-291.31C1044.11,-275.35 1030.65,-256.68 1012.67,-247.13 992.33,-236.34 828.17,-243.97 805.67,-239.13 791.65,-236.12 777.06,-231.26 763.55,-225.95"/>
-<polygon fill="black" stroke="black" points="764.97,-222.75 754.39,-222.2 762.32,-229.22 764.97,-222.75"/>
-</g>
-<!-- upper_funnel&#45;&gt;mu_awareness_survey -->
-<g id="edge12" class="edge">
-<title>upper_funnel&#45;&gt;mu_awareness_survey</title>
-<path fill="none" stroke="black" d="M1057.23,-291.2C1052.49,-275.43 1046.5,-255.51 1041.32,-238.27"/>
-<polygon fill="black" stroke="black" points="1044.72,-237.41 1038.49,-228.84 1038.01,-239.43 1044.72,-237.41"/>
-</g>
-<!-- mu_sales&#45;&gt;sales -->
-<g id="edge38" class="edge">
-<title>mu_sales&#45;&gt;sales</title>
-<path fill="none" stroke="black" d="M703.02,-169.27C701.2,-158.24 699.06,-145.25 696.99,-132.71"/>
-<polygon fill="black" stroke="black" points="700.46,-132.19 695.38,-122.89 693.55,-133.33 700.46,-132.19"/>
-</g>
-<!-- innovations_awareness -->
-<g id="node10" class="node">
-<title>innovations_awareness</title>
-<ellipse fill="none" stroke="black" cx="903.67" cy="-320.29" rx="99.88" ry="40.66"/>
-<text text-anchor="middle" x="903.67" y="-331.74" font-family="Times,serif" font-size="14.00">innovations_awareness</text>
-<text text-anchor="middle" x="903.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="903.67" y="-298.74" font-family="Times,serif" font-size="14.00">Normal</text>
-</g>
-<!-- innovations_awareness&#45;&gt;awareness -->
-<g id="edge35" class="edge">
-<title>innovations_awareness&#45;&gt;awareness</title>
-<path fill="none" stroke="black" d="M889.14,-279.73C884.25,-266.42 878.8,-251.58 873.93,-238.32"/>
-<polygon fill="black" stroke="black" points="877.26,-237.23 870.52,-229.05 870.69,-239.64 877.26,-237.23"/>
-</g>
-<!-- innovations_awareness&#45;&gt;mu_sales -->
-<g id="edge25" class="edge">
-<title>innovations_awareness&#45;&gt;mu_sales</title>
-<path fill="none" stroke="black" d="M853.49,-284.81C835.19,-272.57 814.19,-258.92 794.67,-247.13 784.61,-241.07 773.74,-234.85 763.19,-228.99"/>
-<polygon fill="black" stroke="black" points="765,-225.99 754.55,-224.23 761.63,-232.12 765,-225.99"/>
-</g>
-<!-- innovations_awareness&#45;&gt;mu_awareness_survey -->
-<g id="edge15" class="edge">
-<title>innovations_awareness&#45;&gt;mu_awareness_survey</title>
-<path fill="none" stroke="black" d="M942.5,-282.37C958.26,-267.38 976.4,-250.12 992.04,-235.25"/>
-<polygon fill="black" stroke="black" points="994.03,-238.19 998.87,-228.76 989.21,-233.12 994.03,-238.19"/>
 </g>
 <!-- awareness_survey_observed -->
 <g id="node19" class="node">
@@ -249,10 +235,10 @@
 <text text-anchor="middle" x="2135.67" y="-59.61" font-family="Times,serif" font-size="14.00">Normal</text>
 </g>
 <!-- mu_awareness_survey&#45;&gt;awareness_survey_observed -->
-<g id="edge2" class="edge">
+<g id="edge1" class="edge">
 <title>mu_awareness_survey&#45;&gt;awareness_survey_observed</title>
-<path fill="none" stroke="black" d="M1099.41,-193.75C1307.65,-182.47 1915.92,-148.33 2003.67,-129.82 2018.97,-126.59 2034.89,-121.98 2050.17,-116.89"/>
-<polygon fill="black" stroke="black" points="2050.87,-120.35 2059.2,-113.8 2048.6,-113.73 2050.87,-120.35"/>
+<path fill="none" stroke="black" d="M985.47,-195.72C1193.64,-190.09 1807.81,-170.4 2003.67,-129.82 2019.08,-126.62 2035.11,-122.01 2050.48,-116.89"/>
+<polygon fill="black" stroke="black" points="2051.24,-120.33 2059.57,-113.77 2048.97,-113.71 2051.24,-120.33"/>
 </g>
 <!-- awareness_survey_unobserved -->
 <g id="node20" class="node">
@@ -263,50 +249,64 @@
 <text text-anchor="middle" x="1861.67" y="-59.61" font-family="Times,serif" font-size="14.00">Normal</text>
 </g>
 <!-- mu_awareness_survey&#45;&gt;awareness_survey_unobserved -->
-<g id="edge4" class="edge">
+<g id="edge3" class="edge">
 <title>mu_awareness_survey&#45;&gt;awareness_survey_unobserved</title>
-<path fill="none" stroke="black" d="M1099.51,-195.83C1224.99,-191.72 1496.33,-177.6 1719.67,-129.82 1735.94,-126.34 1752.94,-121.62 1769.3,-116.5"/>
-<polygon fill="black" stroke="black" points="1770.05,-119.93 1778.51,-113.55 1767.92,-113.27 1770.05,-119.93"/>
+<path fill="none" stroke="black" d="M985.57,-197.2C1126.11,-195.42 1452.35,-185.09 1719.67,-129.82 1736.06,-126.43 1753.2,-121.73 1769.66,-116.59"/>
+<polygon fill="black" stroke="black" points="1770.47,-120.01 1778.92,-113.62 1768.33,-113.34 1770.47,-120.01"/>
+</g>
+<!-- sales -->
+<g id="node11" class="node">
+<title>sales</title>
+<ellipse fill="lightgrey" stroke="black" cx="672.67" cy="-81.16" rx="41.01" ry="40.66"/>
+<text text-anchor="middle" x="672.67" y="-92.61" font-family="Times,serif" font-size="14.00">sales</text>
+<text text-anchor="middle" x="672.67" y="-76.11" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="672.67" y="-59.61" font-family="Times,serif" font-size="14.00">Normal</text>
+</g>
+<!-- mu_sales&#45;&gt;sales -->
+<g id="edge37" class="edge">
+<title>mu_sales&#45;&gt;sales</title>
+<path fill="none" stroke="black" d="M674.18,-169.27C673.99,-158.44 673.77,-145.73 673.55,-133.41"/>
+<polygon fill="black" stroke="black" points="677.06,-133.72 673.39,-123.78 670.06,-133.84 677.06,-133.72"/>
+</g>
+<!-- sigma_sales -->
+<g id="node12" class="node">
+<title>sigma_sales</title>
+<ellipse fill="none" stroke="black" cx="553.67" cy="-198.48" rx="57.98" ry="40.66"/>
+<text text-anchor="middle" x="553.67" y="-209.93" font-family="Times,serif" font-size="14.00">sigma_sales</text>
+<text text-anchor="middle" x="553.67" y="-193.43" font-family="Times,serif" font-size="14.00">~</text>
+<text text-anchor="middle" x="553.67" y="-176.93" font-family="Times,serif" font-size="14.00">Halfnormal</text>
+</g>
+<!-- sigma_sales&#45;&gt;sales -->
+<g id="edge38" class="edge">
+<title>sigma_sales&#45;&gt;sales</title>
+<path fill="none" stroke="black" d="M587.13,-165.05C602.23,-150.41 620.13,-133.07 635.63,-118.05"/>
+<polygon fill="black" stroke="black" points="637.66,-120.95 642.41,-111.48 632.79,-115.93 637.66,-120.95"/>
 </g>
 <!-- sigma_awareness -->
-<g id="node12" class="node">
+<g id="node13" class="node">
 <title>sigma_awareness</title>
 <ellipse fill="none" stroke="black" cx="78.67" cy="-320.29" rx="78.67" ry="40.66"/>
 <text text-anchor="middle" x="78.67" y="-331.74" font-family="Times,serif" font-size="14.00">sigma_awareness</text>
 <text text-anchor="middle" x="78.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
 <text text-anchor="middle" x="78.67" y="-298.74" font-family="Times,serif" font-size="14.00">Halfnormal</text>
 </g>
-<!-- sigma_awareness&#45;&gt;awareness -->
-<g id="edge34" class="edge">
-<title>sigma_awareness&#45;&gt;awareness</title>
-<path fill="none" stroke="black" d="M110.1,-282.58C124.29,-268.74 142.22,-254.55 161.67,-247.13 192.81,-235.25 728.99,-245.72 761.67,-239.13 775.72,-236.3 790.32,-231.5 803.83,-226.21"/>
-<polygon fill="black" stroke="black" points="805.07,-229.48 813,-222.45 802.42,-223 805.07,-229.48"/>
+<!-- sigma_awareness&#45;&gt;mu_awareness_survey -->
+<g id="edge11" class="edge">
+<title>sigma_awareness&#45;&gt;mu_awareness_survey</title>
+<path fill="none" stroke="black" d="M110.1,-282.56C124.28,-268.72 142.21,-254.54 161.67,-247.13 196.71,-233.79 800.23,-248 836.67,-239.13 843.78,-237.4 850.98,-234.94 858,-232.08"/>
+<polygon fill="black" stroke="black" points="858.98,-235.47 866.73,-228.25 856.16,-229.07 858.98,-235.47"/>
 </g>
 <!-- sigma_awareness&#45;&gt;mu_sales -->
-<g id="edge24" class="edge">
+<g id="edge21" class="edge">
 <title>sigma_awareness&#45;&gt;mu_sales</title>
-<path fill="none" stroke="black" d="M110.12,-282.62C124.3,-268.78 142.24,-254.59 161.67,-247.13 209.49,-228.78 572.75,-250.66 622.67,-239.13 632.35,-236.9 642.25,-233.47 651.71,-229.56"/>
-<polygon fill="black" stroke="black" points="653.03,-232.8 660.78,-225.57 650.22,-226.39 653.03,-232.8"/>
+<path fill="none" stroke="black" d="M110.12,-282.62C124.3,-268.78 142.24,-254.59 161.67,-247.13 209.29,-228.85 572.34,-255.44 620.67,-239.13 625.07,-237.65 629.41,-235.66 633.6,-233.37"/>
+<polygon fill="black" stroke="black" points="635.11,-236.55 641.79,-228.33 631.44,-230.59 635.11,-236.55"/>
 </g>
-<!-- sigma_awareness&#45;&gt;mu_awareness_survey -->
-<g id="edge14" class="edge">
-<title>sigma_awareness&#45;&gt;mu_awareness_survey</title>
-<path fill="none" stroke="black" d="M110.09,-282.55C124.28,-268.71 142.21,-254.53 161.67,-247.13 200.72,-232.29 872.49,-246.2 913.67,-239.13 925.31,-237.14 937.36,-234.14 949.09,-230.67"/>
-<polygon fill="black" stroke="black" points="949.79,-234.12 958.3,-227.82 947.71,-227.43 949.79,-234.12"/>
-</g>
-<!-- sigma_sales -->
-<g id="node13" class="node">
-<title>sigma_sales</title>
-<ellipse fill="none" stroke="black" cx="555.67" cy="-198.48" rx="57.98" ry="40.66"/>
-<text text-anchor="middle" x="555.67" y="-209.93" font-family="Times,serif" font-size="14.00">sigma_sales</text>
-<text text-anchor="middle" x="555.67" y="-193.43" font-family="Times,serif" font-size="14.00">~</text>
-<text text-anchor="middle" x="555.67" y="-176.93" font-family="Times,serif" font-size="14.00">Halfnormal</text>
-</g>
-<!-- sigma_sales&#45;&gt;sales -->
-<g id="edge37" class="edge">
-<title>sigma_sales&#45;&gt;sales</title>
-<path fill="none" stroke="black" d="M591.66,-166.27C609.51,-150.79 631.1,-132.07 649.38,-116.22"/>
-<polygon fill="black" stroke="black" points="651.65,-118.88 656.91,-109.69 647.07,-113.6 651.65,-118.88"/>
+<!-- sigma_awareness&#45;&gt;awareness -->
+<g id="edge31" class="edge">
+<title>sigma_awareness&#45;&gt;awareness</title>
+<path fill="none" stroke="black" d="M110.11,-282.59C124.29,-268.75 142.22,-254.56 161.67,-247.13 220.52,-224.65 668.93,-259.18 728.67,-239.13 733.07,-237.66 737.41,-235.67 741.61,-233.38"/>
+<polygon fill="black" stroke="black" points="743.11,-236.57 749.8,-228.35 739.45,-230.6 743.11,-236.57"/>
 </g>
 <!-- sigma_awareness_survey -->
 <g id="node14" class="node">
@@ -317,13 +317,13 @@
 <text text-anchor="middle" x="1895.67" y="-176.93" font-family="Times,serif" font-size="14.00">Halfnormal</text>
 </g>
 <!-- sigma_awareness_survey&#45;&gt;awareness_survey_observed -->
-<g id="edge1" class="edge">
+<g id="edge2" class="edge">
 <title>sigma_awareness_survey&#45;&gt;awareness_survey_observed</title>
 <path fill="none" stroke="black" d="M1961.56,-165.81C1991.11,-151.61 2026.2,-134.76 2057.1,-119.91"/>
 <polygon fill="black" stroke="black" points="2058.54,-123.1 2066.04,-115.61 2055.51,-116.79 2058.54,-123.1"/>
 </g>
 <!-- sigma_awareness_survey&#45;&gt;awareness_survey_unobserved -->
-<g id="edge3" class="edge">
+<g id="edge4" class="edge">
 <title>sigma_awareness_survey&#45;&gt;awareness_survey_unobserved</title>
 <path fill="none" stroke="black" d="M1883.96,-157.79C1881.59,-149.73 1879.06,-141.14 1876.58,-132.76"/>
 <polygon fill="black" stroke="black" points="1880,-131.97 1873.82,-123.37 1873.29,-133.95 1880,-131.97"/>
@@ -344,23 +344,23 @@
 <text text-anchor="middle" x="228.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
 <text text-anchor="middle" x="228.67" y="-298.74" font-family="Times,serif" font-size="14.00">Normal</text>
 </g>
-<!-- beta_sales&#45;&gt;awareness -->
-<g id="edge27" class="edge">
-<title>beta_sales&#45;&gt;awareness</title>
-<path fill="none" stroke="black" d="M250.58,-283.18C261.11,-269.25 275.08,-254.84 291.67,-247.13 315.35,-236.13 736.08,-244.34 761.67,-239.13 775.72,-236.28 790.32,-231.47 803.82,-226.17"/>
-<polygon fill="black" stroke="black" points="805.06,-229.44 812.99,-222.41 802.41,-222.97 805.06,-229.44"/>
+<!-- beta_sales&#45;&gt;mu_awareness_survey -->
+<g id="edge12" class="edge">
+<title>beta_sales&#45;&gt;mu_awareness_survey</title>
+<path fill="none" stroke="black" d="M250.57,-283.16C261.1,-269.23 275.07,-254.82 291.67,-247.13 319.14,-234.4 807.25,-246.33 836.67,-239.13 843.78,-237.39 850.98,-234.93 858,-232.06"/>
+<polygon fill="black" stroke="black" points="858.97,-235.45 866.72,-228.23 856.16,-229.05 858.97,-235.45"/>
 </g>
 <!-- beta_sales&#45;&gt;mu_sales -->
-<g id="edge17" class="edge">
+<g id="edge22" class="edge">
 <title>beta_sales&#45;&gt;mu_sales</title>
-<path fill="none" stroke="black" d="M250.61,-283.23C261.14,-269.32 275.1,-254.9 291.67,-247.13 324.97,-231.51 586.85,-247.53 622.67,-239.13 632.34,-236.87 642.23,-233.42 651.69,-229.5"/>
-<polygon fill="black" stroke="black" points="653.02,-232.74 660.76,-225.51 650.2,-226.33 653.02,-232.74"/>
+<path fill="none" stroke="black" d="M250.61,-283.24C261.14,-269.32 275.1,-254.9 291.67,-247.13 324.77,-231.6 586.06,-250.94 620.67,-239.13 624.88,-237.7 629.04,-235.8 633.07,-233.62"/>
+<polygon fill="black" stroke="black" points="634.77,-236.68 641.48,-228.48 631.12,-230.71 634.77,-236.68"/>
 </g>
-<!-- beta_sales&#45;&gt;mu_awareness_survey -->
-<g id="edge7" class="edge">
-<title>beta_sales&#45;&gt;mu_awareness_survey</title>
-<path fill="none" stroke="black" d="M250.56,-283.14C261.09,-269.21 275.06,-254.81 291.67,-247.13 323.04,-232.64 879.61,-245.02 913.67,-239.13 925.31,-237.12 937.35,-234.12 949.08,-230.65"/>
-<polygon fill="black" stroke="black" points="949.78,-234.09 958.3,-227.79 947.71,-227.41 949.78,-234.09"/>
+<!-- beta_sales&#45;&gt;awareness -->
+<g id="edge32" class="edge">
+<title>beta_sales&#45;&gt;awareness</title>
+<path fill="none" stroke="black" d="M250.58,-283.19C261.12,-269.26 275.08,-254.85 291.67,-247.13 335.69,-226.64 682.66,-254.68 728.67,-239.13 733.07,-237.65 737.41,-235.66 741.6,-233.36"/>
+<polygon fill="black" stroke="black" points="743.11,-236.55 749.79,-228.33 739.44,-230.58 743.11,-236.55"/>
 </g>
 <!-- beta_awareness -->
 <g id="node17" class="node">
@@ -370,23 +370,23 @@
 <text text-anchor="middle" x="374.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
 <text text-anchor="middle" x="374.67" y="-298.74" font-family="Times,serif" font-size="14.00">Beta</text>
 </g>
-<!-- beta_awareness&#45;&gt;awareness -->
-<g id="edge36" class="edge">
-<title>beta_awareness&#45;&gt;awareness</title>
-<path fill="none" stroke="black" d="M405.37,-283.46C419.69,-269.4 437.91,-254.82 457.67,-247.13 489.16,-234.89 728.59,-246.03 761.67,-239.13 775.7,-236.21 790.3,-231.38 803.8,-226.07"/>
-<polygon fill="black" stroke="black" points="805.04,-229.35 812.97,-222.32 802.39,-222.87 805.04,-229.35"/>
+<!-- beta_awareness&#45;&gt;mu_awareness_survey -->
+<g id="edge15" class="edge">
+<title>beta_awareness&#45;&gt;mu_awareness_survey</title>
+<path fill="none" stroke="black" d="M405.35,-283.41C419.66,-269.35 437.89,-254.77 457.67,-247.13 496.96,-231.97 795.78,-249.28 836.67,-239.13 843.77,-237.37 850.97,-234.89 857.98,-232.02"/>
+<polygon fill="black" stroke="black" points="858.97,-235.41 866.71,-228.17 856.15,-229 858.97,-235.41"/>
 </g>
 <!-- beta_awareness&#45;&gt;mu_sales -->
-<g id="edge26" class="edge">
+<g id="edge25" class="edge">
 <title>beta_awareness&#45;&gt;mu_sales</title>
-<path fill="none" stroke="black" d="M405.84,-283.29C420.11,-269.39 438.18,-254.96 457.67,-247.13 491.73,-233.45 587.03,-247.95 622.67,-239.13 632.31,-236.75 642.19,-233.25 651.64,-229.29"/>
-<polygon fill="black" stroke="black" points="652.98,-232.53 660.71,-225.29 650.15,-226.13 652.98,-232.53"/>
+<path fill="none" stroke="black" d="M405.85,-283.3C420.11,-269.4 438.18,-254.97 457.67,-247.13 491.31,-233.6 586.49,-251.27 620.67,-239.13 624.86,-237.64 629.01,-235.71 633.03,-233.51"/>
+<polygon fill="black" stroke="black" points="634.75,-236.56 641.43,-228.34 631.08,-230.6 634.75,-236.56"/>
 </g>
-<!-- beta_awareness&#45;&gt;mu_awareness_survey -->
-<g id="edge16" class="edge">
-<title>beta_awareness&#45;&gt;mu_awareness_survey</title>
-<path fill="none" stroke="black" d="M405.34,-283.38C419.65,-269.31 437.88,-254.73 457.67,-247.13 481.32,-238.05 888.71,-243.51 913.67,-239.13 925.3,-237.1 937.35,-234.08 949.07,-230.6"/>
-<polygon fill="black" stroke="black" points="949.78,-234.04 958.29,-227.74 947.7,-227.36 949.78,-234.04"/>
+<!-- beta_awareness&#45;&gt;awareness -->
+<g id="edge35" class="edge">
+<title>beta_awareness&#45;&gt;awareness</title>
+<path fill="none" stroke="black" d="M405.39,-283.49C419.7,-269.44 437.93,-254.85 457.67,-247.13 513.78,-225.2 671.7,-258.74 728.67,-239.13 732.88,-237.69 737.03,-235.78 741.06,-233.59"/>
+<polygon fill="black" stroke="black" points="742.77,-236.66 749.47,-228.45 739.11,-230.68 742.77,-236.66"/>
 </g>
 <!-- init_awareness -->
 <g id="node18" class="node">
@@ -396,23 +396,23 @@
 <text text-anchor="middle" x="537.67" y="-315.24" font-family="Times,serif" font-size="14.00">~</text>
 <text text-anchor="middle" x="537.67" y="-298.74" font-family="Times,serif" font-size="14.00">Normal</text>
 </g>
-<!-- init_awareness&#45;&gt;awareness -->
-<g id="edge33" class="edge">
-<title>init_awareness&#45;&gt;awareness</title>
-<path fill="none" stroke="black" d="M567.52,-283.37C581.23,-269.48 598.67,-255.05 617.67,-247.13 647.25,-234.81 730.39,-246.13 761.67,-239.13 775.66,-236.01 790.24,-231.09 803.74,-225.78"/>
-<polygon fill="black" stroke="black" points="804.98,-229.05 812.91,-222.03 802.33,-222.57 804.98,-229.05"/>
+<!-- init_awareness&#45;&gt;mu_awareness_survey -->
+<g id="edge16" class="edge">
+<title>init_awareness&#45;&gt;mu_awareness_survey</title>
+<path fill="none" stroke="black" d="M567.07,-283.58C580.83,-269.54 598.43,-254.94 617.67,-247.13 662.8,-228.84 789.49,-251.22 836.67,-239.13 843.49,-237.38 850.42,-234.99 857.18,-232.23"/>
+<polygon fill="black" stroke="black" points="858.5,-235.47 866.25,-228.25 855.69,-229.06 858.5,-235.47"/>
 </g>
 <!-- init_awareness&#45;&gt;mu_sales -->
-<g id="edge23" class="edge">
+<g id="edge26" class="edge">
 <title>init_awareness&#45;&gt;mu_sales</title>
-<path fill="none" stroke="black" d="M571.93,-284.98C585.54,-272.29 601.73,-258.29 617.67,-247.13 628.53,-239.53 640.75,-232.3 652.61,-225.86"/>
-<polygon fill="black" stroke="black" points="653.9,-229.13 661.1,-221.36 650.63,-222.95 653.9,-229.13"/>
+<path fill="none" stroke="black" d="M574.45,-285.59C587.94,-273.37 603.4,-259.52 617.67,-247.13 622.29,-243.12 627.16,-238.95 632.03,-234.83"/>
+<polygon fill="black" stroke="black" points="634.18,-237.59 639.57,-228.47 629.67,-232.24 634.18,-237.59"/>
 </g>
-<!-- init_awareness&#45;&gt;mu_awareness_survey -->
-<g id="edge13" class="edge">
-<title>init_awareness&#45;&gt;mu_awareness_survey</title>
-<path fill="none" stroke="black" d="M567.03,-283.49C580.79,-269.43 598.39,-254.84 617.67,-247.13 648.21,-234.92 881.29,-244.97 913.67,-239.13 925.29,-237.04 937.33,-233.99 949.06,-230.5"/>
-<polygon fill="black" stroke="black" points="949.76,-233.94 958.27,-227.63 947.68,-227.26 949.76,-233.94"/>
+<!-- init_awareness&#45;&gt;awareness -->
+<g id="edge36" class="edge">
+<title>init_awareness&#45;&gt;awareness</title>
+<path fill="none" stroke="black" d="M567.58,-283.53C581.31,-269.66 598.74,-255.2 617.67,-247.13 663.17,-227.74 682.25,-256.22 728.67,-239.13 732.78,-237.62 736.86,-235.69 740.82,-233.5"/>
+<polygon fill="black" stroke="black" points="742.41,-236.63 749.09,-228.4 738.74,-230.67 742.41,-236.63"/>
 </g>
 <!-- awareness_survey_observed&#45;&gt;awareness_survey -->
 <g id="edge5" class="edge">

@@ -206,7 +206,7 @@ demand ~ 0 + b_price*price + b_lag*lag(price)
 """
 ```
 
-`lag(price)` creates the previous period's value automatically in panel mode. Random slopes on `price` (specified at `model()` time) let each region have its own elasticity, partially pooled toward a population mean. The `0 +` drops the fixed intercept, because that regional random intercept already plays that role.
+`lag(price)` creates the previous period's value automatically in panel mode. Random slopes on `price` (specified at `model()` time) let each region have its own elasticity, partially pooled toward a population mean. Partial pooling already drops the fixed intercept; `0 +` keeps `equations()` from printing a phantom `1 +` that is not in the design matrix.
 
 :::
 

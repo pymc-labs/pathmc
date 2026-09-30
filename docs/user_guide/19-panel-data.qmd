@@ -57,7 +57,7 @@ digraph {
 
 ## Fitting with random intercepts
 
-Partial pooling adds a hierarchical intercept per unit, borrowing strength across units. Write `0 +` so that hierarchical mean is the only intercept:
+Partial pooling adds a hierarchical intercept per unit, borrowing strength across units. The compiler already drops the fixed intercept. Write `0 +` so `equations()` does not print a phantom `1 +` intercept that is not in the design matrix:
 
 ```python
 model = pathmc.model(

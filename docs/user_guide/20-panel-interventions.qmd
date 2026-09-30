@@ -261,7 +261,7 @@ If your model includes `lag(sales)` as a predictor of sales (an autoregressive t
 
 Here is a concrete model with adstock where we can compare the time-forward result to the time-averaged result.
 The key feature of the time-forward output is that it reveals the **temporal shape** of the effect — the ramp-up as adstock accumulates and the ramp-down as it decays.
-Partial pooling supplies a random intercept per region, so the formula uses `0 +`. Default NUTS diverges on this spec, so the fit keeps nutpie and a shorter run ([issue #538](https://github.com/pymc-labs/pathmc/issues/538)).
+Partial pooling supplies a random intercept per region and drops the fixed intercept, so the formula uses `0 +` and `equations()` does not print a phantom `1 +`. The fit pins nutpie and a shorter run because PyMC's own NUTS diverges on this spec ([issue #538](https://github.com/pymc-labs/pathmc/issues/538)).
 
 ```{python}
 n_weeks = 30
