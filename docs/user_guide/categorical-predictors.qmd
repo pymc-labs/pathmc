@@ -1,0 +1,291 @@
+---
+title: "Categorical Predictors"
+guide-section: "Concepts"
+---
+
+A categorical predictor is a column whose values are **labels** — `"north"`, `"variant_b"`, `"opted_in"` — rather than magnitudes. pathmc treats such columns as first-class terms in the DSL: it expands each one into indicator columns with **treatment coding**, gives every represented level a named coefficient, and freezes the level set at build time so that `predict()` and `do()` can re-encode labels safely. This page is the reference for that behaviour; the [Categorical Predictors example](/docs/examples/foundations/categorical_predictors.html) is the worked tutorial.
+
+## When a column is treated as categorical
+
+A plain term such as `y ~ region` is inspected against the data when `model()` or `simulate()` is called:
+
+| Column dtype | Treated as | Notes |
+|---|---|---|
+| pandas `Categorical` | categorical | declared category order is respected; unobserved categories are dropped |
+| pandas `StringDtype` | categorical | |
+| `object` holding strings or bytes | categorical | values are inspected, not just the dtype |
+| `object` holding numbers | continuous | e.g. integers stored as Python objects |
+| integer or float | continuous | wrap in `C()` to declare labels |
+| polars / other narwhals frames | as above | converted to pandas for inspection |
+
+Wrapping a term in `C()` forces categorical treatment regardless of dtype. That is the only way to treat an integer-coded column (`store_type` as 1, 2, 3) as a set of labels.
+
+::: {.callout-important}
+## Detection happens once, from the fitting data
+
+Categorical resolution is part of building the model, not of parsing the spec. A data-free model (`data=None`) parses `C(region)` but has no levels; `equations()` shows `levels=[]`. Everything downstream — column names, coefficient shapes, valid intervention labels — is fixed by the frame you pass to `model()`.
+:::
+
+## The `C()` syntax
+
+```
+C(variable, reference=<level>, prior='independent' | 'hierarchical')
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `variable` | required | a plain column name |
+| `reference` | first level (see below) | the baseline level absorbed into the intercept; must be an observed level |
+| `prior` | `'independent'` | `'hierarchical'` places a shared population distribution over the level effects |
+
+Level literals are parsed with Python semantics, so `reference='south'` gives a string and `reference=2` gives an integer that must match the column's values. Unknown arguments (for example `contrast=`) raise a `ParseError`; only treatment and cell-means coding are available.
+
+`C()` cannot take a coefficient prefix (`b*C(region)` or `2*C(region)`), because it expands to several coefficients rather than one. Refer to its coefficients by the vector name described below.
+
+## Coding schemes
+
+Which indicator columns are built depends on whether the equation has an intercept.
+
+```{dot}
+//| label: fig-coding-schemes
+//| fig-cap: "The two coding schemes for a three-level predictor. With an intercept (left), the reference level north is absorbed into the intercept and two contrast columns are created. Without an intercept (right), every level gets its own column and coefficient."
+//| fig-width: 7
+digraph {
+  rankdir=TB
+  node [shape=box, style="filled,rounded", fontname="Helvetica"]
+  edge [fontname="Helvetica", fontsize=10]
+
+  region [label="region column\n{north, south, west}", fillcolor="#c6dbef"]
+
+  subgraph cluster_treat {
+    label="y ~ region   (treatment coding)"
+    fontname="Helvetica"
+    labelloc=b
+    style=rounded
+    color="#999999"
+    i1 [label="Intercept\n(north absorbed)", fillcolor="#fcbba1"]
+    c1 [label="region[T.south]", fillcolor="#fdd0a2"]
+    c2 [label="region[T.west]", fillcolor="#c7e9c0"]
+    {rank=same; i1 -> c1 -> c2 [style=invis]}
+  }
+
+  subgraph cluster_cells {
+    label="y ~ 0 + region   (cell means)"
+    fontname="Helvetica"
+    labelloc=b
+    style=rounded
+    color="#999999"
+    m1 [label="region[north]", fillcolor="#c6dbef"]
+    m2 [label="region[south]", fillcolor="#fdd0a2"]
+    m3 [label="region[west]", fillcolor="#c7e9c0"]
+    {rank=same; m1 -> m2 -> m3 [style=invis]}
+  }
+
+  region -> i1
+  region -> c1
+  region -> c2
+  region -> m1
+  region -> m2
+  region -> m3
+}
+```
+
+### Treatment coding (intercept present)
+
+One level is the **reference**. Every other level receives an indicator column named `variable[T.level]`, and its coefficient is the *difference* from the reference:
+
+| `region` value | `region[T.south]` | `region[T.west]` | $\mu$ (other terms omitted) |
+|---|---|---|---|
+| north (reference) | 0 | 0 | $\beta_0$ |
+| south | 1 | 0 | $\beta_0 + \beta_{\text{south}}$ |
+| west | 0 | 1 | $\beta_0 + \beta_{\text{west}}$ |
+
+### Cell-means coding (`0 +`)
+
+With the intercept suppressed there is nothing to absorb a baseline, so **every** level gets a column named `variable[level]` and its coefficient is the expected outcome for that level (at zero for any continuous predictors):
+
+| `region` value | `region[north]` | `region[south]` | `region[west]` |
+|---|---|---|---|
+| north | 1 | 0 | 0 |
+| south | 0 | 1 | 0 |
+| west | 0 | 0 | 1 |
+
+Both schemes are full rank. The reference level is a **reparametrization**: pairwise contrasts such as $\beta_{\text{west}} - \beta_{\text{south}}$ are identical whichever level is the reference, so choose whatever makes the coefficients easiest to read.
+
+### Level order and the default reference
+
+| Column type | Level order | Default reference |
+|---|---|---|
+| strings / `StringDtype` / `object` | sorted by string value | first sorted level |
+| pandas `Categorical` | declared category order, restricted to observed categories | first observed category in that order |
+| integers via `C()` | sorted by string rendering of the value | first in that order |
+
+Distinct values that render to the same string (the integer `1` and the string `"1"`) are rejected, because their coefficients would collide. Missing values are rejected: drop or impute before fitting.
+
+## Parameter names and coordinates
+
+Categorical coefficients never enter the equation's flat `beta_{lhs}` vector. They live in their own vector whose entries are indexed by level name:
+
+| Object | Name | Dimension / shape |
+|---|---|---|
+| coefficient vector | `beta_{lhs}_{variable}` | `({lhs}_{variable}_levels,)` |
+| level coordinate | `{lhs}_{variable}_levels` | non-reference levels (treatment) or all levels (cell means), as strings |
+| indicator matrix (internal `pm.Data`) | `_cat_{lhs}_{variable}` | `(n_rows, n_columns)` |
+| hierarchical population mean | `mu_beta_{lhs}_{variable}` | scalar |
+| hierarchical population scale | `sigma_beta_{lhs}_{variable}` | scalar |
+
+For `y ~ x + region` with reference `north`:
+
+```python
+model.pymc_model.coords
+# {'y_predictors': ['Intercept', 'x'], 'y_region_levels': ['south', 'west']}
+
+idata.posterior["beta_y_region"].sel(y_region_levels="south")
+```
+
+The same variable can appear in several equations; each equation owns its own vector (`beta_m_region`, `beta_y_region`) with its own coordinate.
+
+## Priors
+
+### Independent (default)
+
+Every categorical coefficient defaults to `Normal(0, 10)`, matching ordinary slopes. Override by name. A scalar prior is broadcast across levels; to give levels different priors pass vectors and name the level dimension, in coordinate order:
+
+```python
+from pathmc import Prior
+
+model.set_priors({"beta_y_region": Prior("Normal", mu=0, sigma=2)})
+
+model.set_priors({
+    "beta_y_region": Prior(
+        "Normal", mu=[2.0, -1.0], sigma=[1.0, 1.0], dims=("y_region_levels",)
+    )
+})
+```
+
+### Hierarchical
+
+`C(variable, prior='hierarchical')` replaces the independent priors with a partially pooled structure:
+
+$$
+\beta_{\ell} \sim \mathcal{N}(\mu_\beta, \sigma_\beta), \qquad \mu_\beta \sim \mathcal{N}(0, 10), \qquad \sigma_\beta \sim \text{HalfNormal}(1).
+$$
+
+Levels with little data are shrunk towards $\mu_\beta$ by an amount the data determines through $\sigma_\beta$. This is the recommended choice for many or sparsely observed levels; the [example](/docs/examples/foundations/categorical_predictors.html#hierarchical-shrinkage) shows the effect on twelve stores with 3–80 observations each. Override the hyperpriors by name:
+
+```python
+model = pathmc.model(
+    "sales ~ C(store, prior='hierarchical')",
+    data=df,
+    priors={
+        "mu_beta_sales_store": Prior("Normal", mu=0, sigma=5),
+        "sigma_beta_sales_store": Prior("HalfNormal", sigma=2),
+    },
+)
+```
+
+## Introspection
+
+Everything the compiler froze is visible before fitting:
+
+| Method | Shows |
+|---|---|
+| `model.equations()` | `C(region, reference='north', levels=['north', 'south', 'west'])` in the linear predictor |
+| `model.design("y")` | the indicator columns with their exact names |
+| `model.priors()` | `beta_{lhs}_{variable}` and any hierarchical hyperpriors |
+| `model.graph()` | the categorical variable as an exogenous node |
+| `model.summary()` | posterior rows labelled `beta_y_region[south]`, `beta_y_region[west]` |
+
+## Interventions and queries by label
+
+Treatment coding is internal. Every query that accepts an intervention or a condition accepts a **level label** for a categorical variable, and pathmc rebuilds the indicator rows against the frozen state:
+
+```python
+model.fit()
+
+south = model.do(set={"region": "south"})  # all rows set to south
+contrast = south - model.do(set={"region": "north"})  # DoResult arithmetic
+model.ate("y", "region", values=("north", "south"))  # same contrast, EstimandResult
+model.ate("y", "region", values=("west", "south"))  # any pair of observed labels
+
+model.do(set={"region": "west", "x": 1.0})  # mix with numeric interventions
+model.do(set={"region": "south"}, kind="predictive")  # propagate residual noise
+model.prob("y > 2", set={"region": "south"})
+model.cate("y", "x", values=(0, 1), condition={"region": "south"})
+```
+
+Setting the reference level selects the all-zero indicator row; setting any other level activates its column. A label must be a single scalar — per-row arrays of labels are not accepted by `do()`.
+
+Because labels are not numbers, the extrapolation warning and scaling that apply to numeric interventions are skipped for categorical ones.
+
+## Prediction on new rows
+
+`predict(data=new_df)` swaps the replacement predictor values into the model's mutable data nodes and samples the posterior predictive. Categorical columns are encoded with the **fitted** levels and reference, so:
+
+- rows may arrive in any order, and a level may be absent from the new frame;
+- the frame must have the same number of rows as the fitting data (variable-length prediction is not supported yet) and contain every predictor column;
+- a level that was not observed at fit time raises a `ValueError` naming the predictor, the offending level, and the fitted levels.
+
+The last point is deliberate. Recomputing the coding from new data — as `pandas.get_dummies` or a fresh patsy call would — silently changes what every coefficient means.
+
+```{mermaid}
+%%| label: fig-categorical-lifecycle
+%%| fig-cap: "Lifecycle of a categorical predictor. The level set, reference, and column names are resolved once from the fitting data. Prediction and intervention re-encode labels against that frozen state and reject anything outside it."
+flowchart LR
+  D["fitting data"] --> F["resolve once<br/>levels · reference · columns"]
+  F --> C["compile<br/>pm.Data indicator matrix<br/>beta_{lhs}_{var}[levels]"]
+  C --> P["predict(data=…)<br/>re-encode → swap matrix"]
+  C --> I["do(set={var: label})<br/>encode label → swap matrix"]
+  P -. "unseen label" .-> E["ValueError"]
+  I -. "unseen label" .-> E
+```
+
+## Scaling and numeric labels
+
+When you pass `scaling=` to `model()` or `simulate()`, channel scaling is applied to numeric predictors only. A column declared categorical with `C()` — including integer-coded labels — is excluded from the fitted `ScalingFactors`, and a pre-fitted `ScalingFactors` object that happens to contain such a column has that entry dropped. Dividing a group code by its maximum would be meaningless.
+
+## Simulation
+
+`pathmc.simulate()` uses the same resolution. Supply the coefficient vector under its usual name with one entry per represented level in frozen order; `simulate_params_template()` reports the required shapes:
+
+```python
+pathmc.simulate(
+    "y ~ x + region",
+    data=exog,
+    params={"beta_y": [1.0, 0.5], "beta_y_region": [2.0, -1.0], "sigma_y": 0.5},
+    random_seed=0,
+)
+```
+
+## Errors you may see
+
+Each check runs at `model()` time (or at the offending `predict()`/`do()` call) and names both the problem and the fix.
+
+| Situation | Exception | Message names |
+|---|---|---|
+| `C(region)` but no `region` column | `ValueError` | the missing column |
+| `reference=` not among observed levels | `ValueError` | the available levels |
+| fewer than two observed levels | `ValueError` | the level count |
+| missing values in the column | `ValueError` | the column; drop or impute |
+| distinct values rendering to the same label | `ValueError` | both values and their types |
+| coefficient prefix on a categorical (`b*region`, `2*region`) | `ParseError` | the prefix to remove |
+| unknown `C()` argument | `ParseError` | the valid arguments |
+| interaction with a categorical (`region:x`, `C(region):x`) | `NotImplementedError` / `ParseError` | the interaction term |
+| transform on a categorical (`adstock(region, …)`) | `NotImplementedError` | the term |
+| same column used categorically and continuously (any equation) | `NotImplementedError` | the column and equation |
+| same categorical listed twice in one equation | `ValueError` | the column and equation |
+| categorical column on the left of `~` | `NotImplementedError` | the outcome; suggests recoding + `families=` |
+| panel model with a categorical | `NotImplementedError` | — |
+| unseen level in `predict()` or `do()` | `ValueError` | predictor, level, fitted levels |
+| array of labels in `do(set=…)` | `ValueError` | the predictor |
+
+## Current limitations
+
+- **Cross-sectional only.** Panel models (`panel=`) reject categorical terms; encode indicators manually if needed.
+- **Treatment and cell-means coding only.** No sum, Helmert, polynomial, or ordered contrasts.
+- **No categorical interactions.** `region:x` and `C(region):x` are rejected; fit per-level models or construct indicator × covariate columns yourself.
+- **No categorical outcomes.** A string column cannot be on the left of `~`; recode and pick a family.
+- **Interpret API.** `predictions()`, `comparisons()`, `slopes()`, `att()`, `atu()`, and `effect()` do not yet accept labels for categorical variables. Use `do()`, `ate()`, `prob()`, and `cate()` as shown above.
+- **Fixed row count for `predict(data=…)`.**
+
+See the [Categorical Predictors example](/docs/examples/foundations/categorical_predictors.html) for a complete simulate → inspect → fit → intervene → predict walkthrough with figures.

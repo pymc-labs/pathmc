@@ -95,7 +95,18 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
     categorical_vars: set[str] = set()
     endogenous = {reg.lhs for reg in spec.regressions}
 
+    for lhs in sorted(endogenous):
+        if lhs in pandas_data.columns and _is_categorical_series(pandas_data[lhs]):
+            raise NotImplementedError(
+                f"Outcome '{lhs}' is a string or categorical column. Categorical "
+                "outcomes are not supported: every '~' left-hand side needs a "
+                "numeric column. Recode the outcome (for example as a 0/1 "
+                "indicator with families={'" + lhs + "': 'bernoulli'}) or use "
+                f"'{lhs}' only as a predictor."
+            )
+
     for reg in spec.regressions:
+        seen_categorical: set[str] = set()
         for term in reg.terms:
             if term.interaction_of is not None:
                 categorical_components = [
@@ -142,6 +153,14 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
                     "supported. Categorical outcomes require a categorical "
                     "likelihood; use a categorical predictor only."
                 )
+
+            if term.variable in seen_categorical:
+                raise ValueError(
+                    f"Categorical predictor '{term.variable}' appears more than "
+                    f"once in equation '{reg.lhs}'. Each categorical predictor "
+                    "already expands to one coefficient per level, so list it once."
+                )
+            seen_categorical.add(term.variable)
 
             call = term.categorical or CategoricalCall(variable=term.variable)
             levels = _fit_levels(pandas_data[term.variable])

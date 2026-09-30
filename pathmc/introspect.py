@@ -513,7 +513,7 @@ def _format_term_latex(t: Term) -> str:
         return (
             rf"\operatorname{{C}}({_latex_symbol(call.variable)};\,"
             rf"\mathrm{{ref}}={_latex_escape(str(call.reference))};\,"
-            rf"\mathrm{{levels}}={{{_latex_escape(levels)}}})"
+            rf"\mathrm{{levels}}=\{{{_latex_escape(levels)}\}})"
         )
     if t.transform is not None:
         return f"{prefix}{_format_transform_latex(t.transform)}"

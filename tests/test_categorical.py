@@ -175,6 +175,22 @@ def test_mixed_categorical_and_continuous_use_is_rejected(spec):
         pathmc.model(spec, data=data)
 
 
+def test_duplicate_categorical_term_in_one_equation_is_rejected(categorical_data):
+    with pytest.raises(
+        ValueError,
+        match="'region' appears more than once in equation 'y'.*list it once",
+    ):
+        pathmc.model("y ~ C(region) + region", data=categorical_data)
+
+
+def test_string_outcome_raises_actionable_error(categorical_data):
+    with pytest.raises(
+        NotImplementedError,
+        match="Outcome 'region' is a string or categorical column.*bernoulli",
+    ):
+        pathmc.model("region ~ x", data=categorical_data)
+
+
 def test_hierarchical_prior_is_declared(categorical_data):
     model = pathmc.model("y ~ C(region, prior='hierarchical')", data=categorical_data)
     prior_names = set(model.priors()._entries)

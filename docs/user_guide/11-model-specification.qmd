@@ -96,58 +96,23 @@ Use labels when you need to refer to specific coefficients — for defined param
 
 ### Categorical predictors
 
-String and pandas categorical columns are treatment-coded automatically. With an intercept, one level is the reference and the model estimates one coefficient for every other level:
+String and pandas categorical columns are recognised automatically and expanded with **treatment coding**: one level is the reference (absorbed into the intercept) and every other level gets a named coefficient in its own vector, `beta_{lhs}_{variable}`, indexed by level name. Use `C()` to make the coding explicit, to declare an integer-coded column as labels, to choose the reference, or to request hierarchical shrinkage across levels:
 
 ```python
-model = pathmc.model("sales ~ region", data=df)
-model.design("sales")
+pathmc.model("sales ~ region", data=df)  # inferred from dtype
+pathmc.model("sales ~ C(region, reference='south')", data=df)  # explicit reference
+pathmc.model("sales ~ C(store, prior='hierarchical')", data=df)
+pathmc.model("sales ~ 0 + region", data=df)  # one coefficient per level
 ```
 
-For an ordinary string column with levels `north`, `south`, and `west`, the default design columns are `Intercept`, `region[T.south]`, and `region[T.west]`; the first sorted observed level (`north`) is the reference. For a pandas categorical column, pathmc preserves the declared category order and uses the first observed category in that order as the reference. Use `C()` when the reference must be explicit:
+| Column | Treated as |
+|---|---|
+| strings, `StringDtype`, pandas `Categorical` | categorical |
+| integers / floats | continuous unless wrapped in `C()` |
 
-```python
-model = pathmc.model(
-    "sales ~ C(region, reference='south')",
-    data=df,
-)
-```
+The level set and reference are **frozen when the model is built**. `model.equations()` and `model.design("sales")` show exactly what was frozen, `do(set={"region": "south"})` and `ate("sales", "region", values=("north", "south"))` accept labels, and `predict(data=...)` re-encodes new rows against the fitted levels — an unseen label raises rather than silently changing the coding.
 
-The fitted level set, reference, and coefficient names are recorded on the model and shown by `model.equations()` and `model.design("sales")`. `predict(data=new_data)` reuses that fitted coding even if levels arrive in a different row order. An unseen label raises an error naming the predictor and offending level instead of silently rebuilding the contrast matrix.
-
-Categorical effects have their own declared coefficient prior, separate from the equation's flat `beta_sales` vector. The default is independent coefficients:
-
-```python
-model = pathmc.model("sales ~ region", data=df)
-model.set_priors({
-    "beta_sales_region": Prior("Normal", mu=0, sigma=2),
-})
-```
-
-For many or sparsely observed levels, hierarchical shrinkage is usually preferable because it shares information across non-reference levels:
-
-```python
-model = pathmc.model(
-    "sales ~ C(region, reference='south', prior='hierarchical')",
-    data=df,
-    priors={
-        "mu_beta_sales_region": Prior("Normal", mu=0, sigma=2),
-        "sigma_beta_sales_region": Prior("HalfNormal", sigma=1),
-    },
-)
-```
-
-An intervention selects a level label. Treatment coding remains an internal representation: setting the reference selects the all-zero contrast row, while setting another level activates its fitted indicator.
-
-```python
-model.fit()
-north = model.do(set={"region": "north"})
-south = model.do(set={"region": "south"})
-contrast = south - north
-```
-
-Categorical predictors are currently cross-sectional and use unordered treatment contrasts. Categorical outcomes, panel models, ordered contrasts, categorical interactions, and unseen counterfactual levels are not supported.
-
-See [Categorical Predictors](../docs/examples/foundations/categorical_predictors.qmd) for a complete simulate-fit-intervene example.
+Categorical predictors are currently cross-sectional and support treatment or cell-means coding only; interactions, transforms, categorical outcomes, and panel models are rejected with an explanatory error. See [Categorical Predictors](categorical-predictors.qmd) for the full reference — inference rules, coding schemes, parameter names, priors, scaling, and the error contract — and the [worked example](/docs/examples/foundations/categorical_predictors.html) for a simulate → fit → intervene walkthrough with figures.
 
 ### Interaction terms
 
