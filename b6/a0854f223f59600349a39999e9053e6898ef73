@@ -1,0 +1,102 @@
+pathmc/_ci.py
+  s_1f7a252e0240fc::t_ac31656fbcb877 23-32,37,42,64-68,70-72,76,78-80,88,96-114,122,128-131,133,136-142,148-154,156-160,166,171,195-320,324-327,331-337,356,358-362
+pathmc/parse.py
+  s_1f7a252e0240fc::t_02ea069d8a6abf 107-114,122
+pathmc/_model.py
+  s_1f7a252e0240fc::t_981335171b6ec3 1950-1951,1964,1966-1972,1974-1977
+  s_1f7a252e0240fc::t_7165f5eda07018 1469-1474
+  s_1f7a252e0240fc::t_a65547107b3dc8 1502,1671
+  s_1f7a252e0240fc::t_c621440608bc06 2009-2016,2021-2025,2029-2033
+  s_1f7a252e0240fc::t_e1b93edafe4edf 436-438
+  s_1f7a252e0240fc::t_ff330253a263b0 1691-1695,1697
+  s_1f7a252e0240fc::t_e158edf4a4e5c9 1078,1515,1879
+pathmc/categorical.py
+  s_1f7a252e0240fc::t_80bbd29fcd3ecd 27
+  s_1f7a252e0240fc::t_6b14eceb35db1d 165
+  s_1f7a252e0240fc::t_d274c095cc61be 18
+  s_1f7a252e0240fc::t_bc9aa8022ac146 203-208
+  s_1f7a252e0240fc::t_9fb04abacbf823 267-282,298
+  s_1f7a252e0240fc::t_e4dc4aa1f95047 283-295
+  s_1f7a252e0240fc::t_89b168eb7bb52f 209-219,221-223,229,238
+  s_1f7a252e0240fc::t_b063a3b1b361f4 43-63
+  s_1f7a252e0240fc::t_03b7d7c3539c71 132-137
+pathmc/priors.py
+  s_1f7a252e0240fc::t_b78e56d40374c7 146-149
+pathmc/simulate.py
+  s_1f7a252e0240fc::t_18084ca5ee6479 1192
+  s_1f7a252e0240fc::t_003136a5655c8c 1223
+  s_1f7a252e0240fc::t_69fe0d53064687 1239-1240,1247,1258-1259
+  s_1f7a252e0240fc::t_8b40e7afefbe01 1023-1042,1046,1059-1065,1069-1078,1083-1092,1097-1103,1114-1115,1122-1124,1126-1127,1130-1134
+  s_1f7a252e0240fc::t_f2fc2cec5f15c2 1193-1199,1215,1222,1236,1238
+pathmc/refute.py
+  s_1f7a252e0240fc::t_d824b8749bdb1a 53
+  s_1f7a252e0240fc::t_030feed0d88e3d 739-760
+  s_1f7a252e0240fc::t_2a13767fa9155b 479-500
+  s_1f7a252e0240fc::t_48d8d241a65bed 672-675
+  s_1f7a252e0240fc::t_2d72f145ed94b0 800-806
+tests/test_categorical_edges.py
+  s_1f7a252e0240fc::t_67e217a3fbc437 1-104,107-189,192-273,275-286,288-421,424-511
+  s_1f7a252e0240fc::t_d3eff840da3300 190-191
+  s_1f7a252e0240fc::t_67eed7c92257ff 274,287
+  s_1f7a252e0240fc::t_028fea135124e4 105-106,422-423
+docs/examples/01-foundations/categorical_predictors.qmd
+  s_1f7a252e0240fc::t_54b09d3d907d77 416-417
+  s_1f7a252e0240fc::t_a685226f1a35dc 825
+  s_1f7a252e0240fc::t_eeb4cda85e25ff 455-460,463
+  s_1f7a252e0240fc::t_6d7df04a252b9b 832
+  s_1f7a252e0240fc::t_b4ae21daf8815b 805
+pathmc/identify.py
+  s_1f7a252e0240fc::t_d32cc86028b340 777-778,784-788,793-794
+  s_1f7a252e0240fc::t_81316578c87fba 23,32
+  s_1f7a252e0240fc::t_64d76c337baa6e 679-680,689-695,709-712,737-741
+pathmc/compile.py
+  s_1f7a252e0240fc::t_d0cb67b4c18164 242-243,248
+  s_1f7a252e0240fc::t_fc1144ae1bd2a3 826-832
+  s_1f7a252e0240fc::t_c2c591053fdcda 249
+pathmc/introspect.py
+  s_1f7a252e0240fc::t_7e747ee8086a3a 26-30
+  s_1f7a252e0240fc::t_e772d3987345af 33,37-45,47-53
+  s_1f7a252e0240fc::t_d49e47290c894a 384
+  s_1f7a252e0240fc::t_b90332212acfed 545,547-552
+  s_1f7a252e0240fc::t_5db43cfaf369c5 46,54-64
+  s_1f7a252e0240fc::t_ad7df19e51b780 546
+  s_1f7a252e0240fc::t_f635054608cfe8 553-554
+  s_1f7a252e0240fc::t_6489b4cae8011d 435
+  s_1f7a252e0240fc::t_95aa7d6281822e 743-749,753
+  s_1f7a252e0240fc::t_c34c1101218844 65-66
+pathmc/skills/pathmc/SKILL.md
+  s_1f7a252e0240fc::t_d7006fe91461cb 67-69
+docs/user_guide/categorical-predictors.qmd
+  s_1f7a252e0240fc::t_55fae88c0d9b4e 180,186-190
+  s_1f7a252e0240fc::t_2a778362b60d0b 144,146
+  s_1f7a252e0240fc::t_a8c8ee9590bf15 303,305,307-309
+  s_1f7a252e0240fc::t_b0bdeea9eb3de0 209
+  s_1f7a252e0240fc::t_ff03cea793c8e5 115-120
+  s_1f7a252e0240fc::t_e60bc7801cb797 217
+  s_1f7a252e0240fc::t_3b73140cc1041d 317
+  s_1f7a252e0240fc::t_e9bdd5b2e60685 231-235,240-244
+pathmc/falsify.py
+  s_1f7a252e0240fc::t_13890c0298bc28 560-562
+  s_1f7a252e0240fc::t_8fc07a10c3c236 635
+  s_1f7a252e0240fc::t_e3436ad5cd7c1c 538-542
+  s_1f7a252e0240fc::t_98cd3dfbcf89d1 49
+  s_1f7a252e0240fc::t_2976dc552f6c0c 508
+_freeze/docs/examples/foundations/categorical_predictors/execute-results/html.json
+  s_1f7a252e0240fc::t_d6d44bec4c6645 2,5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b6a0854f223f59600349a39999e9053e6898ef73",
+  "prompts": {},
+  "sessions": {
+    "s_1f7a252e0240fc": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c7a20db6-eefe-4237-b773-25c23060bcad",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
