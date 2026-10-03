@@ -196,3 +196,10 @@ freeze: true
 skill:
   enabled: true
   file: pathmc/skills/pathmc/SKILL.md
+
+# Static files -----------------------------------------------------------------
+# Non-HTML files in docs/static/ are copied verbatim to the site root.
+# context7.json proves to Context7 that we own the llms.txt library entry.
+custom_pages:
+  dir: docs/static
+  output: "."
