@@ -949,28 +949,22 @@ class TestSimulateFunnelDGP:
     def test_outcome_matches_numpy_reference_with_zero_noise(self):
         """With sigma_y=0, y must equal b*saturation(adstock(x4)) + c*ctrl.
 
-        Descendant equations consume the *mean structure* of upstream
-        endogenous variables (mirroring estimation), so the reference
-        propagates x1 through exact coefficient chains instead of the
-        noisy realized x2/x3/x4 columns.
+        Descendant equations consume the same realized upstream state that
+        simulate() returns, so the independent reference uses the noisy x4
+        trajectory rather than reconstructing its conditional mean.
         """
         exog = self._exog()
         out = self._simulate(exog)
         for unit in sorted(exog["unit"].unique()):
             rows = (
                 out[out.unit == unit]
-                .sort_values("time")[["x1", "ctrl", "y"]]
+                .sort_values("time")[["x4", "ctrl", "y"]]
                 .reset_index(drop=True)
-            )
-            x1 = rows["x1"].to_numpy()
-            x4_mu = (
-                self.PARAMS["beta_x4"][1] * self.PARAMS["beta_x2"][1] * x1
-                + self.PARAMS["beta_x4"][2] * self.PARAMS["beta_x3"][1] * x1
             )
             expected = (
                 self.PARAMS["beta_y"][0]
                 * self._reference(
-                    x4_mu,
+                    rows["x4"].to_numpy(),
                     theta=self.PARAMS["theta"],
                     lam=self.PARAMS["lam"],
                 )
