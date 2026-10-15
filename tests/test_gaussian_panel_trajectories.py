@@ -58,6 +58,26 @@ def test_named_generative_states_are_the_propagated_realization():
     np.testing.assert_array_equal(y, z)
 
 
+def test_named_generative_states_ignore_observations_when_every_outcome_is_sparse():
+    frame = pd.DataFrame({
+        "unit": np.repeat(["a", "b"], 4),
+        "time": np.tile(np.arange(4), 2),
+        "y": [1.0, np.nan, 2.0, 3.0, 2.0, 3.0, np.nan, 4.0],
+        "z": [5.0, np.nan, 6.0, 7.0, 6.0, 7.0, np.nan, 8.0],
+    })
+    model = pathmc.model(
+        "y ~ 0 + 0.5*lag(y)\nz ~ 0 + 1*y",
+        data=frame,
+        panel={"unit": "unit", "time": "time"},
+    )
+    graph = pm.do(
+        model._gen_model, {"sigma_y": np.array(1.0), "sigma_z": np.array(0.0)}
+    )
+    y, z = pm.draw([graph["y"], graph["z"]], draws=100, random_seed=94)
+    np.testing.assert_array_equal(y, z)
+    assert np.all(np.std(y, axis=0) > 0.5)
+
+
 def test_fresh_noise_joint_paths_covariance_and_seed():
     model = _model()
     before = _posterior(model, draws=6000).copy(deep=True)
