@@ -946,6 +946,22 @@ class TestSimulateFunnelDGP:
         assert corr.loc["x2", "x4"] > 0.3
         assert corr.loc["x3", "x4"] > 0.3
 
+    def test_upstream_links_use_realized_parents_with_zero_child_noise(self):
+        """A noiseless child propagates both noisy parent realizations exactly."""
+        params = {**self.PARAMS, "sigma_x4": 0.0}
+        out = self._simulate(self._exog(), params=params)
+        for parent in ("x2", "x3"):
+            intercept, slope = params[f"beta_{parent}"]
+            residual = out[parent].to_numpy() - (
+                intercept + slope * out["x1"].to_numpy()
+            )
+            assert np.ptp(residual) > 0
+        intercept, beta_x2, beta_x3 = params["beta_x4"]
+        expected = (
+            intercept + beta_x2 * out["x2"].to_numpy() + beta_x3 * out["x3"].to_numpy()
+        )
+        np.testing.assert_allclose(out["x4"].to_numpy(), expected, rtol=0, atol=1e-8)
+
     def test_outcome_matches_numpy_reference_with_zero_noise(self):
         """With sigma_y=0, y must equal b*saturation(adstock(x4)) + c*ctrl.
 
