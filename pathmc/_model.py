@@ -693,6 +693,8 @@ class PathModel:
             )
             self._gen_model._pathmc_legacy_model = legacy_model
             if not observations:
+                # Preserve the legacy flag-restoration contract for sparse
+                # outcomes; coherent states do not read this compatibility flag.
                 self._gen_model[_OBSERVED_CARRY_FLAG].set_value(
                     np.array(1, dtype="int8")
                 )
