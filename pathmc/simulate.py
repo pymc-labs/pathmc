@@ -1535,6 +1535,7 @@ def run_do_pymc(
     average_units: bool = True,
     scaling_factors: ScalingFactors | None = None,
     categorical_vars: set[str] | None = None,
+    random_seed: int | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -1691,7 +1692,9 @@ def run_do_pymc(
             "ignore", message="Could not extract data from symbolic observation"
         )
         with do_model:
-            ppc = pm.sample_posterior_predictive(idata, progressbar=False)
+            ppc = pm.sample_posterior_predictive(
+                idata, progressbar=False, random_seed=random_seed
+            )
 
     extra_det_names = [
         f"mu_{var}"
@@ -1770,11 +1773,124 @@ def _panel_predictive_sample_kwargs(
     return {"sample_vars": unobs, "var_names": var_names}
 
 
+def _execute_gaussian_panel(
+    gen_model: pm.Model,
+    posterior: xr.Dataset,
+    scan_info: Any,
+    *,
+    initial: Mapping[str, xr.DataArray] | None = None,
+    innovations: xr.Dataset | None = None,
+    interventions: Mapping[str, xr.DataArray] | None = None,
+    random_seed: int | None = None,
+) -> xr.Dataset:
+    """Execute coherent Gaussian states before aggregation, in model units.
+
+    Initial states cover all structural lag bases with ``(unit,)`` arrays.
+    Interventions use ``(unit, time)`` arrays. Supplied innovations cover all
+    endogenous variables with standard-Normal epsilon arrays of dimensions
+    ``(chain, draw, unit, time)``. Every coordinate must match exactly; no
+    implicit alignment or broadcasting is performed. Omitted innovations are
+    explicitly refreshed, independently of auxiliary draws in the posterior.
+    """
+    states = scan_info.gaussian_states
+    if not states:
+        raise ValueError("Coherent execution requires an observed Gaussian scan model.")
+    coords = {
+        "chain": posterior.coords["chain"].values,
+        "draw": posterior.coords["draw"].values,
+        "unit": scan_info.unit_labels,
+        "time": scan_info.time_values,
+    }
+
+    def checked(value: xr.DataArray, dims: tuple[str, ...], name: str) -> np.ndarray:
+        if value.dims != dims or any(
+            d not in value.coords or not np.array_equal(value.coords[d], coords[d])
+            for d in dims
+        ):
+            raise ValueError(
+                f"{name} must have dimensions {dims} and exactly matching coordinates; "
+                "align it to the fitted unit/time and posterior chain/draw labels."
+            )
+        array = np.asarray(value, dtype=float)
+        if not np.isfinite(array).all():
+            raise ValueError(f"{name} contains nonfinite values; supply finite values.")
+        return array
+
+    replacements: dict[str, Any] = {}
+    if initial is not None:
+        if initial.keys() != scan_info.initial_nodes.keys():
+            raise ValueError(
+                f"initial must cover exactly {sorted(scan_info.initial_nodes)}; "
+                "supply every structural lag base and remove other keys."
+            )
+        for var, value in initial.items():
+            replacements[scan_info.initial_nodes[var]] = checked(value, ("unit",), var)
+    for var, value in (interventions or {}).items():
+        if var not in (*states, *scan_info.exogenous):
+            raise ValueError(
+                f"Unknown intervention {var!r}; use an endogenous or exogenous base variable."
+            )
+        key = f"_do_intervene_{var}" if var in states else var
+        replacements[key] = checked(value, ("unit", "time"), var).T
+
+    # Only structural draws may bind the execution graph. In particular, stored
+    # deterministics/imputations must not short-circuit a supplied-noise replay.
+    noise_names = {f"carry_innovations_{var}" for var in states}
+    parameter_names = [
+        rv.name for rv in gen_model.free_RVs if rv.name not in noise_names
+    ]
+    missing = set(parameter_names) - set(posterior.data_vars)
+    if missing:
+        raise ValueError(
+            f"Posterior is missing structural parameters {sorted(missing)}; "
+            "supply fitted draws for every structural parameter."
+        )
+    trace = posterior[parameter_names].copy()
+    if innovations is not None:
+        if set(innovations.data_vars) != set(states):
+            raise ValueError(
+                f"innovations must cover exactly {sorted(states)}; supply one array per state."
+            )
+        for var in states:
+            values = checked(innovations[var], ("chain", "draw", "unit", "time"), var)
+            trace[f"carry_innovations_{var}"] = (
+                ("chain", "draw", f"{var}_noise_time", f"{var}_noise_unit"),
+                values.transpose(0, 1, 3, 2),
+            )
+
+    with _forced_generative_carry(gen_model):
+        execution_model = pm.do(gen_model, replacements)
+        if innovations is None:
+            result = pm.sample_posterior_predictive(
+                trace,
+                model=execution_model,
+                var_names=list(states),
+                sample_vars=sorted(noise_names),
+                random_seed=random_seed,
+                progressbar=False,
+            ).posterior_predictive.dataset
+        else:
+            result = pm.compute_deterministics(
+                trace,
+                model=execution_model,
+                var_names=list(states),
+                progressbar=False,
+            )
+    return xr.Dataset({
+        var: xr.DataArray(
+            result[var].values.transpose(0, 1, 3, 2),
+            dims=("chain", "draw", "unit", "time"),
+            coords=coords,
+        )
+        for var in states
+    })
+
+
 def run_do_panel_unified(
     gen_model: pm.Model,
     graph_info: GraphInfo,
     idata: xr.DataTree,
-    panel_info: PanelInfo,
+    panel_info: PanelInfo | None,
     scan_info: Any,
     set: dict[str, float | np.ndarray] | None = None,
     kind: str = "mean",
@@ -1782,6 +1898,7 @@ def run_do_panel_unified(
     observed_by_time: Mapping[str, np.ndarray] | None = None,
     data: nw.DataFrame | None = None,
     scaling_factors: ScalingFactors | None = None,
+    random_seed: int | None = None,
 ) -> DoResult:
     """Run the do-operator on a scan-compiled panel model.
 
@@ -1868,6 +1985,36 @@ def run_do_panel_unified(
             node_name = f"_do_intervene_{var}"
             scan_intervene_updates[node_name] = mat.astype(gen_model[node_name].dtype)
 
+    if scan_info.gaussian_states and kind == "predictive":
+        interventions = {
+            var: xr.DataArray(
+                np.asarray(replacements[var]).T,
+                dims=("unit", "time"),
+                coords={"unit": scan_info.unit_labels, "time": scan_info.time_values},
+            )
+            for var in set
+        }
+        states = _execute_gaussian_panel(
+            gen_model,
+            posterior(idata),
+            scan_info,
+            interventions=interventions,
+            random_seed=random_seed,
+        )
+        variables = {}
+        for var in scan_info.gaussian_states:
+            raw = states[var].transpose("chain", "draw", "time", "unit")
+            raw = _to_business_units(var, raw, data, scaling_factors, scan_info)
+            variables[var] = _panel_unit_mean(raw, np.asarray(scan_info.time_values))
+        ones = _chain_draw_ones(posterior(idata))
+        for var in graph_info.exogenous:
+            variables[var] = (
+                _spread_over_time(ones, set[var], np.asarray(scan_info.time_values))
+                if var in set
+                else ones * 0.0
+            )
+        return DoResult(ds=xr.Dataset(variables), observed_by_time=observed_by_time)
+
     if kind == "mean":
         for var in graph_info.topological_order:
             if var in graph_info.endogenous and var not in set and var not in latent:
@@ -1885,6 +2032,21 @@ def run_do_panel_unified(
             _forced_generative_carry(gen_model),
             _scan_do_intervention(gen_model, scan_intervene_updates),
         ):
+            legacy = getattr(gen_model, "_pathmc_legacy_model", gen_model)
+            if legacy is not gen_model:
+                return run_do_panel_unified(
+                    legacy,
+                    graph_info,
+                    idata,
+                    None,
+                    legacy._pathmc_panel_scan,
+                    set=set,
+                    kind=kind,
+                    families=families,
+                    observed_by_time=observed_by_time,
+                    data=data,
+                    scaling_factors=scaling_factors,
+                )
             do_model = pm.do(gen_model, replacements)
             det = pm.compute_deterministics(
                 posterior(idata),
@@ -1943,6 +2105,7 @@ def run_do_panel_unified(
                 ppc = pm.sample_posterior_predictive(
                     idata,
                     progressbar=False,
+                    random_seed=random_seed,
                     **_panel_predictive_sample_kwargs(do_model, graph_info, set),
                 )
 

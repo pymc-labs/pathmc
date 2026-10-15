@@ -98,6 +98,7 @@ from pathmc.scaling import (
 from pathmc.simulate import (
     DoResult,
     EstimandResult,
+    _forced_generative_carry,
     _to_business_units,
     _unscale_do_dataset,
     run_counterfactual,
@@ -669,6 +670,32 @@ class PathModel:
         if _OBSERVED_CARRY_FLAG in self._pymc_model.named_vars:
             with self._pymc_model:
                 pm.set_data({_OBSERVED_CARRY_FLAG: np.array(1, dtype="int8")})
+        if (
+            scan_info is not None
+            and not self._latent
+            and all(
+                self._families.get(r.lhs, "gaussian") == "gaussian"
+                for r in self._spec.regressions
+            )
+        ):
+            legacy_model = self._gen_model
+            self._gen_model = compile_to_pymc(
+                self._spec,
+                self._data,
+                self._design_matrices,
+                families=self._families,
+                panel_info=self._panel_info,
+                pooling=self._pooling,
+                latent=self._latent,
+                graph_info=self._graph_info,
+                priors=self._priors,
+                generative=True,
+            )
+            self._gen_model._pathmc_legacy_model = legacy_model
+            if not observations:
+                self._gen_model[_OBSERVED_CARRY_FLAG].set_value(
+                    np.array(1, dtype="int8")
+                )
         self._idata = None
 
     @property
@@ -1128,7 +1155,36 @@ class PathModel:
             validate_panel_scan_shape(self._pymc_model, scan_info)
         with self._prediction_data(data) as prediction_data:
             with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
-                pp = pm.sample_posterior_predictive(idata, **kwargs)
+                if (
+                    scan_info is not None
+                    and scan_info.gaussian_states
+                    and not one_step_ahead
+                ):
+                    assert self._gen_model is not None
+                    kwargs.setdefault("var_names", list(scan_info.gaussian_states))
+                    requested = kwargs.pop("sample_vars", []) or []
+                    if isinstance(requested, str):
+                        requested = [requested]
+                    kwargs["sample_vars"] = sorted(
+                        set(requested)
+                        | {
+                            f"carry_innovations_{var}"
+                            for var in scan_info.gaussian_states
+                        }
+                    )
+                    with _forced_generative_carry(self._gen_model):
+                        prediction_model = pm.do(
+                            self._gen_model,
+                            {
+                                name: self._pymc_model[name].get_value()
+                                for name in scan_info.exogenous
+                            },
+                        )
+                        pp = pm.sample_posterior_predictive(
+                            idata, model=prediction_model, **kwargs
+                        )
+                else:
+                    pp = pm.sample_posterior_predictive(idata, **kwargs)
         result = pp if not kwargs["extend_inferencedata"] else idata
         if self._scaling_factors is not None and prediction_data is not None:
             assert self._data is not None
@@ -1611,6 +1667,7 @@ class PathModel:
         *,
         subgroup_indices: np.ndarray | None = None,
         average_units: bool = True,
+        random_seed: int | None = None,
     ) -> DoResult:
         """Run a cross-sectional do() via graph surgery on instance state.
 
@@ -1633,6 +1690,7 @@ class PathModel:
             scaling_factors=self._scaling_factors,
             categorical_vars=self._categorical_vars,
             average_units=average_units,
+            random_seed=random_seed,
         )
 
     @contextmanager
@@ -1946,6 +2004,7 @@ class PathModel:
         simulate_over: str | None = None,
         *,
         average_units: bool = True,
+        random_seed: int | None = None,
     ) -> DoResult:
         """Simulate an intervention using the do-operator.
 
@@ -1979,6 +2038,10 @@ class PathModel:
             over observation rows. ``prob`` sets this to ``False`` when the
             expression names both an endogenous variable and a per-unit
             intervention, so the comparison uses unit-level means.
+
+        random_seed : int | None
+            Seed for reproducible predictive process noise. Does not change
+            stored posterior draws. Ignored for deterministic mean queries.
 
         Returns
         -------
@@ -2081,6 +2144,7 @@ class PathModel:
                     set=numeric_set,
                     kind=kind,
                     families=self._families,
+                    random_seed=random_seed,
                     observed_by_time=observed_by_time,
                     data=self._data,
                     scaling_factors=self._scaling_factors,
@@ -2110,7 +2174,12 @@ class PathModel:
                 )
 
         with self._categorical_intervention(categorical_set):
-            return self._run_do(numeric_set, kind, average_units=average_units)
+            return self._run_do(
+                numeric_set,
+                kind,
+                average_units=average_units,
+                random_seed=random_seed,
+            )
 
     def counterfactual(
         self,
@@ -3238,6 +3307,8 @@ def simulate(
             and families_eff.get(v, "gaussian") in ("gaussian", "studentt")
         }
         discrete_draw_vars = _scan_discrete_sample_vars(spec, families_eff, latent_set)
+        if scan_info.gaussian_states:
+            stochastic_carry_vars = set(scan_info.gaussian_states)
         innovation_rv_names = {f"innovations_{v}" for v in stochastic_latent_vars} | {
             f"carry_innovations_{v}" for v in stochastic_carry_vars
         }
@@ -3314,6 +3385,8 @@ def simulate(
                     entries.append(("latent", var, [fixed_model[var]]))
                 else:
                     entries.append(("mu", var, [fixed_model[f"mu_{var}"]]))
+            elif scan_info.gaussian_states:
+                entries.append(("state", var, [fixed_model[var]]))
             elif var in stochastic_carry_vars:
                 # The realized state that fed downstream equations is
                 # mu + sigma * carry_innovations; reconstruct it from the

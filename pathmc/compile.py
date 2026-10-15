@@ -89,6 +89,8 @@ class PanelScanInfo:
 
     Allows the caller to reshape flat observation arrays into the
     ``(n_times, n_units)`` layout expected by the scan model.
+    Coherent Gaussian models also declare their state outputs, lag-boundary
+    inputs, and exogenous trajectories for the private execution seam.
     """
 
     sort_idx: np.ndarray
@@ -97,6 +99,9 @@ class PanelScanInfo:
     n_times: int
     unit_labels: list[str] = field(default_factory=list)
     time_values: list = field(default_factory=list)
+    gaussian_states: tuple[str, ...] = ()
+    initial_nodes: dict[str, str] = field(default_factory=dict)
+    exogenous: tuple[str, ...] = ()
 
 
 def validate_panel_scan_shape(model: pm.Model, scan_info: "PanelScanInfo") -> None:
@@ -729,6 +734,11 @@ def compile_to_pymc(
             latent=latent,
             graph_info=graph_info,
             priors=priors,
+            coherent=generative
+            and not latent
+            and all(
+                families.get(r.lhs, "gaussian") == "gaussian" for r in spec.regressions
+            ),
         )
 
     block_vars, blocks = _identify_residual_blocks(spec)
@@ -2585,12 +2595,14 @@ def _compile_scan_panel(
     latent: set[str],
     graph_info: GraphInfo,
     priors: dict[str, Any] | None = None,
+    coherent: bool = False,
 ) -> pm.Model:
     """Compile a panel model with temporal deps using ``pytensor.scan``.
 
-    The generative model encodes the full temporal structure so that
-    ``pm.do()`` handles interventions natively.  Free RVs have shape
-    ``(n_times, n_units)`` in unit-major sorted order.
+    The model encodes the full temporal structure with ``(n_times, n_units)``
+    arrays in sorted panel order. In coherent Gaussian mode, named endogenous
+    outputs are the realized scan states. Otherwise observation RVs use the
+    conditional scan means for fitting, one-step prediction, and legacy means.
     """
     import pytensor
     import pytensor.tensor as pt
@@ -2600,6 +2612,9 @@ def _compile_scan_panel(
     if priors is None:
         priors = default_priors(spec, families, pooling, latent, panel_info)
 
+    gaussian_panel = not latent and all(
+        families.get(r.lhs, "gaussian") == "gaussian" for r in spec.regressions
+    )
     reg_by_lhs = {r.lhs: r for r in spec.regressions}
     transform_map = _build_transform_map(spec)
     mu_specs = build_mu_specs(spec, pooling=pooling, panel_info=panel_info)
@@ -2865,7 +2880,7 @@ def _compile_scan_panel(
         )
         stochastic_carry_vars = sorted(
             v
-            for v in endo_lag_bases
+            for v in (endo_keys if coherent else endo_lag_bases)
             if v not in latent
             and families.get(v, "gaussian") in ("gaussian", "studentt")
         )
@@ -2882,12 +2897,15 @@ def _compile_scan_panel(
             v for v in unlagged_observed_parents if v not in discrete_sample_set
         ]
         observed_carry_vars = sorted(
-            lagged_observed_vars | unlagged_observed_parent_set
+            lagged_observed_vars
+            | unlagged_observed_parent_set
+            | (set(endo_keys) if gaussian_panel else set())
         )
         carry_mu_vars = sorted(
             set(stochastic_carry_vars)
             | set(discrete_sample_vars)
             | set(unlagged_continuous_parents)
+            | (set(endo_keys) if gaussian_panel else set())
         )
 
         observed_carry_nodes: dict[str, Any] = {}
@@ -3016,15 +3034,31 @@ def _compile_scan_panel(
                 return pytensor.shared(arr, broadcastable=(False,))
             return pt.as_tensor_variable(arr)
 
+        initial_nodes: dict[str, str] = {}
+        initial_tensors: dict[str, Any] = {}
+        if coherent:
+            for base in sorted(set(endo_lag_bases) | set(exog_lag_bases)):
+                name = f"_initial_state_{base}"
+                initial_nodes[base] = name
+                values = init_endo[base] if base in init_endo else init_exog_lag[base]
+                initial_tensors[base] = pm.Data(name, values)
+
         outputs_info = (
             [
                 latent_init_rvs[k]
                 if k in latent_init_rvs
+                else initial_tensors[k]
+                if k in initial_tensors
                 else _init_carry(init_endo[k])
                 for k in endo_keys
             ]
             + [_init_carry(init_adstock[k]) for k in adstock_keys]
-            + [_init_carry(init_exog_lag[k]) for k in exog_lag_bases]
+            + [
+                initial_tensors[k]
+                if k in initial_tensors
+                else _init_carry(init_exog_lag[k])
+                for k in exog_lag_bases
+            ]
             + [None for _ in carry_mu_vars]
         )
 
@@ -3197,6 +3231,8 @@ def _compile_scan_panel(
                         mu = mu + ns_map[bkey] * x_val
 
                 family = families.get(var, "gaussian")
+                if gaussian_panel:
+                    carry_mu[var] = mu
                 if var in latent:
                     if var in stochastic_latent_set:
                         sigma_val = ns_map[f"sigma_{var}"]
@@ -3279,6 +3315,14 @@ def _compile_scan_panel(
                 else:
                     new_endo[var] = mu
 
+                if gaussian_panel and not coherent and var not in stochastic_carry_vars:
+                    observed = obs_carry_t[var]
+                    new_endo[var] = pt.switch(
+                        pt.neq(use_observed_carry_t, 0) & ~pt.isnan(observed),
+                        observed,
+                        new_endo[var],
+                    )
+
                 # Sever the structural equation for this timestep when a
                 # do()-intervention value is present (non-NaN). This must
                 # happen *inside* the scan, before any later var in this same
@@ -3335,7 +3379,9 @@ def _compile_scan_panel(
 
             family = families.get(var, "gaussian")
 
-            if var in sparse_panel_data:
+            if coherent:
+                pm.Deterministic(var, carry_all)
+            elif var in sparse_panel_data:
                 sigma = sigma_rvs[var]
                 pm.Normal(
                     var,
@@ -3369,5 +3415,8 @@ def _compile_scan_panel(
         n_times=n_times,
         unit_labels=units,
         time_values=time_values,
+        gaussian_states=tuple(endo_keys) if coherent else (),
+        initial_nodes=initial_nodes,
+        exogenous=tuple(exog_keys),
     )
     return scan_model
