@@ -20,7 +20,7 @@ model = pathmc.model(
 
 The `lag()` term is a structural part of the formula, not a data preprocessing step.
 pathmc computes lag-1 values from the previous time step *within the same unit* — never from a different unit.
-The first time step of each unit has no valid lag and is dropped.
+The first time step of each unit is retained. It is scored with a pre-sample lag, not dropped.
 
 When you call `model.graph()`, lagged terms appear as **dashed edges** labeled with their coefficient and **(t−1)**.
 A self-lag like `lag(Y)` in `Y ~ lag(Y)` renders as a dashed self-loop on Y.
@@ -54,6 +54,24 @@ digraph {
   }
 }
 ```
+
+## Pre-sample initial state
+
+The first fitted time uses a pre-sample state as its `lag()` input. That state is not an extra outcome period. Omitting `initial` keeps the legacy fill: an endogenous lag reads that unit's first observed value; an exogenous lag reads a `<variable>_lag1` column when one is present, otherwise the first observed row, otherwise zeros. Those fills are asymmetric, so an adaptive policy should pass the same explicit baseline to `model()` and to `do()`.
+
+`initial` names the base variable used by `lag()`, not a generated column. A value is a finite number broadcast to every fitted unit, or a mapping of exactly the fitted unit labels. pathmc aligns the mapping by label, not by row order, and scales business units once with the fitted factor. Latent lag bases stay on their `init_{variable}` prior and are excluded. `model.initial_baseline` records the normalized model-unit values and whether the fill was explicit. `do(initial=)` overrides that baseline for one call. It does not refit the model and does not change the stored record. `do()` without `initial` reuses the compiled baseline.
+
+```python
+initial = {"spend": {"North": 120.0, "South": 80.0}}
+model = pathmc.model(
+    "sales ~ lag(spend) + trend",
+    data=df,
+    panel={"unit": "region", "time": "week"},
+    initial=initial,
+)
+model.do(set={"spend": 0.0}, simulate_over="time", initial=initial)
+```
+
 
 ## Fitting with random intercepts
 

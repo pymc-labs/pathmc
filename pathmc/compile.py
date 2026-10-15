@@ -37,6 +37,7 @@ panel interventions natively — no separate simulation engine needed.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Collection, Literal
 
@@ -101,6 +102,7 @@ class PanelScanInfo:
     time_values: list = field(default_factory=list)
     gaussian_states: tuple[str, ...] = ()
     initial_nodes: dict[str, str] = field(default_factory=dict)
+    initial_values: dict[str, np.ndarray] = field(default_factory=dict)
     exogenous: tuple[str, ...] = ()
 
 
@@ -627,6 +629,7 @@ def compile_to_pymc(
     priors: dict[str, Any] | None = None,
     *,
     generative: bool = False,
+    initial: Mapping[str, np.ndarray] | None = None,
 ) -> pm.Model:
     """Compile a structural specification into a generative PyMC model.
 
@@ -739,6 +742,13 @@ def compile_to_pymc(
             and all(
                 families.get(r.lhs, "gaussian") == "gaussian" for r in spec.regressions
             ),
+            initial=initial,
+        )
+
+    if initial is not None:
+        raise ValueError(
+            "initial= applies only to scan-compiled panel models with lag() "
+            "terms. Omit initial=, or add lag() and panel=."
         )
 
     block_vars, blocks = _identify_residual_blocks(spec)
@@ -2585,6 +2595,29 @@ def _apply_step_transform(
     return out, prev_adstock
 
 
+def observed_lag_bases(spec: Spec, latent: set[str] | None = None) -> tuple[str, ...]:
+    """Observed variables read by ``lag()``, excluding latent bases.
+
+    A policy planner may extend this set; do not treat it as the only
+    legal ``initial=`` key set once that planner exists.
+    """
+    hidden = latent or set()
+    bases: list[str] = []
+    for reg in spec.regressions:
+        for term in reg.terms:
+            base = term.lag_of
+            if base is None or base in hidden or base in bases:
+                continue
+            bases.append(base)
+    return tuple(sorted(bases))
+
+
+def lag_base_kinds(spec: Spec, bases: tuple[str, ...] | list[str]) -> dict[str, str]:
+    """Classify each lag base as an outcome or a regressor for scaling."""
+    lhs = {reg.lhs for reg in spec.regressions}
+    return {base: "outcome" if base in lhs else "regressor" for base in bases}
+
+
 def _compile_scan_panel(
     spec: Spec,
     data: nw.DataFrame,
@@ -2596,6 +2629,7 @@ def _compile_scan_panel(
     graph_info: GraphInfo,
     priors: dict[str, Any] | None = None,
     coherent: bool = False,
+    initial: Mapping[str, np.ndarray] | None = None,
 ) -> pm.Model:
     """Compile a panel model with temporal deps using ``pytensor.scan``.
 
@@ -2861,6 +2895,39 @@ def _compile_scan_panel(
         endo_lag_bases = sorted({
             base for _col, (base, _k) in lag_cols.items() if base in endo_set
         })
+        observed_bases = sorted(
+            (set(endo_lag_bases) - set(latent)) | set(exog_lag_bases)
+        )
+        if initial is not None:
+            missing = sorted(set(observed_bases) - set(initial))
+            unknown = sorted(set(initial) - set(observed_bases))
+            if missing or unknown:
+                raise ValueError(
+                    "initial must cover exactly the observed lag bases "
+                    f"{observed_bases}. Missing {missing or 'none'}; "
+                    f"unknown {unknown or 'none'}. Validate business-unit "
+                    "initial= before compilation."
+                )
+            for base, values in initial.items():
+                arr = np.asarray(values, dtype="float64")
+                if arr.shape != (n_units,):
+                    raise ValueError(
+                        f"initial[{base!r}] must have shape ({n_units},) in "
+                        f"unit_labels order, got {arr.shape}."
+                    )
+                if base in init_endo:
+                    init_endo[base] = arr
+                else:
+                    init_exog_lag[base] = arr
+        initial_values = {
+            base: np.array(
+                init_endo[base] if base in init_endo else init_exog_lag[base],
+                dtype="float64",
+                copy=True,
+            )
+            for base in observed_bases
+        }
+
         discrete_sample_vars = sorted(
             _scan_discrete_sample_vars(spec, families, latent)
         )
@@ -3422,6 +3489,7 @@ def _compile_scan_panel(
         time_values=time_values,
         gaussian_states=tuple(endo_keys) if coherent else (),
         initial_nodes=initial_nodes,
+        initial_values=initial_values,
         exogenous=tuple(exog_keys),
     )
     return scan_model

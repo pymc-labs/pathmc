@@ -42,6 +42,8 @@ from pathmc.compile import (
     build_design_matrix,
     compile_to_pymc,
     get_predictor_columns,
+    lag_base_kinds,
+    observed_lag_bases,
     validate_panel_scan_shape,
 )
 from pathmc.effects import (
@@ -79,10 +81,13 @@ from pathmc.interpret import (
     slopes as _interpret_slopes,
 )
 from pathmc.panel import (
+    InitialBaseline,
     PanelInfo,
     attach_composite_unit,
     build_panel_info,
     drop_composite_unit,
+    freeze_baseline,
+    normalize_initial_states,
     observed_means_by_time,
 )
 from pathmc.parse import Spec, parse_spec
@@ -520,6 +525,9 @@ class PathModel:
         latent: set[str] | None = None,
         priors: dict[str, Any] | None = None,
         scaling_factors: ScalingFactors | None = None,
+        *,
+        initial_internal: Mapping[str, np.ndarray] | None = None,
+        initial_explicit: bool = False,
     ) -> None:
         from pathmc.priors import default_priors, merge_priors
 
@@ -540,6 +548,16 @@ class PathModel:
         # re-fit on perturbed data. Set by model(); None for direct
         # construction (in which case refute_placebo raises).
         self._scaling_factors = scaling_factors
+        self._initial_internal = (
+            None
+            if initial_internal is None
+            else {
+                name: np.asarray(values, dtype=float)
+                for name, values in initial_internal.items()
+            }
+        )
+        self._initial_explicit = initial_explicit
+        self._initial_baseline: InitialBaseline | None = None
         self._construction: dict[str, Any] | None = None
 
         defaults = default_priors(
@@ -617,6 +635,7 @@ class PathModel:
             latent=self._latent,
             graph_info=self._graph_info,
             priors=self._priors,
+            initial=self._initial_internal,
         )
 
         block_vars = (
@@ -690,6 +709,7 @@ class PathModel:
                 graph_info=self._graph_info,
                 priors=self._priors,
                 generative=True,
+                initial=self._initial_internal,
             )
             self._gen_model._pathmc_legacy_model = legacy_model
             if not observations:
@@ -699,6 +719,26 @@ class PathModel:
                     np.array(1, dtype="int8")
                 )
         self._idata = None
+        self._record_initial_baseline()
+
+    def _record_initial_baseline(self) -> None:
+        """Store the pre-sample states the scan actually compiled."""
+        assert self._gen_model is not None
+        scan = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        if scan is None or not scan.initial_values:
+            self._initial_baseline = None
+            return
+        values = {
+            name: xr.DataArray(
+                np.array(arr, dtype=float, copy=True),
+                dims=("unit",),
+                coords={"unit": list(scan.unit_labels)},
+            )
+            for name, arr in scan.initial_values.items()
+        }
+        self._initial_baseline = freeze_baseline(
+            explicit=self._initial_explicit, values=values
+        )
 
     @property
     def fitted_scaling(self) -> ScalingFactors | None:
@@ -708,6 +748,20 @@ class PathModel:
         to reuse the exact estimation-time scales.
         """
         return self._scaling_factors
+
+    @property
+    def initial_baseline(self) -> InitialBaseline | None:
+        """Pre-sample lag states in model units, or None without a lag scan.
+
+        The first fitted time uses these values as the ``lag()`` input.
+        They are not an extra period in ``do()`` or ``predict()``
+        summaries. ``explicit`` is False when the values were inferred.
+        An endogenous base then uses that unit's first observed value.
+        An exogenous base uses a matching ``<variable>_lag1`` column when
+        present, otherwise the first observed row, otherwise zeros.
+        A ``do(initial=)`` override does not change this record.
+        """
+        return self._initial_baseline
 
     @property
     def pymc_model(self) -> pm.Model:
@@ -1906,6 +1960,11 @@ class PathModel:
             # columns, so the refit happens in the same internal units as
             # the original fit; re-fitting factors from permuted data
             # would change the scale mid-refutation.
+            # Explicit initials are already in model units. Inferred
+            # initials are re-read from the clone's (already scaled) frame.
+            _initial_internal=(
+                self._initial_internal if self._initial_explicit else None
+            ),
         )
         # The per-fold seed is owned here so every fold is independent and the
         # whole refutation is reproducible; a random_seed in sample_kwargs would
@@ -1999,6 +2058,71 @@ class PathModel:
             random_seed=random_seed,
         )
 
+    def _normalize_query_initial(
+        self,
+        initial: Mapping[str, Any] | None,
+        simulate_over: str | None,
+    ) -> dict[str, xr.DataArray] | None:
+        """Validate a query override before any execution model is built."""
+        if initial is None:
+            return None
+        if self._data is None or self._panel_info is None:
+            raise ValueError(
+                "initial= cannot be aligned without data and a panel. "
+                "Pass data= and panel= to model() so each unit label and "
+                "scale can be resolved."
+            )
+        if simulate_over != "time":
+            raise ValueError(
+                "initial= is only used by time-forward panel simulation. "
+                "Pass simulate_over='time', or omit initial=."
+            )
+        bases = observed_lag_bases(self._spec, self._latent)
+        if not bases:
+            raise ValueError(
+                "initial= applies to observed lag() bases, and this model "
+                "has none. Omit initial=. Adstock carry is not set through "
+                "initial=."
+            )
+        return normalize_initial_states(
+            initial,
+            required=bases,
+            unit_labels=self._panel_info.unit_labels,
+            data=self._data,
+            panel_info=self._panel_info,
+            scaling_factors=self._scaling_factors,
+            kinds=lag_base_kinds(self._spec, bases),
+            latent=tuple(sorted(self._latent)),
+        )
+
+    def _compile_initial_override(
+        self, normalized: Mapping[str, xr.DataArray]
+    ) -> pm.Model:
+        """Compile a throwaway scan model with overridden pre-sample states.
+
+        The stored model and posterior are left untouched. Gaussian
+        predictive queries do not use this path; they replace the coherent
+        model's initial nodes through the execution seam.
+        """
+        assert self._data is not None
+        arrays = {
+            name: np.asarray(value.values, dtype=float)
+            for name, value in normalized.items()
+        }
+        return compile_to_pymc(
+            self._spec,
+            self._data,
+            self._design_matrices,
+            families=self._families,
+            panel_info=self._panel_info,
+            pooling=self._pooling,
+            latent=self._latent,
+            graph_info=self._graph_info,
+            priors=self._priors,
+            generative=False,
+            initial=arrays,
+        )
+
     def do(
         self,
         set: dict[str, Any] | None = None,
@@ -2008,6 +2132,7 @@ class PathModel:
         *,
         average_units: bool = True,
         random_seed: int | None = None,
+        initial: Mapping[str, Any] | None = None,
     ) -> DoResult:
         """Simulate an intervention using the do-operator.
 
@@ -2045,6 +2170,15 @@ class PathModel:
         random_seed : int | None
             Seed for reproducible predictive process noise. Does not change
             stored posterior draws. Ignored for deterministic mean queries.
+        initial : Mapping[str, Any] | None
+            Pre-sample state for every observed ``lag()`` base, in business
+            units. A scalar broadcasts to every fitted unit; a mapping must
+            contain exactly the fitted unit labels. ``None`` reuses
+            :attr:`initial_baseline`. An override is local to this call: it
+            governs both mean and predictive recursion and does not refit
+            the model or change the stored baseline. The values are the
+            state before the first fitted time, not an extra outcome period.
+
 
         Returns
         -------
@@ -2075,6 +2209,7 @@ class PathModel:
             )
 
         scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        normalized_initial = self._normalize_query_initial(initial, simulate_over)
         if scan_info is not None and simulate_over != "time":
             raise ValueError(
                 "This model has temporal dependencies (lag() or adstock()), so "
@@ -2138,12 +2273,21 @@ class PathModel:
                     list(self._graph_info.topological_order),
                     scaling_factors=self._scaling_factors,
                 )
+                exec_model = self._gen_model
+                exec_scan = scan_info
+                seam_initial = None
+                if normalized_initial is not None:
+                    if scan_info.gaussian_states and kind == "predictive":
+                        seam_initial = normalized_initial
+                    else:
+                        exec_model = self._compile_initial_override(normalized_initial)
+                        exec_scan = exec_model._pathmc_panel_scan
                 return run_do_panel_unified(
-                    gen_model=self._gen_model,
+                    gen_model=exec_model,
                     graph_info=self._graph_info,
                     idata=idata,
                     panel_info=self._panel_info,
-                    scan_info=scan_info,
+                    scan_info=exec_scan,
                     set=numeric_set,
                     kind=kind,
                     families=self._families,
@@ -2151,6 +2295,7 @@ class PathModel:
                     observed_by_time=observed_by_time,
                     data=self._data,
                     scaling_factors=self._scaling_factors,
+                    initial=seam_initial,
                 )
             with self._categorical_intervention(categorical_set):
                 time_idx = np.asarray(
@@ -2841,6 +2986,8 @@ def model(
     latent: list[str] | None = None,
     priors: dict[str, Any] | None = None,
     scaling: Scaling | ScalingFactors | None = None,
+    initial: Mapping[str, Any] | None = None,
+    _initial_internal: Mapping[str, np.ndarray] | None = None,
     **kwargs: Any,
 ) -> PathModel:
     """Parse a specification and compile a Bayesian path model.
@@ -2911,6 +3058,26 @@ def model(
            columns; ``model.fitted_scaling`` exposes the divisors for
            :func:`simulate` and manual transforms.
 
+    initial : Mapping[str, Any] | None
+        Pre-sample state for every observed ``lag()`` base, in business
+        units. A key is the base variable named by ``lag()``, not a
+        generated column. A value is a finite number broadcast to every
+        fitted unit, or a mapping of exactly the fitted unit labels.
+        These values are the state immediately before the first fitted
+        time — not the first observed row, and not an extra outcome
+        period. ``None`` keeps the legacy fill: an endogenous base uses
+        that unit's first observed value; an exogenous base uses a
+        ``<variable>_lag1`` column when present, otherwise the first
+        observed row, otherwise zeros. Explicit values replace that fill
+        for fitting and for ``do()``. Latent lag bases stay on their
+        ``init_{variable}`` prior. The normalized model-unit record is
+        :attr:`PathModel.initial_baseline`.
+
+    _initial_internal
+        Private. Refit passes already-normalized model-unit arrays when
+        the working frame is already scaled. Do not combine with
+        ``initial=``.
+
     Returns
     -------
     PathModel
@@ -2923,6 +3090,19 @@ def model(
         If a latent variable is not endogenous, or an observed endogenous
         variable is missing from data.
     """
+    if initial is not None and _initial_internal is not None:
+        raise ValueError("Pass initial= or already-normalized refit arrays, not both.")
+    if initial is not None and data is None:
+        raise ValueError(
+            "initial= cannot be aligned without data. Pass data= to model() "
+            "so each unit's scale and label can be resolved."
+        )
+    if initial is not None and panel is None:
+        raise ValueError(
+            "initial= requires a panel model with lag() terms. Pass "
+            "panel={'unit': ..., 'time': ...} and include lag() in the "
+            "formula, or omit initial=."
+        )
     spec = parse_spec(spec_string)
     latent_set = set(latent) if latent is not None else set()
 
@@ -3002,6 +3182,31 @@ def model(
         )
         nw_data = scaling_factors.transform(nw_data)
 
+    compiled_initial: Mapping[str, np.ndarray] | None = _initial_internal
+    if initial is not None:
+        assert nw_data is not None and panel_info is not None
+        bases = observed_lag_bases(spec, latent_set)
+        if not bases:
+            raise ValueError(
+                "initial= applies to observed lag() bases, and this model "
+                "has none. Omit initial=. Adstock carry is not set through "
+                "initial=."
+            )
+        normalized = normalize_initial_states(
+            initial,
+            required=bases,
+            unit_labels=panel_info.unit_labels,
+            data=nw_data,
+            panel_info=panel_info,
+            scaling_factors=scaling_factors,
+            kinds=lag_base_kinds(spec, bases),
+            latent=tuple(sorted(latent_set)),
+        )
+        compiled_initial = {
+            name: np.asarray(value.values, dtype=float)
+            for name, value in normalized.items()
+        }
+
     path_model = PathModel(
         spec=spec,
         graph_info=graph_info,
@@ -3012,6 +3217,8 @@ def model(
         latent=latent_set,
         priors=priors,
         scaling_factors=scaling_factors,
+        initial_internal=compiled_initial,
+        initial_explicit=initial is not None or _initial_internal is not None,
     )
     path_model._construction = {
         "spec_string": spec_string,
@@ -3020,6 +3227,7 @@ def model(
         "pooling": pooling,
         "latent": latent,
         "scaling": scaling,
+        "initial": initial,
         # Recorded for completeness only. _refit_permuted intentionally
         # rebuilds with the current merged self._priors (not this original
         # arg) so priors changed via set_priors() are honored on refit.
