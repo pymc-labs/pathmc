@@ -1161,7 +1161,8 @@ class PathModel:
                     and not one_step_ahead
                 ):
                     assert self._gen_model is not None
-                    kwargs.setdefault("var_names", list(scan_info.gaussian_states))
+                    if kwargs.get("var_names") is None:
+                        kwargs["var_names"] = list(scan_info.gaussian_states)
                     requested = kwargs.pop("sample_vars", []) or []
                     if isinstance(requested, str):
                         requested = [requested]

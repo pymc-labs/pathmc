@@ -89,6 +89,26 @@ def test_current_intermediary_noise_propagates():
     assert np.std(z) > 0.9
 
 
+@pytest.mark.parametrize("var_names", [None, ["z"]])
+def test_free_running_predict_preserves_variable_selection(var_names):
+    model = _model()
+    _posterior(model, draws=4)
+    kwargs = {
+        "one_step_ahead": False,
+        "extend_inferencedata": False,
+        "random_seed": 19,
+        "progressbar": False,
+    }
+    default = model.predict(**kwargs).posterior_predictive.to_dataset()
+    selected = model.predict(
+        var_names=var_names, **kwargs
+    ).posterior_predictive.to_dataset()
+    expected_names = ["y", "z"] if var_names is None else var_names
+    assert set(selected.data_vars) == set(expected_names)
+    for name in expected_names:
+        xr.testing.assert_equal(selected[name], default[name])
+
+
 def test_observational_current_predictor_logp_and_gradient():
     data = pd.DataFrame({
         "unit": ["u"] * 4,
