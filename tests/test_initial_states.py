@@ -326,3 +326,135 @@ def test_cross_sectional_do_rejects_initial():
     with pytest.raises(ValueError, match="initial="):
         model.do(initial={"y": 1.0})
     assert model.initial_baseline is None
+
+
+def _shuffled_two_lag_frame():
+    """B before A, and B's times reversed, so row order is not label order."""
+    observed = {
+        "A": {"y": (3.0, 4.0), "x": (1.0, 2.0)},
+        "B": {"y": (5.0, 6.0), "x": (3.0, 4.0)},
+    }
+    rows = []
+    for unit, times in (("B", (2, 1)), ("A", (1, 2))):
+        for time in times:
+            rows.append({
+                "unit": unit,
+                "time": time,
+                "y": observed[unit]["y"][time - 1],
+                "x": observed[unit]["x"][time - 1],
+            })
+    return pd.DataFrame(rows)
+
+
+def _observed_logp_and_beta_grad(model, beta, sigma):
+    pm_model = model.pymc_model
+    point = pm_model.initial_point()
+    point["beta_y"] = np.asarray(beta, dtype=float)
+    point["sigma_y_log__"] = np.array(np.log(sigma))
+    logp = float(pm_model.compile_logp(vars=pm_model.observed_RVs)(point))
+    gradient = pt.grad(
+        pm_model.logp(vars=pm_model.observed_RVs),
+        [pm_model.rvs_to_values[pm_model["beta_y"]]],
+    )
+    evaluate = pytensor.function(
+        pm_model.value_vars, gradient, on_unused_input="ignore"
+    )
+    got = evaluate(*[point[var.name] for var in pm_model.value_vars])
+    return logp, np.asarray(got).reshape(-1)
+
+
+def test_conditional_logp_matches_numpy_oracle_for_outcome_and_treatment_lags():
+    initial = {"y": {"A": 0.5, "B": 1.5}, "x": {"B": 0.8, "A": 0.2}}
+    model = pathmc.model(
+        "y ~ 0 + lag(y) + lag(x)",
+        data=_shuffled_two_lag_frame(),
+        panel=PANEL,
+        initial=initial,
+    )
+    beta = np.array([0.4, -0.3])
+    sigma = 1.2
+    logp, grad = _observed_logp_and_beta_grad(model, beta, sigma)
+
+    y0 = np.array([initial["y"]["A"], initial["y"]["B"]])
+    x0 = np.array([initial["x"]["A"], initial["x"]["B"]])
+    y = np.array([[3.0, 4.0], [5.0, 6.0]])
+    x = np.array([[1.0, 2.0], [3.0, 4.0]])
+    lag_y = np.column_stack([y0, y[:, 0]])
+    lag_x = np.column_stack([x0, x[:, 0]])
+    mu = beta[0] * lag_y + beta[1] * lag_x
+    resid = y - mu
+    expected = (-0.5 * np.log(2 * np.pi * sigma**2) - 0.5 * (resid / sigma) ** 2).sum()
+    expected_grad = np.array([(resid * lag_y).sum(), (resid * lag_x).sum()]) / sigma**2
+    assert logp == pytest.approx(expected)
+    np.testing.assert_allclose(grad, expected_grad)
+
+
+def test_shuffled_initials_align_under_original_and_business_unit_scaling():
+    data = _shuffled_two_lag_frame()
+    initial = {"y": {"B": 12.0, "A": 4.0}, "x": {"A": 10.0, "B": 30.0}}
+    spec = "y ~ 0 + lag(y) + lag(x) + x"
+    plain = pathmc.model(spec, data=data, panel=PANEL, initial=initial)
+    assert list(plain.initial_baseline.values["y"].coords["unit"].values) == [
+        "A",
+        "B",
+    ]
+    np.testing.assert_allclose(plain.initial_baseline.values["y"].values, [4.0, 12.0])
+    np.testing.assert_allclose(plain.initial_baseline.values["x"].values, [10.0, 30.0])
+    plain_scan = plain._gen_model._pathmc_panel_scan
+    np.testing.assert_allclose(plain_scan.initial_values["y"], [4.0, 12.0])
+    np.testing.assert_allclose(plain_scan.initial_values["x"], [10.0, 30.0])
+
+    scaling = pathmc.Scaling(
+        target={
+            "method": "fixed",
+            "value": {"A": 2.0, "B": 4.0},
+            "dims": ("unit",),
+        },
+        channel={
+            "method": "fixed",
+            "value": {"A": 5.0, "B": 10.0},
+            "dims": ("unit",),
+        },
+    )
+    scaled = pathmc.model(
+        spec, data=data, panel=PANEL, scaling=scaling, initial=initial
+    )
+    np.testing.assert_allclose(scaled.initial_baseline.values["y"].values, [2.0, 3.0])
+    np.testing.assert_allclose(scaled.initial_baseline.values["x"].values, [2.0, 3.0])
+    scaled_scan = scaled._gen_model._pathmc_panel_scan
+    np.testing.assert_allclose(scaled_scan.initial_values["y"], [2.0, 3.0])
+    np.testing.assert_allclose(scaled_scan.initial_values["x"], [2.0, 3.0])
+
+    beta = np.array([0.4, -0.3, 0.2])
+    sigma = 1.2
+    logp, grad = _observed_logp_and_beta_grad(scaled, beta, sigma)
+    y_factor = np.array([2.0, 4.0])
+    x_factor = np.array([5.0, 10.0])
+    y0 = np.array([4.0, 12.0]) / y_factor
+    x0 = np.array([10.0, 30.0]) / x_factor
+    y = np.array([[3.0, 4.0], [5.0, 6.0]]) / y_factor[:, None]
+    x = np.array([[1.0, 2.0], [3.0, 4.0]]) / x_factor[:, None]
+    lag_y = np.column_stack([y0, y[:, 0]])
+    lag_x = np.column_stack([x0, x[:, 0]])
+    mu = beta[0] * lag_y + beta[1] * lag_x + beta[2] * x
+    resid = y - mu
+    expected = (-0.5 * np.log(2 * np.pi * sigma**2) - 0.5 * (resid / sigma) ** 2).sum()
+    expected_grad = (
+        np.array([
+            (resid * lag_y).sum(),
+            (resid * lag_x).sum(),
+            (resid * x).sum(),
+        ])
+        / sigma**2
+    )
+    assert logp == pytest.approx(expected)
+    np.testing.assert_allclose(grad, expected_grad)
+
+
+def test_initial_is_keyword_only():
+    frame = _frame()
+    with pytest.raises(TypeError):
+        pathmc.model(SPEC, frame, None, PANEL, None, None, None, None, {"y": 1.0})
+    model = pathmc.model(SPEC, data=frame, panel=PANEL)
+    with pytest.raises(TypeError):
+        model.do(None, None, "mean", "time", None, {"y": 1.0})
