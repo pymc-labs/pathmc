@@ -207,6 +207,45 @@ Not always! If your panel model has only random intercepts, random slopes, or tr
 
 See the [Panel Data Models](../docs/examples/panel-time/panel_data.qmd), [Difference-in-Differences](../docs/examples/panel-time/did.qmd), and [Media Mix Models](../docs/examples/applied-models/mmm.qmd) examples for panel mode in action.
 
+## History-dependent treatment policies
+
+A static `set=` schedule is fixed before the simulation starts. A treatment policy is a rule evaluated inside the panel scan, so the action at time *t* can depend on that unit's simulated history. That is the g-computation path for dynamic regimes: the same posterior draws and the same process noise are reused across rules, and the result keeps the posterior dimension instead of collapsing to a noise-free mean.
+
+```python
+from pathmc import TimeSchedule, TreatmentPolicy, previous, where
+
+every_third = TreatmentPolicy(
+    "every_third",
+    "water",
+    TimeSchedule((1.0, 0.0, 0.0, 1.0, 0.0, 0.0)),
+)
+responsive = TreatmentPolicy(
+    "responsive",
+    "water",
+    where(previous("stress") > 0.5, 1.0, 0.0),
+)
+baseline = {"growth": 0.0, "water": 0.0, "stress": 0.6}
+
+fixed = model.do(policy=every_third, simulate_over="time", initial=baseline)
+adaptive = model.do(
+    policy=responsive,
+    simulate_over="time",
+    initial=baseline,
+    random_seed=7,
+)
+contrast = adaptive - fixed
+growth = contrast.aggregate_time("growth", reduction="sum")
+water = contrast.aggregate_time("water", reduction="sum")
+```
+
+Rules are expressions, not Python callbacks. `current(name)` reads the simulated value at the decision time and is legal only when that measurement is available before the action. `previous(name)` reads the preceding period, which at the first fitted time is the explicit pre-sample state. `where(condition, yes, no)` is the threshold. Comparisons follow the operator exactly: `>` is false at the threshold. Python `if`, `and`, `or`, and `not` are rejected.
+
+`policy=` requires a Gaussian lag panel, `simulate_over="time"`, and an explicit pre-sample baseline covering every observed lag base plus any previous reference the rule reads. `kind="predictive"` is rejected because the policy path always integrates process noise; omitting `random_seed` records the seed that was used. `horizon` must equal the fitted time count. `n_simulations` defaults to 256 and must be at least 2. Unit paths are omitted unless `keep_trajectories=True`.
+
+A fixed `TimeSchedule` with no residual noise matches `do(set=..., kind="mean")`. With noise, a threshold on a stochastic state does not match that noise-free path: the reported mean is the average over posterior draws and simulations. Contrast two results only when they share the posterior, the baseline, the seed, and the simulation count. The contrast is the difference; it does not pick a winner. `simulation_mcse(var)` is the Monte Carlo standard error of one estimand. Call `aggregate_time` first, or pass `by="time"`.
+
+Latent variables, non-Gaussian families, adstock and other transforms, categoricals, and residual covariance are rejected rather than evaluated by a weaker executor. `simulation_info()` records the target, the fitted horizon, the unit population, and the seed.
+
 ## Scaling heterogeneous units
 
 When geos (or brands, or countries) differ in magnitude by orders of

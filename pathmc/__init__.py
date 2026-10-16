@@ -51,6 +51,13 @@ from pathmc.sensitivity import SensitivityResult  # noqa: E402
 from pathmc.scaling import Scaling, ScalingFactors  # noqa: E402
 from pathmc.simulate import DoResult, EstimandResult  # noqa: E402
 from pathmc.transforms import ParamSpec, Transform, register_transform  # noqa: E402
+from pathmc.policy import (  # noqa: E402
+    TimeSchedule,
+    TreatmentPolicy,
+    current,
+    previous,
+    where,
+)
 
 # Deliberate re-export so users can build custom priors without a separate
 # pymc_extras import (see the `priors=` argument to model()).
@@ -75,14 +82,19 @@ __all__ = [
     "ScalingFactors",
     "SensitivityResult",
     "TestResult",
+    "TimeSchedule",
     "Transform",
+    "TreatmentPolicy",
     "__version__",
+    "current",
     "dag_to_spec",
     "datagrid",
     "model",
+    "previous",
     "register_basis",
     "register_transform",
     "same_markov_equivalence_class",
     "simulate",
     "simulate_params_template",
+    "where",
 ]

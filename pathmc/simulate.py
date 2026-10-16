@@ -466,6 +466,54 @@ class _DrawStorageMixin:
         return self._draw_by_time(var)
 
 
+def _time_label_index(times: list[Any], label: Any, where: str) -> int:
+    for index, value in enumerate(times):
+        if value == label:
+            return index
+    raise ValueError(
+        f"aggregate_time {where}={label!r} is not a fitted time label. "
+        f"Available labels: {times}."
+    )
+
+
+def _reduce_policy_time(
+    ds: xr.Dataset,
+    var: str,
+    reduction: str,
+    start: Any,
+    end: Any,
+) -> xr.Dataset:
+    """Reduce one variable's time dimension, dropping every other variable."""
+    if var not in ds:
+        raise KeyError(
+            f"{var!r} is not in this policy result. Available: {list(ds.data_vars)}."
+        )
+    values = ds[var]
+    if "time" not in values.dims:
+        raise ValueError(
+            f"{var!r} has no time dimension. aggregate_time() was already "
+            "applied, or this result is not a trajectory."
+        )
+    times = list(values.coords["time"].values)
+    start_i = 0 if start is None else _time_label_index(times, start, "start")
+    end_i = len(times) - 1 if end is None else _time_label_index(times, end, "end")
+    if end_i < start_i:
+        raise ValueError(f"aggregate_time end={end!r} precedes start={start!r}.")
+    window = values.isel(time=slice(start_i, end_i + 1))
+    if reduction == "sum":
+        reduced = window.sum(dim="time")
+    elif reduction == "mean":
+        reduced = window.mean(dim="time")
+    elif reduction == "last":
+        reduced = window.isel(time=-1)
+    else:
+        raise ValueError(
+            "aggregate_time reduction must be 'sum', 'mean', or 'last'. "
+            f"Got {reduction!r}."
+        )
+    return reduced.to_dataset()
+
+
 class DoResult(_DrawStorageMixin, ResultReprMixin):
     """Container for propagated posterior draws under an intervention.
 
@@ -502,6 +550,7 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         scenario: str = "do",
         evidence: Mapping[str, float] | None = None,
         observed_by_time: Mapping[str, np.ndarray] | None = None,
+        policy: Any | None = None,
     ) -> None:
         self._ds = ds
         self._scenario = scenario
@@ -511,6 +560,7 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             if observed_by_time is not None
             else {}
         )
+        self._policy = policy
 
     @property
     def dataset(self) -> xr.Dataset:
@@ -557,6 +607,87 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             Array of ``[lower, upper]``.
         """
         return compute_hdi(self._draw(var), prob=prob)
+
+    def simulation_info(self) -> Any:
+        """Identity of a policy run. Raises on a legacy ``do()`` result."""
+        return self._require_policy("simulation_info").info
+
+    @property
+    def simulation_draws(self) -> xr.Dataset:
+        """Per-simulation unit means, dims ``(time, chain, draw, simulation)``."""
+        return self._require_policy("simulation_draws").simulation_draws
+
+    @property
+    def trajectories(self) -> xr.Dataset:
+        """Full unit paths. Requires ``keep_trajectories=True``."""
+        run = self._require_policy("trajectories")
+        if run.trajectories is None:
+            raise ValueError(
+                "trajectories were not retained. Pass keep_trajectories=True "
+                "to do(); the default omits them."
+            )
+        return run.trajectories
+
+    def aggregate_time(
+        self,
+        var: str,
+        *,
+        reduction: str = "sum",
+        start: Any = None,
+        end: Any = None,
+    ) -> DoResult:
+        """Reduce the time dimension of one policy variable.
+
+        ``reduction`` is ``"sum"``, ``"mean"``, or ``"last"``. ``start`` and
+        ``end`` are inclusive fitted time labels. The result has no time
+        dimension, so ``mean`` and ``hdi`` describe that scalar estimand.
+        """
+        run = self._require_policy("aggregate_time")
+        population = _reduce_policy_time(self._ds, var, reduction, start, end)
+        sims = _reduce_policy_time(run.simulation_draws, var, reduction, start, end)
+        from pathmc.policy_exec import PolicyRun
+
+        reduced = PolicyRun(
+            info=run.info,
+            population=population,
+            simulation_draws=sims,
+            trajectories=None,
+        )
+        return DoResult(ds=population, scenario=self._scenario, policy=reduced)
+
+    def simulation_mcse(self, var: str, *, by: str | None = None) -> Any:
+        """Monte Carlo standard error across policy simulations.
+
+        Computed within each posterior draw as the simulation standard
+        deviation divided by ``sqrt(n_simulations)``, then averaged over
+        draws. Pass ``by='time'`` for a per-time array, or call
+        :meth:`aggregate_time` first for a scalar estimand.
+        """
+        run = self._require_policy("simulation_mcse")
+        draws = run.simulation_draws[var]
+        if by not in (None, "time"):
+            raise ValueError(
+                f"simulation_mcse by= must be 'time' or omitted. Got {by!r}."
+            )
+        if "time" in draws.dims and by is None:
+            raise ValueError(
+                "simulation_mcse() on a time-indexed result needs by='time' "
+                "or a prior aggregate_time() call. Monte Carlo error is "
+                "defined on one estimand, not a raw trajectory."
+            )
+        std = draws.std(dim="simulation", ddof=1)
+        mcse = std / np.sqrt(draws.sizes["simulation"])
+        if by == "time":
+            return np.asarray(mcse.mean(dim=("chain", "draw")))
+        return float(mcse.mean())
+
+    def _require_policy(self, method: str) -> Any:
+        if self._policy is None:
+            raise ValueError(
+                f"{method}() is only available on a policy= result. "
+                "Call do(policy=..., simulate_over='time') first."
+            )
+        return self._policy
 
     def by_time(self, var: str) -> np.ndarray:
         """Return per-time-step posterior draws, shape ``(n_times, n_samples)``.
@@ -701,6 +832,20 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
 
     def __sub__(self, other: DoResult) -> DoResult:
         """Element-wise contrast between two DoResults."""
+        if not isinstance(other, DoResult):
+            return NotImplemented
+        if (self._policy is None) != (other._policy is None):
+            raise ValueError(
+                "Cannot contrast a policy result with a do(set=) result. "
+                "Compare two policy results, or two do() results."
+            )
+        if self._policy is not None:
+            contrasted = self._policy.contrast(other._policy)
+            return DoResult(
+                ds=contrasted.population,
+                scenario="policy",
+                policy=contrasted,
+            )
         if self._scenario != other._scenario:
             raise ValueError(
                 "Cannot contrast a counterfactual result with a do() result. "

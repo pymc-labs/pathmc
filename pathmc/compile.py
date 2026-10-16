@@ -104,6 +104,7 @@ class PanelScanInfo:
     initial_nodes: dict[str, str] = field(default_factory=dict)
     initial_values: dict[str, np.ndarray] = field(default_factory=dict)
     exogenous: tuple[str, ...] = ()
+    policy_action: str | None = None
 
 
 def validate_panel_scan_shape(model: pm.Model, scan_info: "PanelScanInfo") -> None:
@@ -630,6 +631,8 @@ def compile_to_pymc(
     *,
     generative: bool = False,
     initial: Mapping[str, np.ndarray] | None = None,
+    policy_plan: Any | None = None,
+    policy_scales: Mapping[str, np.ndarray] | None = None,
 ) -> pm.Model:
     """Compile a structural specification into a generative PyMC model.
 
@@ -725,6 +728,12 @@ def compile_to_pymc(
 
     _reject_scan_panel_residual_cov(spec, panel_info)
 
+    if policy_plan is not None and not _is_scan_panel(spec, panel_info):
+        raise ValueError(
+            "policy= requires a scan-compiled panel model with lag() terms. "
+            "Add a lag, or use do(set=) for a cross-sectional intervention."
+        )
+
     if _is_scan_panel(spec, panel_info):
         assert panel_info is not None
         return _compile_scan_panel(
@@ -743,6 +752,8 @@ def compile_to_pymc(
                 families.get(r.lhs, "gaussian") == "gaussian" for r in spec.regressions
             ),
             initial=initial,
+            policy_plan=policy_plan,
+            policy_scales=policy_scales,
         )
 
     if initial is not None:
@@ -2618,6 +2629,44 @@ def lag_base_kinds(spec: Spec, bases: tuple[str, ...] | list[str]) -> dict[str, 
     return {base: "outcome" if base in lhs else "regressor" for base in bases}
 
 
+def _policy_step_action(
+    plan: Any,
+    *,
+    t_index: Any,
+    new_endo: dict[str, Any],
+    exog_t: dict[str, Any],
+    prev_endo: dict[str, Any],
+    prev_exog: dict[str, Any],
+    scales: Mapping[str, np.ndarray],
+    n_units: int,
+) -> Any:
+    """Lower one policy action from this step's model-unit tensors."""
+    import pytensor.tensor as pt
+
+    from pathmc.policy import lower_action
+
+    current: dict[str, Any] = {}
+    for name in plan.current_deps:
+        if name in new_endo:
+            current[name] = new_endo[name]
+        else:
+            current[name] = exog_t.get(name, pt.zeros(n_units))
+    previous: dict[str, Any] = {}
+    for name in plan.previous_deps:
+        if name in prev_endo:
+            previous[name] = prev_endo[name]
+        else:
+            previous[name] = prev_exog.get(name, pt.zeros(n_units))
+    return lower_action(
+        plan,
+        t_index=t_index,
+        current_tensors=current,
+        previous_tensors=previous,
+        scales=scales,
+        n_units=n_units,
+    )
+
+
 def _compile_scan_panel(
     spec: Spec,
     data: nw.DataFrame,
@@ -2630,6 +2679,8 @@ def _compile_scan_panel(
     priors: dict[str, Any] | None = None,
     coherent: bool = False,
     initial: Mapping[str, np.ndarray] | None = None,
+    policy_plan: Any | None = None,
+    policy_scales: Mapping[str, np.ndarray] | None = None,
 ) -> pm.Model:
     """Compile a panel model with temporal deps using ``pytensor.scan``.
 
@@ -2845,6 +2896,21 @@ def _compile_scan_panel(
         for _col, (base, _k) in lag_cols.items():
             if base not in endo_set and base in data_sorted.columns:
                 exog_data_vars.add(base)
+        if policy_plan is not None:
+            for name in (
+                *policy_plan.current_deps,
+                *policy_plan.previous_deps,
+                policy_plan.target,
+            ):
+                if name not in endo_set and name in data_sorted.columns:
+                    exog_data_vars.add(name)
+            for name, values in (policy_scales or {}).items():
+                if np.asarray(values).shape != (n_units,):
+                    raise ValueError(
+                        f"Policy scale for {name!r} must have shape "
+                        f"({n_units},) in unit_labels order, got "
+                        f"{np.asarray(values).shape}."
+                    )
 
         exog_data_nodes: dict[str, Any] = {}
         for var in sorted(exog_data_vars):
@@ -2856,10 +2922,24 @@ def _compile_scan_panel(
         adstock_keys = sorted(adstock_cols)
         exog_keys = sorted(exog_data_nodes.keys())
 
-        # Exogenous variables referenced by lag columns need carry state
+        # Exogenous variables referenced by lag columns need carry state.
+        # A policy previous() or exogenous target also carries, so the next
+        # step sees the assigned action rather than the observed column.
         exog_lag_bases = sorted({
             base for _col, (base, _k) in lag_cols.items() if base not in endo_set
         })
+        policy_only_carries: set[str] = set()
+        if policy_plan is not None:
+            for name in (*policy_plan.previous_deps, policy_plan.target):
+                if name not in endo_set and name not in exog_lag_bases:
+                    policy_only_carries.add(name)
+            if policy_only_carries:
+                exog_lag_bases = sorted(set(exog_lag_bases) | policy_only_carries)
+            if set(policy_plan.compute_order) != set(endo_keys):
+                raise RuntimeError(
+                    "Policy compute order does not cover the endogenous "
+                    "variables. This is an internal planner error."
+                )
 
         init_endo: dict[str, np.ndarray] = {
             var: np.zeros(n_units, dtype="float64") for var in endo_keys
@@ -2874,6 +2954,11 @@ def _compile_scan_panel(
 
         init_exog_lag: dict[str, np.ndarray] = {}
         for base in exog_lag_bases:
+            if base in policy_only_carries:
+                # Not a fitted lag base: t=0 previous() is an explicit
+                # absence, not the first observed row.
+                init_exog_lag[base] = np.zeros(n_units, dtype="float64")
+                continue
             lag_col_name = f"{base}_lag1"
             if lag_col_name in data_sorted.columns:
                 mat = _reshape_to_panel(data_sorted, lag_col_name, n_units, n_times)
@@ -2896,17 +2981,32 @@ def _compile_scan_panel(
             base for _col, (base, _k) in lag_cols.items() if base in endo_set
         })
         observed_bases = sorted(
-            (set(endo_lag_bases) - set(latent)) | set(exog_lag_bases)
+            (
+                (set(endo_lag_bases) - set(latent))
+                | (set(exog_lag_bases) - policy_only_carries)
+            )
+        )
+        optional_policy = (
+            set(policy_plan.previous_deps) - set(observed_bases)
+            if policy_plan is not None
+            else set()
         )
         if initial is not None:
+            allowed = set(observed_bases) | optional_policy
             missing = sorted(set(observed_bases) - set(initial))
-            unknown = sorted(set(initial) - set(observed_bases))
+            unknown = sorted(set(initial) - allowed)
             if missing or unknown:
+                extra = ""
+                if optional_policy:
+                    extra = (
+                        " Policy previous references "
+                        f"{sorted(optional_policy)} may also be supplied."
+                    )
                 raise ValueError(
                     "initial must cover exactly the observed lag bases "
                     f"{observed_bases}. Missing {missing or 'none'}; "
                     f"unknown {unknown or 'none'}. Validate business-unit "
-                    "initial= before compilation."
+                    f"initial= before compilation.{extra}"
                 )
             for base, values in initial.items():
                 arr = np.asarray(values, dtype="float64")
@@ -3087,6 +3187,7 @@ def _compile_scan_panel(
             + [discrete_uniform_nodes[k] for k in discrete_bernoulli_vars]
             + [discrete_uniform_nodes[k] for k in discrete_count_vars]
             + [do_intervene_nodes[k] for k in endo_keys]
+            + ([pt.arange(n_times)] if policy_plan is not None else [])
         )
 
         def _init_carry(arr: np.ndarray) -> Any:
@@ -3127,6 +3228,7 @@ def _compile_scan_panel(
                 for k in exog_lag_bases
             ]
             + [None for _ in carry_mu_vars]
+            + ([None] if policy_plan is not None else [])
         )
 
         # Non-sequences: all parameters
@@ -3191,7 +3293,9 @@ def _compile_scan_panel(
         n_carry = n_endo + n_adstock + n_exog_lag
 
         def step_fn(*args: Any) -> list[Any]:
-            seq_args = args[:n_seq]
+            seq_end = n_seq - (1 if policy_plan is not None else 0)
+            seq_args = args[:seq_end]
+            t_index = args[seq_end] if policy_plan is not None else None
             carry_args = args[n_seq : n_seq + n_carry]
             ns_args = args[n_seq + n_carry :]
 
@@ -3258,8 +3362,44 @@ def _compile_scan_panel(
             new_adstock = dict(prev_adstock_state)
             current_transform: dict[str, Any] = {}
             carry_mu: dict[str, Any] = {}
+            policy_action: Any = pt.zeros(n_units) if policy_plan is not None else None
+            policy_assigned = False
+            target_is_endo = policy_plan is not None and policy_plan.target in endo_set
+            descendants = (
+                set(policy_plan.descendants) if policy_plan is not None else set()
+            )
+            loop_order = (
+                list(policy_plan.compute_order)
+                if policy_plan is not None
+                else endo_keys
+            )
 
-            for var in endo_keys:
+            def _assign_policy() -> None:
+                nonlocal policy_action, policy_assigned
+                if policy_assigned or policy_plan is None:
+                    return
+                policy_action = _policy_step_action(
+                    policy_plan,
+                    t_index=t_index,
+                    new_endo=new_endo,
+                    exog_t=exog_t,
+                    prev_endo=prev_endo,
+                    prev_exog=prev_exog,
+                    scales=policy_scales or {},
+                    n_units=n_units,
+                )
+                policy_assigned = True
+                if not target_is_endo:
+                    exog_t[policy_plan.target] = policy_action
+
+            for var in loop_order:
+                if (
+                    policy_plan is not None
+                    and not target_is_endo
+                    and not policy_assigned
+                    and var in descendants
+                ):
+                    _assign_policy()
                 beta_names = beta_component_names.get(var)
                 beta = (
                     [ns_map[name] for name in beta_names]
@@ -3405,12 +3545,27 @@ def _compile_scan_panel(
                 new_endo[var] = pt.switch(
                     pt.isnan(do_intervene_t[var]), new_endo[var], do_intervene_t[var]
                 )
+                if (
+                    policy_plan is not None
+                    and target_is_endo
+                    and var == policy_plan.target
+                ):
+                    # The action replaces the structural equation after the
+                    # static intervention switch, so a policy and a set= on
+                    # the same variable cannot both win. do() rejects that mix.
+                    _assign_policy()
+                    new_endo[var] = policy_action
+
+            if policy_plan is not None and not policy_assigned:
+                _assign_policy()
 
             out = [new_endo[k] for k in endo_keys]
             out += [new_adstock[k] for k in adstock_keys]
             out += [exog_t.get(k, pt.zeros(n_units)) for k in exog_lag_bases]
             out += [carry_mu[k] for k in carry_mu_vars]
-
+            if policy_plan is not None:
+                # Touch the time sequence so strict scan mode keeps it.
+                out.append(policy_action + pt.cast(t_index, "float64") * 0.0)
             return out
 
         results = pytensor.scan(
@@ -3430,6 +3585,9 @@ def _compile_scan_panel(
         carry_mu_results: dict[str, Any] = {
             var: results[carry_mu_start + i] for i, var in enumerate(carry_mu_vars)
         }
+
+        if policy_plan is not None:
+            pm.Deterministic("_policy_action", results[n_carry + len(carry_mu_vars)])
 
         # --- emit deterministics and free RVs ---
         for i, var in enumerate(endo_keys):
@@ -3491,5 +3649,6 @@ def _compile_scan_panel(
         initial_nodes=initial_nodes,
         initial_values=initial_values,
         exogenous=tuple(exog_keys),
+        policy_action="_policy_action" if policy_plan is not None else None,
     )
     return scan_model

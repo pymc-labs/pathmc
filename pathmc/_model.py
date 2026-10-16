@@ -2134,6 +2134,10 @@ class PathModel:
         random_seed: int | None = None,
         *,
         initial: Mapping[str, Any] | None = None,
+        policy: Any | None = None,
+        horizon: int | None = None,
+        n_simulations: int | None = None,
+        keep_trajectories: bool | None = None,
     ) -> DoResult:
         """Simulate an intervention using the do-operator.
 
@@ -2179,6 +2183,17 @@ class PathModel:
             governs both mean and predictive recursion and does not refit
             the model or change the stored baseline. The values are the
             state before the first fitted time, not an extra outcome period.
+        policy : TreatmentPolicy | None
+            History-dependent treatment assigned inside the panel scan.
+            Requires an explicit pre-sample baseline, ``simulate_over='time'``,
+            and a Gaussian lag model. ``kind='predictive'`` is rejected:
+            the policy path always integrates process noise.
+        horizon : int | None
+            Must equal the fitted time count. Omit to use that count.
+        n_simulations : int | None
+            Stochastic histories per posterior draw. Default 256. Minimum 2.
+        keep_trajectories : bool | None
+            Retain unit-level paths. Default False for a policy query.
 
 
         Returns
@@ -2207,6 +2222,31 @@ class PathModel:
             raise NotImplementedError(
                 "do(shift=...) is not yet implemented. Use do(set=...) for hard "
                 "interventions."
+            )
+        if (
+            policy is not None
+            or horizon is not None
+            or n_simulations is not None
+            or keep_trajectories is not None
+        ):
+            if policy is None:
+                raise ValueError(
+                    "horizon=, n_simulations=, and keep_trajectories= require "
+                    "policy=. Pass a TreatmentPolicy, or omit those arguments."
+                )
+            from pathmc.policy_exec import run_policy_evaluation
+
+            return run_policy_evaluation(
+                self,
+                policy,
+                set_values=set,
+                initial=initial,
+                horizon=horizon,
+                n_simulations=n_simulations,
+                keep_trajectories=keep_trajectories,
+                random_seed=random_seed,
+                kind=kind,
+                simulate_over=simulate_over,
             )
 
         scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
