@@ -1,0 +1,30 @@
+name: nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Tier 5 MCMC recovery and light SBC. Not on the per-commit path:
+    # `make test` already runs `@pytest.mark.slow`.
+    - cron: "0 3 * * *"
+
+permissions: {}
+
+jobs:
+  tier5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - name: Install dependencies
+        run: uv sync --all-extras --locked
+      - name: Run nightly Tier 5 tests
+        run: make test-nightly
+        env:
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
