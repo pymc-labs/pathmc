@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from pathmc.exceptions import ParseError
-from pathmc.parse import CategoricalCall, Regression, Spec, supplies_baseline
+from pathmc.parse import CategoricalCall, Regression, Spec, Term
 
 __all__: list[str] = []
 
@@ -106,6 +106,37 @@ def _level_column(variable: str, level: Any, *, reference_coded: bool) -> str:
     return f"{variable}[{marker}{level}]"
 
 
+def baseline_variable(reg: Regression) -> str | None:
+    """Return the categorical variable that supplies the equation baseline.
+
+    With an intercept, only a hierarchical term can supply it, and only when
+    no earlier categorical already does: the intercept itself is the baseline
+    until then, so a treatment-coded term leaves it in place for a later
+    hierarchical term. Without an intercept the first categorical supplies it.
+    Returns ``None`` when no categorical term is visible yet. Inferred string
+    columns stay invisible until fitting attaches a :class:`CategoricalCall`,
+    which is the documented data-free exception.
+    """
+    baseline: str | None = None
+    for term in reg.terms:
+        call = term.categorical
+        if call is None:
+            continue
+        if baseline is None and (not reg.has_intercept or call.prior == "hierarchical"):
+            baseline = call.variable
+    return baseline
+
+
+def keeps_every_level(reg: Regression, call: CategoricalCall) -> bool:
+    """Whether this term keeps one coefficient per level.
+
+    That is true when the term supplies the baseline, or when its prior is
+    hierarchical (the coefficients are then zero-mean deviations, so no level
+    escapes pooling by being the reference).
+    """
+    return call.variable == baseline_variable(reg) or call.prior == "hierarchical"
+
+
 def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
     """Resolve explicit and inferred categorical terms against fitting data.
 
@@ -129,18 +160,18 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
 
     for reg in spec.regressions:
         seen_categorical: set[str] = set()
-        # Exactly one term per equation supplies the baseline of the linear
-        # predictor, so the design stays full rank: the first categorical when
-        # there is no intercept, or the first hierarchical categorical (its
-        # population mean then absorbs the formula intercept, as mu_alpha does
-        # for panel random intercepts); otherwise the intercept itself. A
-        # treatment-coded term leaves the baseline with the intercept, so it
-        # must not stop a later hierarchical term from taking it over. Keep in
-        # step with parse.mark_cell_means(), which applies the same rule to the
-        # explicit C() terms before any data are seen.
-        baseline_taken = False
+        # Attach a call to every categorical term before asking which one
+        # supplies the baseline. Inferred string columns have no call until
+        # this pass, so baseline_variable cannot see them any earlier.
+        fitted: list[tuple[Term, tuple[Any, ...]]] = []
         for term in reg.terms:
             if term.interaction_of is not None:
+                for variable in term.interaction_of:
+                    if variable not in pandas_data.columns:
+                        continue
+                    series = pandas_data[variable]
+                    if not _is_categorical_series(series):
+                        _reject_mixed_object_series(series)
                 categorical_components = [
                     variable
                     for variable in term.interaction_of
@@ -204,24 +235,30 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
                     f"'{term.variable}' was not observed. Available levels: "
                     f"{list(levels)!r}."
                 )
-            cell_means = supplies_baseline(
-                call, has_intercept=reg.has_intercept, baseline_taken=baseline_taken
-            )
-            baseline_taken = baseline_taken or cell_means
-            # A hierarchical term always keeps one coefficient per level: when
-            # the baseline is supplied elsewhere its coefficients are zero-mean
-            # deviations, so no level escapes pooling by being the reference.
-            all_levels = cell_means or call.prior == "hierarchical"
-            if all_levels and call.reference is not None:
+            # Leave the user-supplied reference on the call until columns are
+            # built, so the ineffective-reference warning can still see it.
+            term.categorical = replace(call, levels=levels, columns=())
+            fitted.append((term, levels))
+            categorical_vars.add(term.variable)
+
+        for term, levels in fitted:
+            fitted_call = term.categorical
+            if fitted_call is None:
+                continue
+            all_levels = keeps_every_level(reg, fitted_call)
+            if all_levels and fitted_call.reference is not None:
                 warnings.warn(
-                    f"reference={call.reference!r} for categorical predictor "
+                    f"reference={fitted_call.reference!r} for categorical predictor "
                     f"'{term.variable}' in equation '{reg.lhs}' has no effect: "
                     "the term gets one coefficient per level, so there is no "
                     "reference level. Remove the reference= argument.",
                     UserWarning,
                     stacklevel=3,
                 )
-            coefficient_levels = (
+            reference = (
+                levels[0] if fitted_call.reference is None else fitted_call.reference
+            )
+            represented = (
                 levels
                 if all_levels
                 else tuple(level for level in levels if level != reference)
@@ -232,16 +269,14 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
                     level,
                     reference_coded=not all_levels,
                 )
-                for level in coefficient_levels
+                for level in represented
             )
             term.categorical = replace(
-                call,
+                fitted_call,
                 reference=reference,
                 levels=levels,
                 columns=columns,
-                cell_means=cell_means,
             )
-            categorical_vars.add(term.variable)
 
     for reg in spec.regressions:
         for term in reg.terms:
@@ -269,31 +304,32 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
 
 
 def is_reference_coded(call: CategoricalCall) -> bool:
-    """Return whether the fitted term drops its reference level (k-1 columns)."""
+    """Read whether the fitted columns drop the reference level.
+
+    This is a readout of the columns :func:`keeps_every_level` built, not a
+    second coding rule. It is meaningless before fitting, when both columns
+    and levels are empty.
+    """
     return bool(call.levels) and len(call.columns) < len(call.levels)
 
 
-def has_population_mean(call: CategoricalCall) -> bool:
+def has_population_mean(reg: Regression, call: CategoricalCall) -> bool:
     """Return whether a hierarchical term gets its own free population mean.
 
-    Only a cell-means term can carry ``mu_beta``: when an earlier categorical
-    already supplies the equation's baseline, the pooled coefficients are
-    deviations around zero and a free mean would be unidentified.
+    Only the categorical that supplies the baseline can carry ``mu_beta``.
+    A later hierarchical term keeps every level, but its coefficients are
+    zero-mean deviations, so a free mean would be unidentified.
     """
-    return call.prior == "hierarchical" and call.cell_means
+    return call.prior == "hierarchical" and call.variable == baseline_variable(reg)
 
 
 def absorbs_intercept(reg: Regression) -> bool:
     """Return whether a categorical term replaces the equation's intercept.
 
-    True when the formula has an intercept but a cell-means term (the
-    equation's first hierarchical categorical) supplies the baseline
-    instead, so the ``Intercept`` column must be left out of the design.
+    True when the formula has an intercept but a hierarchical categorical
+    supplies the baseline, so the ``Intercept`` column must be left out.
     """
-    return reg.has_intercept and any(
-        term.categorical is not None and term.categorical.cell_means
-        for term in reg.terms
-    )
+    return reg.has_intercept and baseline_variable(reg) is not None
 
 
 def coefficient_levels(call: CategoricalCall) -> tuple[Any, ...]:

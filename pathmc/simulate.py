@@ -1119,19 +1119,22 @@ def run_counterfactual(
     """Three-step counterfactual using posterior draws.
 
     Implements Pearl's abduction → action → prediction procedure for
-    linear Gaussian structural models. Categorical predictors are given
-    as level labels in *evidence* and *do*; they are exogenous, so they
-    have no structural noise to abduct and are not reported in the result.
+    linear Gaussian structural models. Categorical predictors are exogenous
+    labels, not structural nodes: they are partitioned into a label map
+    once, validated against fitted levels, and supplied to the linear
+    predictor as constants. They have no structural noise to abduct and
+    are not reported in the result.
     """
     from pathmc.categorical import categorical_terms
 
     if families is None:
         families = {}
-    categorical_levels = {
-        call.variable: call.levels for _, call in categorical_terms(spec)
-    }
-    evidence = _validate_counterfactual_values(evidence, "evidence", categorical_levels)
-    do = _validate_counterfactual_values(do, "do", categorical_levels)
+    label_levels = {call.variable: call.levels for _, call in categorical_terms(spec)}
+    structural = [
+        var for var in graph_info.topological_order if var not in label_levels
+    ]
+    evidence = _validate_counterfactual_values(evidence, "evidence", label_levels)
+    do = _validate_counterfactual_values(do, "do", label_levels)
     if not do:
         raise ValueError(
             "do must contain at least one intervention. "
@@ -1189,9 +1192,9 @@ def run_counterfactual(
             "Pass allow_partial_evidence=True to use population means (U = 0) "
             "for missing variables."
         )
-    missing_categorical = sorted(missing_evidence & set(categorical_levels))
-    if missing_categorical:
-        missing_str = ", ".join(f"'{v}'" for v in missing_categorical)
+    missing_labels = sorted(missing_evidence & set(label_levels))
+    if missing_labels:
+        missing_str = ", ".join(f"'{v}'" for v in missing_labels)
         raise ValueError(
             f"evidence must include a level label for categorical predictor(s) "
             f"{missing_str}: a label has no population mean to fall back on, "
@@ -1212,17 +1215,23 @@ def run_counterfactual(
     n_draws_per_chain = post.sizes["draw"]
     n_draws = n_chains * n_draws_per_chain
 
-    factual_values: dict[str, Any] = {
-        var: evidence[var] if var in evidence else 0.0
-        for var in graph_info.topological_order
+    # Labels are constants. Structural nodes are the only ones with noise,
+    # so abduction, prediction, and the reported dataset walk that list once.
+    factual_labels = {var: evidence[var] for var in label_levels if var in evidence}
+    action_labels = {
+        var: do[var] if var in do else factual_labels[var]
+        for var in label_levels
+        if var in do or var in factual_labels
     }
+    factual_structural = {
+        var: evidence[var] if var in evidence else 0.0 for var in structural
+    }
+    abduction_values = {**factual_labels, **factual_structural}
 
     u_values: dict[str, np.ndarray] = {}
-    for var in graph_info.topological_order:
-        if var in categorical_levels:
-            continue
+    for var in structural:
         if var in graph_info.exogenous:
-            u_values[var] = np.full(n_draws, factual_values[var])
+            u_values[var] = np.full(n_draws, factual_structural[var])
             continue
         if var not in evidence:
             u_values[var] = np.zeros(n_draws)
@@ -1230,33 +1239,24 @@ def run_counterfactual(
         if var not in mu_specs:
             u_values[var] = np.zeros(n_draws)
             continue
-        lp = _linear_predictor_draws(mu_specs[var], idata, factual_values)
+        lp = _linear_predictor_draws(mu_specs[var], idata, abduction_values)
         u_values[var] = evidence[var] - lp
 
     predicted: dict[str, Any] = {}
-    for var in graph_info.topological_order:
-        if var in categorical_levels:
-            predicted[var] = do[var] if var in do else factual_values[var]
-            continue
+    for var in structural:
         if var in do:
             predicted[var] = np.full(n_draws, do[var])
             continue
         if var in graph_info.exogenous:
-            predicted[var] = np.full(n_draws, factual_values[var])
+            predicted[var] = np.full(n_draws, factual_structural[var])
             continue
-        pred_inputs: dict[str, Any] = {
-            parent: predicted[parent]
-            for parent in graph_info.topological_order
-            if parent in predicted
-        }
+        pred_inputs = {**action_labels, **predicted}
         lp = _linear_predictor_draws(mu_specs[var], idata, pred_inputs)
         predicted[var] = lp + u_values[var]
 
     data_vars: dict[str, xr.DataArray] = {}
     ones = _chain_draw_ones(post)
-    for var in graph_info.topological_order:
-        if var in categorical_levels:
-            continue
+    for var in structural:
         arr = predicted.get(var, u_values.get(var, np.zeros(n_draws)))
         arr_2d = np.asarray(arr, dtype=float).reshape(n_chains, n_draws_per_chain)
         data_vars[var] = xr.DataArray(

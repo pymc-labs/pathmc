@@ -145,7 +145,7 @@ def default_priors(
                 if term.categorical.prior == "hierarchical":
                     from pathmc.categorical import has_population_mean
 
-                    if has_population_mean(term.categorical):
+                    if has_population_mean(reg, term.categorical):
                         priors[f"mu_{beta_name}"] = Prior("Normal", mu=0, sigma=10)
                     priors[f"sigma_{beta_name}"] = Prior("HalfNormal", sigma=1)
                 else:

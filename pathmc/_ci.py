@@ -296,19 +296,29 @@ def variable_blocks(
 ) -> dict[str, np.ndarray]:
     """Return one float matrix per *variable* that has a data column.
 
-    Continuous columns become one column; columns named in
-    *categorical_vars*, or whose values cannot be coerced to float (string
-    or pandas categorical labels), become indicator blocks via
-    :func:`indicator_block`. Variables without a data column are omitted.
+    Continuous columns become one column. Columns named in
+    *categorical_vars*, or that model fitting would treat as categorical
+    (string or pandas categorical labels, including numeric-looking strings
+    such as ``"1"``), become indicator blocks via :func:`indicator_block`.
+    Other non-numeric columns keep the indicator fallback. Variables without
+    a data column are omitted.
     """
+    from pathmc.categorical import _is_categorical_series
+
     categorical = set(categorical_vars or ())
     columns = set(data.columns)
     blocks: dict[str, np.ndarray] = {}
     for var in variables:
         if var not in columns:
             continue
-        values = data[var].to_numpy()
-        if var in categorical or not _is_numeric_array(values):
+        series = data[var].to_pandas()
+        if not isinstance(series, pd.Series):
+            series = pd.Series(np.asarray(series), name=var)
+        if var in categorical or _is_categorical_series(series):
+            blocks[var] = indicator_block(series.to_numpy())
+            continue
+        values = series.to_numpy()
+        if not _is_numeric_array(values):
             blocks[var] = indicator_block(values)
         else:
             blocks[var] = np.asarray(values, dtype=float).reshape(-1, 1)

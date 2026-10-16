@@ -26,24 +26,23 @@ import graphviz
 from pathmc.categorical import (
     absorbs_intercept,
     has_population_mean,
-    is_reference_coded,
+    keeps_every_level,
 )
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
-from pathmc.parse import CategoricalCall, Spec, Term, TransformCall
+from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
 
 __all__: list[str] = []
 
 
-def _format_categorical(call: CategoricalCall) -> str:
+def _format_categorical(reg: Regression, call: CategoricalCall) -> str:
     """Render a ``C(...)`` term, showing only the state that applies to it.
 
-    The reference is shown only under treatment coding (a cell-means or
-    hierarchical term has no reference level), and levels only once they have
-    been resolved from data.
+    The reference is shown only when the term does not keep every level, and
+    levels only once they have been resolved from data.
     """
     parts = [call.variable]
-    if _shows_reference(call):
+    if _shows_reference(reg, call):
         parts.append(f"reference={call.reference!r}")
     if call.prior == "hierarchical":
         parts.append("prior='hierarchical'")
@@ -53,18 +52,19 @@ def _format_categorical(call: CategoricalCall) -> str:
     return f"C({', '.join(parts)})"
 
 
-def _shows_reference(call: CategoricalCall) -> bool:
+def _shows_reference(reg: Regression, call: CategoricalCall) -> bool:
     """Whether the reference level is meaningful enough to display.
 
-    Before data resolution only an explicit ``reference=`` is known, and it
-    is shown unless the formula alone already says the term keeps every
-    level (cell means or hierarchical); after resolution the reference
-    matters only under treatment coding.
+    A term that keeps every level has no reference. Before data resolution
+    only an explicit ``reference=`` is known, and it is shown when that term
+    is not the baseline and is not hierarchical. After resolution a
+    treatment-coded term always carries a reference.
     """
+    if keeps_every_level(reg, call):
+        return False
     if not call.levels:
-        keeps_all_levels = call.cell_means or call.prior == "hierarchical"
-        return call.reference is not None and not keeps_all_levels
-    return is_reference_coded(call)
+        return call.reference is not None
+    return True
 
 
 _GREEK = {
@@ -388,8 +388,8 @@ def build_equations(
             terms.append("1")
             latex_terms.append(rf"\beta_{{0,\,{_latex_index(reg.lhs)}}}")
         for t in reg.terms:
-            terms.append(_format_term(t))
-            latex_terms.append(_format_term_latex(t))
+            terms.append(_format_term(t, reg))
+            latex_terms.append(_format_term_latex(t, reg))
 
         is_stochastic_latent = (
             reg.lhs in latent and families.get(reg.lhs) == "latent_normal"
@@ -419,7 +419,7 @@ def build_equations(
     return EquationList(lines, latex_lines)
 
 
-def _format_term(t: Term) -> str:
+def _format_term(t: Term, reg: Regression) -> str:
     """Format a term for equation display, including transform expressions."""
     prefix = ""
     if t.fixed_value is not None:
@@ -435,7 +435,7 @@ def _format_term(t: Term) -> str:
 
         return get_basis(t.basis.name).render(t.basis)
     if t.categorical is not None:
-        return _format_categorical(t.categorical)
+        return _format_categorical(reg, t.categorical)
     if t.transform is not None:
         return f"{prefix}{_format_transform(t.transform)}"
     if t.interaction_of is not None:
@@ -527,7 +527,7 @@ def _build_equation_latex(
     return result
 
 
-def _format_term_latex(t: Term) -> str:
+def _format_term_latex(t: Term, reg: Regression) -> str:
     """Format a term as LaTeX, including transform expressions."""
     if t.fixed_value is not None:
         fv = (
@@ -546,7 +546,7 @@ def _format_term_latex(t: Term) -> str:
     if t.categorical is not None:
         call = t.categorical
         parts = [_latex_symbol(call.variable)]
-        if _shows_reference(call):
+        if _shows_reference(reg, call):
             parts.append(rf"\mathrm{{ref}}={_latex_escape(str(call.reference))}")
         if call.prior == "hierarchical":
             parts.append(r"\mathrm{prior}=\mathrm{hierarchical}")
@@ -743,7 +743,7 @@ def build_priors(
             if term.categorical is not None:
                 beta_name = f"beta_{reg.lhs}_{term.variable}"
                 if term.categorical.prior == "hierarchical":
-                    if has_population_mean(term.categorical):
+                    if has_population_mean(reg, term.categorical):
                         entries[f"mu_{beta_name}"] = _entry(
                             f"mu_{beta_name}", "Normal(0, 10)"
                         )

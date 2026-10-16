@@ -16,8 +16,9 @@
 Covers rank-deficient multi-categorical designs, hierarchical terms with an
 intercept, dummy-encoded categoricals in the CI engine behind
 ``test_implications()`` and ``falsify()``, categorical treatments in
-``refute_placebo()``, categorical evidence in ``counterfactual()``, and
-mixed-type object columns.
+``refute_placebo()``, categorical evidence in ``counterfactual()``,
+mixed-type object columns, the single baseline rule, and numeric-looking
+labels in the CI engine.
 """
 
 from __future__ import annotations
@@ -581,3 +582,98 @@ class TestCounterfactualCategorical:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             pinned.counterfactual(evidence=evidence, do={"region": "west"})
+
+
+def test_baseline_variable_skips_a_leading_treatment_coded_term():
+    from pathmc.categorical import baseline_variable, keeps_every_level
+    from pathmc.parse import parse_spec
+
+    spec = parse_spec("y ~ x + C(ch) + C(region, prior='hierarchical')")
+    reg = spec.regressions[0]
+    assert baseline_variable(reg) == "region"
+    treatment = next(term.categorical for term in reg.terms if term.variable == "ch")
+    hierarchical = next(
+        term.categorical for term in reg.terms if term.variable == "region"
+    )
+    assert treatment is not None and hierarchical is not None
+    assert not keeps_every_level(reg, treatment)
+    assert keeps_every_level(reg, hierarchical)
+
+
+def test_baseline_variable_is_the_first_categorical_without_an_intercept():
+    from pathmc.categorical import baseline_variable
+    from pathmc.parse import parse_spec
+
+    spec = parse_spec("y ~ 0 + C(region) + C(ch, prior='hierarchical')")
+    assert baseline_variable(spec.regressions[0]) == "region"
+
+
+def test_data_free_inferred_string_does_not_hide_a_later_reference(
+    two_categorical_data,
+):
+    spec = "y ~ 0 + region + C(ch, reference='b')"
+    free = str(pathmc.model(spec).equations())
+    fitted = str(pathmc.model(spec, data=two_categorical_data).equations())
+    assert "reference=" not in free
+    assert "reference='b'" in fitted
+
+
+def test_interaction_with_mixed_object_names_the_column():
+    frame = pd.DataFrame({
+        "y": np.arange(12, dtype=float),
+        "x": np.linspace(0.0, 1.0, 12),
+        "mix": pd.Series([1 if i % 2 else "a" for i in range(12)], dtype=object),
+    })
+    with pytest.raises(
+        ValueError,
+        match="Predictor 'mix'.*mixing numbers and non-numeric.*C\\(mix\\)",
+    ):
+        pathmc.model("y ~ x + x:mix", data=frame)
+
+
+def test_numeric_looking_string_labels_are_an_indicator_block():
+    from pathmc._ci import variable_blocks
+
+    frame = nw.from_native(
+        pd.DataFrame({"g": ["1", "2", "3", "1"], "y": [0.0, 1.0, 2.0, 3.0]})
+    )
+    blocks = variable_blocks(frame, ["g", "y"])
+    assert blocks["g"].shape == (4, 2)
+    assert blocks["y"].shape == (4, 1)
+
+
+def test_integer_codes_stay_continuous_unless_named_categorical():
+    from pathmc._ci import variable_blocks
+
+    frame = nw.from_native(pd.DataFrame({"g": [1, 2, 3, 1]}))
+    assert variable_blocks(frame, ["g"])["g"].shape == (4, 1)
+    named = variable_blocks(frame, ["g"], categorical_vars=["g"])
+    assert named["g"].shape == (4, 2)
+
+
+def test_warn_extrapolation_skips_string_columns():
+    from pathmc._model import _warn_extrapolation
+
+    frame = nw.from_native(
+        pd.DataFrame({"region": ["south", "north"], "x": [0.0, 1.0]})
+    )
+    labels = nw.from_native(pd.DataFrame({"g": ["1", "2", "3"]}))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        _warn_extrapolation(frame, {"region": "west", "x": 0.5})
+        _warn_extrapolation(labels, {"g": "9"})
+    with pytest.warns(UserWarning, match="outside"):
+        _warn_extrapolation(frame, {"region": "west", "x": 5.0})
+
+
+def test_scale_set_for_bounds_skips_labels():
+    from pathmc._model import _scale_set_for_bounds
+
+    class _Factors:
+        def to_internal(self, vals, *, kind, dims):
+            return np.asarray(vals, dtype=float) * 2.0
+
+    frame = nw.from_native(pd.DataFrame({"x": [0.0, 1.0, 2.0]}))
+    out = _scale_set_for_bounds({"region": "west", "x": 1.0}, _Factors(), frame)
+    assert "region" not in out
+    assert out["x"] == pytest.approx([2.0, 2.0, 2.0])

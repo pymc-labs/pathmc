@@ -826,7 +826,7 @@ def compile_to_pymc(
                     from pathmc.categorical import has_population_mean
 
                     mu: Any = 0.0
-                    if has_population_mean(call):
+                    if has_population_mean(reg, call):
                         mu = priors[f"mu_{beta_name}"].create_variable(
                             f"mu_{beta_name}"
                         )

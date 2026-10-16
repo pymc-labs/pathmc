@@ -175,12 +175,19 @@ def _scale_set_for_bounds(
 
     Bounds and extrapolation checks run against already-scaled ``_data``,
     so the values they see must be in the same units the model compiled.
+    Non-numeric values, including categorical labels, have no scale factor
+    and are left out so a mixed intervention map can be passed through.
     """
     if factors is None:
         return interventions
     out: dict[str, float | np.ndarray] = {}
     for var, val in interventions.items():
-        vals = np.asarray(val, dtype=float)
+        if isinstance(val, (str, bytes)):
+            continue
+        array = np.asarray(val)
+        if array.dtype.kind not in "biuf":
+            continue
+        vals = array.astype(float, copy=False)
         if vals.ndim == 0:
             vals = np.full(len(data), float(vals))
         elif vals.size != len(data):
@@ -339,9 +346,17 @@ def _exclude_categorical_scaling(
 def _warn_extrapolation(
     data: nw.DataFrame, interventions: Mapping[str, float | np.ndarray]
 ) -> None:
-    """Warn when an intervention is outside its observed data range."""
+    """Warn when a numeric intervention is outside its observed data range.
+
+    String, categorical, and object columns have no numeric range. Skipping
+    them here means callers can pass a mixed intervention map without a
+    private pre-filter, and a numeric-looking label is not cast to float.
+    """
     for var, val in interventions.items():
         if var not in data.columns:
+            continue
+        column = np.asarray(data[var].to_numpy())
+        if column.dtype.kind not in "biuf":
             continue
         col_min = data[var].min()
         col_max = data[var].max()
@@ -2006,14 +2021,9 @@ class PathModel:
                 "every structural variable."
             )
         assert self._data is not None
-        # Labels have no range to extrapolate beyond and no scale factor, so
-        # only the numeric interventions go through the bounds and scaling
-        # checks; the categorical ones are validated against fitted levels
-        # by run_counterfactual.
-        numeric_do = {
-            var: val for var, val in do.items() if var not in self._categorical_vars
-        }
-        scaled_do = _scale_set_for_bounds(numeric_do, self._scaling_factors, self._data)
+        # Labels have no numeric range and no scale factor. The helpers
+        # below skip them, so this method does not grow a private pre-filter.
+        scaled_do = _scale_set_for_bounds(do, self._scaling_factors, self._data)
         _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_do)
         _warn_extrapolation(self._data, scaled_do)
         if self._scaling_factors is not None:
