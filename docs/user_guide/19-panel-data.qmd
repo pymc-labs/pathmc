@@ -252,7 +252,7 @@ A fixed `TimeSchedule` with no residual noise matches `do(set=..., kind="mean")`
 
 Latent variables, non-Gaussian families, adstock and other transforms, categoricals, and residual covariance are rejected rather than evaluated by a weaker executor. `simulation_info()` records the target, the fitted horizon, the unit population, and the seed.
 
-The [reference page](21-history-dependent-policies.qmd) states the contract. The [worked example](../docs/examples/panel-time/history_dependent_policies.qmd) fits a small greenhouse panel and contrasts a fixed schedule with a threshold rule.
+The [reference page](21-history-dependent-policies.qmd) states the contract. [Water on a schedule—or when plants need it?](../docs/examples/panel-time/history_dependent_policies.qmd) fits the greenhouse panel and contrasts watering every third period with thresholds 0 and 0.5. A causal reading needs sequential exchangeability, consistency, treatment support over relevant histories, model adequacy, and no cross-unit interference. Static backdoor checks do not prove longitudinal identification. A marginal min/max warning does not establish sequential positivity.
 
 
 ## Scaling heterogeneous units

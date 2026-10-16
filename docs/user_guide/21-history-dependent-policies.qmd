@@ -43,4 +43,8 @@ Contrast two policy results only when they share the posterior, the baseline, th
 
 A threshold on a stochastic state does not match the noise-free `do(set=..., kind="mean")` path. The reported mean averages posterior draws and simulations. A mean-substitution implementation, which plugs the conditional mean in for the random state before applying the threshold, is not this estimand.
 
-See the [worked example](../docs/examples/panel-time/history_dependent_policies.qmd) for a fitted greenhouse panel.
+## Assumptions
+
+A causal reading needs sequential exchangeability, consistency, treatment support over relevant histories, model adequacy, and no cross-unit interference. Static backdoor checks do not prove longitudinal identification. A marginal min/max warning does not establish sequential positivity: support has to hold on the histories the rule visits, not only inside the observed range of the state.
+
+See [Water on a schedule—or when plants need it?](../docs/examples/panel-time/history_dependent_policies.qmd) for the greenhouse panel this contract is written against. The synthetic stress index is pedagogical, not agronomic advice.

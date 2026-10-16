@@ -370,7 +370,7 @@ If your model has adstock or lagged variables, use `do(simulate_over="time")` so
 
 - **The temporal shape matters.** Time-forward simulation reveals ramp-up (stock accumulating) and ramp-down (stock decaying) dynamics that a single-step intervention collapses into a single number.
 
-A fixed schedule is not the only time-forward question. A history-dependent rule assigns treatment from the simulated state as the scan advances. See [History-dependent treatment policies](21-history-dependent-policies.qmd) and the [worked example](../docs/examples/panel-time/history_dependent_policies.qmd).
+A fixed schedule is not the only time-forward question. A history-dependent rule assigns treatment from the simulated state as the scan advances. See [History-dependent treatment policies](21-history-dependent-policies.qmd) and [Water on a schedule—or when plants need it?](../docs/examples/panel-time/history_dependent_policies.qmd). A causal reading needs sequential exchangeability, consistency, treatment support over relevant histories, model adequacy, and no cross-unit interference. Static backdoor checks do not prove longitudinal identification. A marginal min/max warning does not establish sequential positivity.
 
 ::: {.callout-note}
 ## Reflection

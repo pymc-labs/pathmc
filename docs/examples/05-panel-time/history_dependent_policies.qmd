@@ -1,120 +1,310 @@
 ---
-title: "History-Dependent Treatment Policies"
+title: "Water on a schedule—or when plants need it?"
 author:
   - name: "Benjamin Vincent"
-description: "Compare a fixed watering schedule with a threshold rule on a fitted greenhouse panel, keeping posterior uncertainty."
+description: "Contrast a fixed irrigation schedule with two stress thresholds on a fitted greenhouse panel, without collapsing posterior or Monte Carlo uncertainty."
 tags: [Panel Data, Causal Inference, G-Computation]
 jupyter: pathmc
 ---
 
-A fixed `do(set=)` schedule is chosen before the first week. A greenhouse rule is not: water this week if last week's stress was high. That is a dynamic treatment regime. The action changes the next state, and the next state changes the next action, so a noise-free plug-in of the mean stress is the wrong estimand.
+A greenhouse can water every third day, or it can water when soil-water stress crosses a threshold. The second rule is a dynamic treatment regime: today's stress chooses today's dose, today's dose changes tomorrow's stress, and tomorrow's stress chooses tomorrow's dose. A schedule copied from the observed stress path, or a threshold applied to the conditional mean of stress, is not that estimand.
+
+The numbers below are a synthetic teaching model, not agronomic advice. Stress is an unbounded standardized index, not a moisture percentage. Irrigation is a binary fixed dose. Heat is external weather. Growth is daily net growth.
+
+## Decision, population, and horizon
+
+The decision is which of three rules to follow for the next 30 days: water every third day, water when today's stress is above 0, or water when today's stress is above 0.5. Those thresholds were fixed before looking at the policy results. The population is the 12 fitted plots, equally weighted, conditional on the declared pre-sample state and on each plot's retained heat path. It is not a new-plot forecast. `horizon` is the fitted day count, 30, and it is passed explicitly.
+
+```{dot}
+//| label: fig-two-period
+//| fig-cap: "Two periods of the greenhouse DAG. Yesterday's watering changes today's stress. Today's stress chooses today's watering. Today's watering changes today's growth and tomorrow's stress. Heat is external. The stress × water product is not a separate node."
+//| fig-width: 7.5
+digraph {
+  rankdir=LR
+  node [shape=box, style="filled,rounded", fontsize=11]
+  edge [fontsize=9]
+  stress0 -> stress1
+  water0 -> stress1
+  heat1 -> stress1
+  stress1 -> water1 [label="threshold"]
+  stress1 -> growth1
+  water1 -> growth1 [label="also stress × water"]
+  stress1 -> stress2
+  water1 -> stress2
+  heat2 -> stress2
+  stress2 -> water2 [label="threshold"]
+  stress2 -> growth2
+  water2 -> growth2 [label="also stress × water"]
+}
+```
+
+## Data, DGP, and fit
+
+The observational assignment varies with stress, and the growth equation has a stress-by-water interaction, so a responsive rule can matter beyond the total dose. The assignment equation is not fit. The same pre-sample state, stress 0 and water 0, is used in the NumPy generator and in `model()`.
 
 ```{python}
 import numpy as np
 import pandas as pd
+import arviz as az
 import matplotlib.pyplot as plt
 
 import pathmc
-from pathmc import TimeSchedule, TreatmentPolicy, previous, where
+from pathmc import TimeSchedule, TreatmentPolicy, current, where
+
+N_UNIT = 12
+N_TIME = 30
+L0 = 0.0
+A0 = 0.0
+TIMES = list(range(1, N_TIME + 1))
+UNITS = [f"plot{i:02d}" for i in range(1, N_UNIT + 1)]
 
 rng = np.random.default_rng(11)
-times = list(range(8))
-units = ("A", "B", "C", "D")
 rows = []
-for unit in units:
-    growth, stress, water = 0.0, 0.4, 0.0
-    for time in times:
-        water = float(rng.uniform(0.0, 1.0))
-        growth = 0.4 * growth + water + float(rng.normal(0.0, 0.05))
-        stress = 0.5 * stress + 0.4 * water + float(rng.normal(0.0, 0.05))
+for unit in UNITS:
+    stress, water = L0, A0
+    for time in TIMES:
+        heat = float(rng.normal())
+        stress = (
+            0.4 + 0.6 * stress - 0.8 * water + 0.3 * heat + float(rng.normal(0.0, 0.5))
+        )
+        prob = 1.0 / (1.0 + np.exp(-(0.2 + 1.2 * stress)))
+        water = float(rng.random() < np.clip(prob, 0.1, 0.9))
+        growth = (
+            1.0
+            - 0.6 * stress
+            + 0.2 * water
+            + 0.6 * stress * water
+            + float(rng.normal(0.0, 0.4))
+        )
         rows.append({
             "unit": unit,
             "time": time,
-            "growth": growth,
-            "water": water,
             "stress": stress,
+            "water": water,
+            "heat": heat,
+            "growth": growth,
         })
 data = pd.DataFrame(rows)
 ```
 
-The structural model is a Gaussian lag panel. Stress depends on lagged water, so this week's watering changes next week's stress, which is what the threshold reads.
+The structural equations are the stress and growth lines of that generator. Water stays an exogenous column: there is no fitted assignment equation, so a posterior predictive of a "natural" watering course is not available and is not invented here.
 
 ```{python}
 spec = """
-growth ~ 0 + 0.4*lag(growth) + water
-stress ~ 0 + 0.5*lag(stress) + 0.4*lag(water)
+stress ~ lag(stress) + lag(water) + heat
+growth ~ stress + water + stress:water
 """
+baseline = {"stress": L0, "water": A0}
 model = pathmc.model(
     spec,
     data=data,
     panel={"unit": "unit", "time": "time"},
-    initial={"growth": 0.0, "water": 0.0, "stress": 0.4},
+    initial=baseline,
 )
-model.fit(
-    draws=80,
-    tune=80,
-    chains=2,
+idata = model.fit(
+    draws=500,
+    tune=500,
+    chains=4,
     progressbar=False,
     compute_log_likelihood=False,
     random_seed=11,
 )
+structural = [
+    name for name in idata.posterior.data_vars if name.startswith(("beta_", "sigma_"))
+]
+summary = az.summary(idata, var_names=structural)
+print(summary.loc[:, ["mean", "sd", "r_hat", "ess_bulk"]])
+assert float(summary["r_hat"].max()) < 1.05
+assert float(summary["ess_bulk"].min()) > 400
 ```
 
-`horizon` is the fitted week count. It is passed explicitly. Both policies share the posterior, the baseline, the seed, and the simulation count, so their difference is a paired contrast.
+The structural R-hat and bulk ESS are the fit check. Auxiliary innovation coordinates are left out of that check; a warning on those coordinates is not a structural failure. The coefficient table is the observed-data check on the stress and growth equations. Water has no posterior predictive: the assignment equation was not fit, so this page does not invent a natural treatment course.
+
+## Three rules, fixed before the results
+
+Water every third day, or when today's stress is strictly above 0, or strictly above 0.5. All three calls share the posterior, the baseline, the retained heat path, the seed, the horizon, and the simulation count.
 
 ```{python}
-baseline = {"growth": 0.0, "water": 0.0, "stress": 0.4}
-fixed_rule = TreatmentPolicy(
-    "every_other",
+every_third = TreatmentPolicy(
+    "every_third",
     "water",
-    TimeSchedule((1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0)),
+    TimeSchedule(tuple(1.0 if i % 3 == 0 else 0.0 for i in range(N_TIME))),
 )
-threshold_rule = TreatmentPolicy(
-    "relieve",
+threshold_0 = TreatmentPolicy(
+    "threshold_0",
     "water",
-    where(previous("stress") > 0.5, 1.0, 0.0),
+    where(current("stress") > 0.0, 1.0, 0.0),
 )
-fixed = model.do(
-    policy=fixed_rule,
+threshold_05 = TreatmentPolicy(
+    "threshold_0.5",
+    "water",
+    where(current("stress") > 0.5, 1.0, 0.0),
+)
+shared = dict(
     simulate_over="time",
-    horizon=len(times),
+    horizon=N_TIME,
     initial=baseline,
-    n_simulations=32,
+    n_simulations=64,
     random_seed=11,
 )
-adaptive = model.do(
-    policy=threshold_rule,
-    simulate_over="time",
-    horizon=len(times),
-    initial=baseline,
-    n_simulations=32,
-    random_seed=11,
-)
-contrast = adaptive - fixed
+schedule = model.do(policy=every_third, **shared)
+open_rule = model.do(policy=threshold_0, **shared)
+tight_rule = model.do(policy=threshold_05, **shared)
 ```
 
-Growth and water are different quantities. The contrast does not say which policy is better; it is the difference in each series.
+## Unit traces
+
+One posterior draw and one process replicate, for three plots. The horizontal line is the 0.5 threshold. The action is the executor's realized dose, not the observed assignment.
 
 ```{python}
-# | label: fig-policy-contrast
-# | fig-cap: "Posterior mean growth and water under a fixed schedule and a stress threshold. The gap is the paired contrast, not a ranking."
+# | label: fig-unit-traces
+# | fig-cap: "One simulated stress path and the dose it selected under the 0.5 threshold. The line is the threshold, not a fitted moisture bound."
+# | fig-width: 8
+
+traced = model.do(
+    policy=threshold_05,
+    simulate_over="time",
+    horizon=N_TIME,
+    initial=baseline,
+    n_simulations=4,
+    random_seed=11,
+    keep_trajectories=True,
+)
+stress_path = traced.trajectories["stress"].isel(chain=0, draw=0, simulation=0)
+water_path = traced.trajectories["water"].isel(chain=0, draw=0, simulation=0)
+fig, axes = plt.subplots(2, 1, figsize=(8, 4.5), sharex=True)
+for unit in UNITS[:3]:
+    axes[0].plot(TIMES, stress_path.sel(unit=unit), label=unit)
+    axes[1].step(TIMES, water_path.sel(unit=unit), where="mid", label=unit)
+axes[0].axhline(0.5, color="black", linestyle="--", linewidth=1)
+axes[0].set_ylabel("stress")
+axes[1].set_ylabel("water")
+axes[1].set_xlabel("day")
+axes[0].legend()
+fig.tight_layout()
+plt.show()
+```
+
+## Posterior trajectories and cumulative contrasts
+
+The ribbons are not drawn. What is drawn is the posterior mean of the population path. Cumulative growth and cumulative water are separate reductions. Neither contrast declares a winner.
+
+```{python}
+# | label: fig-policy-paths
+# | fig-cap: "Posterior mean growth and water under the fixed schedule and the two thresholds. The gap is a paired contrast, not a ranking."
+# | fig-width: 8
 
 fig, axes = plt.subplots(1, 2, figsize=(8, 3.5), sharex=True)
-for ax, var in zip(axes, ("growth", "water")):
-    ax.plot(times, fixed.by_time(var).mean(axis=1), label="fixed")
-    ax.plot(times, adaptive.by_time(var).mean(axis=1), label="threshold")
-    ax.set_title(var)
-    ax.set_xlabel("week")
+for result, label in (
+    (schedule, "every third"),
+    (open_rule, "threshold 0"),
+    (tight_rule, "threshold 0.5"),
+):
+    axes[0].plot(TIMES, result.by_time("growth").mean(axis=1), label=label)
+    axes[1].plot(TIMES, result.by_time("water").mean(axis=1), label=label)
+axes[0].set_title("growth")
+axes[1].set_title("water")
+axes[0].set_xlabel("day")
+axes[1].set_xlabel("day")
 axes[0].legend()
 fig.tight_layout()
 plt.show()
 ```
 
 ```{python}
-growth = contrast.aggregate_time("growth", reduction="sum")
-water = contrast.aggregate_time("water", reduction="sum")
-print(growth.mean("growth"), water.mean("water"))
-print(adaptive.simulation_info().horizon, adaptive.simulation_info().seed)
+def cumulative(result, var):
+    return result.aggregate_time(var, reduction="sum")
+
+
+for name, result in (
+    ("every third", schedule),
+    ("threshold 0", open_rule),
+    ("threshold 0.5", tight_rule),
+):
+    growth = cumulative(result, "growth")
+    water = cumulative(result, "water")
+    print(
+        name,
+        float(growth.mean("growth")),
+        float(water.mean("water")),
+        float(np.max(np.abs(growth.simulation_mcse("growth")))),
+    )
+
+repeat = model.do(policy=threshold_05, **{**shared, "random_seed": 29})
+first = cumulative(tight_rule, "growth").mean("growth")
+second = cumulative(repeat, "growth").mean("growth")
+print("seed repeat", float(first), float(second), float(abs(first - second)))
 ```
 
-`simulation_mcse("growth")` keeps a value for each posterior draw. Averaging that standard error into one number would hide which draws are uncertain.
+```{python}
+# | label: fig-growth-versus-water
+# | fig-cap: "Cumulative growth against cumulative water. The axes are separate contrasts. Neither axis ranks the policies."
+# | fig-width: 6
+
+labels = ["every third", "threshold 0", "threshold 0.5"]
+results = [schedule, open_rule, tight_rule]
+growth_use = [float(cumulative(result, "growth").mean("growth")) for result in results]
+water_use = [float(cumulative(result, "water").mean("water")) for result in results]
+fig, ax = plt.subplots(figsize=(6, 3.5))
+ax.scatter(water_use, growth_use)
+for label, x_value, y_value in zip(labels, water_use, growth_use, strict=True):
+    ax.annotate(label, (x_value, y_value), textcoords="offset points", xytext=(6, 4))
+ax.set_xlabel("cumulative water")
+ax.set_ylabel("cumulative growth")
+fig.tight_layout()
+plt.show()
+```
+
+`simulation_mcse` stays a value per posterior draw. The printed number is the largest absolute per-draw Monte Carlo standard error of cumulative growth, not an average of those standard errors and not the posterior HDI. The second seed is a stability check, not a second estimand. A production contrast should raise `n_simulations` until that per-draw error is small relative to the contrast of interest.
+
+## Two calculations that answer a different question
+
+Thresholding one plot's observed stress and replaying that dose sequence is a fixed schedule. It does not re-read the stress the policy would have produced. A zero-noise roll of the known generator, with heat fixed at 0, is also not the fitted estimand: the threshold-0.5 path moves when process noise is restored, which is why the policy mean has to integrate the stochastic history.
+
+```{python}
+observed = data[data["unit"] == UNITS[0]].sort_values("time")
+copied = TreatmentPolicy(
+    "observed_history",
+    "water",
+    TimeSchedule(tuple(float(value > 0.5) for value in observed["stress"])),
+)
+copied_result = model.do(policy=copied, **shared)
+print(
+    "copied schedule growth",
+    float(cumulative(copied_result, "growth").mean("growth")),
+)
+print(
+    "threshold 0.5 growth",
+    float(cumulative(tight_rule, "growth").mean("growth")),
+)
+
+
+def known_roll(threshold, sigma, n_rep, seed):
+    """Known-parameter roll. Heat is fixed at 0. Not the fitted estimand."""
+    rng = np.random.default_rng(seed)
+    growth = np.zeros(n_rep)
+    water_use = np.zeros(n_rep)
+    stress = np.full(n_rep, L0)
+    water = np.full(n_rep, A0)
+    for _ in range(12):
+        shock = 0.0 if sigma == 0.0 else rng.normal(0.0, 0.5, size=n_rep)
+        stress = 0.4 + 0.6 * stress - 0.8 * water + shock
+        action = np.where(stress > threshold, 1.0, 0.0)
+        y_shock = 0.0 if sigma == 0.0 else rng.normal(0.0, 0.4, size=n_rep)
+        growth += 1.0 - 0.6 * stress + 0.2 * action + 0.6 * stress * action + y_shock
+        water_use += action
+        water = action
+    return float(growth.mean()), float(water_use.mean())
+
+
+print("zero noise", known_roll(0.0, 0.0, 1, 0), known_roll(0.5, 0.0, 1, 0))
+print("with noise", known_roll(0.0, 1.0, 2000, 5), known_roll(0.5, 1.0, 2000, 5))
+```
+
+The zero-noise and noisy known-parameter numbers are exploratory. They are not hard-coded targets for the fitted contrast. The fitted contrast conditions on the observed heat path and on the posterior, which this roll does not.
+
+## Assumptions and what this does not support
+
+A causal reading of the contrast needs sequential exchangeability, consistency, treatment support over relevant histories, model adequacy, and no cross-unit interference. Static backdoor checks do not prove longitudinal identification. A marginal min/max warning does not establish sequential positivity: the dose has to be supportable on the stress histories the rule visits, not merely inside the observed stress range.
+
+`policy=` does not fit an assignment model, optimize a threshold, or accept a Python callback. Latent variables, non-Gaussian families, adstock and other transforms, categoricals, and residual covariance are rejected rather than run on a weaker executor. `kind="predictive"` is not a noise-free policy mode.

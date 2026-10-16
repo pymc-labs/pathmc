@@ -186,8 +186,8 @@ def run_policy_evaluation(
     random_seed: int | None,
     kind: str,
     simulate_over: str | None,
-    batch_draws: int = 4,
-    batch_sims: int = 4,
+    batch_draws: int = 64,
+    batch_sims: int = 32,
     innovations: Mapping[str, np.ndarray] | None = None,
 ) -> DoResult:
     """Compile a throwaway policy scan and return population summaries."""
