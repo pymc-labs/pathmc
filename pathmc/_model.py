@@ -1308,17 +1308,28 @@ class PathModel:
         families : dict[str, str] | None
             Per-variable families for the reduced model only.
         priors : dict | None
-            Prior overrides for the reduced equation, merged with the
-            outcome dispersion priors inherited from this model.
-            Coefficient priors are never inherited, since the reduced
-            predictor set can differ from the structural one — pass
-            ``beta_{outcome}`` here to set it on the reduced equation.
+            Prior overrides for the reduced equation. A shared key is
+            inherited when its shape does not follow the predictor set or
+            treatment coding: outcome dispersion priors, transform-parameter
+            priors used by the reduced formula, and scalar hierarchical
+            categorical hyperpriors (``mu_beta_*``, ``sigma_beta_*``).
+            Otherwise a custom parent value must be passed here or
+            construction raises. That includes coefficient priors and
+            non-scalar hyperpriors. Unknown shared keys fail closed the
+            same way. An explicit value here still wins.
 
         Returns
         -------
         AdjustmentModel
             Facade with ``fit()`` and ``ate()`` / ``att()`` / ``atu()`` /
             ``cate()`` delegating to the inner outcome model.
+
+        Raises
+        ------
+        ValueError
+            If this model has a custom prior on a shared key whose shape
+            follows the predictor set or treatment coding, or on an unknown
+            shared key, and ``priors`` does not override that key.
 
         See Also
         --------
