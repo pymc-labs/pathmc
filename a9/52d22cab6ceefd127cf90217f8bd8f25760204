@@ -1,0 +1,22 @@
+great-docs.yml
+  h_63db634213747e 98-105
+pathmc/compile.py
+  h_63db634213747e 54,660
+pathmc/policy.py
+  h_63db634213747e 40-44,609
+pathmc/policy_exec.py
+  h_63db634213747e 41,212
+tests/test_policy.py
+  h_63db634213747e 390-400
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a952d22cab6ceefd127cf90217f8bd8f25760204",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
