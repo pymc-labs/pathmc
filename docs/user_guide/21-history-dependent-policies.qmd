@@ -1,0 +1,46 @@
+---
+title: "History-Dependent Treatment Policies"
+guide-section: "Panel Data"
+description: "Evaluate a dynamic treatment regime inside a Gaussian panel scan, and contrast two regimes without collapsing posterior uncertainty."
+categories: [Panel Data, Causal Inference]
+jupyter: pathmc
+---
+
+`do(set=)` replaces a treatment with a schedule that is fixed before the first step. A dynamic regime is different: the action at time *t* is a rule of the simulated history. `policy=` evaluates that rule inside the scan, so a time-varying confounder can respond to earlier treatment and then affect the next action.
+
+```python
+from pathmc import TimeSchedule, TreatmentPolicy, current, previous, where
+
+responsive = TreatmentPolicy(
+    "responsive",
+    "water",
+    where(previous("stress") > 0.5, 1.0, 0.0),
+)
+result = model.do(
+    policy=responsive,
+    simulate_over="time",
+    horizon=n_times,
+    initial={"growth": 0.0, "water": 0.0, "stress": 0.6},
+    random_seed=7,
+)
+```
+
+## Contract
+
+`policy` must be a `TreatmentPolicy`. The rule is an expression (`current`, `previous`, `where`, arithmetic, and comparisons) or a `TimeSchedule` or a finite number. Python `if`, `and`, `or`, and `not` are rejected at expression-construction time. `current(name)` is legal only when that measurement is known before the action; an outcome caused by the current action cannot choose that action. `previous(name)` at the first fitted time is the explicit pre-sample state.
+
+`horizon` is required and must equal the fitted time count. It is not inferred. `simulate_over="time"` is required. `n_simulations` defaults to 256 and must be at least 2. `kind="predictive"` is rejected because the policy path always integrates process noise. Omitting `random_seed` records the seed that was used.
+
+The model must be a scan-compiled Gaussian lag panel. Latent variables, non-Gaussian families, adstock and other transforms, categoricals, and residual covariance are rejected rather than evaluated by a weaker executor. Do not add a scientifically meaningless lag just to unlock `policy=`.
+
+`initial` must cover every observed lag base plus any `previous()` reference the rule reads. Extra keys that the rule or the scan does not use are rejected. Values are business units. A scalar broadcasts; a mapping must contain exactly the fitted unit labels.
+
+## What the result keeps
+
+Population summaries are means over units and simulations, with dims `(time, chain, draw)`. `simulation_mcse(var)` is the Monte Carlo standard error within each posterior draw. It keeps `chain` and `draw`, and keeps `time` until `aggregate_time` reduces it. `aggregate_time(var, reduction="sum"|"mean"|"last")` is the cumulative or terminal estimand. Pass `keep_trajectories=True` for unit paths; those dims are `(chain, draw, simulation, unit, time)`.
+
+Contrast two policy results only when they share the posterior, the baseline, the seed, the horizon, and the simulation count. The contrast is the paired difference. It does not declare a winner. Report growth and water, or whatever the outcome and the treatment are, separately.
+
+A threshold on a stochastic state does not match the noise-free `do(set=..., kind="mean")` path. The reported mean averages posterior draws and simulations. A mean-substitution implementation, which plugs the conditional mean in for the random state before applying the threshold, is not this estimand.
+
+See the [worked example](../docs/examples/panel-time/history_dependent_policies.qmd) for a fitted greenhouse panel.

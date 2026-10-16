@@ -226,10 +226,16 @@ responsive = TreatmentPolicy(
 )
 baseline = {"growth": 0.0, "water": 0.0, "stress": 0.6}
 
-fixed = model.do(policy=every_third, simulate_over="time", initial=baseline)
+fixed = model.do(
+    policy=every_third,
+    simulate_over="time",
+    horizon=6,
+    initial=baseline,
+)
 adaptive = model.do(
     policy=responsive,
     simulate_over="time",
+    horizon=6,
     initial=baseline,
     random_seed=7,
 )
@@ -240,11 +246,14 @@ water = contrast.aggregate_time("water", reduction="sum")
 
 Rules are expressions, not Python callbacks. `current(name)` reads the simulated value at the decision time and is legal only when that measurement is available before the action. `previous(name)` reads the preceding period, which at the first fitted time is the explicit pre-sample state. `where(condition, yes, no)` is the threshold. Comparisons follow the operator exactly: `>` is false at the threshold. Python `if`, `and`, `or`, and `not` are rejected.
 
-`policy=` requires a Gaussian lag panel, `simulate_over="time"`, and an explicit pre-sample baseline covering every observed lag base plus any previous reference the rule reads. `kind="predictive"` is rejected because the policy path always integrates process noise; omitting `random_seed` records the seed that was used. `horizon` must equal the fitted time count. `n_simulations` defaults to 256 and must be at least 2. Unit paths are omitted unless `keep_trajectories=True`.
+`policy=` requires a Gaussian lag panel, `simulate_over="time"`, and an explicit pre-sample baseline covering every observed lag base plus any previous reference the rule reads. `kind="predictive"` is rejected because the policy path always integrates process noise; omitting `random_seed` records the seed that was used. `horizon` is required and must equal the fitted time count; it is not inferred. `n_simulations` defaults to 256 and must be at least 2. Unit paths are omitted unless `keep_trajectories=True`. Retained paths use dims `(chain, draw, simulation, unit, time)`.
 
-A fixed `TimeSchedule` with no residual noise matches `do(set=..., kind="mean")`. With noise, a threshold on a stochastic state does not match that noise-free path: the reported mean is the average over posterior draws and simulations. Contrast two results only when they share the posterior, the baseline, the seed, and the simulation count. The contrast is the difference; it does not pick a winner. `simulation_mcse(var)` is the Monte Carlo standard error of one estimand. Call `aggregate_time` first, or pass `by="time"`.
+A fixed `TimeSchedule` with no residual noise matches `do(set=..., kind="mean")`. With noise, a threshold on a stochastic state does not match that noise-free path: the reported mean is the average over posterior draws and simulations. Contrast two results only when they share the posterior, the baseline, the seed, the horizon, and the simulation count. The contrast is the difference; it does not pick a winner. `simulation_mcse(var)` is the per-posterior-draw Monte Carlo standard error. A time-indexed result keeps `time`; call `aggregate_time` first for a cumulative or terminal estimand. The chain and draw dimensions are not averaged away.
 
 Latent variables, non-Gaussian families, adstock and other transforms, categoricals, and residual covariance are rejected rather than evaluated by a weaker executor. `simulation_info()` records the target, the fitted horizon, the unit population, and the seed.
+
+The [reference page](21-history-dependent-policies.qmd) states the contract. The [worked example](../docs/examples/panel-time/history_dependent_policies.qmd) fits a small greenhouse panel and contrasts a fixed schedule with a threshold rule.
+
 
 ## Scaling heterogeneous units
 

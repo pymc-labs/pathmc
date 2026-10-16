@@ -214,12 +214,6 @@ def run_policy_evaluation(
             "Do not add a scientifically meaningless lag just to unlock policy=."
         )
     n_times = int(scan.n_times)
-    horizon_n = n_times if horizon is None else _as_count(horizon, "horizon")
-    if horizon_n != n_times:
-        raise ValueError(
-            f"horizon={horizon_n} does not match the fitted time grid "
-            f"({n_times} step(s)). Pass the fitted count, or omit horizon=."
-        )
     n_sim = 256 if n_simulations is None else _as_count(n_simulations, "n_simulations")
     if n_sim < 2:
         raise ValueError(
@@ -235,6 +229,18 @@ def run_policy_evaluation(
         latent=set(model._latent),
         scan=True,
     )
+    if horizon is None:
+        raise ValueError(
+            "horizon= is required and must equal the fitted time grid "
+            f"({n_times} step(s)). Do not omit it; pass horizon={n_times}."
+        )
+    horizon_n = _as_count(horizon, "horizon")
+    if horizon_n != n_times:
+        raise ValueError(
+            f"horizon={horizon_n} does not match the fitted time grid "
+            f"({n_times} step(s)). Pass horizon={n_times}."
+        )
+
     names = set(model._graph_info.endogenous) | set(model._graph_info.exogenous)
     plan = plan_policy(
         policy,
@@ -817,8 +823,8 @@ def _pack_results(
         )
         if keep:
             trajectories[var] = (
-                ("time", "chain", "draw", "simulation", "unit"),
-                values.transpose(4, 0, 1, 2, 3),
+                ("chain", "draw", "simulation", "unit", "time"),
+                values,
             )
     coords = {"time": time, "chain": chain, "draw": draw}
     pop = xr.Dataset(population, coords=coords)

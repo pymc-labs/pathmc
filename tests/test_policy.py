@@ -108,6 +108,7 @@ def _do(model, policy, **kwargs):
         "n_simulations": 2,
         "random_seed": 1,
         "initial": INITIAL,
+        "horizon": len(TIMES),
     }
     args.update(kwargs)
     return model.do(policy=policy, **args)
@@ -179,11 +180,19 @@ def test_simulation_info_records_population_horizon_and_seed():
     assert info.unit_labels == ("A", "B")
     assert info.n_simulations == 4
     assert info.seed == 11
-    assert result.simulation_mcse("water", by="time").shape == (len(TIMES),)
+    mcse = result.simulation_mcse("water", by="time")
+    assert mcse.dims == ("time", "chain", "draw")
+    assert mcse.shape == (len(TIMES), 1, 1)
     with pytest.raises(ValueError, match="keep_trajectories"):
         _ = result.trajectories
     kept = _do(fitted, _policy("fixed", 1.0), keep_trajectories=True)
-    assert set(kept.trajectories["water"].dims) >= {"time", "unit", "simulation"}
+    assert kept.trajectories["water"].dims == (
+        "chain",
+        "draw",
+        "simulation",
+        "unit",
+        "time",
+    )
 
 
 def test_same_seed_shares_noise_and_a_new_seed_does_not():
@@ -231,7 +240,7 @@ def test_noisy_threshold_matches_numpy_and_not_the_noise_free_path():
         policy,
         set_values=None,
         initial=initial,
-        horizon=None,
+        horizon=len(TIMES),
         n_simulations=2,
         keep_trajectories=True,
         random_seed=4,
@@ -265,7 +274,7 @@ def test_chunk_size_does_not_change_results():
     kwargs = {
         "set_values": None,
         "initial": initial,
-        "horizon": None,
+        "horizon": len(TIMES),
         "n_simulations": 4,
         "keep_trajectories": False,
         "random_seed": 5,
@@ -317,6 +326,7 @@ def test_business_unit_schedule_is_scaled_only_inside_the_scan():
     result = fitted.do(
         policy=_policy("scaled", TimeSchedule(schedule)),
         simulate_over="time",
+        horizon=len(TIMES),
         n_simulations=2,
         random_seed=1,
         initial={"growth": 0.0},
@@ -342,6 +352,13 @@ def test_policy_rejections_name_the_fix():
         _do(fitted, policy, kind="predictive")
     with pytest.raises(ValueError, match="simulate_over"):
         fitted.do(policy=policy, initial=INITIAL)
+    with pytest.raises(ValueError, match="Do not omit it"):
+        fitted.do(
+            policy=policy,
+            simulate_over="time",
+            n_simulations=2,
+            initial=INITIAL,
+        )
     with pytest.raises(ValueError, match="horizon"):
         _do(fitted, policy, horizon=9)
     with pytest.raises(ValueError, match="n_simulations"):
@@ -355,7 +372,12 @@ def test_policy_rejections_name_the_fix():
     with pytest.raises(ValueError, match="explicit pre-sample"):
         bare = pathmc.model(SPEC, data=_frame(), panel=PANEL)
         _pin(bare)
-        bare.do(policy=policy, simulate_over="time", n_simulations=2)
+        bare.do(
+            policy=policy,
+            simulate_over="time",
+            horizon=len(TIMES),
+            n_simulations=2,
+        )
 
     cross = pathmc.model("y ~ x", data=pd.DataFrame({"x": [0.0, 1.0], "y": [0.0, 1.0]}))
     post = xr.Dataset(coords={"chain": [0], "draw": [0]})
@@ -423,3 +445,298 @@ def test_unsupported_structure_is_rejected():
             simulate_over="time",
             initial={"awareness": 0.0},
         )
+
+
+def _roll_supplied(innov_s, innov_g, *, sigma_s, sigma_g, g0, s0, rule):
+    """Hand recursion. ``rule`` sees this step's stress, then the previous one."""
+    n_sim, n_unit, n_time = innov_s.shape
+    growth = np.empty((n_sim, n_unit, n_time))
+    stress = np.empty((n_sim, n_unit, n_time))
+    water = np.empty((n_sim, n_unit, n_time))
+    g = np.full((n_sim, n_unit), g0)
+    s = np.full((n_sim, n_unit), s0)
+    w = np.zeros((n_sim, n_unit))
+    for time in range(n_time):
+        s_now = 0.5 * s + 0.5 * w + sigma_s * innov_s[:, :, time]
+        action = rule(s_now, s)
+        g_now = 0.4 * g + action + sigma_g * innov_g[:, :, time]
+        growth[:, :, time] = g_now
+        stress[:, :, time] = s_now
+        water[:, :, time] = action
+        g, s, w = g_now, s_now, action
+    return growth, stress, water
+
+
+def test_numpy_oracle_matches_every_replicate_and_ignores_future_rows():
+    initial = {"growth": 0.1, "water": 0.0, "stress": 0.2}
+    frame = _frame()
+    frame.loc[frame["time"] > TIMES[0], ["growth", "stress"]] = 999.0
+    fitted = pathmc.model(SPEC, data=frame, panel=PANEL, initial=initial)
+    _pin(fitted, sigmas={"growth": [0.3], "stress": [0.8]})
+    n_sim, n_unit, n_time = 3, 2, len(TIMES)
+    rng = np.random.default_rng(19)
+    innov_s = rng.normal(size=(1, 1, n_sim, n_unit, n_time))
+    innov_g = rng.normal(size=(1, 1, n_sim, n_unit, n_time))
+    policy = _policy("now", where(current("stress") > 0.5, 1.0, 0.0))
+    held = run_policy_evaluation(
+        fitted,
+        policy,
+        set_values=None,
+        initial=initial,
+        horizon=len(TIMES),
+        n_simulations=n_sim,
+        keep_trajectories=True,
+        random_seed=19,
+        kind="mean",
+        simulate_over="time",
+        batch_draws=1,
+        batch_sims=1,
+        innovations={"stress": innov_s, "growth": innov_g},
+    )
+    growth, stress, water = _roll_supplied(
+        innov_s[0, 0],
+        innov_g[0, 0],
+        sigma_s=0.8,
+        sigma_g=0.3,
+        g0=0.1,
+        s0=0.2,
+        rule=lambda now, prev: (now > 0.5).astype(float),
+    )
+    traj = held.trajectories.sel(chain=0, draw=0).transpose(
+        "simulation", "unit", "time"
+    )
+    np.testing.assert_allclose(traj["growth"], growth)
+    np.testing.assert_allclose(traj["stress"], stress)
+    np.testing.assert_allclose(traj["water"], water)
+    # Same-step outcome uses the action just assigned. Next-step stress, and
+    # therefore the next decision, uses that action through lag(water).
+    assert not np.allclose(water[:, :, 1], (stress[:, :, 0] > 0.5).astype(float))
+    substituted = _roll_supplied(
+        np.zeros_like(innov_s[0, 0]),
+        np.zeros_like(innov_g[0, 0]),
+        sigma_s=0.8,
+        sigma_g=0.3,
+        g0=0.1,
+        s0=0.2,
+        rule=lambda now, prev: (now > 0.5).astype(float),
+    )
+    assert not np.allclose(water, substituted[2])
+
+
+def test_analytic_threshold_rejects_mean_substitution():
+    from scipy.stats import norm
+
+    spec = "stress ~ 0 + 1*lag(stress)\ngrowth ~ 0 + 1*water"
+    initial = {"stress": 0.0}
+    times = (1, 2)
+    rows = [
+        {"unit": "A", "time": time, "stress": 0.0, "growth": 0.0, "water": 0.0}
+        for time in times
+    ]
+    fitted = pathmc.model(spec, data=pd.DataFrame(rows), panel=PANEL, initial=initial)
+    _pin(fitted, sigmas={"stress": [1.0], "growth": [0.0]})
+    n_sim = 800
+    innov = np.random.default_rng(3).normal(size=(1, 1, n_sim, 1, len(times)))
+    policy = _policy("thresh", where(current("stress") > 0.5, 1.0, 0.0))
+    held = run_policy_evaluation(
+        fitted,
+        policy,
+        set_values=None,
+        initial=initial,
+        horizon=len(times),
+        n_simulations=n_sim,
+        keep_trajectories=True,
+        random_seed=3,
+        kind="mean",
+        simulate_over="time",
+        innovations={"stress": innov, "growth": np.zeros_like(innov)},
+    )
+    rate = float(held.trajectories["water"].sel(chain=0, draw=0).isel(time=0).mean())
+    expected = float(norm.sf(0.5))
+    assert rate == pytest.approx(expected, abs=0.08)
+    quiet = pathmc.model(spec, data=pd.DataFrame(rows), panel=PANEL, initial=initial)
+    _pin(quiet, sigma=0.0)
+    noise_free = quiet.do(
+        policy=policy,
+        simulate_over="time",
+        horizon=len(times),
+        n_simulations=2,
+        random_seed=3,
+        initial=initial,
+    )
+    assert noise_free.mean("water") == pytest.approx(0.0)
+    assert abs(rate - noise_free.mean("water")) > 0.2
+
+
+def test_threshold_equality_follows_the_comparison_operator():
+    spec = "stress ~ 0 + 1*lag(stress)\ngrowth ~ 0 + 1*water"
+    initial = {"stress": 0.5}
+    rows = [
+        {"unit": unit, "time": time, "stress": 0.5, "growth": 0.0, "water": 0.0}
+        for unit in ("A", "B")
+        for time in TIMES
+    ]
+    fitted = pathmc.model(spec, data=pd.DataFrame(rows), panel=PANEL, initial=initial)
+    _pin(fitted, sigma=0.0)
+    strict = fitted.do(
+        policy=_policy("gt", where(current("stress") > 0.5, 1.0, 0.0)),
+        simulate_over="time",
+        horizon=len(TIMES),
+        n_simulations=2,
+        random_seed=1,
+        initial=initial,
+    )
+    closed = fitted.do(
+        policy=_policy("ge", where(current("stress") >= 0.5, 1.0, 0.0)),
+        simulate_over="time",
+        horizon=len(TIMES),
+        n_simulations=2,
+        random_seed=1,
+        initial=initial,
+    )
+    assert strict.mean("water") == pytest.approx(0.0)
+    assert closed.mean("water") == pytest.approx(1.0)
+
+
+def test_results_follow_labels_and_contrasts_reject_context_mismatch():
+    times = (10, 20, 30)
+    rows = []
+    for unit in ("B", "A"):
+        for time in times:
+            rows.append({
+                "unit": unit,
+                "time": time,
+                "growth": 0.2,
+                "water": 0.2,
+                "stress": 0.2,
+            })
+    initial = {
+        "growth": {"A": 1.0, "B": 0.0},
+        "water": 0.0,
+        "stress": {"A": 0.2, "B": 0.8},
+    }
+    fitted = pathmc.model(SPEC, data=pd.DataFrame(rows), panel=PANEL, initial=initial)
+    _pin(fitted, sigma=0.0)
+    opened = fitted.do(
+        policy=_policy("open", where(previous("stress") > 0.0, 1.0, 0.0)),
+        simulate_over="time",
+        horizon=len(times),
+        n_simulations=2,
+        random_seed=1,
+        keep_trajectories=True,
+        initial=initial,
+    )
+    assert list(opened.trajectories.coords["unit"].values) == ["A", "B"]
+    assert list(opened.time_index) == list(times)
+    # A's larger initial growth must stay on label A, not on the first frame row.
+    first = opened.trajectories["growth"].sel(chain=0, draw=0, simulation=0, time=10)
+    assert float(first.sel(unit="A")) > float(first.sel(unit="B"))
+    other_seed = fitted.do(
+        policy=_policy("tight", where(previous("stress") > 0.5, 1.0, 0.0)),
+        simulate_over="time",
+        horizon=len(times),
+        n_simulations=2,
+        random_seed=2,
+        initial=initial,
+    )
+    with pytest.raises(ValueError, match="seed"):
+        _ = opened - other_seed
+    other_count = fitted.do(
+        policy=_policy("tight", where(previous("stress") > 0.5, 1.0, 0.0)),
+        simulate_over="time",
+        horizon=len(times),
+        n_simulations=4,
+        random_seed=1,
+        initial=initial,
+    )
+    with pytest.raises(ValueError, match="n_simulations"):
+        _ = opened - other_count
+
+
+def test_repeat_calls_do_not_leak_and_paired_mcse_uses_simulation_differences():
+    spec = "stress ~ 0 + 1*lag(stress)\ngrowth ~ 0 + 1*lag(growth) + 1*water"
+    initial = {"stress": 0.0, "growth": 0.0}
+    fitted = _model(spec, initial, sigma=1.0)
+    opened = _policy("open", where(current("stress") > 0.0, 1.0, 0.0))
+    tight = _policy("tight", where(current("stress") > 1.0, 1.0, 0.0))
+    first = _do(
+        fitted, opened, initial=initial, n_simulations=6, keep_trajectories=True
+    )
+    _do(fitted, tight, initial=initial, n_simulations=6, keep_trajectories=True)
+    again = _do(
+        fitted, opened, initial=initial, n_simulations=6, keep_trajectories=True
+    )
+    np.testing.assert_allclose(
+        again.trajectories["stress"], first.trajectories["stress"]
+    )
+    np.testing.assert_allclose(again.trajectories["water"], first.trajectories["water"])
+    other = _do(fitted, tight, initial=initial, n_simulations=6, keep_trajectories=True)
+    contrast = first - other
+    paired = first.simulation_draws["growth"] - other.simulation_draws["growth"]
+    expected = paired.std(dim="simulation", ddof=1) / np.sqrt(6)
+    np.testing.assert_allclose(contrast.simulation_mcse("growth"), expected)
+    cumulative = contrast.aggregate_time("growth", reduction="sum")
+    terminal = contrast.aggregate_time("growth", reduction="last")
+    retained = (first.trajectories["growth"] - other.trajectories["growth"]).mean(
+        "unit"
+    )
+    np.testing.assert_allclose(
+        cumulative.dataset["growth"],
+        retained.sum("time").mean("simulation"),
+    )
+    np.testing.assert_allclose(
+        terminal.dataset["growth"],
+        retained.isel(time=-1).mean("simulation"),
+    )
+    # Averaging the per-draw SE into one posterior number is not the contract.
+    assert contrast.simulation_mcse("growth").dims == ("time", "chain", "draw")
+
+
+@pytest.mark.slow
+def test_mcmc_policy_value_is_recovered_from_a_real_fit():
+    rng = np.random.default_rng(5)
+    times = list(range(6))
+    rows = []
+    for unit in ("A", "B", "C", "D"):
+        growth = 0.0
+        for time in times:
+            water = float(rng.uniform(0.0, 1.0))
+            growth = 0.4 * growth + water + float(rng.normal(0.0, 0.05))
+            rows.append({
+                "unit": unit,
+                "time": time,
+                "growth": growth,
+                "water": water,
+            })
+    data = pd.DataFrame(rows)
+    fitted = pathmc.model(
+        "growth ~ 0 + 0.4*lag(growth) + water",
+        data=data,
+        panel=PANEL,
+        initial={"growth": 0.0},
+    )
+    fitted.fit(
+        draws=40,
+        tune=40,
+        chains=1,
+        progressbar=False,
+        compute_log_likelihood=False,
+        random_seed=5,
+    )
+    schedule = (1.0, 0.0, 1.0, 0.0, 1.0, 0.0)
+    result = fitted.do(
+        policy=_policy("alternate", TimeSchedule(schedule)),
+        simulate_over="time",
+        horizon=len(times),
+        n_simulations=2,
+        random_seed=5,
+        initial={"growth": 0.0},
+    )
+    expected = []
+    growth = 0.0
+    for action in schedule:
+        growth = 0.4 * growth + action
+        expected.append(growth)
+    np.testing.assert_allclose(
+        result.by_time("growth").mean(axis=1), expected, atol=0.15
+    )

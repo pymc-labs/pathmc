@@ -1,0 +1,120 @@
+---
+title: "History-Dependent Treatment Policies"
+author:
+  - name: "Benjamin Vincent"
+description: "Compare a fixed watering schedule with a threshold rule on a fitted greenhouse panel, keeping posterior uncertainty."
+tags: [Panel Data, Causal Inference, G-Computation]
+jupyter: pathmc
+---
+
+A fixed `do(set=)` schedule is chosen before the first week. A greenhouse rule is not: water this week if last week's stress was high. That is a dynamic treatment regime. The action changes the next state, and the next state changes the next action, so a noise-free plug-in of the mean stress is the wrong estimand.
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+import pathmc
+from pathmc import TimeSchedule, TreatmentPolicy, previous, where
+
+rng = np.random.default_rng(11)
+times = list(range(8))
+units = ("A", "B", "C", "D")
+rows = []
+for unit in units:
+    growth, stress, water = 0.0, 0.4, 0.0
+    for time in times:
+        water = float(rng.uniform(0.0, 1.0))
+        growth = 0.4 * growth + water + float(rng.normal(0.0, 0.05))
+        stress = 0.5 * stress + 0.4 * water + float(rng.normal(0.0, 0.05))
+        rows.append({
+            "unit": unit,
+            "time": time,
+            "growth": growth,
+            "water": water,
+            "stress": stress,
+        })
+data = pd.DataFrame(rows)
+```
+
+The structural model is a Gaussian lag panel. Stress depends on lagged water, so this week's watering changes next week's stress, which is what the threshold reads.
+
+```{python}
+spec = """
+growth ~ 0 + 0.4*lag(growth) + water
+stress ~ 0 + 0.5*lag(stress) + 0.4*lag(water)
+"""
+model = pathmc.model(
+    spec,
+    data=data,
+    panel={"unit": "unit", "time": "time"},
+    initial={"growth": 0.0, "water": 0.0, "stress": 0.4},
+)
+model.fit(
+    draws=80,
+    tune=80,
+    chains=2,
+    progressbar=False,
+    compute_log_likelihood=False,
+    random_seed=11,
+)
+```
+
+`horizon` is the fitted week count. It is passed explicitly. Both policies share the posterior, the baseline, the seed, and the simulation count, so their difference is a paired contrast.
+
+```{python}
+baseline = {"growth": 0.0, "water": 0.0, "stress": 0.4}
+fixed_rule = TreatmentPolicy(
+    "every_other",
+    "water",
+    TimeSchedule((1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0)),
+)
+threshold_rule = TreatmentPolicy(
+    "relieve",
+    "water",
+    where(previous("stress") > 0.5, 1.0, 0.0),
+)
+fixed = model.do(
+    policy=fixed_rule,
+    simulate_over="time",
+    horizon=len(times),
+    initial=baseline,
+    n_simulations=32,
+    random_seed=11,
+)
+adaptive = model.do(
+    policy=threshold_rule,
+    simulate_over="time",
+    horizon=len(times),
+    initial=baseline,
+    n_simulations=32,
+    random_seed=11,
+)
+contrast = adaptive - fixed
+```
+
+Growth and water are different quantities. The contrast does not say which policy is better; it is the difference in each series.
+
+```{python}
+# | label: fig-policy-contrast
+# | fig-cap: "Posterior mean growth and water under a fixed schedule and a stress threshold. The gap is the paired contrast, not a ranking."
+
+fig, axes = plt.subplots(1, 2, figsize=(8, 3.5), sharex=True)
+for ax, var in zip(axes, ("growth", "water")):
+    ax.plot(times, fixed.by_time(var).mean(axis=1), label="fixed")
+    ax.plot(times, adaptive.by_time(var).mean(axis=1), label="threshold")
+    ax.set_title(var)
+    ax.set_xlabel("week")
+axes[0].legend()
+fig.tight_layout()
+plt.show()
+```
+
+```{python}
+growth = contrast.aggregate_time("growth", reduction="sum")
+water = contrast.aggregate_time("water", reduction="sum")
+print(growth.mean("growth"), water.mean("water"))
+print(adaptive.simulation_info().horizon, adaptive.simulation_info().seed)
+```
+
+`simulation_mcse("growth")` keeps a value for each posterior draw. Averaging that standard error into one number would hide which draws are uncertain.

@@ -2189,7 +2189,7 @@ class PathModel:
             and a Gaussian lag model. ``kind='predictive'`` is rejected:
             the policy path always integrates process noise.
         horizon : int | None
-            Must equal the fitted time count. Omit to use that count.
+            Required. Must equal the fitted time count. Do not omit it.
         n_simulations : int | None
             Stochastic histories per posterior draw. Default 256. Minimum 2.
         keep_trajectories : bool | None

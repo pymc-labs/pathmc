@@ -98,7 +98,7 @@ The DSL is lavaan-inspired:
 | Intervene on a categorical level                  | `m.do(set={"region": "south"})`, `m.ate("Y", "region", values=("north", "south"))` |
 | Declare an integer-coded column as labels         | `Y ~ C(store_type)`                                    |
 | Counterfactual / time-forward (panel)             | `m.do(set={...}, simulate_over="time")`                |
-| History-dependent panel treatment policy          | `m.do(policy=TreatmentPolicy(...), simulate_over="time")` |
+| History-dependent panel treatment policy          | `m.do(policy=TreatmentPolicy(...), simulate_over="time", horizon=n_times)` |
 | Adjustment sets for identification                | `m.adjustment_sets(treatment, outcome)`                |
 | Yes/no identification check                       | `m.is_identifiable(treatment, outcome)`                |
 | Front-door identification                         | `m.frontdoor_identifiable(treatment, mediator, outcome)` |
@@ -190,10 +190,11 @@ The DSL is lavaan-inspired:
 12. **`policy=` is a typed rule, not a Python callback.**
     `TreatmentPolicy` expressions (`current`, `previous`, `where`,
     `TimeSchedule`) are evaluated inside a Gaussian lag-panel scan.
-    Pass `simulate_over="time"` and an explicit pre-sample baseline.
-    `kind="predictive"` is rejected. Latent variables, non-Gaussian
-    families, transforms, categoricals, and residual covariance are
-    rejected rather than run on a weaker executor.
+    Pass `simulate_over="time"`, `horizon=` equal to the fitted time
+    count, and an explicit pre-sample baseline. `horizon` is not
+    inferred. `kind="predictive"` is rejected. Latent variables,
+    non-Gaussian families, transforms, categoricals, and residual
+    covariance are rejected rather than run on a weaker executor.
 
 ## Capabilities and boundaries
 
@@ -222,9 +223,11 @@ The DSL is lavaan-inspired:
 - Build hierarchical panel models with random intercepts/slopes and
   use `lag()` terms.
 - Evaluate a history-dependent treatment policy on a fitted Gaussian
-  lag panel with `do(policy=TreatmentPolicy(...), simulate_over="time")`.
-  Contrast two `DoResult`s that share the posterior, baseline, seed,
-  and simulation count; the contrast is the difference, not a winner.
+  lag panel with `do(policy=TreatmentPolicy(...), simulate_over="time",
+  horizon=n_times)`. Contrast two `DoResult`s that share the posterior,
+  baseline, seed, horizon, and simulation count; the contrast is the
+  difference, not a winner. `simulation_mcse` keeps the posterior
+  dimension.
 - Run sensitivity analysis to quantify robustness to unmeasured
   confounding.
 - Refute an estimated effect with a Bayesian placebo treatment

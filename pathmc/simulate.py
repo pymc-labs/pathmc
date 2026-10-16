@@ -656,12 +656,13 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         return DoResult(ds=population, scenario=self._scenario, policy=reduced)
 
     def simulation_mcse(self, var: str, *, by: str | None = None) -> Any:
-        """Monte Carlo standard error across policy simulations.
+        """Per-posterior-draw Monte Carlo standard error of a policy estimand.
 
         Computed within each posterior draw as the simulation standard
-        deviation divided by ``sqrt(n_simulations)``, then averaged over
-        draws. Pass ``by='time'`` for a per-time array, or call
-        :meth:`aggregate_time` first for a scalar estimand.
+        deviation divided by ``sqrt(n_simulations)``. The chain and draw
+        dimensions are preserved. A time-indexed result keeps ``time`` as
+        well; call :meth:`aggregate_time` first for a cumulative or terminal
+        estimand. ``by='time'`` is accepted and does not average draws.
         """
         run = self._require_policy("simulation_mcse")
         draws = run.simulation_draws[var]
@@ -669,17 +670,13 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             raise ValueError(
                 f"simulation_mcse by= must be 'time' or omitted. Got {by!r}."
             )
-        if "time" in draws.dims and by is None:
+        if by == "time" and "time" not in draws.dims:
             raise ValueError(
-                "simulation_mcse() on a time-indexed result needs by='time' "
-                "or a prior aggregate_time() call. Monte Carlo error is "
-                "defined on one estimand, not a raw trajectory."
+                "simulation_mcse by='time' needs a time dimension. "
+                "This result was already reduced with aggregate_time()."
             )
         std = draws.std(dim="simulation", ddof=1)
-        mcse = std / np.sqrt(draws.sizes["simulation"])
-        if by == "time":
-            return np.asarray(mcse.mean(dim=("chain", "draw")))
-        return float(mcse.mean())
+        return std / np.sqrt(draws.sizes["simulation"])
 
     def _require_policy(self, method: str) -> Any:
         if self._policy is None:
