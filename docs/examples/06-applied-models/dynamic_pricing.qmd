@@ -2,7 +2,7 @@
 title: "Dynamic Pricing Across Regions"
 author:
   - name: "Benjamin Vincent"
-description: "Estimate true price elasticity from observational data, accounting for confounding and regional heterogeneity."
+description: "Hierarchical panel check of a planted price elasticity under confounding. This sample does not recover it."
 tags: [Causal Inference, Panel Data, Treatment Effects, Hierarchical Effects]
 image: thumbnails/dynamic_pricing.png
 jupyter: pathmc
@@ -179,7 +179,7 @@ true_effects_df
 
 ```{python}
 # | label: fig-price-demand-raw
-# | fig-cap: "Raw price versus demand across all regions. The ordinary-least-squares slope on this scatter is about −0.51, well short of the planted elasticity of −1.2."
+# | fig-cap: "Raw price versus demand across all regions. The ordinary-least-squares slope on this scatter is confounded and is not the planted elasticity."
 # | code-fold: true
 
 fig, axes = plt.subplots(1, 2, figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -233,6 +233,7 @@ from numpy.linalg import lstsq
 X_naive = np.column_stack([np.ones(len(df_raw)), df_raw["price"].values])
 y = df_raw["demand"].values
 coefs_naive = lstsq(X_naive, y, rcond=None)[0]
+ols_slope = float(coefs_naive[1])
 
 print(f"Naive regression: demand = {coefs_naive[0]:.1f} + {coefs_naive[1]:.2f} × price")
 print(f"Price coefficient: {coefs_naive[1]:+.2f}")
@@ -243,7 +244,7 @@ print(f"Naive minus truth: {coefs_naive[1] - true_mu_price:+.2f}")
 ::: {.callout-important}
 ## The naive slope is attenuated, not reversed
 
-In this sample the OLS slope is −0.51. The planted mean elasticity is −1.2. The sign matches and the magnitude is about half, so a price increase still looks less damaging than it is. Stronger confounding can push that slope through zero — that is the trap in the callout above — but this notebook's regression does not.
+In this sample the OLS slope is `{python} f"{ols_slope:.2f}"`. The planted mean elasticity is −1.2. The sign matches and the magnitude is about half, so a price increase still looks less damaging than it is. Stronger confounding can push that slope through zero — that is the trap in the callout above — but this notebook's regression does not.
 :::
 
 ## Specify and fit the model
@@ -303,7 +304,27 @@ idata = model.fit(
 model.summary()
 ```
 
-The fixed coefficient on `price` has posterior mean about +0.29, not −1.2. The lag (−0.43 versus −0.4) and the competitor effect (−0.28 versus −0.3) land close to the planted values. The hierarchical mean `mu_slope_demand_price` is centered near −1.2 with a standard deviation of about 8 and an r-hat above 1.05, so the price elasticity is not identified tightly enough to use. That geometry is tracked in [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
+```{python}
+# | echo: false
+beta_price_mean = float(
+    idata.posterior["beta_demand"].sel(demand_predictors="price").values.mean()
+)
+beta_lag_mean = float(
+    idata.posterior["beta_demand"].sel(demand_predictors="lag(price)").values.mean()
+)
+beta_comp_mean = float(
+    idata
+    .posterior["beta_demand"]
+    .sel(demand_predictors="competitor_price")
+    .values.mean()
+)
+price_hier = az.summary(idata, var_names=["mu_slope_demand_price"], round_to=None)
+mu_slope_price_mean = float(price_hier.loc["mu_slope_demand_price", "mean"])
+mu_slope_price_sd = float(price_hier.loc["mu_slope_demand_price", "sd"])
+mu_slope_price_rhat = float(price_hier.loc["mu_slope_demand_price", "r_hat"])
+```
+
+The fixed coefficient on `price` has posterior mean `{python} f"{beta_price_mean:+.2f}"`, not −1.2. The lag (`{python} f"{beta_lag_mean:+.2f}"` versus −0.4) and the competitor effect (`{python} f"{beta_comp_mean:+.2f}"` versus −0.3) land close to the planted values. The hierarchical mean `mu_slope_demand_price` is `{python} f"{mu_slope_price_mean:.2f}"` with a standard deviation of `{python} f"{mu_slope_price_sd:.1f}"` and an r-hat of `{python} f"{mu_slope_price_rhat:.2f}"`, so the price elasticity is not identified tightly enough to use. That geometry is tracked in [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
 
 ### Recovery of key parameters
 
@@ -332,7 +353,7 @@ print(
 
 ```{python}
 # | label: fig-price-coefficient
-# | fig-cap: "Posterior of the fixed price coefficient. Black dashed line: planted mean elasticity (−1.2). Red dashed line: naive OLS slope (−0.51). The posterior is wide and its mean is not the planted value."
+# | fig-cap: "Posterior of the fixed price coefficient. Black dashed line: planted mean elasticity. Red dashed line: naive OLS slope. The posterior is wide and its mean is not the planted value."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -359,7 +380,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The fixed price coefficient does not recover −1.2. The naive slope is negative, and about half the planted elasticity.
+The fixed price coefficient mean is `{python} f"{beta_price_mean:+.2f}"`, not the planted −1.2. The naive slope is `{python} f"{ols_slope:.2f}"`.
 
 ### Cumulative price effect
 
@@ -367,17 +388,18 @@ The long-run effect of a permanent price change is the immediate coefficient plu
 
 ```{python}
 cumulative = beta_price + beta_lag
+cumulative_mean = float(cumulative.mean())
 print(f"Immediate effect: {beta_price.mean():.2f} units of demand")
 print(f"Lagged effect:    {beta_lag.mean():.2f} units of demand")
 print(f"Cumulative (long-run) effect: {cumulative.mean():.2f} units of demand")
 print(f"True cumulative: {true_mu_price + true_lag:.2f}")
 ```
 
-The printed long-run effect is about −0.14, against a planted −1.60, because the immediate coefficient did not recover. The lag term on its own is close to −0.4.
+The printed long-run effect is `{python} f"{cumulative_mean:.2f}"`, against a planted −1.60, because the immediate coefficient (`{python} f"{beta_price_mean:+.2f}"`) did not recover. The lag term on its own is `{python} f"{beta_lag_mean:+.2f}"`, against a planted −0.4.
 
 ```{python}
 # | label: fig-cumulative-effect
-# | fig-cap: "Posteriors of the immediate, lagged, and cumulative price coefficients. The cumulative posterior is the sum of the other two; it is not a recovery of the planted long-run effect (−1.6)."
+# | fig-cap: "Posteriors of the immediate, lagged, and cumulative price coefficients. The cumulative posterior is the sum of the other two; it is not a recovery of the planted long-run effect."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -403,11 +425,11 @@ plt.show()
 ## Regional heterogeneity: who is price-sensitive?
 
 The random slopes on `price` let each region deviate from the population mean.
-This reveals which regions are more or less price-sensitive — critical for region-specific pricing strategies.
+The violins are the sum of the fixed price coefficient and the region slope. They are wide, so they are not a ranking of who should be priced differently.
 
 ```{python}
 # | label: fig-regional-elasticity
-# | fig-cap: "Posterior distributions of region-level price elasticity vs true values (black diamonds). Partial pooling shrinks extreme estimates toward the population mean (dashed line), borrowing strength across regions."
+# | fig-cap: "Region-level price elasticity. Each violin is the posterior of the fixed price coefficient plus the region slope; black diamonds are planted values. The dashed line is the planted population mean, not a posterior group mean the estimates have shrunk toward."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 1.2))
@@ -441,16 +463,32 @@ ax.axhline(0, color="black", ls=":", alpha=0.3)
 ax.legend(fontsize=8)
 plt.tight_layout()
 plt.show()
+
+region_post_means = {}
+n_regions_hdi_cross_zero = 0
+for region in regions:
+    region_total = beta_price + slope_price.sel(unit=region).values.flatten()
+    region_post_means[region] = float(region_total.mean())
+    region_hdi = np.asarray(az.hdi(region_total, prob=0.94)).reshape(-1)
+    if region_hdi[0] < 0 < region_hdi[1]:
+        n_regions_hdi_cross_zero += 1
+cross_zero_note = "cross zero" if n_regions_hdi_cross_zero else "do not cross zero"
+region_recovery_gap = {
+    region: abs(region_post_means[region] - true_price_effects[region])
+    for region in regions
+}
+closest_recovery = min(region_recovery_gap, key=region_recovery_gap.get)
+region_mean_min = min(region_post_means.values())
+region_mean_max = max(region_post_means.values())
 ```
 
-Regions with elasticity further from zero are more price-sensitive — a $1 price increase costs more demand there.
-Regions closer to zero can absorb price increases with less demand loss.
+The violins are too wide to read as a regional price list. Metro and Coastal posterior means are `{python} f"{region_post_means['Metro']:+.2f}"` and `{python} f"{region_post_means['Coastal']:+.2f}"`, not near their planted elasticities around −1. The 94% intervals `{python} cross_zero_note`.
 
 ### Shrinkage
 
 ```{python}
 # | label: fig-shrinkage
-# | fig-cap: "Shrinkage plot: true region-level price elasticity (x-axis) vs posterior mean (y-axis). Points pulled toward the population mean (horizontal dashed line) demonstrate partial pooling borrowing strength across regions."
+# | fig-cap: "True elasticity (x) versus posterior mean (y). The only reference line on the plot is the perfect-recovery diagonal. The points are not pulled toward the planted mean."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -487,14 +525,19 @@ plt.tight_layout()
 plt.show()
 ```
 
-### Hierarchical scale recovery
+`{python} closest_recovery` is nearest the diagonal. Rural's posterior mean is `{python} f"{region_post_means['Rural']:+.2f}"` against its planted elasticity of `{python} f"{true_price_effects['Rural']:+.2f}"`. Metro and Coastal are `{python} f"{region_post_means['Metro']:+.2f}"` and `{python} f"{region_post_means['Coastal']:+.2f}"`, far from their planted values. The points are not pulled toward the planted mean of −1.2.
+
+### Hierarchical scale
 
 ```{python}
 sigma_price_post = idata.posterior["sigma_slope_demand_price"].values.flatten()
 print(f"Between-region SD in price elasticity:")
 print(f"  Posterior mean: {sigma_price_post.mean():.3f}")
 print(f"  True value:     {true_sigma_price}")
+sigma_price_mean = float(sigma_price_post.mean())
 ```
+
+The posterior mean is `{python} f"{sigma_price_mean:.3f}"` against a planted 0.3. That scale was not recovered.
 
 ## Policy simulation: what if we raise prices?
 
@@ -525,12 +568,11 @@ demand_impact
 
 ### Revenue trade-off
 
-A price increase raises revenue per unit but reduces units sold.
-The net effect depends on the elasticity: if demand is elastic (|elasticity| > 1), the volume loss outweighs the price gain.
+A price increase raises revenue per unit and reduces units sold.
 
 ```{python}
 # | label: fig-revenue-tradeoff
-# | fig-cap: "Revenue response to price changes via do(). Left: demand curve showing units sold at each price level. Right: revenue curve (price × demand) showing the revenue-maximizing price. The concave revenue curve reflects the trade-off between higher margins and lower volume."
+# | fig-cap: "Left: expected demand falls as price rises. Right: expected revenue versus price. The dashed line is the last price on the grid, not an interior maximum. Do not read a revenue-maximizing label on the line as an optimum."
 # | code-fold: true
 
 price_levels = np.arange(8.0, 14.1, 0.5)
@@ -571,24 +613,43 @@ ax.fill_between(price_levels, hdi_2[:, 0], hdi_2[:, 1], alpha=0.15, color=COLOR_
 ax.set_xlabel("Price ($)")
 ax.set_ylabel("Expected revenue ($)")
 
-best_idx = np.argmax(revenue_means)
 ax.axvline(
-    price_levels[best_idx],
+    price_levels[-1],
     color=COLOR_PRICE,
     ls="--",
     alpha=0.5,
-    label=f"Revenue-maximizing: ${price_levels[best_idx]:.1f}",
+    label=f"Grid edge: ${price_levels[-1]:.1f}",
 )
 ax.legend(fontsize=8)
 
 plt.tight_layout()
 plt.show()
+
+price_obs_min = float(df_raw["price"].min())
+price_obs_max = float(df_raw["price"].max())
+grid_edge_price = float(price_levels[-1])
+first_extrap_price = float(price_levels[price_levels > price_obs_max][0])
+demand_drop = float(demand_means[0] - demand_means[-1])
+demand_slope = float(
+    (demand_means[-1] - demand_means[0]) / (price_levels[-1] - price_levels[0])
+)
+i10 = int(np.argmin(np.abs(price_levels - 10.0)))
+price_near_10 = float(price_levels[i10])
+demand_near_10 = float(demand_means[i10])
+elasticity_at_10 = float(demand_slope * price_near_10 / demand_near_10)
+revenue_still_rising = bool(np.argmax(revenue_means) == len(revenue_means) - 1)
+revenue_edge_note = (
+    "still rising at the last grid price"
+    if revenue_still_rising
+    else "not still rising at the last grid price"
+)
 ```
 
-### Regional pricing strategy
+On this grid, demand falls by `{python} f"{demand_drop:.0f}"` units from `{python} f"${price_levels[0]:.0f}"` to `{python} f"${grid_edge_price:.0f}"`, `{python} f"{demand_slope:.1f}"` demand units per dollar. Near a price of `{python} f"${price_near_10:.0f}"` and demand of `{python} f"{demand_near_10:.0f}"`, that is a dimensionless elasticity of `{python} f"{elasticity_at_10:.1f}"`. The revenue curve is `{python} revenue_edge_note`. Prices from `{python} f"${first_extrap_price:.2f}"` up are outside the observed range [`{python} f"${price_obs_min:.2f}"`, `{python} f"${price_obs_max:.2f}"`]. That is not a recovered optimum.
 
-Since each region has a different price elasticity, the optimal pricing strategy varies by region.
-Less price-sensitive regions can sustain higher prices with smaller demand loss.
+### Regional point estimates
+
+The table prints posterior means of the same sums as the violins. Those intervals overlap, and they `{python} cross_zero_note`. The between-region SD was not recovered (`{python} f"{sigma_price_mean:.3f}"` versus 0.3). Do not treat the printed means as region-specific prices.
 
 ```{python}
 print("Demand impact of +$2 price increase by region:")
@@ -611,6 +672,8 @@ print(f"Is price → demand identifiable? {model.is_identifiable('price', 'deman
 print(f"Adjustment sets: {model.adjustment_sets('price', 'demand')}")
 ```
 
+This check is about the formula graph. In that graph price, season, and competitor price are exogenous, so the empty adjustment set does not mean the naive regression `demand ~ price` was identified. The failed recovery of the price coefficient is a separate fact.
+
 ### Standardized effects
 
 ```{python}
@@ -621,12 +684,12 @@ The standardized coefficients put all predictors on the same scale (SD units), m
 
 ## Summary
 
-- **The confounded slope is attenuated here.** Naive regression gives −0.51 rather than −1.2. The hierarchical price slope does not recover the planted elasticity either; see [issue #538](https://github.com/pymc-labs/pathmc/issues/538). The lag and competitor coefficients do.
-- **Lagged effects matter.** A price change today affects demand both immediately and in subsequent weeks. The cumulative effect is larger than the immediate effect alone.
-- **Regional heterogeneity is real.** Random slopes reveal that price sensitivity varies across regions, enabling region-specific pricing strategies.
-- **Partial pooling** borrows strength across regions — critical when some regions have noisier data or fewer observations.
-- **`do()` simulates pricing policies.** Time-forward simulation correctly propagates price changes through lagged effects, giving realistic demand and revenue projections.
-- **Revenue optimization requires causal estimates.** The revenue-maximizing price depends on the true demand curve, which only a causal model can estimate from observational data.
+- **The confounded slope is attenuated here.** Naive regression gives `{python} f"{ols_slope:.2f}"` rather than −1.2. The hierarchical price slope does not recover the planted elasticity either; see [issue #538](https://github.com/pymc-labs/pathmc/issues/538). The lag and competitor coefficients do.
+- **The lag landed; the cumulative effect did not.** Immediate mean `{python} f"{beta_price_mean:+.2f}"`, lag `{python} f"{beta_lag_mean:+.2f}"` (planted −0.4), cumulative `{python} f"{cumulative_mean:.2f}"` (planted −1.60). This sample's cumulative mean is not a larger recovered effect.
+- **Regional point estimates are not a price list.** Posterior means range from `{python} f"{region_mean_min:+.2f}"` to `{python} f"{region_mean_max:+.2f}"`. The 94% intervals `{python} cross_zero_note`, and the between-region SD is `{python} f"{sigma_price_mean:.3f}"` against a planted 0.3.
+- **Partial pooling is not shrinkage to −1.2 here.** Metro and Coastal posterior means are `{python} f"{region_post_means['Metro']:+.2f}"` and `{python} f"{region_post_means['Coastal']:+.2f}"`. `{python} closest_recovery` lies nearest the perfect-recovery line.
+- **`do()` propagates lags.** The revenue curve is `{python} revenue_edge_note`, including prices outside the observed range [`{python} f"${price_obs_min:.2f}"`, `{python} f"${price_obs_max:.2f}"`], so it is not a recovered optimum.
+- **Revenue optimization needs a recovered demand curve.** This fit did not recover the planted elasticity, so the grid-edge price is not a pricing recommendation.
 
 ::: {.callout-note}
 ## Reflection

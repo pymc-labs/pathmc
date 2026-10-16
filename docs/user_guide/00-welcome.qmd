@@ -197,7 +197,7 @@ Each equation models one stage. Multiple equations form the causal chain — eff
 
 ### Dynamic pricing
 
-Estimate true price elasticity from observational data where price and demand are confounded. Panel structure with regional hierarchical effects separates the causal signal from common-cause noise. [Full example &rarr;](docs/examples/applied-models/dynamic_pricing.qmd)
+Price and demand are confounded. This notebook checks a hierarchical panel model against a planted elasticity; the sample does not recover it. [Full example &rarr;](docs/examples/applied-models/dynamic_pricing.qmd)
 
 ```python
 spec = """

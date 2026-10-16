@@ -290,16 +290,50 @@ idata_panel = model_panel.fit(draws=500, tune=500, chains=2, random_seed=42)
 model_panel.effects_summary()
 ```
 
+```{python}
+# | echo: false
+panel_contemp = (
+    idata_panel
+    .posterior["beta_revenue"]
+    .sel(revenue_predictors="promo")
+    .values.flatten()
+)
+panel_lag = (
+    idata_panel
+    .posterior["beta_revenue"]
+    .sel(revenue_predictors="lag(promo)")
+    .values.flatten()
+)
+panel_contemp_mean = float(panel_contemp.mean())
+panel_lag_mean = float(panel_lag.mean())
+panel_contemp_hdi = np.asarray(az.hdi(panel_contemp, prob=0.94)).reshape(-1)
+panel_lag_hdi = np.asarray(az.hdi(panel_lag, prob=0.94)).reshape(-1)
+panel_contemp_zero_note = (
+    "crosses 0"
+    if panel_contemp_hdi[0] < 0 < panel_contemp_hdi[1]
+    else "does not cross 0"
+)
+panel_lag_zero_note = (
+    "excludes zero"
+    if not (panel_lag_hdi[0] <= 0 <= panel_lag_hdi[1])
+    else "includes zero"
+)
+panel_lag_vs_contemp = (
+    "centered above the contemporaneous mean"
+    if panel_lag_mean > panel_contemp_mean
+    else "not centered above the contemporaneous mean"
+)
+```
+
 ::: {.callout-tip}
 ## Reading the decomposed effect
 
-The panel model recovers two separate coefficients:
+The table above does not recover the planted split (0.30 and 0.25):
 
-- **b_contemp** ≈ 0.30: the immediate effect of this week's promo
-- **b_lag** ≈ 0.25: the carry-over effect of last week's promo
-- **Total** ≈ 0.55: the full short-run impact of a sustained promotion
+- **b_contemp** mean `{python} f"{panel_contemp_mean:.3f}"`, with a 94% interval [`{python} f"{panel_contemp_hdi[0]:.3f}"`, `{python} f"{panel_contemp_hdi[1]:.3f}"`] that `{python} panel_contemp_zero_note`
+- **b_lag** mean `{python} f"{panel_lag_mean:.3f}"`, `{python} panel_lag_vs_contemp`, with a 94% interval [`{python} f"{panel_lag_hdi[0]:.3f}"`, `{python} f"{panel_lag_hdi[1]:.3f}"`] that `{python} panel_lag_zero_note`
 
-A cross-sectional analysis would estimate a single blended number — unable to distinguish immediate response from carry-over.
+A cross-sectional analysis would still blend immediate response and carry-over into one coefficient. This sample's lag interval `{python} panel_lag_zero_note`; it does not recover the planted magnitudes.
 :::
 
 ```{python}
@@ -364,7 +398,16 @@ ate_panel = model_panel.ate(
 
 print(f"Steady-state expected: {(TRUE_CONTEMP + TRUE_LAG) * 2:.3f}")
 ate_panel
+ate_panel_mean = float(ate_panel.mean())
+ate_panel_hdi = np.asarray(ate_panel.hdi()).reshape(-1)
+planted_panel_ate = (TRUE_CONTEMP + TRUE_LAG) * 2
+ate_panel_cover_note = (
+    "covers"
+    if ate_panel_hdi[0] <= planted_panel_ate <= ate_panel_hdi[1]
+    else "excludes"
+)
 ```
+The planted steady-state contrast is `(0.30 + 0.25) × 2 = 1.10`. The printed mean is `{python} f"{ate_panel_mean:.2f}"`, and the 94% interval [`{python} f"{ate_panel_hdi[0]:.2f}"`, `{python} f"{ate_panel_hdi[1]:.2f}"`] `{python} ate_panel_cover_note` 1.10. That coverage is not a recovery of the contemporaneous/lag split in the table above.
 
 ### What happens if you ignore the lags?
 

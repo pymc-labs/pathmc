@@ -1052,7 +1052,7 @@ pm.model_to_graphviz(model.pymc_model)
 
 ### Sample
 
-This fit pins `nuts_sampler="nutpie"`. PyMC's own NUTS (`nuts_sampler="pymc"`) reports well over a thousand divergences here, and the nutpie summary below is still not converged: `mu_slope_sales_digital` has an r-hat of about 1.10 and an ESS of about 40. See [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
+This fit pins `nuts_sampler="nutpie"`. PyMC's own NUTS (`nuts_sampler="pymc"`) reports well over a thousand divergences here, and the nutpie summary below is still not converged. See [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
 
 ```{python}
 idata = model.fit(
@@ -1060,11 +1060,23 @@ idata = model.fit(
 )
 ```
 
+```{python}
+# | echo: false
+dig_sum = az.summary(
+    idata,
+    var_names=["mu_slope_sales_digital", "slope_sales_digital"],
+    round_to=None,
+)
+dig_rhat = float(dig_sum["r_hat"].max())
+dig_ess = float(dig_sum["ess_bulk"].min())
+dig_mu_mean = float(dig_sum.loc["mu_slope_sales_digital", "mean"])
+```
+
 ### Results
 
 #### Population-level coefficients
 
-The fixed effects are the average media coefficients across regions. The first summary row, `mu_slope_sales_digital`, is not one of those estimates: its r-hat is about 1.10, so do not read it as digital effectiveness. See [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
+The visible `mu_slope_sales_digital` and `slope_sales_digital` rows have r-hat up to `{python} f"{dig_rhat:.2f}"` and ESS down to `{python} f"{dig_ess:.0f}"`. Those rows are not geo-level digital effects, and a mean of `{python} f"{dig_mu_mean:.2f}"` is not digital effectiveness. The violins and the digital ATE below are the sums of the fixed digital coefficient and the region slope. See [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
 
 ```{python}
 model.summary()
@@ -1119,7 +1131,7 @@ Black diamonds show the true geo-level effects used in the DGP.
 
 ```{python}
 # | label: fig-m3-digital-effects
-# | fig-cap: "Posterior distributions of geo-level digital effects vs true values (black diamonds). Partial pooling shrinks extreme estimates toward the group mean."
+# | fig-cap: "Posterior of each region's digital effect, the sum of the fixed digital coefficient and the region slope, against planted values (black diamonds). These sums are not the `slope_sales_digital` rows in the summary table."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 1.2))
@@ -1159,12 +1171,11 @@ plt.show()
 
 #### Shrinkage
 
-Partial pooling pulls extreme geo estimates toward the group mean.
-Regions with less data or noisier observations are shrunk more — the model borrows strength from the full panel.
+The points below are posterior means of the fixed coefficient plus the region slope, against the planted geo effect. This panel is balanced, so the figure is not an example of shrinking regions that have less data. The horizontal lines are the fixed-coefficient means, not the group mean of those sums and not channel effectiveness.
 
 ```{python}
 # | label: fig-m3-shrinkage
-# | fig-cap: "Shrinkage plot: true geo-level effects (x-axis) vs posterior means (y-axis) for TV (blue) and digital (orange). Points closer to the diagonal indicate better recovery."
+# | fig-cap: "True geo-level effect (x) versus posterior mean of the fixed coefficient plus the region slope (y), for TV (blue) and digital (orange). The diagonal is perfect recovery. The horizontal lines are fixed-coefficient means, not the group mean the points should shrink toward."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -1221,18 +1232,32 @@ The `do()` operator propagates both random intercepts and random slopes, so inte
 ```{python}
 ate_tv = model.ate("sales", "tv", values=(10.0, 30.0))
 ate_tv
+ate_tv_mean = float(ate_tv.mean())
+ate_tv_hdi = np.asarray(ate_tv.hdi()).reshape(-1)
+planted_tv_contrast = 0.6 * 20
+ate_tv_cover_note = (
+    "excludes"
+    if not (ate_tv_hdi[0] <= planted_tv_contrast <= ate_tv_hdi[1])
+    else "covers"
+)
 ```
 
-The expected population-average effect is `0.6 × 20 = 12.0`.
+The planted contrast is `0.6 × 20 = 12.0`. The printed mean is `{python} f"{ate_tv_mean:.2f}"`, and the 94% interval [`{python} f"{ate_tv_hdi[0]:.2f}"`, `{python} f"{ate_tv_hdi[1]:.2f}"`] `{python} ate_tv_cover_note` 12.0.
 
 #### Comparing channels
 
 ```{python}
 ate_dig = model.ate("sales", "digital", values=(5.0, 20.0))
 ate_dig
+ate_dig_mean = float(ate_dig.mean())
+ate_dig_hdi = np.asarray(ate_dig.hdi()).reshape(-1)
+planted_dig_contrast = 0.4 * 15
+ate_dig_cover_note = (
+    "covers" if ate_dig_hdi[0] <= planted_dig_contrast <= ate_dig_hdi[1] else "excludes"
+)
 ```
 
-The expected effect for digital is `0.4 × 15 = 6.0`.
+The planted digital contrast is `0.4 × 15 = 6.0`. The printed mean is `{python} f"{ate_dig_mean:.2f}"`, and the 94% interval [`{python} f"{ate_dig_hdi[0]:.2f}"`, `{python} f"{ate_dig_hdi[1]:.2f}"`] `{python} ate_dig_cover_note` 6.0.
 
 #### Probability query
 
@@ -1249,7 +1274,7 @@ print(f"P(sales > 10 | do(tv=30)): {p:.2f}")
 - **The marketing funnel is a mediation structure.** Upper-funnel spend drives sales both directly and through lower-funnel indicators like search traffic. Conditioning on the mediator blocks the indirect path and underestimates upper-funnel's contribution.
 - **Path analysis with labeled coefficients** gives the full posterior of direct, indirect, and total effects — the quantities that matter for budget allocation.
 - **Hierarchical panel models** let each region have its own media coefficient while borrowing strength from the full panel through partial pooling.
-- **Random slopes** reveal genuine heterogeneity in channel effectiveness across geographies, enabling region-specific budget allocation.
+- **Random slopes are not a regional budget.** TV intervals separate some regions. Digital intervals overlap, and the `slope_sales_digital` summary rows are not those effects.
 
 ::: {.callout-note}
 ## Reflection
