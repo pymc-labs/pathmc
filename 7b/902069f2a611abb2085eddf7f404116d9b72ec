@@ -1,0 +1,21 @@
+_freeze/docs/examples/applied-models/mmm/execute-results/html.json
+  s_b8b7743133d8e3::t_d4fbd46e788402 5
+_freeze/docs/examples/panel-time/panel_data/execute-results/html.json
+  s_b8b7743133d8e3::t_5819d87ade380d 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7b902069f2a611abb2085eddf7f404116d9b72ec",
+  "prompts": {},
+  "sessions": {
+    "s_b8b7743133d8e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13b21-ffb7-72c2-ad5e-e5ee22b19c3f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
