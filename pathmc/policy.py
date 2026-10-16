@@ -22,7 +22,7 @@ arithmetic and comparisons, and assign a finite numeric action through
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Literal as Kind, Mapping, Sequence
 
 import numpy as np
 
@@ -63,15 +63,6 @@ class _Expr:
         raise TypeError(_TRUTH_MESSAGE)
 
     def dependencies(self) -> set[tuple[str, str]]:
-        raise NotImplementedError
-
-    def evaluate(
-        self,
-        *,
-        current: Mapping[str, np.ndarray],
-        previous: Mapping[str, np.ndarray],
-        t: int,
-    ) -> np.ndarray:
         raise NotImplementedError
 
     def lower(self, ctx: _LowerCtx) -> Any:
@@ -166,16 +157,6 @@ class Literal(_Expr):
     def dependencies(self) -> set[tuple[str, str]]:
         return set()
 
-    def evaluate(
-        self,
-        *,
-        current: Mapping[str, np.ndarray],
-        previous: Mapping[str, np.ndarray],
-        t: int,
-    ) -> np.ndarray:
-        del current, previous, t
-        return np.asarray(self.value, dtype=float)
-
     def lower(self, ctx: _LowerCtx) -> Any:
         del ctx
         return np.asarray(self.value, dtype=float)
@@ -189,26 +170,6 @@ class Ref(_Expr):
     def dependencies(self) -> set[tuple[str, str]]:
         return {(self.timing, self.name)}
 
-    def _lookup(
-        self,
-        current: Mapping[str, np.ndarray],
-        previous: Mapping[str, np.ndarray],
-    ) -> np.ndarray:
-        source = current if self.timing == "current" else previous
-        if self.name not in source:
-            raise KeyError(self.name)
-        return np.asarray(source[self.name], dtype=float)
-
-    def evaluate(
-        self,
-        *,
-        current: Mapping[str, np.ndarray],
-        previous: Mapping[str, np.ndarray],
-        t: int,
-    ) -> np.ndarray:
-        del t
-        return self._lookup(current, previous)
-
     def lower(self, ctx: _LowerCtx) -> Any:
         return ctx.reference(self.timing, self.name)
 
@@ -221,23 +182,6 @@ class BinOp(_Expr):
 
     def dependencies(self) -> set[tuple[str, str]]:
         return self.left.dependencies() | self.right.dependencies()
-
-    def evaluate(
-        self,
-        *,
-        current: Mapping[str, np.ndarray],
-        previous: Mapping[str, np.ndarray],
-        t: int,
-    ) -> np.ndarray:
-        a = self.left.evaluate(current=current, previous=previous, t=t)
-        b = self.right.evaluate(current=current, previous=previous, t=t)
-        if self.op == "+":
-            return np.asarray(a + b, dtype=float)
-        if self.op == "-":
-            return np.asarray(a - b, dtype=float)
-        if self.op == "*":
-            return np.asarray(a * b, dtype=float)
-        return np.asarray(a / b, dtype=float)
 
     def lower(self, ctx: _LowerCtx) -> Any:
         import pytensor.tensor as pt
@@ -256,25 +200,6 @@ class Comparison(_Expr):
 
     def dependencies(self) -> set[tuple[str, str]]:
         return self.left.dependencies() | self.right.dependencies()
-
-    def evaluate(
-        self,
-        *,
-        current: Mapping[str, np.ndarray],
-        previous: Mapping[str, np.ndarray],
-        t: int,
-    ) -> np.ndarray:
-        a = self.left.evaluate(current=current, previous=previous, t=t)
-        b = self.right.evaluate(current=current, previous=previous, t=t)
-        ops = {
-            "<": np.less,
-            "<=": np.less_equal,
-            ">": np.greater,
-            ">=": np.greater_equal,
-            "==": np.equal,
-            "!=": np.not_equal,
-        }
-        return np.asarray(ops[self.op](a, b))
 
     def lower(self, ctx: _LowerCtx) -> Any:
         import pytensor.tensor as pt
@@ -301,19 +226,6 @@ class BoolOp(_Expr):
     def dependencies(self) -> set[tuple[str, str]]:
         return self.left.dependencies() | self.right.dependencies()
 
-    def evaluate(
-        self,
-        *,
-        current: Mapping[str, np.ndarray],
-        previous: Mapping[str, np.ndarray],
-        t: int,
-    ) -> np.ndarray:
-        a = self.left.evaluate(current=current, previous=previous, t=t)
-        b = self.right.evaluate(current=current, previous=previous, t=t)
-        if self.op == "&":
-            return np.logical_and(a, b)
-        return np.logical_or(a, b)
-
     def lower(self, ctx: _LowerCtx) -> Any:
         import pytensor.tensor as pt
 
@@ -330,17 +242,6 @@ class Not(_Expr):
 
     def dependencies(self) -> set[tuple[str, str]]:
         return self.expr.dependencies()
-
-    def evaluate(
-        self,
-        *,
-        current: Mapping[str, np.ndarray],
-        previous: Mapping[str, np.ndarray],
-        t: int,
-    ) -> np.ndarray:
-        return np.logical_not(
-            self.expr.evaluate(current=current, previous=previous, t=t)
-        )
 
     def lower(self, ctx: _LowerCtx) -> Any:
         import pytensor.tensor as pt
@@ -360,18 +261,6 @@ class Where(_Expr):
             | self.yes.dependencies()
             | self.no.dependencies()
         )
-
-    def evaluate(
-        self,
-        *,
-        current: Mapping[str, np.ndarray],
-        previous: Mapping[str, np.ndarray],
-        t: int,
-    ) -> np.ndarray:
-        cond = self.condition.evaluate(current=current, previous=previous, t=t)
-        yes = self.yes.evaluate(current=current, previous=previous, t=t)
-        no = self.no.evaluate(current=current, previous=previous, t=t)
-        return np.asarray(np.where(cond, yes, no), dtype=float)
 
     def lower(self, ctx: _LowerCtx) -> Any:
         import pytensor.tensor as pt
@@ -487,8 +376,10 @@ class PolicyPlan:
     target: str
     current_deps: tuple[str, ...]
     previous_deps: tuple[str, ...]
-    descendants: tuple[str, ...]
-    compute_order: tuple[str, ...]
+    before: tuple[str, ...]
+    after: tuple[str, ...]
+    kind: Kind["schedule", "expression"]
+    extra_carries: tuple[str, ...]
     schedule: tuple[float, ...] | None
     time_values: tuple[Any, ...]
 
@@ -568,12 +459,11 @@ def plan_policy(
             "action cannot choose that action. Use previous() for those "
             "measurements, or remove the edge."
         )
-
-    descendants = tuple(
+    descendants = {
         node
         for node in nx.descendants(intervened, policy.variable)
         if node in graph.endogenous and node != policy.variable
-    )
+    }
     endogenous_order = [
         node for node in graph.topological_order if node in graph.endogenous
     ]
@@ -583,15 +473,25 @@ def plan_policy(
         if node not in descendants and node != policy.variable
     ]
     after = [node for node in endogenous_order if node in descendants]
-    target_slot = (policy.variable,) if policy.variable in graph.endogenous else ()
-    compute_order = tuple(before + list(target_slot) + after)
+
+    kind: Kind["schedule", "expression"] = (
+        "schedule" if schedule is not None else "expression"
+    )
+    endogenous = set(graph.endogenous)
+    extra_carries = tuple(
+        sorted(
+            name for name in (*previous_deps, policy.variable) if name not in endogenous
+        )
+    )
     return PolicyPlan(
         policy=policy,
         target=policy.variable,
         current_deps=current_deps,
         previous_deps=previous_deps,
-        descendants=descendants,
-        compute_order=compute_order,
+        before=tuple(before),
+        after=tuple(after),
+        kind=kind,
+        extra_carries=extra_carries,
         schedule=schedule,
         time_values=times,
     )
@@ -665,7 +565,7 @@ class _LowerCtx:
 def lower_action(
     plan: PolicyPlan,
     *,
-    t_index: Any,
+    schedule_t: Any,
     current_tensors: Mapping[str, Any],
     previous_tensors: Mapping[str, Any],
     scales: Mapping[str, np.ndarray],
@@ -675,7 +575,7 @@ def lower_action(
 
     Context tensors are model units. The rule sees business units
     (``model * scale``). The returned action is divided by the target scale
-    once.
+    once. A schedule is the scan sequence for this step, not a time index.
     """
     import pytensor.tensor as pt
 
@@ -684,12 +584,14 @@ def lower_action(
         previous_tensors=previous_tensors,
         scales=scales,
     )
-    rule = plan.policy.rule
-    if plan.schedule is not None:
-        business = pt.as_tensor_variable(np.asarray(plan.schedule, dtype=float))[
-            t_index
-        ]
+    if plan.kind == "schedule":
+        if schedule_t is None:
+            raise RuntimeError(
+                "A schedule policy has no scan sequence. This is an internal error."
+            )
+        business = schedule_t
     else:
+        rule = plan.policy.rule
         assert isinstance(rule, _Expr)
         business = rule.lower(ctx)
     business = pt.broadcast_to(pt.as_tensor_variable(business), (n_units,)).astype(

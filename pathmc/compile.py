@@ -2630,7 +2630,7 @@ def lag_base_kinds(spec: Spec, bases: tuple[str, ...] | list[str]) -> dict[str, 
 def _policy_step_action(
     plan: Any,
     *,
-    t_index: Any,
+    schedule_t: Any,
     new_endo: dict[str, Any],
     exog_t: dict[str, Any],
     prev_endo: dict[str, Any],
@@ -2638,26 +2638,22 @@ def _policy_step_action(
     scales: Mapping[str, np.ndarray],
     n_units: int,
 ) -> Any:
-    """Lower one policy action from this step's model-unit tensors."""
-    import pytensor.tensor as pt
-
+    """Lower one policy action. A missing dependency is left absent so it raises."""
     from pathmc.policy import lower_action
 
-    current: dict[str, Any] = {}
-    for name in plan.current_deps:
-        if name in new_endo:
-            current[name] = new_endo[name]
-        else:
-            current[name] = exog_t.get(name, pt.zeros(n_units))
-    previous: dict[str, Any] = {}
-    for name in plan.previous_deps:
-        if name in prev_endo:
-            previous[name] = prev_endo[name]
-        else:
-            previous[name] = prev_exog.get(name, pt.zeros(n_units))
+    current = {
+        name: new_endo[name] if name in new_endo else exog_t[name]
+        for name in plan.current_deps
+        if name in new_endo or name in exog_t
+    }
+    previous = {
+        name: prev_endo[name] if name in prev_endo else prev_exog[name]
+        for name in plan.previous_deps
+        if name in prev_endo or name in prev_exog
+    }
     return lower_action(
         plan,
-        t_index=t_index,
+        schedule_t=schedule_t,
         current_tensors=current,
         previous_tensors=previous,
         scales=scales,
@@ -2920,23 +2916,27 @@ def _compile_scan_panel(
         adstock_keys = sorted(adstock_cols)
         exog_keys = sorted(exog_data_nodes.keys())
 
-        # Exogenous variables referenced by lag columns need carry state.
-        # A policy previous() or exogenous target also carries, so the next
-        # step sees the assigned action rather than the observed column.
-        exog_lag_bases = sorted({
+        # Exogenous lag bases carry so the next step sees the previous value.
+        # extra_carries adds an exogenous target and previous() reads that are
+        # not already fitted lag bases. Names already carried keep their fitted
+        # initial value; only the rest are zero-initialized.
+        fitted_exog_lags = sorted({
             base for _col, (base, _k) in lag_cols.items() if base not in endo_set
         })
-        policy_only_carries: set[str] = set()
+        extra_carries = (
+            tuple(policy_plan.extra_carries) if policy_plan is not None else ()
+        )
+        exog_lag_bases = sorted(set(fitted_exog_lags) | set(extra_carries))
+        policy_only_carries = set(extra_carries) - set(fitted_exog_lags)
         if policy_plan is not None:
-            for name in (*policy_plan.previous_deps, policy_plan.target):
-                if name not in endo_set and name not in exog_lag_bases:
-                    policy_only_carries.add(name)
-            if policy_only_carries:
-                exog_lag_bases = sorted(set(exog_lag_bases) | policy_only_carries)
-            if set(policy_plan.compute_order) != set(endo_keys):
+            covered = set(policy_plan.before) | set(policy_plan.after)
+            if policy_plan.target in endo_set:
+                covered.add(policy_plan.target)
+            if covered != set(endo_keys):
                 raise RuntimeError(
-                    "Policy compute order does not cover the endogenous "
-                    "variables. This is an internal planner error."
+                    "Policy plan does not cover the endogenous "
+                    f"variables {sorted(set(endo_keys) ^ covered)}. "
+                    "This is an internal planner error."
                 )
 
         init_endo: dict[str, np.ndarray] = {
@@ -3072,6 +3072,9 @@ def _compile_scan_panel(
             | set(unlagged_continuous_parents)
             | (set(endo_keys) if gaussian_panel else set())
         )
+        if policy_plan is not None and policy_plan.target in carry_mu_vars:
+            # The structural equation is not run, so there is no separate mean.
+            carry_mu_vars = [var for var in carry_mu_vars if var != policy_plan.target]
 
         observed_carry_nodes: dict[str, Any] = {}
         for var in observed_carry_vars:
@@ -3168,14 +3171,28 @@ def _compile_scan_panel(
         # -- ``pm.set_data`` only requires ``model[name]`` to resolve to a
         # ``SharedVariable``, which does not require going through
         # ``pm.Data()``.
+        intervene_keys = [
+            var for var in endo_keys if policy_plan is None or var != policy_plan.target
+        ]
         do_intervene_nodes: dict[str, Any] = {}
-        for var in endo_keys:
+        for var in intervene_keys:
             shared = pytensor.shared(
                 np.full((n_times, n_units), np.nan, dtype="float64"),
                 name=f"_do_intervene_{var}",
             )
             scan_model.register_data_var(shared)
             do_intervene_nodes[var] = shared
+
+        schedule_node = None
+        if policy_plan is not None and policy_plan.kind == "schedule":
+            sched = np.asarray(policy_plan.schedule, dtype="float64")
+            schedule_values = np.broadcast_to(sched[:, None], (n_times, n_units)).copy()
+            schedule_node = pytensor.shared(
+                schedule_values,
+                name="_policy_schedule",
+                broadcastable=(False, False),
+            )
+            scan_model.register_data_var(schedule_node)
 
         sequences = (
             [exog_data_nodes[k] for k in exog_keys]
@@ -3184,8 +3201,8 @@ def _compile_scan_panel(
             + [carry_innovation_nodes[k] for k in stochastic_carry_vars]
             + [discrete_uniform_nodes[k] for k in discrete_bernoulli_vars]
             + [discrete_uniform_nodes[k] for k in discrete_count_vars]
-            + [do_intervene_nodes[k] for k in endo_keys]
-            + ([pt.arange(n_times)] if policy_plan is not None else [])
+            + [do_intervene_nodes[k] for k in intervene_keys]
+            + ([schedule_node] if schedule_node is not None else [])
         )
 
         def _init_carry(arr: np.ndarray) -> Any:
@@ -3290,27 +3307,25 @@ def _compile_scan_panel(
         n_exog_lag = len(exog_lag_bases)
         n_carry = n_endo + n_adstock + n_exog_lag
 
-        def step_fn(*args: Any) -> list[Any]:
-            seq_end = n_seq - (1 if policy_plan is not None else 0)
-            seq_args = args[:seq_end]
-            t_index = args[seq_end] if policy_plan is not None else None
+        def _unpack_step(args: tuple[Any, ...], n_schedule: int) -> dict[str, Any]:
+            seq_body = args[: n_seq - n_schedule]
+            schedule_t = args[n_seq - 1] if n_schedule else None
             carry_args = args[n_seq : n_seq + n_carry]
             ns_args = args[n_seq + n_carry :]
-
-            exog_t = {k: seq_args[i] for i, k in enumerate(exog_keys)}
+            exog_t = {k: seq_body[i] for i, k in enumerate(exog_keys)}
             obs_carry_t = {
-                k: seq_args[n_exog_seq + i] for i, k in enumerate(observed_carry_vars)
+                k: seq_body[n_exog_seq + i] for i, k in enumerate(observed_carry_vars)
             }
             latent_innov_t = {
-                k: seq_args[n_exog_seq + n_obs_carry_seq + i]
+                k: seq_body[n_exog_seq + n_obs_carry_seq + i]
                 for i, k in enumerate(stochastic_latent)
             }
             carry_innov_t = {
-                k: seq_args[n_exog_seq + n_obs_carry_seq + n_latent_innov_seq + i]
+                k: seq_body[n_exog_seq + n_obs_carry_seq + n_latent_innov_seq + i]
                 for i, k in enumerate(stochastic_carry_vars)
             }
             discrete_uniform_t = {
-                k: seq_args[
+                k: seq_body[
                     n_exog_seq
                     + n_obs_carry_seq
                     + n_latent_innov_seq
@@ -3320,7 +3335,7 @@ def _compile_scan_panel(
                 for i, k in enumerate(discrete_bernoulli_vars)
             }
             count_uniform_t = {
-                k: seq_args[
+                k: seq_body[
                     n_exog_seq
                     + n_obs_carry_seq
                     + n_latent_innov_seq
@@ -3330,81 +3345,72 @@ def _compile_scan_panel(
                 ]
                 for i, k in enumerate(discrete_count_vars)
             }
+            do_offset = (
+                n_exog_seq
+                + n_obs_carry_seq
+                + n_latent_innov_seq
+                + n_carry_innov_seq
+                + n_discrete_uniform_seq
+                + n_count_uniform_seq
+            )
             do_intervene_t = {
-                k: seq_args[
-                    n_exog_seq
-                    + n_obs_carry_seq
-                    + n_latent_innov_seq
-                    + n_carry_innov_seq
-                    + n_discrete_uniform_seq
-                    + n_count_uniform_seq
-                    + i
-                ]
-                for i, k in enumerate(endo_keys)
+                k: seq_body[do_offset + i] for i, k in enumerate(intervene_keys)
             }
             prev_endo = {k: carry_args[i] for i, k in enumerate(endo_keys)}
-            prev_adstock_state = {
+            prev_adstock = {
                 k: carry_args[n_endo + i] for i, k in enumerate(adstock_keys)
             }
             prev_exog = {
                 k: carry_args[n_endo + n_adstock + i]
                 for i, k in enumerate(exog_lag_bases)
             }
-
-            ns_map: dict[str, Any] = {
-                name: ns_args[i] for i, name in enumerate(non_seq_names)
+            ns_map = {name: ns_args[i] for i, name in enumerate(non_seq_names)}
+            return {
+                "schedule_t": schedule_t,
+                "exog_t": exog_t,
+                "obs_carry_t": obs_carry_t,
+                "latent_innov_t": latent_innov_t,
+                "carry_innov_t": carry_innov_t,
+                "discrete_uniform_t": discrete_uniform_t,
+                "count_uniform_t": count_uniform_t,
+                "do_intervene_t": do_intervene_t,
+                "prev_endo": prev_endo,
+                "prev_adstock": prev_adstock,
+                "new_adstock": dict(prev_adstock),
+                "prev_exog": prev_exog,
+                "ns_map": ns_map,
+                "new_endo": {},
+                "carry_mu": {},
+                "use_observed_carry_t": ns_map["_use_observed_carry"],
+                "discrete_rng": ns_map["_discrete_scan_rng"],
             }
-            use_observed_carry_t = ns_map["_use_observed_carry"]
 
-            new_endo: dict[str, Any] = {}
-            new_adstock = dict(prev_adstock_state)
+        def _make_advance(state: dict[str, Any]):
+            exog_t = state["exog_t"]
+            new_endo = state["new_endo"]
+            prev_endo = state["prev_endo"]
+            prev_exog = state["prev_exog"]
+            prev_adstock_state = state["prev_adstock"]
+            new_adstock = state["new_adstock"]
             current_transform: dict[str, Any] = {}
-            carry_mu: dict[str, Any] = {}
-            policy_action: Any = pt.zeros(n_units) if policy_plan is not None else None
-            policy_assigned = False
-            target_is_endo = policy_plan is not None and policy_plan.target in endo_set
-            descendants = (
-                set(policy_plan.descendants) if policy_plan is not None else set()
-            )
-            loop_order = (
-                list(policy_plan.compute_order)
-                if policy_plan is not None
-                else endo_keys
-            )
+            ns_map = state["ns_map"]
+            obs_carry_t = state["obs_carry_t"]
+            latent_innov_t = state["latent_innov_t"]
+            carry_innov_t = state["carry_innov_t"]
+            discrete_uniform_t = state["discrete_uniform_t"]
+            count_uniform_t = state["count_uniform_t"]
+            do_intervene_t = state["do_intervene_t"]
+            carry_mu = state["carry_mu"]
+            use_observed_carry_t = state["use_observed_carry_t"]
+            discrete_rng = state["discrete_rng"]
 
-            def _assign_policy() -> None:
-                nonlocal policy_action, policy_assigned
-                if policy_assigned or policy_plan is None:
-                    return
-                policy_action = _policy_step_action(
-                    policy_plan,
-                    t_index=t_index,
-                    new_endo=new_endo,
-                    exog_t=exog_t,
-                    prev_endo=prev_endo,
-                    prev_exog=prev_exog,
-                    scales=policy_scales or {},
-                    n_units=n_units,
-                )
-                policy_assigned = True
-                if not target_is_endo:
-                    exog_t[policy_plan.target] = policy_action
-
-            for var in loop_order:
-                if (
-                    policy_plan is not None
-                    and not target_is_endo
-                    and not policy_assigned
-                    and var in descendants
-                ):
-                    _assign_policy()
+            def _advance(var: str) -> None:
                 beta_names = beta_component_names.get(var)
                 beta = (
                     [ns_map[name] for name in beta_names]
                     if beta_names is not None
                     else None
                 )
-
                 resolver = _make_scan_resolver(
                     exog_t,
                     new_endo,
@@ -3418,7 +3424,6 @@ def _compile_scan_panel(
                     n_units,
                 )
                 mu = build_mu(mu_specs[var], resolver, beta, pt.zeros(n_units))
-
                 if f"alpha_{var}" in ns_map:
                     mu = mu + ns_map[f"alpha_{var}"]
                 for svar in slope_vars:
@@ -3426,7 +3431,6 @@ def _compile_scan_panel(
                     if skey in ns_map:
                         x_val = exog_t.get(svar, new_endo.get(svar, pt.zeros(n_units)))
                         mu = mu + ns_map[skey] * x_val
-
                 for bname in sorted(pooled_by_lhs.get(var, ())):
                     bkey = f"beta_{bname}"
                     if bkey in ns_map:
@@ -3434,7 +3438,6 @@ def _compile_scan_panel(
                             bname, new_endo.get(bname, pt.zeros(n_units))
                         )
                         mu = mu + ns_map[bkey] * x_val
-
                 family = families.get(var, "gaussian")
                 if gaussian_panel:
                     carry_mu[var] = mu
@@ -3482,7 +3485,9 @@ def _compile_scan_panel(
                             pt.isnan(obs_state), sampled_state, obs_state
                         )
                         new_endo[var] = pt.switch(
-                            use_observed_carry_t, observed_or_sampled, sampled_state
+                            use_observed_carry_t,
+                            observed_or_sampled,
+                            sampled_state,
                         )
                     else:
                         new_endo[var] = sampled_state
@@ -3500,7 +3505,9 @@ def _compile_scan_panel(
                             pt.isnan(obs_state), sampled_state, obs_state
                         )
                         new_endo[var] = pt.switch(
-                            use_observed_carry_t, observed_or_sampled, sampled_state
+                            use_observed_carry_t,
+                            observed_or_sampled,
+                            sampled_state,
                         )
                 elif var in unlagged_observed_parent_set:
                     # Continuous non-Gaussian parent (Student-t). The
@@ -3524,7 +3531,6 @@ def _compile_scan_panel(
                     )
                 else:
                     new_endo[var] = mu
-
                 if gaussian_panel and not coherent and var not in stochastic_carry_vars:
                     observed = obs_carry_t[var]
                     new_endo[var] = pt.switch(
@@ -3532,7 +3538,6 @@ def _compile_scan_panel(
                         observed,
                         new_endo[var],
                     )
-
                 # Sever the structural equation for this timestep when a
                 # do()-intervention value is present (non-NaN). This must
                 # happen *inside* the scan, before any later var in this same
@@ -3541,30 +3546,58 @@ def _compile_scan_panel(
                 # comment above for why graph surgery on the outer model
                 # cannot reach here.
                 new_endo[var] = pt.switch(
-                    pt.isnan(do_intervene_t[var]), new_endo[var], do_intervene_t[var]
+                    pt.isnan(do_intervene_t[var]),
+                    new_endo[var],
+                    do_intervene_t[var],
                 )
-                if (
-                    policy_plan is not None
-                    and target_is_endo
-                    and var == policy_plan.target
-                ):
-                    # The action replaces the structural equation after the
-                    # static intervention switch, so a policy and a set= on
-                    # the same variable cannot both win. do() rejects that mix.
-                    _assign_policy()
-                    new_endo[var] = policy_action
 
-            if policy_plan is not None and not policy_assigned:
-                _assign_policy()
+            return _advance
 
-            out = [new_endo[k] for k in endo_keys]
-            out += [new_adstock[k] for k in adstock_keys]
-            out += [exog_t.get(k, pt.zeros(n_units)) for k in exog_lag_bases]
-            out += [carry_mu[k] for k in carry_mu_vars]
-            if policy_plan is not None:
-                # Touch the time sequence so strict scan mode keeps it.
-                out.append(policy_action + pt.cast(t_index, "float64") * 0.0)
+        def _pack_outputs(state: dict[str, Any], action: Any) -> list[Any]:
+            out = [state["new_endo"][k] for k in endo_keys]
+            out += [state["new_adstock"][k] for k in adstock_keys]
+            out += [state["exog_t"].get(k, pt.zeros(n_units)) for k in exog_lag_bases]
+            out += [state["carry_mu"][k] for k in carry_mu_vars]
+            if action is not None:
+                out.append(action)
             return out
+
+        def _set_step(*args: Any) -> list[Any]:
+            state = _unpack_step(args, 0)
+            advance = _make_advance(state)
+            for var in endo_keys:
+                advance(var)
+            return _pack_outputs(state, None)
+
+        def _policy_step(*args: Any) -> list[Any]:
+            assert policy_plan is not None
+            n_schedule = 1 if schedule_node is not None else 0
+            state = _unpack_step(args, n_schedule)
+            advance = _make_advance(state)
+            for var in policy_plan.before:
+                advance(var)
+            action = _policy_step_action(
+                policy_plan,
+                schedule_t=state["schedule_t"],
+                new_endo=state["new_endo"],
+                exog_t=state["exog_t"],
+                prev_endo=state["prev_endo"],
+                prev_exog=state["prev_exog"],
+                scales=policy_scales or {},
+                n_units=n_units,
+            )
+            if policy_plan.target in endo_set:
+                state["new_endo"][policy_plan.target] = action
+            else:
+                state["exog_t"][policy_plan.target] = action
+            for var in policy_plan.after:
+                advance(var)
+            return _pack_outputs(state, action)
+
+        # PyTensor traces only the function passed to scan. The set= trace
+        # therefore contains no policy names, and the policy trace never
+        # flattens the plan back into the equation loop.
+        step_fn = _set_step if policy_plan is None else _policy_step
 
         results = pytensor.scan(
             fn=step_fn,

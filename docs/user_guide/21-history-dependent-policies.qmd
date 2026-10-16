@@ -37,7 +37,7 @@ The model must be a scan-compiled Gaussian lag panel. Latent variables, non-Gaus
 
 ## What the result keeps
 
-Population summaries are means over units and simulations, with dims `(time, chain, draw)`. `simulation_mcse(var)` is the Monte Carlo standard error within each posterior draw. It keeps `chain` and `draw`, and keeps `time` until `aggregate_time` reduces it. `aggregate_time(var, reduction="sum"|"mean"|"last")` is the cumulative or terminal estimand. Pass `keep_trajectories=True` for unit paths; those dims are `(chain, draw, simulation, unit, time)`.
+`do(policy=...)` returns a `PolicyRun`, not a `DoResult`. Population summaries are means over units and simulations, with dims `(time, chain, draw)`. `simulation_mcse(var)` is the Monte Carlo standard error within each posterior draw. It keeps `chain` and `draw`, and keeps `time` until `aggregate_time` reduces it. `aggregate_time(var, reduction="sum"|"mean"|"last")` is the cumulative or terminal estimand. Pass `keep_trajectories=True` for unit paths; those dims are `(chain, draw, simulation, unit, time)`.
 
 Contrast two policy results only when they share the posterior, the baseline, the seed, the horizon, and the simulation count. The contrast is the paired difference. It does not declare a winner. Report growth and water, or whatever the outcome and the treatment are, separately.
 

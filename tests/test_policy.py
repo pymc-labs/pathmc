@@ -19,8 +19,16 @@ import pytest
 import xarray as xr
 
 import pathmc
-from pathmc.policy import TimeSchedule, TreatmentPolicy, current, previous, where
-from pathmc.policy_exec import run_policy_evaluation
+from pathmc.policy import (
+    TimeSchedule,
+    TreatmentPolicy,
+    current,
+    lower_action,
+    plan_policy,
+    previous,
+    where,
+)
+from pathmc.policy_exec import PolicyRun, run_policy_evaluation
 from pathmc.scaling import Scaling
 
 PANEL = {"unit": "unit", "time": "time"}
@@ -751,3 +759,87 @@ def test_mcmc_policy_value_is_recovered_from_a_real_fit():
     np.testing.assert_allclose(
         result.by_time("growth").mean(axis=1), expected, atol=0.15
     )
+
+
+def test_plan_splits_before_after_and_drops_compute_order():
+    fitted = _model()
+    graph = fitted._graph_info
+    names = set(graph.endogenous) | set(graph.exogenous)
+    plan = plan_policy(
+        _policy("thresh", where(previous("stress") > 0.5, 1.0, 0.0)),
+        graph,
+        names=names,
+        time_values=list(TIMES),
+    )
+    assert plan.kind == "expression"
+    assert "compute_order" not in plan.__dataclass_fields__
+    assert "descendants" not in plan.__dataclass_fields__
+    assert plan.target not in plan.before
+    assert plan.target not in plan.after
+    assert set(plan.before).isdisjoint(plan.after)
+    assert set(plan.before) | set(plan.after) == set(graph.endogenous)
+    assert "water" in plan.extra_carries
+    schedule = plan_policy(
+        _policy("cal", TimeSchedule((1.0, 0.0, 0.0, 1.0))),
+        graph,
+        names=names,
+        time_values=list(TIMES),
+    )
+    assert schedule.kind == "schedule"
+    assert schedule.schedule == (1.0, 0.0, 0.0, 1.0)
+    assert "compute_order" not in schedule.__dataclass_fields__
+
+
+def test_missing_dependency_raises_instead_of_zero_fill():
+    fitted = _model()
+    graph = fitted._graph_info
+    plan = plan_policy(
+        _policy("now", where(current("stress") > 0.5, 1.0, 0.0)),
+        graph,
+        names=set(graph.endogenous) | set(graph.exogenous),
+        time_values=list(TIMES),
+    )
+    with pytest.raises(ValueError, match="cannot read current\\('stress'\\)"):
+        lower_action(
+            plan,
+            schedule_t=None,
+            current_tensors={},
+            previous_tensors={},
+            scales={},
+            n_units=2,
+        )
+
+
+def test_extra_carry_uses_initial_not_first_observed_row():
+    spec = (
+        "growth ~ 0 + 0.4*lag(growth) + 1*water + 0*rain\n"
+        "stress ~ 0 + 0.5*lag(stress) + 0.5*lag(water)"
+    )
+    lag_initial = {"growth": 0.0, "water": 0.0, "stress": 0.0}
+    fitted = _pin(
+        pathmc.model(
+            spec,
+            data=_frame(columns=("growth", "water", "stress", "rain")),
+            panel=PANEL,
+            initial=lag_initial,
+        )
+    )
+    graph = fitted._graph_info
+    rule = where(previous("rain") > 0.5, 1.0, 0.0)
+    plan = plan_policy(
+        _policy("rain_rule", rule),
+        graph,
+        names=set(graph.endogenous) | set(graph.exogenous),
+        time_values=list(TIMES),
+    )
+    assert "rain" in plan.extra_carries
+    result = _do(
+        fitted,
+        _policy("rain_rule", rule),
+        initial={**lag_initial, "rain": 1.0},
+    )
+    water = _path(result, "water")
+    assert water[0] == pytest.approx(1.0)
+    assert water[1] == pytest.approx(0.0)
+    assert isinstance(result, PolicyRun)
+    assert not isinstance(result, pathmc.DoResult)

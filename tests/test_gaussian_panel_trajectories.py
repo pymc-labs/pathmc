@@ -482,3 +482,32 @@ def test_fitted_numpy_panel_recovers_and_generates_coherent_paths():
     standardized = residual / post.sigma_z.values[..., None, None]
     assert abs(standardized.mean()) < 0.06
     assert standardized.std() == pytest.approx(1.0, abs=0.06)
+
+
+def test_simulation_axis_keeps_distinct_draws():
+    from pathmc.simulate import _execute_gaussian_panel
+
+    model = _model("y ~ 0 + 0.5*lag(y)", units=2)
+    post = _posterior(model, draws=2)
+    info = model._gen_model._pathmc_panel_scan
+    values = np.zeros((1, 2, 2, info.n_units, info.n_times))
+    values[:, :, 0] = 1.0
+    values[:, :, 1] = -1.0
+    noise = xr.Dataset({
+        "y": xr.DataArray(
+            values,
+            dims=("chain", "draw", "simulation", "unit", "time"),
+            coords={
+                "chain": post.chain,
+                "draw": post.draw,
+                "simulation": [0, 1],
+                "unit": info.unit_labels,
+                "time": info.time_values,
+            },
+        )
+    })
+    result = _execute_gaussian_panel(model._gen_model, post, info, innovations=noise)
+    states = result["y"]
+    assert states.dims == ("chain", "draw", "simulation", "unit", "time")
+    assert states.sizes["simulation"] == 2
+    assert not np.allclose(states.isel(simulation=0), states.isel(simulation=1))

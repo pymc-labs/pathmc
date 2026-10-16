@@ -18,7 +18,7 @@ scan with the policy injected into ``step_fn``, then evaluates that scan
 in draw/simulation chunks. Innovations are generated from a
 ``SeedSequence`` keyed by seed, variable, chain, draw, and simulation, so
 chunk size does not change results and two policies with the same seed
-share noise.
+share noise. ``do(policy=...)`` returns a :class:`PolicyRun`.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ from pathmc.policy import (
     plan_policy,
     reject_unsupported_policy_model,
 )
-from pathmc.simulate import DoResult, _forced_generative_carry
+from pathmc.simulate import _execute_gaussian_panel, _stack_sample, _stack_sample_time
 
 _COUPLING = "common-random-numbers"
 
@@ -86,17 +86,155 @@ class PolicySimulationInfo:
         return mismatched
 
 
+def _time_label_index(times: list[Any], label: Any, where: str) -> int:
+    for index, value in enumerate(times):
+        if value == label:
+            return index
+    raise ValueError(
+        f"aggregate_time {where}={label!r} is not a fitted time label. "
+        f"Available labels: {times}."
+    )
+
+
+def _reduce_policy_time(
+    ds: xr.Dataset,
+    var: str,
+    reduction: str,
+    start: Any,
+    end: Any,
+) -> xr.Dataset:
+    """Reduce one variable's time dimension, dropping every other variable."""
+    if var not in ds:
+        raise KeyError(
+            f"{var!r} is not in this policy result. Available: {list(ds.data_vars)}."
+        )
+    values = ds[var]
+    if "time" not in values.dims:
+        raise ValueError(
+            f"{var!r} has no time dimension. aggregate_time() was already "
+            "applied, or this result is not a trajectory."
+        )
+    times = list(values.coords["time"].values)
+    start_i = 0 if start is None else _time_label_index(times, start, "start")
+    end_i = len(times) - 1 if end is None else _time_label_index(times, end, "end")
+    if end_i < start_i:
+        raise ValueError(f"aggregate_time end={end!r} precedes start={start!r}.")
+    window = values.isel(time=slice(start_i, end_i + 1))
+    if reduction == "sum":
+        reduced = window.sum(dim="time")
+    elif reduction == "mean":
+        reduced = window.mean(dim="time")
+    elif reduction == "last":
+        reduced = window.isel(time=-1)
+    else:
+        raise ValueError(
+            "aggregate_time reduction must be 'sum', 'mean', or 'last'. "
+            f"Got {reduction!r}."
+        )
+    return reduced.to_dataset()
+
+
 @dataclass(frozen=True)
 class PolicyRun:
-    """Population summaries plus the per-simulation draws a contrast needs."""
+    """Population summaries for one history-dependent policy.
+
+    ``do(policy=...)`` returns this type, not a :class:`pathmc.simulate.DoResult`.
+    A ``set=`` query still returns a ``DoResult``. The two cannot be subtracted.
+    """
 
     info: PolicySimulationInfo
     population: xr.Dataset
     simulation_draws: xr.Dataset
-    trajectories: xr.Dataset | None = None
+    _trajectories: xr.Dataset | None = None
+
+    @property
+    def dataset(self) -> xr.Dataset:
+        """Unit-mean posterior draws, dims ``("time", "chain", "draw")``."""
+        return self.population
+
+    def simulation_info(self) -> PolicySimulationInfo:
+        """Identity of this run. Contrast requires every field except name."""
+        return self.info
+
+    @property
+    def trajectories(self) -> xr.Dataset:
+        """Full unit paths. Requires ``keep_trajectories=True``."""
+        if self._trajectories is None:
+            raise ValueError(
+                "trajectories were not retained. Pass keep_trajectories=True "
+                "to do(); the default omits them."
+            )
+        return self._trajectories
+
+    def mean(self, var: str) -> float:
+        """Return the posterior mean of *var* under this policy."""
+        return float(np.mean(_stack_sample(self.population[var])))
+
+    def by_time(self, var: str) -> np.ndarray:
+        """Return per-time posterior draws, shape ``(n_times, n_samples)``."""
+        if "time" not in self.population[var].dims:
+            raise ValueError(
+                "Per-time data not available. "
+                "Use do(simulate_over='time') to get per-time results."
+            )
+        return _stack_sample_time(self.population[var])
+
+    @property
+    def time_index(self) -> np.ndarray | None:
+        """Time labels for the first axis of :meth:`by_time` results."""
+        if "time" not in self.population.coords:
+            return None
+        return np.asarray(self.population["time"].values)
+
+    def aggregate_time(
+        self,
+        var: str,
+        *,
+        reduction: str = "sum",
+        start: Any = None,
+        end: Any = None,
+    ) -> PolicyRun:
+        """Reduce the time dimension of one policy variable.
+
+        ``reduction`` is ``"sum"``, ``"mean"``, or ``"last"``. ``start`` and
+        ``end`` are inclusive fitted time labels. The result has no time
+        dimension, so :meth:`mean` describes that scalar estimand.
+        """
+        return PolicyRun(
+            info=self.info,
+            population=_reduce_policy_time(self.population, var, reduction, start, end),
+            simulation_draws=_reduce_policy_time(
+                self.simulation_draws, var, reduction, start, end
+            ),
+            _trajectories=None,
+        )
+
+    def simulation_mcse(self, var: str, *, by: str | None = None) -> Any:
+        """Per-posterior-draw Monte Carlo standard error of a policy estimand.
+
+        Computed within each posterior draw as the simulation standard
+        deviation divided by ``sqrt(n_simulations)``. The chain and draw
+        dimensions are preserved. A time-indexed result keeps ``time`` as
+        well; call :meth:`aggregate_time` first for a cumulative or terminal
+        estimand. ``by='time'`` is accepted and does not average draws.
+        """
+        draws = self.simulation_draws[var]
+        if by not in (None, "time"):
+            raise ValueError(
+                f"simulation_mcse by= must be 'time' or omitted. Got {by!r}."
+            )
+        if by == "time" and "time" not in draws.dims:
+            raise ValueError(
+                "simulation_mcse by='time' needs a time dimension. "
+                "This result was already reduced with aggregate_time()."
+            )
+        std = draws.std(dim="simulation", ddof=1)
+        return std / np.sqrt(draws.sizes["simulation"])
 
     def contrast(self, other: PolicyRun) -> PolicyRun:
         """Paired difference. Innovations already match when the seed matches."""
+        if not isinstance(other, PolicyRun):
+            return NotImplemented
         mismatched = self.info.matches(other.info)
         if mismatched:
             raise ValueError(
@@ -107,8 +245,8 @@ class PolicyRun:
                 "fitted posterior. Refitting is unnecessary when those match."
             )
         trajectories = None
-        if self.trajectories is not None and other.trajectories is not None:
-            trajectories = self.trajectories - other.trajectories
+        if self._trajectories is not None and other._trajectories is not None:
+            trajectories = self._trajectories - other._trajectories
         name = f"{self.info.policy_name} - {other.info.policy_name}"
         return PolicyRun(
             info=PolicySimulationInfo(
@@ -128,8 +266,14 @@ class PolicyRun:
             ),
             population=self.population - other.population,
             simulation_draws=self.simulation_draws - other.simulation_draws,
-            trajectories=trajectories,
+            _trajectories=trajectories,
         )
+
+    def __sub__(self, other: PolicyRun) -> PolicyRun:
+        """Paired difference of two policy results."""
+        if not isinstance(other, PolicyRun):
+            return NotImplemented
+        return self.contrast(other)
 
 
 def policy_innovations(
@@ -190,8 +334,8 @@ def run_policy_evaluation(
     batch_draws: int = 64,
     batch_sims: int = 32,
     innovations: Mapping[str, np.ndarray] | None = None,
-) -> DoResult:
-    """Compile a throwaway policy scan and return population summaries."""
+) -> PolicyRun:
+    """Compile a throwaway policy scan and return a :class:`PolicyRun`."""
     _reject_policy_arguments(
         policy,
         kind=kind,
@@ -296,7 +440,12 @@ def run_policy_evaluation(
     )
     _check_innovations(noise, states, post, n_sim, int(scan.n_units), n_times)
     interventions = _model_interventions(
-        schedules, scales, states, policy_scan.exogenous, int(scan.n_units)
+        schedules,
+        scales,
+        states,
+        policy_scan.exogenous,
+        policy_scan.unit_labels,
+        policy_scan.time_values,
     )
     state_mu, action_mu = _execute_chunks(
         policy_model,
@@ -338,13 +487,12 @@ def run_policy_evaluation(
         coupling=_COUPLING,
         weights=tuple(1.0 / int(scan.n_units) for _ in scan.unit_labels),
     )
-    run = PolicyRun(
+    return PolicyRun(
         info=info,
         population=population,
         simulation_draws=sim_draws,
-        trajectories=trajectories,
+        _trajectories=trajectories,
     )
-    return DoResult(ds=population, scenario="policy", policy=run)
 
 
 def _reject_policy_arguments(
@@ -549,10 +697,12 @@ def _model_interventions(
     scales: dict[str, np.ndarray],
     states: tuple[str, ...],
     exogenous: tuple[str, ...],
-    n_units: int,
-) -> dict[str, np.ndarray]:
+    unit_labels: Sequence[Any],
+    time_values: Sequence[Any],
+) -> dict[str, xr.DataArray]:
     known = set(states) | set(exogenous)
-    out: dict[str, np.ndarray] = {}
+    n_units = len(unit_labels)
+    out: dict[str, xr.DataArray] = {}
     for var, series in schedules.items():
         if var not in known:
             raise ValueError(
@@ -562,8 +712,11 @@ def _model_interventions(
         business = np.broadcast_to(series, (series.shape[0], n_units)).astype(float)
         factor = scales.get(var)
         model_units = business if factor is None else business / factor.reshape(1, -1)
-        key = f"_do_intervene_{var}" if var in states else var
-        out[key] = np.ascontiguousarray(model_units)
+        out[var] = xr.DataArray(
+            np.ascontiguousarray(model_units).T,
+            dims=("unit", "time"),
+            coords={"unit": list(unit_labels), "time": list(time_values)},
+        )
     return out
 
 
@@ -593,12 +746,42 @@ def _check_innovations(
             )
 
 
+def _chunk_innovations(
+    noise: Mapping[str, np.ndarray],
+    states: tuple[str, ...],
+    post_slice: xr.Dataset,
+    chain_i: int,
+    draw_idx: np.ndarray,
+    sim_idx: np.ndarray,
+    unit_labels: Sequence[Any],
+    time_values: Sequence[Any],
+) -> xr.Dataset:
+    """One chunk of shared noise, labelled to the posterior slice."""
+    data = {}
+    for var in states:
+        block = noise[var][chain_i][draw_idx[:, None], sim_idx[None, :]]
+        data[var] = (
+            ("chain", "draw", "simulation", "unit", "time"),
+            block[None, ...],
+        )
+    return xr.Dataset(
+        data,
+        coords={
+            "chain": np.asarray(post_slice.coords["chain"].values),
+            "draw": np.asarray(post_slice.coords["draw"].values),
+            "simulation": np.asarray(sim_idx),
+            "unit": list(unit_labels),
+            "time": list(time_values),
+        },
+    )
+
+
 def _execute_chunks(
     policy_model: pm.Model,
     post: xr.Dataset,
     states: tuple[str, ...],
     noise: Mapping[str, np.ndarray],
-    interventions: dict[str, np.ndarray],
+    interventions: dict[str, xr.DataArray],
     *,
     batch_draws: int,
     batch_sims: int,
@@ -616,17 +799,8 @@ def _execute_chunks(
         var: np.empty((n_chain, n_draw, n_sim, n_unit, n_time)) for var in states
     }
     action_mu = np.empty((n_chain, n_draw, n_sim, n_unit, n_time))
-    execution = pm.do(policy_model, interventions) if interventions else policy_model
-    noise_names = {f"carry_innovations_{var}" for var in states}
-    parameter_names = [
-        rv.name for rv in policy_model.free_RVs if rv.name not in noise_names
-    ]
-    missing = sorted(set(parameter_names) - set(post.data_vars))
-    if missing:
-        raise ValueError(
-            f"Posterior is missing structural parameters {missing}. "
-            "Supply fitted draws for every structural parameter."
-        )
+    scan_info = policy_model._pathmc_panel_scan
+    action_name = scan_info.policy_action or "_policy_action"
     chain_labels = list(post.coords["chain"].values)
     draw_labels = list(post.coords["draw"].values)
     for chain_i in range(n_chain):
@@ -634,18 +808,24 @@ def _execute_chunks(
             draw_idx = np.arange(draw_start, min(draw_start + batch_draws, n_draw))
             for sim_start in range(0, n_sim, batch_sims):
                 sim_idx = np.arange(sim_start, min(sim_start + batch_sims, n_sim))
-                chunk_states, chunk_action = _execute_slice(
-                    execution,
-                    post.isel(chain=[chain_i], draw=draw_idx),
-                    states,
-                    parameter_names,
-                    noise,
-                    chain_i,
-                    draw_idx,
-                    sim_idx,
-                    n_unit,
-                    n_time,
+                post_slice = post.isel(chain=[chain_i], draw=draw_idx)
+                result = _execute_gaussian_panel(
+                    policy_model,
+                    post_slice,
+                    scan_info,
+                    innovations=_chunk_innovations(
+                        noise,
+                        states,
+                        post_slice,
+                        chain_i,
+                        draw_idx,
+                        sim_idx,
+                        scan_info.unit_labels,
+                        scan_info.time_values,
+                    ),
+                    interventions=interventions or None,
                 )
+                chunk_action = np.asarray(result[action_name].values)[0]
                 _reject_nonfinite_action(
                     chunk_action,
                     policy_name=policy_name,
@@ -658,81 +838,10 @@ def _execute_chunks(
                 )
                 for var in states:
                     state_mu[var][chain_i, draw_idx[:, None], sim_idx[None, :]] = (
-                        chunk_states[var]
+                        np.asarray(result[var].values)[0]
                     )
                 action_mu[chain_i, draw_idx[:, None], sim_idx[None, :]] = chunk_action
     return state_mu, action_mu
-
-
-def _execute_slice(
-    execution: pm.Model,
-    post_slice: xr.Dataset,
-    states: tuple[str, ...],
-    parameter_names: list[str],
-    noise: Mapping[str, np.ndarray],
-    chain_i: int,
-    draw_idx: np.ndarray,
-    sim_idx: np.ndarray,
-    n_unit: int,
-    n_time: int,
-) -> tuple[dict[str, np.ndarray], np.ndarray]:
-    n_draw = len(draw_idx)
-    n_sim = len(sim_idx)
-    trace = _repeat_draws(post_slice[parameter_names], n_sim)
-    for var in states:
-        stacked = np.empty((1, n_draw * n_sim, n_time, n_unit))
-        for di, draw_pos in enumerate(draw_idx):
-            for si, sim in enumerate(sim_idx):
-                slot = di * n_sim + si
-                stacked[0, slot] = noise[var][chain_i, draw_pos, sim].T
-        trace[f"carry_innovations_{var}"] = (
-            ("chain", "draw", f"{var}_noise_time", f"{var}_noise_unit"),
-            stacked,
-        )
-    with _forced_generative_carry(execution):
-        result = pm.compute_deterministics(
-            trace,
-            model=execution,
-            var_names=[*states, "_policy_action"],
-            progressbar=False,
-        )
-    state_out: dict[str, np.ndarray] = {}
-    for var in states:
-        state_out[var] = _unpack_scan(result, var, n_draw, n_sim, n_unit, n_time)
-    action = _unpack_scan(result, "_policy_action", n_draw, n_sim, n_unit, n_time)
-    return state_out, action
-
-
-def _repeat_draws(ds: xr.Dataset, n_rep: int) -> xr.Dataset:
-    data_vars = {}
-    for name, da in ds.data_vars.items():
-        axis = da.dims.index("draw")
-        data_vars[name] = (
-            da.dims,
-            np.repeat(np.asarray(da.values), n_rep, axis=axis),
-        )
-    return xr.Dataset(
-        data_vars,
-        coords={
-            "chain": ds.coords["chain"],
-            "draw": np.arange(ds.sizes["draw"] * n_rep),
-        },
-    )
-
-
-def _unpack_scan(
-    result: Any, name: str, n_draw: int, n_sim: int, n_unit: int, n_time: int
-) -> np.ndarray:
-    if hasattr(result, "posterior"):
-        result = result.posterior
-    values = np.asarray(result[name].values)
-    expected = (1, n_draw * n_sim, n_time, n_unit)
-    if values.shape != expected:
-        raise RuntimeError(
-            f"Policy scan output {name!r} has shape {values.shape}, "
-            f"expected {expected}. This is an internal executor error."
-        )
-    return values[0].reshape(n_draw, n_sim, n_time, n_unit).transpose(0, 1, 3, 2)
 
 
 def _reject_nonfinite_action(

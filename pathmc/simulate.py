@@ -55,8 +55,6 @@ if TYPE_CHECKING:
     import matplotlib.axes
     import matplotlib.figure
 
-    from pathmc.policy_exec import PolicySimulationInfo
-
 __all__ = ["DoResult", "EstimandResult"]
 
 
@@ -468,54 +466,6 @@ class _DrawStorageMixin:
         return self._draw_by_time(var)
 
 
-def _time_label_index(times: list[Any], label: Any, where: str) -> int:
-    for index, value in enumerate(times):
-        if value == label:
-            return index
-    raise ValueError(
-        f"aggregate_time {where}={label!r} is not a fitted time label. "
-        f"Available labels: {times}."
-    )
-
-
-def _reduce_policy_time(
-    ds: xr.Dataset,
-    var: str,
-    reduction: str,
-    start: Any,
-    end: Any,
-) -> xr.Dataset:
-    """Reduce one variable's time dimension, dropping every other variable."""
-    if var not in ds:
-        raise KeyError(
-            f"{var!r} is not in this policy result. Available: {list(ds.data_vars)}."
-        )
-    values = ds[var]
-    if "time" not in values.dims:
-        raise ValueError(
-            f"{var!r} has no time dimension. aggregate_time() was already "
-            "applied, or this result is not a trajectory."
-        )
-    times = list(values.coords["time"].values)
-    start_i = 0 if start is None else _time_label_index(times, start, "start")
-    end_i = len(times) - 1 if end is None else _time_label_index(times, end, "end")
-    if end_i < start_i:
-        raise ValueError(f"aggregate_time end={end!r} precedes start={start!r}.")
-    window = values.isel(time=slice(start_i, end_i + 1))
-    if reduction == "sum":
-        reduced = window.sum(dim="time")
-    elif reduction == "mean":
-        reduced = window.mean(dim="time")
-    elif reduction == "last":
-        reduced = window.isel(time=-1)
-    else:
-        raise ValueError(
-            "aggregate_time reduction must be 'sum', 'mean', or 'last'. "
-            f"Got {reduction!r}."
-        )
-    return reduced.to_dataset()
-
-
 class DoResult(_DrawStorageMixin, ResultReprMixin):
     """Container for propagated posterior draws under an intervention.
 
@@ -552,7 +502,6 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         scenario: str = "do",
         evidence: Mapping[str, float] | None = None,
         observed_by_time: Mapping[str, np.ndarray] | None = None,
-        policy: Any | None = None,
     ) -> None:
         self._ds = ds
         self._scenario = scenario
@@ -562,7 +511,6 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             if observed_by_time is not None
             else {}
         )
-        self._policy = policy
 
     @property
     def dataset(self) -> xr.Dataset:
@@ -609,88 +557,6 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             Array of ``[lower, upper]``.
         """
         return compute_hdi(self._draw(var), prob=prob)
-
-    def simulation_info(self) -> PolicySimulationInfo:
-        """Identity of a policy run.
-
-        Returns a ``PolicySimulationInfo``. Contrast requires every field
-        except ``policy_name``. Raises on a legacy ``do()`` result.
-        """
-        return self._require_policy("simulation_info").info
-
-    @property
-    def simulation_draws(self) -> xr.Dataset:
-        """Per-simulation unit means, dims ``(time, chain, draw, simulation)``."""
-        return self._require_policy("simulation_draws").simulation_draws
-
-    @property
-    def trajectories(self) -> xr.Dataset:
-        """Full unit paths. Requires ``keep_trajectories=True``."""
-        run = self._require_policy("trajectories")
-        if run.trajectories is None:
-            raise ValueError(
-                "trajectories were not retained. Pass keep_trajectories=True "
-                "to do(); the default omits them."
-            )
-        return run.trajectories
-
-    def aggregate_time(
-        self,
-        var: str,
-        *,
-        reduction: str = "sum",
-        start: Any = None,
-        end: Any = None,
-    ) -> DoResult:
-        """Reduce the time dimension of one policy variable.
-
-        ``reduction`` is ``"sum"``, ``"mean"``, or ``"last"``. ``start`` and
-        ``end`` are inclusive fitted time labels. The result has no time
-        dimension, so ``mean`` and ``hdi`` describe that scalar estimand.
-        """
-        run = self._require_policy("aggregate_time")
-        population = _reduce_policy_time(self._ds, var, reduction, start, end)
-        sims = _reduce_policy_time(run.simulation_draws, var, reduction, start, end)
-        from pathmc.policy_exec import PolicyRun
-
-        reduced = PolicyRun(
-            info=run.info,
-            population=population,
-            simulation_draws=sims,
-            trajectories=None,
-        )
-        return DoResult(ds=population, scenario=self._scenario, policy=reduced)
-
-    def simulation_mcse(self, var: str, *, by: str | None = None) -> Any:
-        """Per-posterior-draw Monte Carlo standard error of a policy estimand.
-
-        Computed within each posterior draw as the simulation standard
-        deviation divided by ``sqrt(n_simulations)``. The chain and draw
-        dimensions are preserved. A time-indexed result keeps ``time`` as
-        well; call :meth:`aggregate_time` first for a cumulative or terminal
-        estimand. ``by='time'`` is accepted and does not average draws.
-        """
-        run = self._require_policy("simulation_mcse")
-        draws = run.simulation_draws[var]
-        if by not in (None, "time"):
-            raise ValueError(
-                f"simulation_mcse by= must be 'time' or omitted. Got {by!r}."
-            )
-        if by == "time" and "time" not in draws.dims:
-            raise ValueError(
-                "simulation_mcse by='time' needs a time dimension. "
-                "This result was already reduced with aggregate_time()."
-            )
-        std = draws.std(dim="simulation", ddof=1)
-        return std / np.sqrt(draws.sizes["simulation"])
-
-    def _require_policy(self, method: str) -> Any:
-        if self._policy is None:
-            raise ValueError(
-                f"{method}() is only available on a policy= result. "
-                "Call do(policy=..., simulate_over='time') first."
-            )
-        return self._policy
 
     def by_time(self, var: str) -> np.ndarray:
         """Return per-time-step posterior draws, shape ``(n_times, n_samples)``.
@@ -837,18 +703,6 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         """Element-wise contrast between two DoResults."""
         if not isinstance(other, DoResult):
             return NotImplemented
-        if (self._policy is None) != (other._policy is None):
-            raise ValueError(
-                "Cannot contrast a policy result with a do(set=) result. "
-                "Compare two policy results, or two do() results."
-            )
-        if self._policy is not None:
-            contrasted = self._policy.contrast(other._policy)
-            return DoResult(
-                ds=contrasted.population,
-                scenario="policy",
-                policy=contrasted,
-            )
         if self._scenario != other._scenario:
             raise ValueError(
                 "Cannot contrast a counterfactual result with a do() result. "
@@ -1921,6 +1775,111 @@ def _panel_predictive_sample_kwargs(
     return {"sample_vars": unobs, "var_names": var_names}
 
 
+def _simulation_labels(innovations: xr.Dataset | None) -> tuple[Any, ...] | None:
+    """Return simulation labels when every innovation shares that dimension."""
+    if innovations is None or not innovations.data_vars:
+        return None
+    labelled = [
+        name
+        for name, value in innovations.data_vars.items()
+        if "simulation" in value.dims
+    ]
+    if not labelled:
+        return None
+    if len(labelled) != len(innovations.data_vars):
+        raise ValueError(
+            "Innovations must all include a simulation dimension, or none of them. "
+            f"Missing it: {sorted(set(innovations.data_vars) - set(labelled))}."
+        )
+    reference = innovations[labelled[0]]
+    if "simulation" not in reference.coords:
+        raise ValueError(
+            f"innovations[{labelled[0]!r}] has a simulation dimension but no coordinate."
+        )
+    labels = tuple(reference.coords["simulation"].values.tolist())
+    for name in labelled[1:]:
+        value = innovations[name]
+        if "simulation" not in value.coords:
+            raise ValueError(
+                f"innovations[{name!r}] has a simulation dimension but no coordinate."
+            )
+        other = tuple(value.coords["simulation"].values.tolist())
+        if other != labels:
+            raise ValueError(
+                "Innovation simulation coordinates must match exactly. "
+                f"{labelled[0]!r} has {list(labels)}, {name!r} has {list(other)}."
+            )
+    return labels
+
+
+def _repeat_draw_axis(trace: xr.Dataset, n_sim: int) -> xr.Dataset:
+    """Repeat each posterior draw ``n_sim`` times along ``draw``.
+
+    The repeated axis is draw-major: simulation varies fastest, matching the
+    stacked noise layout ``di * n_sim + si``.
+    """
+    n_draw = int(trace.sizes["draw"])
+    data_vars = {}
+    for name, value in trace.data_vars.items():
+        if "draw" not in value.dims:
+            data_vars[name] = value
+            continue
+        axis = value.dims.index("draw")
+        data_vars[name] = (
+            value.dims,
+            np.repeat(np.asarray(value.values), n_sim, axis=axis),
+        )
+    coords: dict[str, Any] = {}
+    for name, coord in trace.coords.items():
+        if name == "draw":
+            coords[name] = np.arange(n_draw * n_sim)
+        elif "draw" in coord.dims:
+            axis = coord.dims.index("draw")
+            coords[name] = (
+                coord.dims,
+                np.repeat(np.asarray(coord.values), n_sim, axis=axis),
+            )
+        else:
+            coords[name] = coord
+    return xr.Dataset(data_vars, coords=coords)
+
+
+def _unpack_simulation(
+    result: Any,
+    names: list[str],
+    n_draw: int,
+    sim_labels: tuple[Any, ...],
+    coords: dict[str, Any],
+) -> xr.Dataset:
+    """Reshape stacked draws back to ``(chain, draw, simulation, unit, time)``."""
+    if hasattr(result, "posterior"):
+        result = result.posterior
+    n_sim = len(sim_labels)
+    data_vars = {}
+    for name in names:
+        values = np.asarray(result[name].values)
+        expected = (values.shape[0], n_draw * n_sim, values.shape[-2], values.shape[-1])
+        if values.shape != expected:
+            raise RuntimeError(
+                f"Executor output {name!r} has shape {values.shape}, expected {expected}. "
+                "This is an internal error."
+            )
+        restored = values.reshape(
+            values.shape[0], n_draw, n_sim, values.shape[-2], values.shape[-1]
+        ).transpose(0, 1, 2, 4, 3)
+        data_vars[name] = (("chain", "draw", "simulation", "unit", "time"), restored)
+    return xr.Dataset(
+        data_vars,
+        coords={
+            "chain": coords["chain"],
+            "draw": coords["draw"],
+            "simulation": list(sim_labels),
+            "unit": coords["unit"],
+            "time": coords["time"],
+        },
+    )
+
+
 def _execute_gaussian_panel(
     gen_model: pm.Model,
     posterior: xr.Dataset,
@@ -1936,9 +1895,12 @@ def _execute_gaussian_panel(
     Initial states cover all structural lag bases with ``(unit,)`` arrays.
     Interventions use ``(unit, time)`` arrays. Supplied innovations cover all
     endogenous variables with standard-Normal epsilon arrays of dimensions
-    ``(chain, draw, unit, time)``. Every coordinate must match exactly; no
-    implicit alignment or broadcasting is performed. Omitted innovations are
-    explicitly refreshed, independently of auxiliary draws in the posterior.
+    ``(chain, draw, unit, time)``. When every innovation also carries a
+    ``simulation`` dimension, posterior draws are repeated along ``draw`` by
+    that count and the noise is stacked into the same axis. The returned
+    states then include ``simulation`` and, when the scan recorded one, the
+    policy action. Omitted innovations are explicitly refreshed, independently
+    of auxiliary draws in the posterior.
     """
     states = scan_info.gaussian_states
     if not states:
@@ -1950,9 +1912,12 @@ def _execute_gaussian_panel(
         "time": scan_info.time_values,
     }
 
-    def checked(value: xr.DataArray, dims: tuple[str, ...], name: str) -> np.ndarray:
+    def checked(
+        value: xr.DataArray, dims: tuple[str, ...], name: str, expected=None
+    ) -> np.ndarray:
+        reference = coords if expected is None else expected
         if value.dims != dims or any(
-            d not in value.coords or not np.array_equal(value.coords[d], coords[d])
+            d not in value.coords or not np.array_equal(value.coords[d], reference[d])
             for d in dims
         ):
             raise ValueError(
@@ -1994,17 +1959,22 @@ def _execute_gaussian_panel(
             "supply fitted draws for every structural parameter."
         )
     trace = posterior[parameter_names].copy()
+    sim_labels = _simulation_labels(innovations)
+    action_name = getattr(scan_info, "policy_action", None)
     if innovations is not None:
         if set(innovations.data_vars) != set(states):
             raise ValueError(
                 f"innovations must cover exactly {sorted(states)}; supply one array per state."
             )
-        for var in states:
-            values = checked(innovations[var], ("chain", "draw", "unit", "time"), var)
-            trace[f"carry_innovations_{var}"] = (
-                ("chain", "draw", f"{var}_noise_time", f"{var}_noise_unit"),
-                values.transpose(0, 1, 3, 2),
-            )
+        if sim_labels is None:
+            for var in states:
+                values = checked(
+                    innovations[var], ("chain", "draw", "unit", "time"), var
+                )
+                trace[f"carry_innovations_{var}"] = (
+                    ("chain", "draw", f"{var}_noise_time", f"{var}_noise_unit"),
+                    values.transpose(0, 1, 3, 2),
+                )
 
     with _forced_generative_carry(gen_model):
         execution_model = pm.do(gen_model, replacements)
@@ -2017,12 +1987,49 @@ def _execute_gaussian_panel(
                 random_seed=random_seed,
                 progressbar=False,
             ).posterior_predictive.dataset
-        else:
+        elif sim_labels is None:
             result = pm.compute_deterministics(
                 trace,
                 model=execution_model,
                 var_names=list(states),
                 progressbar=False,
+            )
+        else:
+            n_sim = len(sim_labels)
+            repeated = _repeat_draw_axis(trace, n_sim)
+            noise_coords = {**coords, "simulation": list(sim_labels)}
+            for var in states:
+                values = checked(
+                    innovations[var],
+                    ("chain", "draw", "simulation", "unit", "time"),
+                    var,
+                    noise_coords,
+                )
+                stacked = values.transpose(0, 1, 2, 4, 3).reshape(
+                    values.shape[0],
+                    values.shape[1] * n_sim,
+                    values.shape[4],
+                    values.shape[3],
+                )
+                repeated[f"carry_innovations_{var}"] = (
+                    ("chain", "draw", f"{var}_noise_time", f"{var}_noise_unit"),
+                    stacked,
+                )
+            names = list(states)
+            if action_name:
+                names.append(action_name)
+            simulated = pm.compute_deterministics(
+                repeated,
+                model=execution_model,
+                var_names=names,
+                progressbar=False,
+            )
+            return _unpack_simulation(
+                simulated,
+                names,
+                int(posterior.sizes["draw"]),
+                sim_labels,
+                coords,
             )
     return xr.Dataset({
         var: xr.DataArray(

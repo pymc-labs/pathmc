@@ -20,7 +20,7 @@ import sys
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING, overload
 
 import arviz as az
 import graphviz
@@ -115,6 +115,8 @@ from pathmc.simulate import (
 
 if TYPE_CHECKING:
     from pathmc.adjustment import AdjustmentModel
+    from pathmc.policy import TreatmentPolicy
+    from pathmc.policy_exec import PolicyRun
 
 __all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
 
@@ -2123,6 +2125,38 @@ class PathModel:
             initial=arrays,
         )
 
+    @overload
+    def do(
+        self,
+        set: dict[str, Any] | None = None,
+        shift: dict[str, float] | None = None,
+        kind: str = "mean",
+        simulate_over: str | None = None,
+        random_seed: int | None = None,
+        *,
+        initial: Mapping[str, Any] | None = None,
+        policy: None = None,
+        horizon: None = None,
+        n_simulations: None = None,
+        keep_trajectories: None = None,
+    ) -> DoResult: ...
+
+    @overload
+    def do(
+        self,
+        set: dict[str, Any] | None = None,
+        shift: dict[str, float] | None = None,
+        kind: str = "mean",
+        simulate_over: str | None = None,
+        random_seed: int | None = None,
+        *,
+        initial: Mapping[str, Any] | None = None,
+        policy: TreatmentPolicy,
+        horizon: int | None = None,
+        n_simulations: int | None = None,
+        keep_trajectories: bool | None = None,
+    ) -> PolicyRun: ...
+
     def do(
         self,
         set: dict[str, Any] | None = None,
@@ -2138,7 +2172,7 @@ class PathModel:
         horizon: int | None = None,
         n_simulations: int | None = None,
         keep_trajectories: bool | None = None,
-    ) -> DoResult:
+    ) -> Any:
         """Simulate an intervention using the do-operator.
 
         Uses PyMC-native graph surgery: ``pm.do()`` on the generative model
@@ -2198,9 +2232,10 @@ class PathModel:
 
         Returns
         -------
-        DoResult
-            Container with ``.mean(var)``, ``.hdi(var)``, and
-            contrast arithmetic via ``__sub__``.
+        DoResult | PolicyRun
+            A ``set=`` or ``shift=`` query returns a ``DoResult``. A
+            ``policy=`` query returns a ``PolicyRun``. The two are not one
+            type and cannot be subtracted.
 
         Raises
         ------
