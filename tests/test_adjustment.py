@@ -502,8 +502,11 @@ class TestPriorInheritance:
             },
         )
 
-        with pytest.raises(ValueError, match=r"priors=\{'mu_beta_Y_region'"):
+        with pytest.raises(
+            ValueError, match=r"priors=\{'mu_beta_Y_region'"
+        ) as exc_info:
             model.adjustment_model("X -> Y", formula=reduced)
+        assert "coefficient" not in str(exc_info.value)
 
         adjusted = model.adjustment_model(
             "X -> Y",
@@ -521,6 +524,56 @@ class TestPriorInheritance:
             "mu"
         ]
         assert mu == [1.0, 2.0]
+
+    def test_beta_named_transform_parameter_is_inherited(self, rng):
+        formula = "Y ~ logistic_saturation(X, lam=beta_lam) + Z"
+        model = pathmc.model(
+            f"X ~ Z\n{formula}",
+            data=_fork_df(rng),
+            priors={"beta_lam": Prior("HalfNormal", sigma=7)},
+        )
+
+        adjusted = model.adjustment_model("X -> Y", formula=formula)
+        assert adjusted.outcome_model._priors["beta_lam"] == model._priors["beta_lam"]
+
+    def test_unknown_shared_prior_fails_closed(self):
+        from pathmc.adjustment import _resolve_reduced_priors
+
+        spec = parse_spec("Y ~ X")
+        custom = Prior("Normal", mu=0, sigma=2)
+        default = Prior("Normal", mu=0, sigma=10)
+        with pytest.raises(ValueError, match="kappa_Y") as exc_info:
+            _resolve_reduced_priors(
+                {"kappa_Y": custom},
+                {"kappa_Y": default},
+                {"kappa_Y": default},
+                spec,
+                "Y",
+                None,
+            )
+        message = str(exc_info.value)
+        assert "coefficient" not in message
+        assert "priors={'kappa_Y'" in message
+
+        inherited = _resolve_reduced_priors(
+            {"kappa_Y": default},
+            {"kappa_Y": default},
+            {"kappa_Y": default},
+            spec,
+            "Y",
+            None,
+        )
+        assert "kappa_Y" not in inherited
+
+        overridden = _resolve_reduced_priors(
+            {"kappa_Y": custom},
+            {"kappa_Y": default},
+            {"kappa_Y": default},
+            spec,
+            "Y",
+            {"kappa_Y": Prior("Normal", mu=1, sigma=1)},
+        )
+        assert "kappa_Y" not in overridden
 
 
 class TestInnerModelTypes:
