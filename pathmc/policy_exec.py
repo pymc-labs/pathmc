@@ -537,33 +537,11 @@ def _unit_factors(
 ) -> dict[str, np.ndarray]:
     if not scaling:
         return {}
-    out: dict[str, np.ndarray] = {}
-    labels = [str(label) for label in unit_labels]
-    for name in sorted(names):
-        if not scaling.has_factor(name):
-            continue
-        dims, table = scaling.factors[name]
-        if not dims:
-            value = float(next(iter(table.values())))
-            out[name] = np.full(len(labels), value)
-            continue
-        if dims != (unit_col,):
-            raise ValueError(
-                f"Policy scale for {name!r} is keyed by {dims}, not the panel "
-                f"unit {unit_col!r}. Refit with scaling dims that include "
-                "the panel unit, or drop scaling for this query."
-            )
-        factors = []
-        for label in labels:
-            key = (label,)
-            if key not in table:
-                raise ValueError(
-                    f"Policy scale for {name!r} has no factor for unit "
-                    f"{label!r}. Refit so every fitted unit has a factor."
-                )
-            factors.append(float(table[key]))
-        out[name] = np.asarray(factors, dtype=float)
-    return out
+    return {
+        name: scaling.unit_divisors(name, unit_labels, unit_col)
+        for name in sorted(names)
+        if scaling.has_factor(name)
+    }
 
 
 def _model_interventions(
