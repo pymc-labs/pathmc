@@ -1027,7 +1027,7 @@ def _categorical_contribution(
     values: Mapping[str, Any],
 ) -> np.ndarray:
     """Posterior draws of one categorical term's contribution for one unit."""
-    from pathmc.categorical import encode_categorical
+    from pathmc.categorical import contrast_indices, encode_categorical
 
     assert slot.categorical is not None
     dim = f"{lhs}_{slot.name}_levels"
@@ -1037,7 +1037,7 @@ def _categorical_contribution(
         .values.reshape(post.sizes[dim], -1)
     )
     row = encode_categorical(slot.categorical, [values[slot.name]], variable=slot.name)
-    return (row @ beta)[0]
+    return (row @ beta[contrast_indices(slot.categorical)])[0]
 
 
 def _linear_predictor_draws(

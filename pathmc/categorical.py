@@ -101,9 +101,17 @@ def _fit_levels(series: pd.Series) -> tuple[Any, ...]:
     return levels
 
 
-def _level_column(variable: str, level: Any, *, reference_coded: bool) -> str:
-    marker = "T." if reference_coded else ""
-    return f"{variable}[{marker}{level}]"
+def _level_column(variable: str, level: Any, *, coding: str) -> str:
+    """Name one design column for a categorical level.
+
+    ``coding`` is ``"cell"``, ``"treatment"``, or ``"sum"``. Sum-to-zero
+    columns are marked ``S.`` so they are not mistaken for a full dummy set.
+    """
+    if coding == "treatment":
+        return f"{variable}[T.{level}]"
+    if coding == "sum":
+        return f"{variable}[S.{level}]"
+    return f"{variable}[{level}]"
 
 
 def baseline_variable(reg: Regression) -> str | None:
@@ -127,12 +135,48 @@ def baseline_variable(reg: Regression) -> str | None:
     return baseline
 
 
-def keeps_every_level(reg: Regression, call: CategoricalCall) -> bool:
-    """Whether this term keeps one coefficient per level.
+def sums_to_zero(reg: Regression, call: CategoricalCall) -> bool:
+    """Whether a hierarchical term is sum-to-zero against the baseline.
 
-    That is true when the term supplies the baseline, or when its prior is
-    hierarchical (the coefficients are then zero-mean deviations, so no level
-    escapes pooling by being the reference).
+    The baseline supplier keeps a free mean. A later hierarchical term still
+    has one coefficient per level, but those coefficients sum to zero so the
+    design does not add a second intercept direction.
+    """
+    baseline = baseline_variable(reg)
+    return (
+        call.prior == "hierarchical"
+        and baseline is not None
+        and call.variable != baseline
+    )
+
+
+def _sum_contrast_coded(call: CategoricalCall) -> bool:
+    """Whether fitted columns are sum-to-zero contrasts, not treatment codes."""
+    if len(call.columns) != len(call.levels) - 1:
+        return False
+    prefix = f"{call.variable}[S."
+    return all(column.startswith(prefix) for column in call.columns)
+
+
+def contrast_indices(call: CategoricalCall) -> list[int]:
+    """Indices of ``coefficient_levels`` that multiply ``encode_categorical``.
+
+    Sum-to-zero columns omit the reference level. The coefficient vector still
+    holds every level, so the linear predictor slices to these indices.
+    """
+    levels = coefficient_levels(call)
+    if not _sum_contrast_coded(call):
+        return list(range(len(levels)))
+    return [index for index, level in enumerate(levels) if level != call.reference]
+
+
+def keeps_every_level(reg: Regression, call: CategoricalCall) -> bool:
+    """Whether the coefficient vector includes every level.
+
+    A hierarchical term always keeps one coefficient per level, so no level
+    escapes pooling by being dropped. A later hierarchical term still keeps
+    every coefficient; ``sums_to_zero`` constrains them and the design emits
+    contrast columns rather than a second full dummy set.
     """
     return call.variable == baseline_variable(reg) or call.prior == "hierarchical"
 
@@ -246,6 +290,7 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
             if fitted_call is None:
                 continue
             all_levels = keeps_every_level(reg, fitted_call)
+            zero_sum = sums_to_zero(reg, fitted_call)
             if all_levels and fitted_call.reference is not None:
                 warnings.warn(
                     f"reference={fitted_call.reference!r} for categorical predictor "
@@ -258,17 +303,17 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
             reference = (
                 levels[0] if fitted_call.reference is None else fitted_call.reference
             )
-            represented = (
-                levels
-                if all_levels
-                else tuple(level for level in levels if level != reference)
-            )
+            if zero_sum:
+                represented = tuple(level for level in levels if level != reference)
+                coding = "sum"
+            elif all_levels:
+                represented = levels
+                coding = "cell"
+            else:
+                represented = tuple(level for level in levels if level != reference)
+                coding = "treatment"
             columns = tuple(
-                _level_column(
-                    term.variable,
-                    level,
-                    reference_coded=not all_levels,
-                )
+                _level_column(term.variable, level, coding=coding)
                 for level in represented
             )
             term.categorical = replace(
@@ -304,21 +349,23 @@ def fit_categorical_terms(spec: Spec, data: nw.DataFrame) -> set[str]:
 
 
 def is_reference_coded(call: CategoricalCall) -> bool:
-    """Read whether the fitted columns drop the reference level.
+    """Whether the fitted term drops its reference level from the coefficients.
 
-    This is a readout of the columns :func:`keeps_every_level` built, not a
-    second coding rule. It is meaningless before fitting, when both columns
-    and levels are empty.
+    Treatment coding drops the reference. Sum-to-zero contrasts also have fewer
+    columns than levels, but the coefficient vector still holds every level, so
+    they are not reference-coded. Meaningless before fitting.
     """
-    return bool(call.levels) and len(call.columns) < len(call.levels)
+    if not call.levels or _sum_contrast_coded(call):
+        return False
+    return len(call.columns) < len(call.levels)
 
 
 def has_population_mean(reg: Regression, call: CategoricalCall) -> bool:
     """Return whether a hierarchical term gets its own free population mean.
 
     Only the categorical that supplies the baseline can carry ``mu_beta``.
-    A later hierarchical term keeps every level, but its coefficients are
-    zero-mean deviations, so a free mean would be unidentified.
+    A later hierarchical term keeps every level, but those coefficients sum to
+    zero, so a free mean would be unidentified.
     """
     return call.prior == "hierarchical" and call.variable == baseline_variable(reg)
 
@@ -345,10 +392,12 @@ def encode_categorical(
     *,
     variable: str | None = None,
 ) -> np.ndarray:
-    """Encode values using fitted treatment-coding state.
+    """Encode values using the fitted column coding.
 
     Raises a clear error for unseen values instead of allowing pandas or patsy to
     infer a fresh level set or silently turn an unseen value into missing data.
+    Sum-to-zero columns are contrasts against the reference level, matching the
+    design matrix rather than a full dummy set.
     """
     name = variable or call.variable
     arr = np.asarray(values, dtype=object).reshape(-1)
@@ -364,6 +413,16 @@ def encode_categorical(
             f"Categorical predictor '{name}' contains unseen level(s) "
             f"{unseen!r}. Fitted levels are {list(call.levels)!r}."
         )
+    if _sum_contrast_coded(call):
+        columns = []
+        for level in call.levels:
+            if level == call.reference:
+                continue
+            column = np.zeros(len(arr), dtype=float)
+            column[arr == level] = 1.0
+            column[arr == call.reference] = -1.0
+            columns.append(column)
+        return np.column_stack(columns)
     levels = coefficient_levels(call)
     return np.column_stack([arr == level for level in levels]).astype(float)
 

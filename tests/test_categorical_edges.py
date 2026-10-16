@@ -183,7 +183,7 @@ class TestHierarchicalCategorical:
         rv_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert "mu_beta_y_region" in rv_names
 
-    def test_later_hierarchical_term_is_zero_mean_deviation(self, two_categorical_data):
+    def test_later_hierarchical_term_sums_to_zero(self, two_categorical_data):
         model = pathmc.model(
             "y ~ 0 + x + C(region) + C(ch, prior='hierarchical')",
             data=two_categorical_data,
@@ -193,13 +193,41 @@ class TestHierarchicalCategorical:
             "region[north]",
             "region[south]",
             "region[west]",
-            "ch[a]",
-            "ch[b]",
+            "ch[S.b]",
         ]
+        rank, n_columns = _design_rank(model, "y")
+        assert rank == n_columns == 5
         rv_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert "sigma_beta_y_ch" in rv_names
         assert "mu_beta_y_ch" not in rv_names
-        assert "beta_y_ch: Normal(0, sigma_beta_y_ch)" in str(model.priors())
+        assert "beta_y_ch: ZeroSumNormal(0, sigma_beta_y_ch)" in str(model.priors())
+        beta = np.asarray(model.pymc_model["beta_y_ch"].eval())
+        assert list(model.pymc_model.coords["y_ch_levels"]) == ["a", "b"]
+        assert beta.shape == (2,)
+        assert beta.sum() == pytest.approx(0.0)
+        contrast = model.design("y")["ch[S.b]"].to_numpy(dtype=float)
+        full = np.column_stack([
+            (two_categorical_data["ch"] == level).to_numpy() for level in ("a", "b")
+        ])
+        np.testing.assert_allclose(contrast * beta[1], full @ beta)
+        logp = model.pymc_model.compile_logp()(model.pymc_model.initial_point())
+        assert np.isfinite(float(logp))
+
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            "y ~ 0 + region + C(ch, prior='hierarchical')",
+            "y ~ 0 + C(region, prior='hierarchical') + C(ch, prior='hierarchical')",
+            "y ~ x + C(region, prior='hierarchical') + C(ch, prior='hierarchical')",
+        ],
+    )
+    def test_hierarchical_design_stays_full_rank(self, two_categorical_data, spec):
+        model = pathmc.model(spec, data=two_categorical_data)
+        rank, n_columns = _design_rank(model, "y")
+        assert rank == n_columns
+        beta = np.asarray(model.pymc_model["beta_y_ch"].eval())
+        assert beta.shape == (2,)
+        assert beta.sum() == pytest.approx(0.0)
 
     def test_data_free_introspection_matches_fitted_model(self, two_categorical_data):
         spec = "y ~ x + C(region, prior='hierarchical')"
@@ -222,7 +250,7 @@ class TestHierarchicalCategorical:
         text = str(model.priors())
         assert "mu_beta_y_region" in text
         assert "mu_beta_y_ch" not in text
-        assert "beta_y_ch: Normal(0, sigma_beta_y_ch)" in text
+        assert "beta_y_ch: ZeroSumNormal(0, sigma_beta_y_ch)" in text
 
     def test_reference_does_not_change_the_hierarchical_model(
         self, two_categorical_data

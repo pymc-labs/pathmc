@@ -823,19 +823,32 @@ def compile_to_pymc(
                 dim = f"{reg.lhs}_{term.variable}_levels"
                 beta_name = f"beta_{reg.lhs}_{term.variable}"
                 if call.prior == "hierarchical":
-                    from pathmc.categorical import has_population_mean
+                    from pathmc.categorical import (
+                        contrast_indices,
+                        has_population_mean,
+                        sums_to_zero,
+                    )
 
-                    mu: Any = 0.0
+                    sigma = priors[f"sigma_{beta_name}"].create_variable(
+                        f"sigma_{beta_name}"
+                    )
                     if has_population_mean(reg, call):
                         mu = priors[f"mu_{beta_name}"].create_variable(
                             f"mu_{beta_name}"
                         )
-                    sigma = priors[f"sigma_{beta_name}"].create_variable(
-                        f"sigma_{beta_name}"
-                    )
-                    categorical_coefficients[cat_key] = pm.Normal(
-                        beta_name, mu=mu, sigma=sigma, dims=dim
-                    )
+                        categorical_coefficients[cat_key] = pm.Normal(
+                            beta_name, mu=mu, sigma=sigma, dims=dim
+                        )
+                    elif sums_to_zero(reg, call):
+                        # One coefficient per level, constrained to sum to zero.
+                        # The design holds the non-reference contrasts, so the
+                        # linear predictor uses that slice of the full vector.
+                        full = pm.ZeroSumNormal(beta_name, sigma=sigma, dims=dim)
+                        categorical_coefficients[cat_key] = full[contrast_indices(call)]
+                    else:
+                        categorical_coefficients[cat_key] = pm.Normal(
+                            beta_name, mu=0.0, sigma=sigma, dims=dim
+                        )
                 else:
                     categorical_coefficients[cat_key] = _ensure_dims(
                         priors[beta_name], dim

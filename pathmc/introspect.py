@@ -27,6 +27,7 @@ from pathmc.categorical import (
     absorbs_intercept,
     has_population_mean,
     keeps_every_level,
+    sums_to_zero,
 )
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
@@ -743,17 +744,20 @@ def build_priors(
             if term.categorical is not None:
                 beta_name = f"beta_{reg.lhs}_{term.variable}"
                 if term.categorical.prior == "hierarchical":
+                    entries[f"sigma_{beta_name}"] = _entry(
+                        f"sigma_{beta_name}", "HalfNormal(1)"
+                    )
                     if has_population_mean(reg, term.categorical):
                         entries[f"mu_{beta_name}"] = _entry(
                             f"mu_{beta_name}", "Normal(0, 10)"
                         )
-                        mean = f"mu_{beta_name}"
+                        entries[beta_name] = (
+                            f"Normal(mu_{beta_name}, sigma_{beta_name})"
+                        )
+                    elif sums_to_zero(reg, term.categorical):
+                        entries[beta_name] = f"ZeroSumNormal(0, sigma_{beta_name})"
                     else:
-                        mean = "0"
-                    entries[f"sigma_{beta_name}"] = _entry(
-                        f"sigma_{beta_name}", "HalfNormal(1)"
-                    )
-                    entries[beta_name] = f"Normal({mean}, sigma_{beta_name})"
+                        entries[beta_name] = f"Normal(0, sigma_{beta_name})"
                 else:
                     entries[beta_name] = _entry(beta_name, "Normal(0, 10)")
             if term.transform is not None:
