@@ -35,7 +35,7 @@ TEST_ENV = OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 test-fast: ## Run fast tests, excluding slow MCMC tests and nightly Tier 5
 	$(TEST_ENV) uv run pytest -x -v -n auto --dist loadscope -m "not slow and not nightly"
 
-test: ## Run all tests with coverage, including slow integration tests
+test: ## Run per-commit tests with coverage, including slow MCMC, excluding nightly Tier 5
 	$(TEST_ENV) uv run pytest -x -v -n auto --dist loadscope -m "not nightly" --cov=pathmc --cov-report=term-missing
 
 test-nightly: ## Run Tier 5 MCMC recovery and light SBC (issue #326)

@@ -7,7 +7,7 @@ Remember, when running into bugs or complex issues, it is not impossible we are 
 ## Workflow
 
 1. Make your changes. Do not modify test files — if a test seems wrong, flag it for human review. Exceptions are for adding new tests or removing obsolete ones, but never for changing the expected behavior of existing tests.
-2. Run the relevant gate tests, e.g. `uv run pytest tests/test_<module>.py -x -v`. `make test-fast` skips MCMC sampling; `make test` runs everything.
+2. Run the relevant gate tests, e.g. `uv run pytest tests/test_<module>.py -x -v`. `make test-fast` skips slow MCMC tests and nightly Tier 5. `make test` runs the per-commit suite, including slow MCMC, and excludes nightly Tier 5.
 3. Run `make lint` before considering work done or committing. It runs `prek run --all-files` (ruff, ruff-format, mypy, YAML/TOML, license checks).
 
 For `simulate()` and scaling, prefer tests that leave the module under test: hand-written NumPy oracles, or round-trips into a different entry point (`model()` on simulated frames, `do(raw)` vs `intercept + beta * raw/factor`). Simulate-and-recover alone is blind to silent DGP bugs because the same code generates and checks the data.

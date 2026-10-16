@@ -17,101 +17,29 @@ Simulate from known coefficients and recover the mode with ``pm.find_MAP``.
 This exercises logp and its gradient end to end without NUTS, at far lower
 cost than the Tier 5 nightly sample. A miss means the objective being
 optimized is not the intended likelihood.
+
+Cells live in ``tests/_consistency.py``. This module filters that table to
+records whose ``recover_methods`` include ``map`` and calls :func:`recover`.
+Partial pooling is MCMC-only: those cells do not share a stable mode.
 """
 
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-import pymc as pm
 import pytest
 
-import pathmc
+from _consistency import CELLS, assert_recovered, recover
 
-_TOL = 0.15
-
-
-def _map_beta(spec, data, params, *, outcome, sim_seed, families=None, panel=None):
-    simulated = pathmc.simulate(
-        spec,
-        data=data,
-        params=params,
-        families=families,
-        panel=panel,
-        random_seed=sim_seed,
-    )
-    model = pathmc.model(spec, data=simulated, families=families, panel=panel)
-    with model.pymc_model:
-        estimate = pm.find_MAP(progressbar=False)
-    names = list(model.pymc_model.coords[f"{outcome}_predictors"])
-    got = np.asarray(estimate[f"beta_{outcome}"], dtype=float).reshape(-1)
-    return got, names
+_MAP = [cell for cell in CELLS if "map" in cell.recover_methods]
 
 
-def _assert_beta(got, names, truth, tol=_TOL):
-    for name, expected in truth.items():
-        value = float(got[names.index(name)])
-        assert abs(value - expected) <= tol, (
-            f"{name}: expected {expected}, got {value}, tol={tol}"
-        )
+@pytest.mark.parametrize("cell", _MAP, ids=lambda cell: cell.id)
+def test_map_recovers_known_coefficients(cell):
+    """MAP recovers known coefficients from the shared cell record.
 
-
-def test_map_recovers_cross_sectional_gaussian():
-    """Cross-sectional Gaussian slopes recover under find_MAP."""
-    rng = np.random.default_rng(0)
-    data = pd.DataFrame({"X1": rng.normal(size=400)})
-    truth = {"Intercept": 0.2, "X1": 1.5}
-    got, names = _map_beta(
-        "Y ~ X1",
-        data,
-        {"beta_Y": [truth["Intercept"], truth["X1"]], "sigma_Y": 0.3},
-        outcome="Y",
-        sim_seed=1,
-    )
-    _assert_beta(got, names, truth)
-
-
-def test_map_recovers_panel_lag_spend():
-    """The #316 cell ``sales ~ lag(spend)`` recovers the lag coefficient."""
-    rng = np.random.default_rng(0)
-    rows = []
-    for unit in range(8):
-        spend = rng.normal(size=40)
-        for time, value in enumerate(spend):
-            rows.append({"geo": unit, "week": time, "spend": value})
-    truth = {"Intercept": 0.5, "lag(spend)": 1.0}
-    got, names = _map_beta(
-        "sales ~ lag(spend)",
-        pd.DataFrame(rows),
-        {
-            "beta_sales": [truth["Intercept"], truth["lag(spend)"]],
-            "sigma_sales": 0.4,
-        },
-        outcome="sales",
-        sim_seed=3,
-        panel={"unit": "geo", "time": "week"},
-    )
-    _assert_beta(got, names, truth)
-
-
-@pytest.mark.parametrize(
-    ("family", "truth"),
-    [
-        ("bernoulli", {"Intercept": -0.2, "X1": 1.2}),
-        ("poisson", {"Intercept": 0.2, "X1": 0.6}),
-    ],
-    ids=["xsec-bernoulli", "xsec-poisson"],
-)
-def test_map_recovers_discrete_family(family, truth):
-    """Bernoulli and Poisson slopes recover where the mode is identified."""
-    rng = np.random.default_rng(0)
-    data = pd.DataFrame({"X1": rng.normal(size=400)})
-    got, names = _map_beta(
-        "Y ~ X1",
-        data,
-        {"beta_Y": [truth["Intercept"], truth["X1"]]},
-        outcome="Y",
-        sim_seed=2,
-        families={"Y": family},
-    )
-    _assert_beta(got, names, truth)
+    Cross-sectional Gaussian slopes, the #316 ``sales ~ lag(spend)`` lag
+    coefficient, and Bernoulli/Poisson slopes are the cells whose
+    ``recover_methods`` include ``map``. The lag intercept is identified
+    only after centering spend. Partial pooling is excluded. Tolerance is
+    0.15 absolute.
+    """
+    assert_recovered(cell, recover(cell, "map"))

@@ -13,7 +13,7 @@ make setup
 make test-fast
 ```
 
-Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, and build targets. The targets are thin aliases over the underlying `uv` commands (for example `make setup` runs `uv sync --all-extras` plus the hook install, and `make test-fast` runs `uv run pytest -x -v -m "not slow"`), so you can read the `Makefile` to see the exact command behind each alias.
+Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, and build targets. The targets are thin aliases over the underlying `uv` commands (for example `make setup` runs `uv sync --all-extras` plus the hook install, and `make test-fast` runs `uv run pytest -x -v -m "not slow and not nightly"`), so you can read the `Makefile` to see the exact command behind each alias.
 
 `make setup` runs `uv sync --all-extras`, which reads `pyproject.toml` and `uv.lock`, then creates a project virtual environment at `.venv/` containing the correct Python (per `.python-version`), pathmc installed in editable mode, the default `dev` dependency group, and every dependency from the `docs` and `samplers` extras. It then installs the pre-commit hooks with `uv run prek install -f`. You do not need to `source .venv/bin/activate` or otherwise activate the environment by hand: the `Makefile` targets prefix commands with `uv run`, which runs them inside `.venv/` (syncing first if anything is stale). If you need a command without a target, prefix it with `uv run` yourself (for example `uv run pytest` or `uv run python -c "import pathmc"`).
 
@@ -112,13 +112,13 @@ Run fast tests only, excluding slow MCMC sampling tests:
 make test-fast
 ```
 
-Run the full test suite, including slow integration tests, and report coverage:
+Run the per-commit suite, including slow integration tests and excluding nightly Tier 5, and report coverage:
 
 ```bash
 make test
 ```
 
-`make test` measures line and branch coverage of `pathmc` and fails if total coverage drops below the `fail_under` threshold in `pyproject.toml` (`[tool.coverage.report]`). The same command and gate run in CI on every pull request. Coverage is intentionally not collected by `make test-fast` or by single-file gate runs, so those stay fast and never trip the threshold on a partial run.
+`make test` measures line and branch coverage of `pathmc` and fails if total coverage drops below the `fail_under` threshold in `pyproject.toml` (`[tool.coverage.report]`). The same command and gate run in CI on every pull request. Nightly Tier 5 stays on `make test-nightly`. Coverage is intentionally not collected by `make test-fast` or by single-file gate runs, so those stay fast and never trip the threshold on a partial run.
 
 Run a targeted milestone or module test while iterating:
 
@@ -143,7 +143,7 @@ make lint
 - Link the issue being addressed, preferably with `Closes #<issue-number>` in the pull request description.
 - Add or update tests for user-facing behavior changes.
 - Update documentation, examples, or README content when behavior or setup instructions change.
-- Run the relevant targeted tests, `make test-fast` or `make test`, and `make check_lint` before requesting review. Pull requests also run `make test` in GitHub Actions (the full suite, including slow MCMC tests).
+- Run the relevant targeted tests, `make test-fast` or `make test`, and `make check_lint` before requesting review. Pull requests also run `make test` in GitHub Actions (the per-commit suite, including slow MCMC tests, excluding nightly Tier 5).
 - Label the pull request before merge so GitHub's generated release notes place it in the correct category; use labels such as `bug`, `documentation`, or `enhancement` when they apply.
 - Mark work-in-progress pull requests as drafts until the implementation and test plan are ready for review.
 
