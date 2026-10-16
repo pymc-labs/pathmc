@@ -55,6 +55,8 @@ if TYPE_CHECKING:
     import matplotlib.axes
     import matplotlib.figure
 
+    from pathmc.policy_exec import PolicySimulationInfo
+
 __all__ = ["DoResult", "EstimandResult"]
 
 
@@ -608,8 +610,12 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         """
         return compute_hdi(self._draw(var), prob=prob)
 
-    def simulation_info(self) -> Any:
-        """Identity of a policy run. Raises on a legacy ``do()`` result."""
+    def simulation_info(self) -> PolicySimulationInfo:
+        """Identity of a policy run.
+
+        Returns a ``PolicySimulationInfo``. Contrast requires every field
+        except ``policy_name``. Raises on a legacy ``do()`` result.
+        """
         return self._require_policy("simulation_info").info
 
     @property

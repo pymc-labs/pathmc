@@ -95,7 +95,7 @@ reference:
     desc: Time-forward and counterfactual simulation helpers.
     contents:
       - modeling.simulate
-  - title: History-dependent policies
+  - title: History-Dependent Treatment Policies
     desc: Rules evaluated inside a Gaussian lag-panel scan.
     contents:
       - policy.TreatmentPolicy
@@ -103,6 +103,7 @@ reference:
       - policy.current
       - policy.previous
       - policy.where
+      - policy_exec.PolicySimulationInfo
   - title: DAG falsification
     desc: Whole-graph validation via a permutation-based test.
     contents:
