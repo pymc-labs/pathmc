@@ -387,6 +387,17 @@ def test_policy_rejections_name_the_fix():
         cross.do(policy=policy, simulate_over="time")
 
 
+def test_non_scan_policy_points_at_cross_sectional_do_not_a_new_lag():
+    policy = _policy("thresh", where(current("stress") > 0.5, 1.0, 0.0))
+    cross = pathmc.model("y ~ x", data=pd.DataFrame({"x": [0.0, 1.0], "y": [0.0, 1.0]}))
+    post = xr.Dataset(coords={"chain": [0], "draw": [0]})
+    post["sigma_y"] = (("chain", "draw"), np.zeros((1, 1)))
+    cross._idata = xr.DataTree.from_dict({"posterior": post})
+    with pytest.raises(ValueError, match=r"do\(set=") as caught:
+        cross.do(policy=policy, simulate_over="time")
+    assert "Add a lag" not in str(caught.value)
+
+
 def _mark_fitted(model):
     model._idata = xr.DataTree.from_dict({
         "posterior": xr.Dataset(coords={"chain": [0], "draw": [0]})

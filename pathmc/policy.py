@@ -37,6 +37,11 @@ _TRUTH_MESSAGE = (
     "Use &, |, ~, comparisons, and where()."
 )
 
+_POLICY_REQUIRES_SCAN = (
+    "policy= requires a scan-compiled panel model with lag() terms. "
+    "Use do(set=) for a cross-sectional intervention."
+)
+
 
 def _as_number(value: Any, where: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float, np.floating)):
@@ -601,11 +606,7 @@ def reject_unsupported_policy_model(
 ) -> None:
     """Reject v1-unsupported structure before a policy query compiles."""
     if not scan:
-        raise ValueError(
-            "policy= requires a scan-compiled panel model with lag() terms. "
-            "Add a lag, or use do(set=) for a cross-sectional intervention. "
-            "Do not add a scientifically meaningless lag just to unlock policy=."
-        )
+        raise ValueError(_POLICY_REQUIRES_SCAN)
     problems: list[str] = []
     if latent:
         problems.append(f"latent variables {sorted(latent)}")

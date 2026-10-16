@@ -51,6 +51,7 @@ import pymc as pm
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
 from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
+from pathmc.policy import _POLICY_REQUIRES_SCAN
 from pathmc.transforms import get_transform
 
 __all__: list[str] = []
@@ -729,10 +730,7 @@ def compile_to_pymc(
     _reject_scan_panel_residual_cov(spec, panel_info)
 
     if policy_plan is not None and not _is_scan_panel(spec, panel_info):
-        raise ValueError(
-            "policy= requires a scan-compiled panel model with lag() terms. "
-            "Add a lag, or use do(set=) for a cross-sectional intervention."
-        )
+        raise ValueError(_POLICY_REQUIRES_SCAN)
 
     if _is_scan_panel(spec, panel_info):
         assert panel_info is not None

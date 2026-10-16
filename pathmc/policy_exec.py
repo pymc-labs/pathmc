@@ -38,6 +38,7 @@ from pathmc.panel import normalize_initial_states
 from pathmc.policy import (
     TimeSchedule,
     TreatmentPolicy,
+    _POLICY_REQUIRES_SCAN,
     plan_policy,
     reject_unsupported_policy_model,
 )
@@ -208,11 +209,7 @@ def run_policy_evaluation(
         )
     scan = getattr(model._gen_model, "_pathmc_panel_scan", None)
     if scan is None or model._panel_info is None:
-        raise ValueError(
-            "policy= requires a scan-compiled panel model with lag() terms. "
-            "Add a lag, or use do(set=) for a cross-sectional intervention. "
-            "Do not add a scientifically meaningless lag just to unlock policy=."
-        )
+        raise ValueError(_POLICY_REQUIRES_SCAN)
     n_times = int(scan.n_times)
     n_sim = 256 if n_simulations is None else _as_count(n_simulations, "n_simulations")
     if n_sim < 2:
