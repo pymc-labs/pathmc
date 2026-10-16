@@ -1,0 +1,20 @@
+pathmc/simulate.py
+  s_1f7a252e0240fc::t_8b40e7afefbe01 1137
+  s_1f7a252e0240fc::t_26b3ae091e978c 1134-1136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fe8b628fdc30600fa970cc394ebb6b606390b061",
+  "prompts": {},
+  "sessions": {
+    "s_1f7a252e0240fc": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c7a20db6-eefe-4237-b773-25c23060bcad",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
