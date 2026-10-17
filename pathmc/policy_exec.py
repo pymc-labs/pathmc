@@ -583,14 +583,17 @@ def _normalize_set(
                 f"set={{{var!r}: ...}} conflicts with policy target {target!r}. "
                 "Drop that set= entry, or choose a different policy variable."
             )
-        if isinstance(val, bool) or not isinstance(
+        if isinstance(val, (list, tuple)):
+            arr = np.asarray(val, dtype=float)
+        elif isinstance(val, bool) or not isinstance(
             val, (int, float, np.integer, np.floating, np.ndarray)
         ):
             raise TypeError(
                 f"set={{{var!r}}} must be a finite scalar or length-{n_times} "
                 f"array, not {type(val).__name__}."
             )
-        arr = np.asarray(val, dtype=float)
+        else:
+            arr = np.asarray(val, dtype=float)
         if arr.ndim == 0:
             series = np.full(n_times, float(arr))
         elif arr.shape == (n_times,):
@@ -709,7 +712,9 @@ def _model_interventions(
                 f"Unknown set= variable {var!r}. Use an endogenous or "
                 f"exogenous column. Available: {sorted(known)}."
             )
-        business = np.broadcast_to(series, (series.shape[0], n_units)).astype(float)
+        business = np.broadcast_to(series[:, None], (series.shape[0], n_units)).astype(
+            float
+        )
         factor = scales.get(var)
         model_units = business if factor is None else business / factor.reshape(1, -1)
         out[var] = xr.DataArray(

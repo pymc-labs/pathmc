@@ -843,3 +843,62 @@ def test_extra_carry_uses_initial_not_first_observed_row():
     assert water[1] == pytest.approx(0.0)
     assert isinstance(result, PolicyRun)
     assert not isinstance(result, pathmc.DoResult)
+
+
+def _paths_with_rain(rain):
+    growth, water, stress = [], [], []
+    g, s, w = 0.0, 0.0, 0.0
+    for rain_t in rain:
+        action = 1.0 if rain_t > 0.5 else 0.0
+        g_now = 0.4 * g + action + rain_t
+        s_now = 0.5 * s + 0.5 * w
+        growth.append(g_now)
+        water.append(action)
+        stress.append(s_now)
+        g, s, w = g_now, s_now, action
+    return {
+        "growth": np.array(growth),
+        "water": np.array(water),
+        "stress": np.array(stress),
+    }
+
+
+def test_disjoint_set_reaches_current_read_and_descendants():
+    spec = (
+        "growth ~ 0 + 0.4*lag(growth) + 1*water + 1*rain\n"
+        "stress ~ 0 + 0.5*lag(stress) + 0.5*lag(water)"
+    )
+    initial = {"growth": 0.0, "water": 0.0, "stress": 0.0}
+    fitted = _pin(
+        pathmc.model(
+            spec,
+            data=_frame(columns=("growth", "water", "stress", "rain")),
+            panel=PANEL,
+            initial=initial,
+        )
+    )
+    assert fitted._gen_model._pathmc_panel_scan.n_units > 1
+    policy = _policy("rain_gate", where(current("rain") > 0.5, 1.0, 0.0))
+    cases = (
+        ([0.0, 1.0, 0.0, 1.0], (0.0, 1.0, 0.0, 1.0)),
+        (np.array([0.0, 1.0, 0.0, 1.0]), (0.0, 1.0, 0.0, 1.0)),
+        (1.0, (1.0, 1.0, 1.0, 1.0)),
+    )
+    for set_rain, series in cases:
+        result = _do(
+            fitted,
+            policy,
+            set={"rain": set_rain},
+            initial=initial,
+            keep_trajectories=True,
+        )
+        expected = _paths_with_rain(series)
+        _assert_path(result, expected)
+        for unit in result.trajectories.coords["unit"].values:
+            for var, values in expected.items():
+                got = result.trajectories[var].sel(
+                    chain=0, draw=0, simulation=0, unit=unit
+                )
+                np.testing.assert_allclose(np.asarray(got), values, atol=1e-8)
+    with pytest.raises(ValueError, match="conflicts with policy target"):
+        _do(fitted, policy, set={"water": 1.0}, initial=initial)
