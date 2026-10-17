@@ -97,6 +97,7 @@ The DSL is lavaan-inspired:
 | Intervene on a categorical level                  | `m.do(set={"region": "south"})`, `m.ate("Y", "region", values=("north", "south"))` |
 | Declare an integer-coded column as labels         | `Y ~ C(store_type)`                                    |
 | Counterfactual / time-forward (panel)             | `m.do(set={...}, kind="time-forward")`                 |
+| History-dependent panel treatment policy          | `m.do(policy=TreatmentPolicy(...), simulate_over="time", horizon=n_times)` |
 | Adjustment sets for identification                | `m.adjustment_sets(treatment, outcome)`                |
 | Yes/no identification check                       | `m.is_identifiable(treatment, outcome)`                |
 | Front-door identification                         | `m.frontdoor_identifiable(treatment, outcome)`         |
@@ -123,8 +124,9 @@ The DSL is lavaan-inspired:
 3. **`ate()`/`cate()`/`att()`/`atu()` return an `EstimandResult`, not a `DoResult`.**
    It knows the outcome, so `r.mean()`, `r.hdi()`, and `r.prob("> 0")` need
    no variable argument, `float(r)` gives the posterior mean, and printing it
-   shows a tidy summary. `m.do(...)` returns a `DoResult` describing the whole
+   shows a tidy summary. `m.do(set=...)` returns a `DoResult` describing the whole
    system, where accessors still take a variable name (`r.mean("Y")`).
+   `m.do(policy=...)` returns a `PolicyRun`, not a `DoResult`.
 4. **The DSL is lavaan-*inspired*, not a 1:1 reimplementation.**
    `~`, `~~`, `:=`, and labeled coefficients all work. Latent-variable
    measurement models (`=~`) are out of scope in v0.1 — see the user
@@ -179,6 +181,14 @@ The DSL is lavaan-inspired:
    `predict(data=...)` accept labels, and an unseen label raises rather
    than re-inferring the coding. Categorical interactions, transforms,
    outcomes, and panel models are rejected with an explanatory error.
+12. **`policy=` is a typed rule, not a Python callback.**
+    `TreatmentPolicy` expressions (`current`, `previous`, `where`,
+    `TimeSchedule`) are evaluated inside a Gaussian lag-panel scan.
+    Pass `simulate_over="time"`, `horizon=` equal to the fitted time
+    count, and an explicit pre-sample baseline. `horizon` is not
+    inferred. `kind="predictive"` is rejected. Latent variables,
+    non-Gaussian families, transforms, categoricals, and residual
+    covariance are rejected rather than run on a weaker executor.
 
 ## Capabilities and boundaries
 
@@ -206,6 +216,12 @@ The DSL is lavaan-inspired:
   dowhy's `gcm.falsify_graph`).
 - Build hierarchical panel models with random intercepts/slopes and
   use `lag()` terms.
+- Evaluate a history-dependent treatment policy on a fitted Gaussian
+  lag panel with `do(policy=TreatmentPolicy(...), simulate_over="time",
+  horizon=n_times)`. Contrast two `PolicyRun` results that share the posterior,
+  baseline, seed, horizon, and simulation count; the contrast is the
+  difference, not a winner. `simulation_mcse` keeps the posterior
+  dimension.
 - Run sensitivity analysis to quantify robustness to unmeasured
   confounding.
 - Refute an estimated effect with a Bayesian placebo treatment

@@ -16,12 +16,16 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Any
 
 import narwhals.stable.v1 as nw
 import numpy as np
+import xarray as xr
 
-__all__ = ["PanelInfo"]
+__all__ = ["InitialBaseline", "PanelInfo"]
 
 
 @dataclass
@@ -396,3 +400,173 @@ def observed_means_by_time(
             means.append(float(np.nanmean(arr)) if arr.size else float("nan"))
         result[var] = np.asarray(means, dtype=float)
     return result
+
+
+@dataclass(frozen=True)
+class InitialBaseline:
+    """Pre-sample lag states used by a compiled panel model, in model units.
+
+    ``explicit`` is True when the caller passed ``initial=``. Otherwise the
+    values are the legacy fill. An endogenous base uses that unit's first
+    observed value. An exogenous base uses a ``<variable>_lag1`` column
+    when present, else the first observed row, else zeros. ``values``
+    maps each observed lag base to a ``(unit,)`` array in fitted
+    ``unit_labels`` order. These states sit immediately before the first
+    fitted time; they are not an extra outcome period.
+    """
+
+    explicit: bool
+    values: Mapping[str, xr.DataArray]
+
+
+def _as_finite_number(value: Any, *, where: str) -> float:
+    """Return *value* as a finite float, or raise an actionable error."""
+    if isinstance(value, bool) or (
+        isinstance(value, np.generic) and np.dtype(type(value)).kind == "b"
+    ):
+        raise ValueError(
+            f"{where} is a boolean. Pass a finite number, not True or False."
+        )
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        number = float(value)
+        if not np.isfinite(number):
+            raise ValueError(
+                f"{where} is {value!r}, not a finite number. "
+                "Pass a finite numeric pre-sample state."
+            )
+        return number
+    raise ValueError(
+        f"{where} must be a finite number or a mapping of unit labels to "
+        f"finite numbers, not {type(value).__name__}. "
+        "Example: {'plot_1': 0.2, 'plot_2': -0.1}."
+    )
+
+
+def _unit_alignment_frame(data: nw.DataFrame, panel_info: PanelInfo) -> nw.DataFrame:
+    """One row per fitted unit, in ``unit_labels`` order, for scale alignment."""
+    frames = []
+    unit_col = panel_info.unit
+    for label in panel_info.unit_labels:
+        rows = data.filter(nw.col(unit_col) == label)
+        if rows.shape[0] == 0:
+            raise ValueError(
+                f"Cannot align initial= to unit {label!r}: it is missing from "
+                "the panel data. Supply data that contains every fitted unit."
+            )
+        frames.append(rows.head(1))
+    return nw.concat(frames)
+
+
+def normalize_initial_states(
+    initial: Mapping[str, Any],
+    *,
+    required: Sequence[str],
+    unit_labels: Sequence[str],
+    data: nw.DataFrame,
+    panel_info: PanelInfo,
+    scaling_factors: Any | None = None,
+    kinds: Mapping[str, str] | None = None,
+    latent: Sequence[str] = (),
+) -> dict[str, xr.DataArray]:
+    """Scale business-unit pre-sample states onto model units.
+
+    *required* is the exact key set. A policy planner may extend it beyond
+    the structural lag bases; partial and unknown maps are rejected so an
+    explicit baseline is never mixed with a legacy fill. Latent lag bases
+    stay on their ``init_{variable}`` prior. Returned arrays use
+    ``unit_labels`` order and a ``unit`` coordinate.
+    """
+    if not isinstance(initial, Mapping):
+        raise ValueError(
+            "initial= must be a mapping of lag-base names to pre-sample "
+            f"states, not {type(initial).__name__}. "
+            "Example: {'stress': {'plot_1': 0.2, 'plot_2': -0.1}, 'water': 0.0}."
+        )
+    required_set = set(required)
+    latent_hits = sorted(set(initial) & set(latent))
+    if latent_hits:
+        names = ", ".join(repr(name) for name in latent_hits)
+        priors = ", ".join(f"init_{name}" for name in latent_hits)
+        raise ValueError(
+            f"initial= cannot set latent lag base(s) {names}. "
+            f"Set the {priors} prior instead, and pass only observed lag "
+            f"bases ({', '.join(repr(name) for name in required)})."
+        )
+    missing = sorted(required_set - set(initial))
+    extra = sorted(set(initial) - required_set)
+    if missing or extra:
+        raise ValueError(
+            "initial= must cover exactly the observed lag bases "
+            f"({', '.join(repr(name) for name in required)}). "
+            f"Missing {missing or 'none'}; unknown {extra or 'none'}. "
+            "Partial maps are not mixed with inferred baselines. Use the "
+            "base variable named by lag(), not a generated column name."
+        )
+    if scaling_factors is not None and any(
+        scaling_factors.has_factor(name) for name in required
+    ):
+        unit_frame = _unit_alignment_frame(data, panel_info)
+    else:
+        unit_frame = None
+    kind_map = kinds or {}
+    out: dict[str, xr.DataArray] = {}
+    for name in required:
+        raw = initial[name]
+        where = f"initial[{name!r}]"
+        if isinstance(raw, Mapping):
+            missing_labels = [label for label in unit_labels if label not in raw]
+            extra_labels = [key for key in raw if key not in unit_labels]
+            if missing_labels or extra_labels:
+                raise ValueError(
+                    f"{where} must contain exactly the fitted unit labels "
+                    f"{list(unit_labels)}. Missing {missing_labels or 'none'}; "
+                    f"unknown {extra_labels or 'none'}. Align by label, not "
+                    "by row position."
+                )
+            numbers = [
+                _as_finite_number(raw[label], where=f"{where}[{label!r}]")
+                for label in unit_labels
+            ]
+            array = np.asarray(numbers, dtype=float)
+        else:
+            array = np.full(
+                len(unit_labels),
+                _as_finite_number(raw, where=where),
+                dtype=float,
+            )
+        if (
+            scaling_factors is not None
+            and unit_frame is not None
+            and scaling_factors.has_factor(name)
+        ):
+            from pathmc.scaling import ScaleContext
+
+            converted = scaling_factors.to_internal(
+                array,
+                kind=kind_map.get(name, "regressor"),
+                dims=ScaleContext(term=name, data=unit_frame),
+            )
+            array = np.asarray(converted, dtype=float).copy()
+        out[name] = xr.DataArray(
+            array,
+            dims=("unit",),
+            coords={"unit": list(unit_labels)},
+        )
+    return out
+
+
+def freeze_baseline(
+    *,
+    explicit: bool,
+    values: Mapping[str, xr.DataArray],
+) -> InitialBaseline:
+    """Copy *values* into an immutable baseline record."""
+    frozen = {
+        name: xr.DataArray(
+            np.array(value.values, dtype=float, copy=True),
+            dims=("unit",),
+            coords={"unit": list(value.coords["unit"].values)},
+        )
+        for name, value in values.items()
+    }
+    return InitialBaseline(explicit=explicit, values=MappingProxyType(frozen))

@@ -367,7 +367,10 @@ If your model has adstock or lagged variables, use `do(simulate_over="time")` so
 - **Adstock and lagged variables create temporal state.** The adstock at time *t* depends on the adstock at *t* − 1. A lagged endogenous variable at *t* depends on the outcome at *t* − 1. Both create chains of dependency across time.
 - **Naive single-step replacement produces wrong counterfactuals** because it uses the observed temporal state (from the pre-intervention history) instead of re-computing it under the intervention.
 - **`simulate_over="time"` fixes this** by walking through time in order, carrying simulated state forward from each step to the next.
+
 - **The temporal shape matters.** Time-forward simulation reveals ramp-up (stock accumulating) and ramp-down (stock decaying) dynamics that a single-step intervention collapses into a single number.
+
+A fixed schedule is not the only time-forward question. A history-dependent rule assigns treatment from the simulated state as the scan advances. See [History-dependent treatment policies](22-history-dependent-policies.qmd) and [Water on a schedule—or when plants need it?](../docs/examples/panel-time/history_dependent_policies.qmd). A causal reading needs sequential exchangeability, consistency, treatment support over relevant histories, model adequacy, and no cross-unit interference. Static backdoor checks do not prove longitudinal identification. A marginal min/max warning does not establish sequential positivity.
 
 ::: {.callout-note}
 ## Reflection
