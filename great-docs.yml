@@ -103,8 +103,8 @@ reference:
       - policy.current
       - policy.previous
       - policy.where
-      - policy_exec.PolicyRun
-      - policy_exec.PolicySimulationInfo
+      - policy_result.PolicyRun
+      - policy_result.PolicySimulationInfo
   - title: DAG falsification
     desc: Whole-graph validation via a permutation-based test.
     contents:

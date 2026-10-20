@@ -384,6 +384,45 @@ class PolicyPlan:
     time_values: tuple[Any, ...]
 
 
+@dataclass(frozen=True)
+class PolicyScanSlots:
+    """Extra scan slots implied by a policy plan. Empty when *plan* is None.
+
+    Names are candidates. The compiler applies data-column and endogenous
+    filters; this object does not see the fitted frame.
+    """
+
+    extra_exog: tuple[str, ...] = ()
+    extra_carries: tuple[str, ...] = ()
+    schedule_name: str | None = None
+    drop_intervene: frozenset[str] = frozenset()
+    drop_carry_mu: frozenset[str] = frozenset()
+    action_name: str | None = None
+    zero_init: frozenset[str] = frozenset()
+
+
+def policy_scan_slots(plan: PolicyPlan | None) -> PolicyScanSlots:
+    """Map a policy plan to extra scan slots. ``None`` returns an empty layout.
+
+    The schedule is its own sequence name, never an exogenous column. Carry
+    and intervention drops are names, not offsets.
+    """
+    if plan is None:
+        return PolicyScanSlots()
+    extra_exog = tuple(
+        sorted(set(plan.current_deps) | set(plan.previous_deps) | {plan.target})
+    )
+    return PolicyScanSlots(
+        extra_exog=extra_exog,
+        extra_carries=plan.extra_carries,
+        schedule_name="_policy_schedule" if plan.kind == "schedule" else None,
+        drop_intervene=frozenset({plan.target}),
+        drop_carry_mu=frozenset({plan.target}),
+        action_name="_policy_action",
+        zero_init=frozenset(plan.extra_carries),
+    )
+
+
 def _rule_deps(rule: _Expr | TimeSchedule | float) -> set[tuple[str, str]]:
     if isinstance(rule, _Expr):
         return rule.dependencies()
@@ -540,11 +579,11 @@ class _LowerCtx:
         *,
         current_tensors: Mapping[str, Any],
         previous_tensors: Mapping[str, Any],
-        scales: Mapping[str, np.ndarray],
+        factor_for: Any,
     ) -> None:
         self._current = current_tensors
         self._previous = previous_tensors
-        self._scales = scales
+        self._factor_for = factor_for
 
     def reference(self, timing: str, name: str) -> Any:
         import pytensor.tensor as pt
@@ -556,10 +595,34 @@ class _LowerCtx:
                 "that value is not in the step context. This is an internal error."
             )
         raw = source[name]
-        factor = self._scales.get(name)
+        factor = self._factor_for(name)
         if factor is None:
             return raw
         return pt.as_tensor_variable(raw) * pt.as_tensor_variable(factor)
+
+
+def policy_unit_factor(
+    scaling: Any,
+    name: str,
+    unit_labels: Sequence[Any],
+    unit_col: str,
+) -> np.ndarray | None:
+    """Per-unit divisor from the scaler, or None when the column is unscaled.
+
+    ``None`` means the scaler has no factor for *name*. A column the scaler
+    says is scaled either returns that factor or raises; a missing lookup is
+    not treated as identity.
+    """
+    if scaling is None or not scaling.has_factor(name):
+        return None
+    try:
+        return scaling.unit_divisors(name, unit_labels, unit_col)
+    except ValueError as exc:
+        raise ValueError(
+            f"Cannot align the policy scale for {name!r} to the panel units. {exc} "
+            "Refit with scaling dims that include the panel unit, or drop scaling "
+            "for this query."
+        ) from exc
 
 
 def lower_action(
@@ -568,7 +631,9 @@ def lower_action(
     schedule_t: Any,
     current_tensors: Mapping[str, Any],
     previous_tensors: Mapping[str, Any],
-    scales: Mapping[str, np.ndarray],
+    scaling: Any,
+    unit_labels: Sequence[Any],
+    unit_col: str,
     n_units: int,
 ) -> Any:
     """Return the assigned action in model units, shape ``(n_units,)``.
@@ -579,10 +644,13 @@ def lower_action(
     """
     import pytensor.tensor as pt
 
+    def factor_for(name: str) -> np.ndarray | None:
+        return policy_unit_factor(scaling, name, unit_labels, unit_col)
+
     ctx = _LowerCtx(
         current_tensors=current_tensors,
         previous_tensors=previous_tensors,
-        scales=scales,
+        factor_for=factor_for,
     )
     if plan.kind == "schedule":
         if schedule_t is None:
@@ -597,7 +665,7 @@ def lower_action(
     business = pt.broadcast_to(pt.as_tensor_variable(business), (n_units,)).astype(
         "float64"
     )
-    factor = scales.get(plan.target)
+    factor = factor_for(plan.target)
     if factor is None:
         return business
     return business / pt.as_tensor_variable(np.asarray(factor, dtype=float))

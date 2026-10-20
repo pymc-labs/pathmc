@@ -466,6 +466,56 @@ class _DrawStorageMixin:
         return self._draw_by_time(var)
 
 
+def plot_panel_trajectory(
+    var: str,
+    draws: np.ndarray,
+    time_coords: np.ndarray,
+    *,
+    overlay: np.ndarray | None = None,
+    ax: matplotlib.axes.Axes | None = None,
+    prob: float = DEFAULT_HDI_PROB,
+) -> matplotlib.figure.Figure:
+    """Draw a per-time mean and HDI band.
+
+    Callers validate that *draws* is ``(n_times, n_samples)`` and that
+    *time_coords* matches that length. This is the shared drawer for
+    :class:`DoResult` and policy results; it does not construct either type.
+    """
+    import matplotlib.pyplot as plt
+
+    n_times = draws.shape[0]
+    means = np.mean(draws, axis=1)
+    hdi_band = compute_hdi(draws, prob=prob)
+    if hdi_band.ndim == 1 and hdi_band.shape[0] == 2:
+        lo = np.full(n_times, float(hdi_band[0]))
+        hi = np.full(n_times, float(hdi_band[1]))
+    else:
+        lo = hdi_band[:, 0]
+        hi = hdi_band[:, 1]
+    if overlay is not None and overlay.shape[0] != n_times:
+        raise ValueError(
+            f"observed must have length {n_times} (one per time step), "
+            f"got {overlay.shape[0]}."
+        )
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 4))
+    else:
+        fig = cast("matplotlib.figure.Figure", ax.get_figure())
+    x = np.arange(n_times)
+    ax.fill_between(x, lo, hi, alpha=0.3, label=hdi_label(prob))
+    ax.plot(x, means, color="C0", label="Counterfactual")
+    if overlay is not None:
+        ax.plot(x, overlay, color="C1", linestyle="--", label="Observed")
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(t) for t in time_coords], rotation=45, ha="right")
+    ax.set_xlabel("time")
+    ax.set_ylabel(var)
+    ax.legend(loc="best")
+    ax.set_title(var)
+    fig.tight_layout()
+    return fig
+
+
 class DoResult(_DrawStorageMixin, ResultReprMixin):
     """Container for propagated posterior draws under an intervention.
 
@@ -625,7 +675,6 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             ``vs="observed"`` is requested without a series, or if
             ``observed`` has the wrong length.
         """
-        import matplotlib.pyplot as plt
 
         if var not in self._ds.data_vars:
             available = sorted(str(v) for v in self._ds.data_vars)
@@ -649,15 +698,6 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
 
         draws = self._by_time_draws(var)
         n_times = draws.shape[0]
-        means = np.mean(draws, axis=1)
-        hdi_band = compute_hdi(draws, prob=prob)
-        if hdi_band.ndim == 1 and hdi_band.shape[0] == 2:
-            lo = np.full(n_times, float(hdi_band[0]))
-            hi = np.full(n_times, float(hdi_band[1]))
-        else:
-            lo = hdi_band[:, 0]
-            hi = hdi_band[:, 1]
-
         overlay: np.ndarray | None = None
         if observed is not None:
             overlay = np.asarray(observed, dtype=float)
@@ -672,32 +712,14 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             raise ValueError(
                 f"Unknown vs='{vs}'. Supported values: 'observed' or omit vs."
             )
-
-        if overlay is not None:
-            if overlay.shape[0] != n_times:
-                raise ValueError(
-                    f"observed must have length {n_times} (one per time step), "
-                    f"got {overlay.shape[0]}."
-                )
-
-        if ax is None:
-            fig, ax = plt.subplots(figsize=(8, 4))
-        else:
-            fig = cast("matplotlib.figure.Figure", ax.get_figure())
-
-        x = np.arange(n_times)
-        ax.fill_between(x, lo, hi, alpha=0.3, label=hdi_label(prob))
-        ax.plot(x, means, color="C0", label="Counterfactual")
-        if overlay is not None:
-            ax.plot(x, overlay, color="C1", linestyle="--", label="Observed")
-        ax.set_xticks(x)
-        ax.set_xticklabels([str(t) for t in time_coords], rotation=45, ha="right")
-        ax.set_xlabel("time")
-        ax.set_ylabel(var)
-        ax.legend(loc="best")
-        ax.set_title(var)
-        fig.tight_layout()
-        return fig
+        return plot_panel_trajectory(
+            var,
+            draws,
+            time_coords,
+            overlay=overlay,
+            ax=ax,
+            prob=prob,
+        )
 
     def __sub__(self, other: DoResult) -> DoResult:
         """Element-wise contrast between two DoResults."""

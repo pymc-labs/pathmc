@@ -28,7 +28,8 @@ from pathmc.policy import (
     previous,
     where,
 )
-from pathmc.policy_exec import PolicyRun, run_policy_evaluation
+from pathmc.policy_exec import run_policy_evaluation
+from pathmc.policy_result import PolicyRun
 from pathmc.scaling import Scaling
 
 PANEL = {"unit": "unit", "time": "time"}
@@ -805,7 +806,9 @@ def test_missing_dependency_raises_instead_of_zero_fill():
             schedule_t=None,
             current_tensors={},
             previous_tensors={},
-            scales={},
+            scaling=None,
+            unit_labels=("A", "B"),
+            unit_col="unit",
             n_units=2,
         )
 

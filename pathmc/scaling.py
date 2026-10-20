@@ -399,17 +399,16 @@ class ScalingFactors:
             return np.full(len(labels), value)
         if dims != (unit_col,):
             raise ValueError(
-                f"Policy scale for {column!r} is keyed by {dims}, not the panel "
-                f"unit {unit_col!r}. Refit with scaling dims that include "
-                "the panel unit, or drop scaling for this query."
+                f"Scaling factor for column {column!r} is keyed by {dims}, not "
+                f"the panel unit {unit_col!r}."
             )
         values = []
         for label in labels:
             key = (label,)
             if key not in table:
                 raise ValueError(
-                    f"Policy scale for {column!r} has no factor for unit "
-                    f"{label!r}. Refit so every fitted unit has a factor."
+                    f"Scaling factor for column {column!r} has no entry for unit "
+                    f"{label!r}."
                 )
             values.append(float(table[key]))
         return np.asarray(values, dtype=float)

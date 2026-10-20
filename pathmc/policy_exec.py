@@ -18,25 +18,22 @@ scan with the policy injected into ``step_fn``, then evaluates that scan
 in draw/simulation chunks. Innovations are generated from a
 ``SeedSequence`` keyed by seed, variable, chain, draw, and simulation, so
 chunk size does not change results and two policies with the same seed
-share noise. ``do(policy=...)`` returns a :class:`PolicyRun`.
+share noise. ``do(policy=...)`` returns a :class:`pathmc.policy_result.PolicyRun`.
 """
 
 from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
-import matplotlib.axes
-import matplotlib.figure
 import numpy as np
 import pymc as pm
 import xarray as xr
 
-from pathmc.compile import compile_to_pymc, lag_base_kinds
+from pathmc.compile import compile_to_pymc, lag_base_kinds, required_initial_keys
 from pathmc.idata import posterior as posterior_dataset
-from pathmc.idata import DEFAULT_HDI_PROB
+
 from pathmc.panel import normalize_initial_states
 from pathmc.policy import (
     TimeSchedule,
@@ -45,284 +42,11 @@ from pathmc.policy import (
     plan_policy,
     reject_unsupported_policy_model,
 )
-from pathmc.simulate import (
-    DoResult,
-    _execute_gaussian_panel,
-    _stack_sample,
-    _stack_sample_time,
-)
+from pathmc.policy_result import PolicyRun, PolicySimulationInfo
+from pathmc.scaling import ScaleContext, ScalingFactors
+from pathmc.simulate import _execute_gaussian_panel
 
 _COUPLING = "common-random-numbers"
-
-
-@dataclass(frozen=True)
-class PolicySimulationInfo:
-    """Identity of one policy run. Contrast requires every field except name."""
-
-    policy_name: str
-    target: str
-    rule: str
-    unit_labels: tuple[str, ...]
-    time_values: tuple[Any, ...]
-    n_simulations: int
-    horizon: int
-    seed: int
-    baseline: tuple[tuple[str, tuple[float, ...]], ...]
-    posterior_id: str
-    exogenous_id: str
-    coupling: str
-    weights: tuple[float, ...]
-
-    def matches(self, other: PolicySimulationInfo) -> list[str]:
-        """Return identity fields that differ. Names are allowed to differ."""
-        mismatched: list[str] = []
-        for field in (
-            "target",
-            "unit_labels",
-            "time_values",
-            "n_simulations",
-            "horizon",
-            "seed",
-            "baseline",
-            "posterior_id",
-            "exogenous_id",
-            "coupling",
-            "weights",
-        ):
-            if getattr(self, field) != getattr(other, field):
-                mismatched.append(field)
-        return mismatched
-
-
-def _time_label_index(times: list[Any], label: Any, where: str) -> int:
-    for index, value in enumerate(times):
-        if value == label:
-            return index
-    raise ValueError(
-        f"aggregate_time {where}={label!r} is not a fitted time label. "
-        f"Available labels: {times}."
-    )
-
-
-def _reduce_policy_time(
-    ds: xr.Dataset,
-    var: str,
-    reduction: str,
-    start: Any,
-    end: Any,
-) -> xr.Dataset:
-    """Reduce one variable's time dimension, dropping every other variable."""
-    if var not in ds:
-        raise KeyError(
-            f"{var!r} is not in this policy result. Available: {list(ds.data_vars)}."
-        )
-    values = ds[var]
-    if "time" not in values.dims:
-        raise ValueError(
-            f"{var!r} has no time dimension. aggregate_time() was already "
-            "applied, or this result is not a trajectory."
-        )
-    times = list(values.coords["time"].values)
-    start_i = 0 if start is None else _time_label_index(times, start, "start")
-    end_i = len(times) - 1 if end is None else _time_label_index(times, end, "end")
-    if end_i < start_i:
-        raise ValueError(f"aggregate_time end={end!r} precedes start={start!r}.")
-    window = values.isel(time=slice(start_i, end_i + 1))
-    if reduction == "sum":
-        reduced = window.sum(dim="time")
-    elif reduction == "mean":
-        reduced = window.mean(dim="time")
-    elif reduction == "last":
-        reduced = window.isel(time=-1)
-    else:
-        raise ValueError(
-            "aggregate_time reduction must be 'sum', 'mean', or 'last'. "
-            f"Got {reduction!r}."
-        )
-    return reduced.to_dataset()
-
-
-def _require_matching_layout(left: xr.Dataset, right: xr.Dataset) -> None:
-    """Reject implicit intersections or broadcasting in a paired contrast."""
-    if (
-        left.sizes != right.sizes
-        or set(left.data_vars) != set(right.data_vars)
-        or not left.coords.to_dataset().equals(right.coords.to_dataset())
-        or any(left[var].dims != right[var].dims for var in left.data_vars)
-    ):
-        raise ValueError(
-            "Cannot contrast policy results: result coordinates, dimensions, "
-            "or variables differ. Rerun both on the same posterior and "
-            "reporting grid, and apply the same aggregation before subtraction."
-        )
-
-
-@dataclass(frozen=True)
-class PolicyRun:
-    """Population summaries for one history-dependent policy.
-
-    ``do(policy=...)`` returns this type, not a :class:`pathmc.simulate.DoResult`.
-    A ``set=`` query still returns a ``DoResult``. The two cannot be subtracted.
-    """
-
-    info: PolicySimulationInfo
-    population: xr.Dataset
-    simulation_draws: xr.Dataset
-    _trajectories: xr.Dataset | None = None
-
-    @property
-    def dataset(self) -> xr.Dataset:
-        """Unit-mean posterior draws, dims ``("time", "chain", "draw")``."""
-        return self.population
-
-    def simulation_info(self) -> PolicySimulationInfo:
-        """Identity of this run. Contrast requires every field except name."""
-        return self.info
-
-    @property
-    def trajectories(self) -> xr.Dataset:
-        """Full unit paths. Requires ``keep_trajectories=True``."""
-        if self._trajectories is None:
-            raise ValueError(
-                "trajectories were not retained. Pass keep_trajectories=True "
-                "to do(); the default omits them."
-            )
-        return self._trajectories
-
-    def mean(self, var: str) -> float:
-        """Return the posterior mean of *var* under this policy."""
-        return float(np.mean(_stack_sample(self.population[var])))
-
-    def hdi(self, var: str, prob: float = DEFAULT_HDI_PROB) -> np.ndarray:
-        """Return the posterior highest-density interval ``[lower, upper]``."""
-        return DoResult(ds=self.population).hdi(var, prob=prob)
-
-    def plot(
-        self,
-        var: str,
-        *,
-        vs: str | None = None,
-        observed: np.ndarray | None = None,
-        ax: matplotlib.axes.Axes | None = None,
-        prob: float = DEFAULT_HDI_PROB,
-    ) -> matplotlib.figure.Figure:
-        """Plot the posterior trajectory and HDI, with an optional observed series.
-
-        Pass ``ax`` to reuse an axes, ``prob`` for the interval mass, and
-        ``observed`` for a time-aligned overlay. Aggregate results have no
-        time dimension; use :meth:`hdi` to summarize their uncertainty.
-        """
-        return DoResult(ds=self.population).plot(
-            var, vs=vs, observed=observed, ax=ax, prob=prob
-        )
-
-    def by_time(self, var: str) -> np.ndarray:
-        """Return per-time posterior draws, shape ``(n_times, n_samples)``."""
-        if "time" not in self.population[var].dims:
-            raise ValueError(
-                "Per-time data not available. "
-                "Use do(simulate_over='time') to get per-time results."
-            )
-        return _stack_sample_time(self.population[var])
-
-    @property
-    def time_index(self) -> np.ndarray | None:
-        """Time labels for the first axis of :meth:`by_time` results."""
-        if "time" not in self.population.coords:
-            return None
-        return np.asarray(self.population["time"].values)
-
-    def aggregate_time(
-        self,
-        var: str,
-        *,
-        reduction: str = "sum",
-        start: Any = None,
-        end: Any = None,
-    ) -> PolicyRun:
-        """Reduce the time dimension of one policy variable.
-
-        ``reduction`` is ``"sum"``, ``"mean"``, or ``"last"``. ``start`` and
-        ``end`` are inclusive fitted time labels. The result has no time
-        dimension, so :meth:`mean` describes that scalar estimand.
-        """
-        return PolicyRun(
-            info=self.info,
-            population=_reduce_policy_time(self.population, var, reduction, start, end),
-            simulation_draws=_reduce_policy_time(
-                self.simulation_draws, var, reduction, start, end
-            ),
-            _trajectories=None,
-        )
-
-    def simulation_mcse(self, var: str, *, by: str | None = None) -> Any:
-        """Per-posterior-draw Monte Carlo standard error of a policy estimand.
-
-        Computed within each posterior draw as the simulation standard
-        deviation divided by ``sqrt(n_simulations)``. The chain and draw
-        dimensions are preserved. A time-indexed result keeps ``time`` as
-        well; call :meth:`aggregate_time` first for a cumulative or terminal
-        estimand. ``by='time'`` is accepted and does not average draws.
-        """
-        draws = self.simulation_draws[var]
-        if by not in (None, "time"):
-            raise ValueError(
-                f"simulation_mcse by= must be 'time' or omitted. Got {by!r}."
-            )
-        if by == "time" and "time" not in draws.dims:
-            raise ValueError(
-                "simulation_mcse by='time' needs a time dimension. "
-                "This result was already reduced with aggregate_time()."
-            )
-        std = draws.std(dim="simulation", ddof=1)
-        return std / np.sqrt(draws.sizes["simulation"])
-
-    def contrast(self, other: PolicyRun) -> PolicyRun:
-        """Paired difference. Innovations already match when the seed matches."""
-        if not isinstance(other, PolicyRun):
-            return NotImplemented
-        mismatched = self.info.matches(other.info)
-        if mismatched:
-            raise ValueError(
-                "Cannot contrast policies "
-                f"{self.info.policy_name!r} and {other.info.policy_name!r}: "
-                f"{', '.join(mismatched)} differ. Rerun both with the same "
-                "seed, initial baseline, horizon, simulation count, and "
-                "fitted posterior. Refitting is unnecessary when those match."
-            )
-        _require_matching_layout(self.population, other.population)
-        _require_matching_layout(self.simulation_draws, other.simulation_draws)
-        trajectories = None
-        if self._trajectories is not None and other._trajectories is not None:
-            _require_matching_layout(self._trajectories, other._trajectories)
-            trajectories = self._trajectories - other._trajectories
-        name = f"{self.info.policy_name} - {other.info.policy_name}"
-        return PolicyRun(
-            info=PolicySimulationInfo(
-                policy_name=name,
-                target=self.info.target,
-                rule=f"{self.info.rule} - {other.info.rule}",
-                unit_labels=self.info.unit_labels,
-                time_values=self.info.time_values,
-                n_simulations=self.info.n_simulations,
-                horizon=self.info.horizon,
-                seed=self.info.seed,
-                baseline=self.info.baseline,
-                posterior_id=self.info.posterior_id,
-                exogenous_id=self.info.exogenous_id,
-                coupling=self.info.coupling,
-                weights=self.info.weights,
-            ),
-            population=self.population - other.population,
-            simulation_draws=self.simulation_draws - other.simulation_draws,
-            _trajectories=trajectories,
-        )
-
-    def __sub__(self, other: PolicyRun) -> PolicyRun:
-        """Paired difference of two policy results."""
-        if not isinstance(other, PolicyRun):
-            return NotImplemented
-        return self.contrast(other)
 
 
 def policy_innovations(
@@ -447,15 +171,12 @@ def run_policy_evaluation(
     schedules = _normalize_set(set_values, n_times, plan.target)
     arrays, baseline_record = _resolve_initial(
         model,
-        plan_previous=plan.previous_deps,
+        plan=plan,
         initial=initial,
     )
-    scales = _unit_factors(
-        model._scaling_factors,
-        names,
-        scan.unit_labels,
-        model._panel_info.unit,
-    )
+    scaling = model._scaling_factors
+    unit_labels = list(scan.unit_labels)
+    unit_col = model._panel_info.unit
     policy_model = compile_to_pymc(
         model._spec,
         model._data,
@@ -469,7 +190,7 @@ def run_policy_evaluation(
         generative=True,
         initial=arrays,
         policy_plan=plan,
-        policy_scales=scales,
+        policy_scaling=scaling,
     )
     policy_scan = policy_model._pathmc_panel_scan
     states = tuple(policy_scan.gaussian_states)
@@ -488,11 +209,12 @@ def run_policy_evaluation(
         _check_innovations(noise, states, post, n_sim, int(scan.n_units), n_times)
     interventions = _model_interventions(
         schedules,
-        scales,
+        scaling,
         states,
         policy_scan.exogenous,
-        policy_scan.unit_labels,
-        policy_scan.time_values,
+        unit_labels,
+        unit_col,
+        list(policy_scan.time_values),
     )
     unit_means, retained_states = _execute_chunks(
         policy_model,
@@ -502,13 +224,14 @@ def run_policy_evaluation(
         interventions,
         batch_draws=batch_draws,
         batch_sims=batch_sims,
-        unit_labels=list(scan.unit_labels),
+        unit_labels=unit_labels,
         time_values=list(scan.time_values),
         policy_name=policy.name,
         target=plan.target,
         n_simulations=n_sim,
         seed=seed,
-        scales=scales,
+        scaling=scaling,
+        unit_col=unit_col,
         keep=keep,
     )
     population, sim_draws, trajectories = _pack_results(
@@ -528,7 +251,17 @@ def run_policy_evaluation(
         horizon=horizon_n,
         seed=seed,
         baseline=baseline_record,
-        posterior_id=_posterior_id(post, policy_model, states, model._spec, scales),
+        posterior_id=_posterior_id(
+            post,
+            policy_model,
+            states,
+            model._spec,
+            scaling,
+            unit_labels,
+            unit_col,
+            plan.target,
+            policy_scan.exogenous,
+        ),
         exogenous_id=_exogenous_id(model, policy_scan, schedules),
         coupling=_COUPLING,
         weights=tuple(1.0 / int(scan.n_units) for _ in scan.unit_labels),
@@ -661,32 +394,31 @@ def _normalize_set(
 def _resolve_initial(
     model: Any,
     *,
-    plan_previous: tuple[str, ...],
+    plan: Any,
     initial: Mapping[str, Any] | None,
 ) -> tuple[dict[str, np.ndarray], tuple[tuple[str, tuple[float, ...]], ...]]:
     scan = model._gen_model._pathmc_panel_scan
-    observed = set(scan.initial_nodes)
+    required = required_initial_keys(model._spec, plan, latent=set(model._latent))
     known = set(model._graph_info.endogenous) | set(model._graph_info.exogenous)
-    extra = sorted(set(plan_previous) - observed)
     baseline = model._initial_baseline
     if initial is None:
         if baseline is None or not baseline.explicit:
             raise ValueError(
                 "policy= requires an explicit pre-sample baseline. Pass "
-                f"initial= covering {sorted(observed | set(extra))} at model() "
-                "or at do(). A legacy inferred first row is not an explicit "
-                "baseline."
+                f"initial= covering {list(required)} at model() or at do(). "
+                "A legacy inferred first row is not an explicit baseline."
             )
-        if extra:
+        missing = sorted(set(required) - set(baseline.values))
+        if missing:
             raise ValueError(
-                "initial= must include policy previous references "
-                f"{extra}. The fitted baseline only covers "
-                f"{sorted(baseline.values)}. Pass the full mapping; "
-                "partial maps are not mixed with the stored baseline."
+                "initial= must cover exactly "
+                f"{list(required)}. The fitted baseline only covers "
+                f"{sorted(baseline.values)}. Missing {missing}. Pass the full "
+                "mapping; partial maps are not mixed with the stored baseline."
             )
         arrays = {
-            name: np.asarray(value.values, dtype=float)
-            for name, value in baseline.values.items()
+            name: np.asarray(baseline.values[name].values, dtype=float)
+            for name in required
         }
     else:
         unknown = sorted(set(initial) - known)
@@ -695,20 +427,18 @@ def _resolve_initial(
                 f"initial= names {unknown} are not fitted variables. "
                 f"Available names: {sorted(known)}."
             )
-        required = sorted(observed | set(extra))
         unused = sorted(set(initial) - set(required))
         if unused:
             raise ValueError(
                 f"initial= names {unused} are unused by the lag or policy "
-                f"previous references. Remove them; required keys: {required}."
+                f"previous references. Remove them; required keys: {list(required)}."
             )
-        missing = sorted((observed | set(extra)) - set(initial))
+        missing = sorted(set(required) - set(initial))
         if missing:
             raise ValueError(
-                "initial= must cover the observed lag bases and any "
-                f"policy previous references. Missing {missing}. "
-                "Pass the full mapping; partial maps are not mixed with "
-                "the stored baseline."
+                "initial= must cover exactly "
+                f"{list(required)}. Missing {missing}. Pass the full mapping; "
+                "partial maps are not mixed with the stored baseline."
             )
         kinds = lag_base_kinds(model._spec, required)
         normalized = normalize_initial_states(
@@ -722,37 +452,40 @@ def _resolve_initial(
             latent=tuple(sorted(model._latent)),
         )
         arrays = {
-            name: np.asarray(value.values, dtype=float)
-            for name, value in normalized.items()
+            name: np.asarray(normalized[name].values, dtype=float) for name in required
         }
     record = tuple(
         (name, tuple(float(v) for v in arrays[name])) for name in sorted(arrays)
     )
-    compiled = {name: arrays[name] for name in sorted(observed | set(plan_previous))}
-    return compiled, record
+    return arrays, record
 
 
-def _unit_factors(
-    scaling: Any,
-    names: set[str],
+def _policy_unit_factor(
+    scaling: ScalingFactors | None,
+    column: str,
     unit_labels: Sequence[Any],
     unit_col: str,
-) -> dict[str, np.ndarray]:
-    if not scaling:
-        return {}
-    return {
-        name: scaling.unit_divisors(name, unit_labels, unit_col)
-        for name in sorted(names)
-        if scaling.has_factor(name)
-    }
+) -> np.ndarray | None:
+    """Return one per-unit divisor, or None when the column is unscaled."""
+    if scaling is None or not scaling.has_factor(column):
+        return None
+    try:
+        return scaling.unit_divisors(column, unit_labels, unit_col)
+    except (KeyError, ValueError) as exc:
+        raise ValueError(
+            f"Cannot align the policy scale for {column!r} with the panel "
+            f"units. Refit with scaling dims that include {unit_col!r}, or "
+            "drop scaling for this query."
+        ) from exc
 
 
 def _model_interventions(
     schedules: dict[str, np.ndarray],
-    scales: dict[str, np.ndarray],
+    scaling: ScalingFactors | None,
     states: tuple[str, ...],
     exogenous: tuple[str, ...],
     unit_labels: Sequence[Any],
+    unit_col: str,
     time_values: Sequence[Any],
 ) -> dict[str, xr.DataArray]:
     known = set(states) | set(exogenous)
@@ -764,11 +497,14 @@ def _model_interventions(
                 f"Unknown set= variable {var!r}. Use an endogenous or "
                 f"exogenous column. Available: {sorted(known)}."
             )
-        business = np.broadcast_to(series[:, None], (series.shape[0], n_units)).astype(
-            float
+        business = xr.DataArray(
+            np.broadcast_to(series[:, None], (series.shape[0], n_units)).astype(float),
+            dims=("time", unit_col),
+            coords={"time": list(time_values), unit_col: list(unit_labels)},
         )
-        factor = scales.get(var)
-        model_units = business if factor is None else business / factor.reshape(1, -1)
+        model_units = _convert_policy_scale(
+            business, scaling, var, direction="internal", kind="regressor"
+        )
         out[var] = xr.DataArray(
             np.ascontiguousarray(model_units).T,
             dims=("unit", "time"),
@@ -867,7 +603,8 @@ def _execute_chunks(
     target: str,
     n_simulations: int,
     seed: int,
-    scales: dict[str, np.ndarray],
+    scaling: ScalingFactors | None,
+    unit_col: str,
     keep: bool,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray] | None]:
     n_chain = post.sizes["chain"]
@@ -929,7 +666,7 @@ def _execute_chunks(
                     values = np.asarray(
                         result[var if var in states else action_name].values
                     )[0]
-                    business = _unscale(values, scales.get(var))
+                    business = _to_business(values, scaling, var, unit_labels, unit_col)
                     index = (chain_i, draw_idx[:, None], sim_idx[None, :])
                     unit_means[var][index] = business.mean(axis=2)
                     if retained is not None:
@@ -961,11 +698,58 @@ def _reject_nonfinite_action(
     )
 
 
-def _unscale(values: np.ndarray, factor: np.ndarray | None) -> np.ndarray:
-    if factor is None:
+def _to_business(
+    values: np.ndarray,
+    scaling: ScalingFactors | None,
+    column: str,
+    unit_labels: Sequence[Any],
+    unit_col: str,
+) -> np.ndarray:
+    if scaling is None or not scaling.has_factor(column):
         return values
-    shape = (1,) * (values.ndim - 2) + (factor.shape[0], 1)
-    return values * factor.reshape(shape)
+    dims = [f"sample_{axis}" for axis in range(values.ndim - 2)] + [unit_col, "time"]
+    wrapped = xr.DataArray(
+        np.asarray(values, dtype=float),
+        dims=dims,
+        coords={unit_col: list(unit_labels)},
+    )
+    return _convert_policy_scale(
+        wrapped, scaling, column, direction="business", kind="outcome"
+    )
+
+
+def _convert_policy_scale(
+    values: xr.DataArray,
+    scaling: ScalingFactors | None,
+    column: str,
+    *,
+    direction: Literal["internal", "business"],
+    kind: Literal["outcome", "regressor"],
+) -> np.ndarray:
+    """Convert one policy array through the scaler, then return a plain array.
+
+    ``lower()`` is the only site that multiplies by a per-unit factor
+    directly. Set values and returned states go through
+    :meth:`ScalingFactors.to_internal` / :meth:`ScalingFactors.to_business`
+    so a missing or misaligned factor is the scaler's error, not a silent 1.
+    """
+    array = np.asarray(values, dtype=float)
+    if scaling is None:
+        return array
+    method = scaling.to_internal if direction == "internal" else scaling.to_business
+    try:
+        converted = method(values, kind=kind, dims=ScaleContext(term=column))
+    except (KeyError, ValueError) as exc:
+        raise ValueError(
+            f"Cannot align the policy scale for {column!r} with the panel units. {exc}"
+        ) from exc
+    result = np.asarray(converted, dtype=float)
+    if result.shape != array.shape:
+        raise RuntimeError(
+            f"Policy scale conversion for {column!r} changed shape from "
+            f"{array.shape} to {result.shape}. This is an internal error."
+        )
+    return result
 
 
 def _pack_results(
@@ -1018,14 +802,20 @@ def _posterior_id(
     policy_model: pm.Model,
     states: tuple[str, ...],
     spec: Any,
-    scales: Mapping[str, np.ndarray],
+    scaling: ScalingFactors | None,
+    unit_labels: Sequence[Any],
+    unit_col: str,
+    target: str,
+    exogenous: tuple[str, ...],
 ) -> str:
     noise = {f"carry_innovations_{var}" for var in states}
     names = [rv.name for rv in policy_model.free_RVs if rv.name not in noise]
     arrays = {name: np.asarray(post[name].values) for name in names}
     arrays["model:spec"] = np.asarray(repr(spec))
-    for name, scale in scales.items():
-        arrays[f"model:scale:{name}"] = np.asarray(scale)
+    for name in sorted(set(states) | set(exogenous) | {target}):
+        factor = _policy_unit_factor(scaling, name, unit_labels, unit_col)
+        if factor is not None:
+            arrays[f"model:scale:{name}"] = np.asarray(factor)
     for name in names:
         arrays[f"dimensions:{name}"] = np.asarray(post[name].dims)
         for dim in post[name].dims:

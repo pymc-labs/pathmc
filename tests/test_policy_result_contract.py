@@ -147,6 +147,61 @@ def test_policy_initial_rejects_fitted_variables_that_are_never_carried(fitted):
         )
 
 
+def test_schedule_name_is_excluded_from_compiled_exogenous(fitted):
+    from pathmc.compile import compile_to_pymc
+    from pathmc.policy import plan_policy
+
+    policy = pathmc.TreatmentPolicy("dose", "water", pathmc.TimeSchedule([0.0, 1.0]))
+    names = set(fitted._graph_info.endogenous) | set(fitted._graph_info.exogenous)
+    scan = fitted._gen_model._pathmc_panel_scan
+    plan = plan_policy(
+        policy,
+        fitted._graph_info,
+        names=names,
+        time_values=tuple(scan.time_values),
+    )
+    compiled = compile_to_pymc(
+        fitted._spec,
+        fitted._data,
+        fitted._design_matrices,
+        families=fitted._families,
+        panel_info=fitted._panel_info,
+        pooling=fitted._pooling,
+        latent=fitted._latent,
+        graph_info=fitted._graph_info,
+        priors=fitted._priors,
+        generative=True,
+        initial={"growth": np.zeros(scan.n_units)},
+        policy_plan=plan,
+    )
+    exogenous = compiled._pathmc_panel_scan.exogenous
+    assert "policy_schedule" not in exogenous
+    assert "water" in exogenous
+
+
+def test_previous_reference_outside_lag_bases_is_required(fitted):
+    policy = pathmc.TreatmentPolicy(
+        "rain-gate",
+        "water",
+        pathmc.where(pathmc.previous("rain") > 0, 1, 0),
+    )
+    with pytest.raises(ValueError, match=r"initial= must cover exactly.*rain"):
+        fitted.do(
+            policy=policy,
+            horizon=2,
+            simulate_over="time",
+            n_simulations=2,
+            random_seed=7,
+        )
+
+
+def test_reduced_policy_by_time_does_not_mention_simulate_over(fitted):
+    result = _run(fitted).aggregate_time("growth")
+    with pytest.raises(ValueError, match="aggregate_time") as exc:
+        result.by_time("growth")
+    assert "simulate_over" not in str(exc.value)
+
+
 @pytest.mark.parametrize("compare,expected", [(operator.eq, 1.0), (operator.ne, 0.0)])
 @pytest.mark.parametrize(
     "expression,boundary",

@@ -43,7 +43,7 @@ from pathmc.compile import (
     compile_to_pymc,
     get_predictor_columns,
     lag_base_kinds,
-    observed_lag_bases,
+    required_initial_keys,
     validate_panel_scan_shape,
 )
 from pathmc.effects import (
@@ -116,7 +116,7 @@ from pathmc.simulate import (
 if TYPE_CHECKING:
     from pathmc.adjustment import AdjustmentModel
     from pathmc.policy import TreatmentPolicy
-    from pathmc.policy_exec import PolicyRun
+    from pathmc.policy_result import PolicyRun
 
 __all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
 
@@ -2079,7 +2079,7 @@ class PathModel:
                 "initial= is only used by time-forward panel simulation. "
                 "Pass simulate_over='time', or omit initial=."
             )
-        bases = observed_lag_bases(self._spec, self._latent)
+        bases = required_initial_keys(self._spec, None, latent=set(self._latent))
         if not bases:
             raise ValueError(
                 "initial= applies to observed lag() bases, and this model "
@@ -3262,7 +3262,7 @@ def model(
     compiled_initial: Mapping[str, np.ndarray] | None = _initial_internal
     if initial is not None:
         assert nw_data is not None and panel_info is not None
-        bases = observed_lag_bases(spec, latent_set)
+        bases = required_initial_keys(spec, None, latent=latent_set)
         if not bases:
             raise ValueError(
                 "initial= applies to observed lag() bases, and this model "
