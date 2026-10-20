@@ -76,15 +76,6 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - name: Install dependencies
-        # Locked install (same as `make setup`) so the mypy hook sees the
-        # project dependencies, matching local `make lint` behavior.
         run: uv sync --all-extras --locked
-      - name: Run prek on changed files in PRs
-        if: github.event_name == 'pull_request'
-        run: uv run prek run --from-ref "$BASE_SHA" --to-ref "$HEAD_SHA"
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      - name: Run prek on all files on pushes
-        if: github.event_name != 'pull_request'
-        run: uv run prek run --all-files
+      - name: Run lint
+        run: make lint

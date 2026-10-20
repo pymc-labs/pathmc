@@ -5,13 +5,15 @@
 PACKAGE_NAME = pathmc
 BUILD_CHECK_DIR = .build-check
 VENV_JUPYTER := $(CURDIR)/.venv/share/jupyter
+UV_RUN = uv run --locked --all-extras
+REMOTE ?= origin
 REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' ! -name '00-welcome.qmd' | sort)
 
 #################################################################################
 # COMMANDS                                                                      #
 #################################################################################
 
-.PHONY: setup lint check_lint test-fast test test-nightly jupyter-kernel docs freeze-page refreeze-docs cleandocs build check-build help
+.PHONY: setup lint check_lint check check-pr check-merge test-fast test test-nightly jupyter-kernel docs freeze-page refreeze-docs cleandocs build check-build help
 
 setup: ## Set up the complete development environment (uv)
 	uv sync --all-extras
@@ -23,23 +25,37 @@ jupyter-kernel: ## Register the pathmc Jupyter kernel for Quarto execution
 	uv run python -m ipykernel install --sys-prefix --name pathmc --display-name pathmc
 
 lint: ## Run prek hooks, applying fixes
-	uv run prek run --all-files
+	$(UV_RUN) python -c 'import platform; from importlib.metadata import version; print("Python", platform.python_version(), *(f"{name}={version(name)}" for name in ("prek", "ruff", "mypy", "narwhals", "numpy", "pandas-stubs")))'
+	$(UV_RUN) prek run --all-files
 
 check_lint: ## Check formatting, linting, and types without making changes
-	uv run ruff check .
-	uv run ruff format --diff --check .
-	uv run mypy --ignore-missing-imports
+	$(UV_RUN) ruff check .
+	$(UV_RUN) ruff format --diff --check .
+	$(UV_RUN) mypy --ignore-missing-imports
+
+check: ## Run the shared CI lint and per-commit test gates on this checkout
+	uv sync --all-extras --locked
+	$(MAKE) lint
+	$(MAKE) test
+
+check-pr: ## Validate a PR merge candidate in a disposable worktree (PR=number)
+	@test -n "$(PR)" || { echo "Usage: make check-pr PR=number"; exit 1; }
+	$(UV_RUN) python scripts/check_pr.py --pr "$(PR)"
+
+check-merge: ## Validate a new branch against its target before publishing (BASE=main)
+	@test -n "$(BASE)" || { echo "Usage: make check-merge BASE=main [REMOTE=origin]"; exit 1; }
+	$(UV_RUN) python scripts/check_pr.py --base "$(BASE)" --remote "$(REMOTE)"
 
 TEST_ENV = OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 
 test-fast: ## Run fast tests, excluding slow MCMC tests and nightly Tier 5
-	$(TEST_ENV) uv run pytest -x -v -n auto --dist loadscope -m "not slow and not nightly"
+	$(TEST_ENV) $(UV_RUN) pytest -x -v -n auto --dist loadscope -m "not slow and not nightly"
 
 test: ## Run per-commit tests with coverage, including slow MCMC, excluding nightly Tier 5
-	$(TEST_ENV) uv run pytest -x -v -n auto --dist loadscope -m "not nightly" --cov=pathmc --cov-report=term-missing
+	$(TEST_ENV) $(UV_RUN) pytest -x -v -n auto --dist loadscope -m "not nightly" --cov=pathmc --cov-report=term-missing
 
 test-nightly: ## Run Tier 5 MCMC recovery and light SBC (issue #326)
-	$(TEST_ENV) uv run pytest -x -v -n auto --dist loadscope -m nightly
+	$(TEST_ENV) $(UV_RUN) pytest -x -v -n auto --dist loadscope -m nightly
 
 docs: jupyter-kernel ## Build the documentation site
 	JUPYTER_PATH=$(VENV_JUPYTER) uv run great-docs build

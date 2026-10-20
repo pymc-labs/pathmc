@@ -10,6 +10,8 @@ Remember, when running into bugs or complex issues, it is not impossible we are 
 2. Run the relevant gate tests, e.g. `uv run pytest tests/test_<module>.py -x -v`. `make test-fast` skips slow MCMC tests and nightly Tier 5. `make test` runs the per-commit suite, including slow MCMC, and excludes nightly Tier 5.
 3. Run `make lint` before considering work done or committing. It runs `prek run --all-files` (ruff, ruff-format, mypy, YAML/TOML, license checks).
 
+For final validation, run `make check-pr PR=<number>` for an existing pull request, or `make check-merge BASE=main` before creating one. These check the current target branch merged with the committed candidate in a disposable worktree; checking the feature head alone does not reproduce GitHub's merge checkout. The command records the validated head/base/tree and rejects changes to those inputs during the run. See the validation section in `CONTRIBUTING.md` for pushed heads versus unpublished descendants.
+
 For `simulate()` and scaling, prefer tests that leave the module under test: hand-written NumPy oracles, or round-trips into a different entry point (`model()` on simulated frames, `do(raw)` vs `intercept + beta * raw/factor`). Simulate-and-recover alone is blind to silent DGP bugs because the same code generates and checks the data.
 
 Line-level AI attribution is recorded by [git-ai](https://usegitai.com/docs/get-started) into `refs/notes/ai`. It is optional and installed per machine, never per repo — see the "AI code attribution with git-ai" section of [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the `allow_repositories` gotcha.

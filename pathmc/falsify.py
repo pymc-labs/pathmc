@@ -341,7 +341,7 @@ class FalsificationResult(ResultReprMixin):
 
         ax.hist(
             [self.perm_lmc_violation_fractions, self.perm_tpa_violation_fractions],
-            bins=hist_bins,
+            bins=hist_bins.tolist() if isinstance(hist_bins, np.ndarray) else hist_bins,
             alpha=0.5,
             color=["tab:blue", "tab:orange"],
             edgecolor="k",

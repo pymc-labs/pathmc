@@ -140,12 +140,32 @@ To apply automatic lint and format fixes by running the pre-commit hooks:
 make lint
 ```
 
+Ruff and mypy run from the project's locked environment in both commands and in pre-commit hooks. They do not install another set of typing dependencies in an isolated hook environment. Mypy checks the whole package even when only one source file is staged. Validation uses `uv run --locked --all-extras`, so a stale lockfile fails instead of silently selecting new tool versions. `make lint` prints the selected tool versions, and CI calls the same `make lint` and `make test` targets.
+
+Run both CI lint and per-commit test gates on the current checkout with:
+
+```bash
+make check
+```
+
+GitHub validates a pull request's **merge commit**, which can include target-branch changes absent from the feature head. For an existing PR, commit your changes, check out its branch, and run:
+
+```bash
+make check-pr PR=546
+```
+
+This fetches the PR and current target branch, then runs `make check` in a disposable worktree. When the checkout matches the pushed head and GitHub's merge ref is current, it validates that exact merge commit. For committed unpublished descendants, or while GitHub's merge ref is stale, it creates and clearly labels a local merge preview. It never pushes or changes your checkout. Uncommitted changes, merge conflicts, a different PR branch, validation failures, and inputs advancing during validation all fail the command. A record of the head, base, merge commit, source tree, and outcome is saved in `.scratch/ci-preflight/last-run.json`; rerun if the candidate or target branch changes.
+
+Before creating a new PR, use `make check-merge BASE=main` to preview the committed candidate merged into the current remote target branch. This uses the same validation and worktree isolation without requiring a PR number. Override `REMOTE=upstream` for a fork, and set `BASE` to the intended target branch.
+
+This aligns source inputs, tool versions, and lint/test commands. Local platform-specific behavior can still differ from Ubuntu CI. Documentation and distribution jobs remain separate checks; use `make docs` and `make check-build` when those are relevant. `make test-nightly` remains outside the per-commit gate.
+
 ## Pull request checklist
 
 - Link the issue being addressed, preferably with `Closes #<issue-number>` in the pull request description.
 - Add or update tests for user-facing behavior changes.
 - Update documentation, examples, or README content when behavior or setup instructions change.
-- Run the relevant targeted tests, `make test-fast` or `make test`, and `make check_lint` before requesting review. Pull requests also run `make test` in GitHub Actions (the per-commit suite, including slow MCMC tests, excluding nightly Tier 5).
+- Run relevant targeted tests while iterating, then `make check-pr PR=<number>` for an existing PR or `make check-merge BASE=main` for a new one. Repeat if the candidate or target branch changes. Pull requests run the same per-commit test scope, including slow MCMC and excluding nightly Tier 5.
 - Label the pull request before merge so GitHub's generated release notes place it in the correct category; use labels such as `bug`, `documentation`, or `enhancement` when they apply.
 - Mark work-in-progress pull requests as drafts until the implementation and test plan are ready for review.
 
