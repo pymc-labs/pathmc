@@ -1,0 +1,29 @@
+pathmc/policy.py
+  s_ad4f6de7f05202::t_c4b6a12219d992 153,165,177,195,220,239,252
+docs/examples/05-panel-time/history_dependent_policies.qmd
+  s_ad4f6de7f05202::t_c4b6a12219d992 194,232-234,236-266,271
+  s_ad4f6de7f05202::t_230488efeaf384 190
+tests/test_policy_result_contract.py
+  s_ad4f6de7f05202::t_230488efeaf384 16-18,28,148-169,173-182,188-224
+  s_ad4f6de7f05202::t_454ca5406d66bc 79-86,92,170-172,183-187
+pathmc/policy_exec.py
+  s_ad4f6de7f05202::t_c4b6a12219d992 145-159,293-294,297,531,1017-1021,1026-1034
+_freeze/docs/examples/panel-time/history_dependent_policies/execute-results/html.json
+  s_ad4f6de7f05202::t_1df5a5f3da6788 2,5,10-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4108bbf15daf5258ef14f9b9367f1f21efb03574",
+  "prompts": {},
+  "sessions": {
+    "s_ad4f6de7f05202": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b42-0a8b-7693-a632-c6b7b37faefa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
