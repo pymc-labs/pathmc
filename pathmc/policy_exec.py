@@ -142,6 +142,21 @@ def _reduce_policy_time(
     return reduced.to_dataset()
 
 
+def _require_matching_layout(left: xr.Dataset, right: xr.Dataset) -> None:
+    """Reject implicit intersections or broadcasting in a paired contrast."""
+    if (
+        left.sizes != right.sizes
+        or set(left.data_vars) != set(right.data_vars)
+        or not left.coords.to_dataset().equals(right.coords.to_dataset())
+        or any(left[var].dims != right[var].dims for var in left.data_vars)
+    ):
+        raise ValueError(
+            "Cannot contrast policy results: result coordinates, dimensions, "
+            "or variables differ. Rerun both on the same posterior and "
+            "reporting grid, and apply the same aggregation before subtraction."
+        )
+
+
 @dataclass(frozen=True)
 class PolicyRun:
     """Population summaries for one history-dependent policy.
@@ -275,8 +290,11 @@ class PolicyRun:
                 "seed, initial baseline, horizon, simulation count, and "
                 "fitted posterior. Refitting is unnecessary when those match."
             )
+        _require_matching_layout(self.population, other.population)
+        _require_matching_layout(self.simulation_draws, other.simulation_draws)
         trajectories = None
         if self._trajectories is not None and other._trajectories is not None:
+            _require_matching_layout(self._trajectories, other._trajectories)
             trajectories = self._trajectories - other._trajectories
         name = f"{self.info.policy_name} - {other.info.policy_name}"
         return PolicyRun(
@@ -510,7 +528,7 @@ def run_policy_evaluation(
         horizon=horizon_n,
         seed=seed,
         baseline=baseline_record,
-        posterior_id=_posterior_id(post, policy_model, states),
+        posterior_id=_posterior_id(post, policy_model, states, model._spec, scales),
         exogenous_id=_exogenous_id(model, policy_scan, schedules),
         coupling=_COUPLING,
         weights=tuple(1.0 / int(scan.n_units) for _ in scan.unit_labels),
@@ -996,11 +1014,24 @@ def _pack_results(
 
 
 def _posterior_id(
-    post: xr.Dataset, policy_model: pm.Model, states: tuple[str, ...]
+    post: xr.Dataset,
+    policy_model: pm.Model,
+    states: tuple[str, ...],
+    spec: Any,
+    scales: Mapping[str, np.ndarray],
 ) -> str:
     noise = {f"carry_innovations_{var}" for var in states}
     names = [rv.name for rv in policy_model.free_RVs if rv.name not in noise]
     arrays = {name: np.asarray(post[name].values) for name in names}
+    arrays["model:spec"] = np.asarray(repr(spec))
+    for name, scale in scales.items():
+        arrays[f"model:scale:{name}"] = np.asarray(scale)
+    for name in names:
+        arrays[f"dimensions:{name}"] = np.asarray(post[name].dims)
+        for dim in post[name].dims:
+            arrays[f"coordinate:{dim}"] = np.asarray([
+                repr(label) for label in post.coords[dim].values
+            ])
     return _hash_arrays(arrays)
 
 

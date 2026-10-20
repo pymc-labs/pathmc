@@ -187,11 +187,11 @@ plt.show()
 
 ## Posterior trajectories and cumulative contrasts
 
-The ribbons are not drawn. What is drawn is the posterior mean of the population path. Cumulative growth and cumulative water are separate reductions. Neither contrast declares a winner.
+First inspect the posterior mean of each population path. Then subtract the same scheduled baseline from each threshold policy within matching posterior draws and process replicates. Cumulative growth and cumulative water are separate outcomes; their paired contrasts report what changes under each rule.
 
 ```{python}
 # | label: fig-policy-paths
-# | fig-cap: "Posterior mean growth and water under the fixed schedule and the two thresholds. The gap is a paired contrast, not a ranking."
+# | fig-cap: "Posterior mean growth and water under the fixed schedule and the two thresholds. These absolute paths precede the paired contrast summaries below."
 # | fig-width: 8
 
 fig, axes = plt.subplots(1, 2, figsize=(8, 3.5), sharex=True)
@@ -229,16 +229,46 @@ for name, result in (
         float(water.mean("water")),
         float(np.max(np.abs(growth.simulation_mcse("growth")))),
     )
+```
 
-repeat = model.do(policy=threshold_05, **{**shared, "random_seed": 29})
-first = cumulative(tight_rule, "growth").mean("growth")
-second = cumulative(repeat, "growth").mean("growth")
-print("seed repeat", float(first), float(second), float(abs(first - second)))
+The following table answers the comparison directly. A positive growth contrast means more cumulative net growth than scheduled watering; a positive water contrast means more fixed doses. The 94% HDI summarizes posterior uncertainty about each expected difference. The maximum per-draw Monte Carlo standard error measures the numerical precision of integrating process noise, separately from that interval.
+
+```{python}
+contrasts = {
+    "threshold 0 - schedule": open_rule - schedule,
+    "threshold 0.5 - schedule": tight_rule - schedule,
+}
+contrast_rows = []
+for name, contrast in contrasts.items():
+    for var in ("growth", "water"):
+        total = cumulative(contrast, var)
+        lower, upper = total.hdi(var)
+        contrast_rows.append({
+            "comparison": name,
+            "outcome": var,
+            "mean difference": total.mean(var),
+            "94% HDI lower": lower,
+            "94% HDI upper": upper,
+            "max per-draw MCSE": float(total.simulation_mcse(var).max()),
+        })
+contrast_summary = pd.DataFrame(contrast_rows).set_index(["comparison", "outcome"])
+contrast_summary.round(3)
+```
+
+Repeat the paired calculation with another process seed to check numerical stability. Both calls in the repeat share that new seed; subtracting runs with different seeds is rejected.
+
+```{python}
+repeated = {**shared, "random_seed": 29}
+repeat = model.do(policy=threshold_05, **repeated)
+repeat_schedule = model.do(policy=every_third, **repeated)
+first = cumulative(contrasts["threshold 0.5 - schedule"], "growth").mean("growth")
+second = cumulative(repeat - repeat_schedule, "growth").mean("growth")
+print("paired seed repeat", float(first), float(second), float(abs(first - second)))
 ```
 
 ```{python}
 # | label: fig-growth-versus-water
-# | fig-cap: "Cumulative growth against cumulative water. The axes are separate contrasts. Neither axis ranks the policies."
+# | fig-cap: "Posterior mean cumulative growth against cumulative water under each rule. The outcomes are reported separately; no utility or policy ranking is imposed."
 # | fig-width: 6
 
 labels = ["every third", "threshold 0", "threshold 0.5"]

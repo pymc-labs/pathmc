@@ -13,6 +13,9 @@
 #   limitations under the License.
 """Policy memory, posterior-summary, and baseline contracts."""
 
+import operator
+from dataclasses import replace
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -22,6 +25,7 @@ import xarray as xr
 import pathmc
 import pathmc.policy_exec as execution
 from pathmc.simulate import DoResult
+from pathmc.policy import Literal
 
 
 @pytest.fixture
@@ -70,19 +74,22 @@ def test_default_execution_generates_bounded_noise_and_discards_unit_paths(
 ):
     allocations = []
     generated = []
-    empty = np.empty
     innovations = execution.policy_innovations
 
-    def record_empty(shape, *args, **kwargs):
-        if isinstance(shape, tuple):
-            allocations.append(shape)
-        return empty(shape, *args, **kwargs)
+    class AllocationProbe:
+        def __getattr__(self, name):
+            return getattr(np, name)
+
+        def empty(self, shape, *args, **kwargs):
+            if isinstance(shape, tuple):
+                allocations.append(shape)
+            return np.empty(shape, *args, **kwargs)
 
     def record_noise(seed, states, chains, draws, n_sim, n_unit, n_time, **kwargs):
         generated.append((tuple(chains), tuple(draws), n_sim))
         return innovations(seed, states, chains, draws, n_sim, n_unit, n_time, **kwargs)
 
-    monkeypatch.setattr(execution.np, "empty", record_empty)
+    monkeypatch.setattr(execution, "np", AllocationProbe())
     monkeypatch.setattr(execution, "policy_innovations", record_noise)
     bounded = _run(fitted, batch_draws=1, batch_sims=2)
     assert generated
@@ -138,3 +145,80 @@ def test_policy_initial_rejects_fitted_variables_that_are_never_carried(fitted):
             n_simulations=2,
             random_seed=7,
         )
+
+
+@pytest.mark.parametrize("compare,expected", [(operator.eq, 1.0), (operator.ne, 0.0)])
+@pytest.mark.parametrize(
+    "expression,boundary",
+    [
+        (Literal(0.0), 0),
+        (pathmc.current("rain"), 0),
+        (pathmc.current("rain") + 1, 1),
+        (pathmc.current("rain") > 0, 0),
+        ((pathmc.current("rain") > 0) | (pathmc.current("rain") < 0), 0),
+        (~(pathmc.current("rain") > 0), 1),
+        (pathmc.where(pathmc.current("rain") >= 0, 1, 0), 1),
+    ],
+)
+def test_equality_operators_execute_for_every_expression_node(
+    fitted, expression, boundary, compare, expected
+):
+    condition = compare(expression, boundary)
+    with pytest.raises(TypeError, match="truth"):
+        bool(condition)
+    result = fitted.do(
+        policy=pathmc.TreatmentPolicy(
+            "equality", "water", pathmc.where(condition, 1, 0)
+        ),
+        horizon=2,
+        simulate_over="time",
+        n_simulations=2,
+        random_seed=7,
+    )
+    np.testing.assert_allclose(result.by_time("water"), expected)
+
+
+def test_contrasts_reject_relabelled_posteriors_even_with_identical_parameters(fitted):
+    original = _run(fitted)
+    posterior = (
+        fitted
+        ._idata["posterior"]
+        .to_dataset()
+        .assign_coords(chain=[20, 40], draw=[50, 80, 130])
+    )
+    fitted._idata = xr.DataTree.from_dict({"posterior": posterior})
+    relabelled = _run(fitted)
+    with pytest.raises(ValueError, match="posterior_id"):
+        _ = original - relabelled
+
+
+@pytest.mark.parametrize("different", ["fixed coefficient", "scaling"])
+def test_contrasts_reject_different_fixed_structural_context(fitted, different):
+    original = _run(fitted)
+    coefficient = 2 if different == "fixed coefficient" else 1
+    scaling = (
+        pathmc.Scaling(target={"method": "fixed", "value": 2.0})
+        if different == "scaling"
+        else None
+    )
+    other = pathmc.model(
+        "stress ~ 0 + 1*rain\n"
+        f"growth ~ 0 + 0.2*lag(growth) + {coefficient}*water + 0.3*stress",
+        data=fitted._data.to_native(),
+        panel={"unit": "unit", "time": "time"},
+        initial={"growth": 0.0},
+        scaling=scaling,
+    )
+    other._idata = fitted._idata
+    with pytest.raises(ValueError, match="posterior_id"):
+        _ = original - _run(other)
+
+
+@pytest.mark.parametrize("layer", ["population", "simulation_draws", "_trajectories"])
+def test_contrasts_require_exact_result_coordinates(fitted, layer):
+    original = _run(fitted, keep=True)
+    misaligned = replace(
+        original, **{layer: getattr(original, layer).assign_coords(chain=[20, 40])}
+    )
+    with pytest.raises(ValueError, match="coordinates.*same posterior"):
+        _ = original - misaligned

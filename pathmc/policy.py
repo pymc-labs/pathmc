@@ -150,7 +150,7 @@ def _boolop(op: str, left: Any, right: Any) -> _Expr:
     return BoolOp(op, _wrap(left, f"left of {op}"), _wrap(right, f"right of {op}"))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Literal(_Expr):
     value: float
 
@@ -162,7 +162,7 @@ class Literal(_Expr):
         return np.asarray(self.value, dtype=float)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Ref(_Expr):
     name: str
     timing: str
@@ -174,7 +174,7 @@ class Ref(_Expr):
         return ctx.reference(self.timing, self.name)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class BinOp(_Expr):
     op: str
     left: _Expr
@@ -192,7 +192,7 @@ class BinOp(_Expr):
         return ops[self.op](a, b)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Comparison(_Expr):
     op: str
     left: _Expr
@@ -217,7 +217,7 @@ class Comparison(_Expr):
         return ops[self.op](a, b)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class BoolOp(_Expr):
     op: str
     left: _Expr
@@ -236,7 +236,7 @@ class BoolOp(_Expr):
         return pt.or_(a, b)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Not(_Expr):
     expr: _Expr
 
@@ -249,7 +249,7 @@ class Not(_Expr):
         return pt.invert(self.expr.lower(ctx))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Where(_Expr):
     condition: _Expr
     yes: _Expr
