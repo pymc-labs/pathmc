@@ -1,0 +1,92 @@
+tests/test_metamorphic_properties.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 1-215
+docs/user_guide/11-model-specification.qmd
+  s_ad4f6de7f05202::t_0994c04636dfd7 101
+.github/workflows/git-ai.yml
+  s_ad4f6de7f05202::t_0994c04636dfd7 19-21,23
+pathmc/introspect.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 26-31,34,38-70,388,392-393,423,439,531,549-558,750-760
+pathmc/_model.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 185-186,192-197,356-361,365-367,461-463,1207,1443-1451,1459-1465,1617-1622,1651,1665,1821,1841-1845,1847,2189,2271-2272,2285,2287-2293,2295-2298,2330-2331,2337-2341,2345-2349
+pathmc/refute.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 53,479-500,672-675,739-760,800-806
+pyproject.toml
+  s_ad4f6de7f05202::t_0994c04636dfd7 101
+docs/user_guide/18-standardized-effects.qmd
+  s_ad4f6de7f05202::t_0994c04636dfd7 17-18
+.github/workflows/pr-closing-issue-labels.yml
+  s_ad4f6de7f05202::t_0994c04636dfd7 22
+tests/test_categorical_edges.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 1-707
+.github/workflows/zizmor.yml
+  s_ad4f6de7f05202::t_0994c04636dfd7 28,34
+pathmc/compile.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 251-252,257-258,855-860,864-880
+AGENTS.md
+  s_ad4f6de7f05202::t_0994c04636dfd7 10
+pathmc/priors.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 146-149
+pathmc/falsify.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 49,508,538-542,560-562,635
+tests/test_adjustment.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 19,45-52,349-576
+  s_ad4f6de7f05202::t_1e6de8208c749b 577
+CONTRIBUTING.md
+  s_ad4f6de7f05202::t_0994c04636dfd7 16,71,73-75,117,123,148
+.github/workflows/nightly.yml
+  s_ad4f6de7f05202::t_0994c04636dfd7 1-30
+Makefile
+  s_ad4f6de7f05202::t_0994c04636dfd7 14,35-36,38-42
+docs/user_guide/categorical-predictors.qmd
+  s_ad4f6de7f05202::t_0994c04636dfd7 115-120,144,146,180,186-190,209,217,231-235,240-244,303,305,307-309,314,317
+.github/workflows/ci.yml
+  s_ad4f6de7f05202::t_0994c04636dfd7 57,77
+pathmc/parse.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 107,109-112,358-360
+tests/test_tier5_mcmc_sbc.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 1-109
+pathmc/identify.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 23,32,680-681,690-696,710-713,738-742,778-779,785-789,794-795
+tests/test_graph_consistency.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 23-33,40,42,45-46,48,51-52,54
+.github/workflows/docs.yml
+  s_ad4f6de7f05202::t_0994c04636dfd7 24,54,78
+pathmc/adjustment.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 28,39,246-256,258-264,266-267,269-271,273,275-283,285-321,467-472,474-479,484-491
+pathmc/simulate.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 1025-1044,1048,1061-1067,1071-1080,1085-1094,1099-1105,1116-1117,1124-1128,1130-1131,1134-1139,1197-1204,1220-1226,1228-1231,1234,1236,1244,1247-1248,1253,1255,1261
+pathmc/skills/pathmc/SKILL.md
+  s_ad4f6de7f05202::t_0994c04636dfd7 67-69,163-170
+tests/_consistency.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 27-33,41-44,46-47,50-53,60-61,63-65,69-113,119-123,136-138,140-141,166-167,170,218-219,227-829
+.github/workflows/git-ai-sweep.yml
+  s_ad4f6de7f05202::t_0994c04636dfd7 1-201
+pathmc/categorical.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 18,27,43-63,104-181,207-210,213-218,244,282-304,306-314,316-317,320,351-381,384,395,399-400,416-425
+docs/examples/01-foundations/categorical_predictors.qmd
+  s_ad4f6de7f05202::t_0994c04636dfd7 416-417,455-460,463,805,825,832
+.github/workflows/release.yml
+  s_ad4f6de7f05202::t_0994c04636dfd7 36,81,94,131
+_freeze/docs/examples/foundations/categorical_predictors/execute-results/html.json
+  s_ad4f6de7f05202::t_0994c04636dfd7 2,5,15
+pathmc/_ci.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 23-32,37,42,64-68,70-72,76,78-80,88,96-114,122,128-131,133,136-142,148-154,156-160,166,171,195-336,340-343,347-353,372,374-378
+tests/test_map_recovery.py
+  s_ad4f6de7f05202::t_0994c04636dfd7 1-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b77d63129a4a2e1a0904c0c456cc70549c39cb3d",
+  "prompts": {},
+  "sessions": {
+    "s_ad4f6de7f05202": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b42-0a8b-7693-a632-c6b7b37faefa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
