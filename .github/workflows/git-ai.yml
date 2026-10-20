@@ -16,8 +16,11 @@ permissions: {}
 # `single`, which keeps one pending run and replaces it when the next arrives.
 # Without it, a merged PR's `closed` run can be evicted while waiting behind
 # another run, and nothing ever retries it. Requires cancel-in-progress: false.
+#
+# The group is a literal, not ${{ github.workflow }}, because git-ai-sweep.yml
+# pushes the same ref and must join it; a workflow-name key would differ.
 concurrency:
-  group: ${{ github.workflow }}
+  group: git-ai-notes
   cancel-in-progress: false
   queue: max
 

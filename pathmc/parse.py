@@ -104,11 +104,12 @@ class BasisCall:
 
 @dataclass
 class CategoricalCall:
-    """A treatment-coded categorical predictor.
+    """A categorical predictor expanded into indicator columns.
 
-    ``levels`` and ``reference`` are fit-time state. They are populated from
-    the observed data before compilation and then reused for prediction and
-    interventions so contrast coding cannot silently change.
+    ``levels``, ``reference``, and ``columns`` are fit-time state. They are
+    populated from the observed data before compilation and then reused for
+    prediction and interventions so the coding cannot silently change.
+    Which term supplies the baseline is not stored on the call.
     """
 
     variable: str
@@ -354,7 +355,9 @@ def _parse_regression(stmt: str) -> Regression:
             "equation (multiple smooths of one variable are a follow-up)."
         )
 
-    return Regression(lhs=lhs, terms=terms, has_intercept=has_intercept)
+    regression = Regression(lhs=lhs, terms=terms, has_intercept=has_intercept)
+
+    return regression
 
 
 #: A float mantissa immediately followed by its exponent marker, anchored so

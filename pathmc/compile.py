@@ -239,9 +239,13 @@ def _effective_has_intercept(
     panel_info: PanelInfo | None = None,
 ) -> bool:
     """Whether a regression keeps its formula intercept in the design matrix."""
+    from pathmc.categorical import absorbs_intercept
+
     if not reg.has_intercept:
         return False
     if _drops_formula_intercept(pooling, panel_info):
+        return False
+    if absorbs_intercept(reg):
         return False
     return True
 
@@ -819,13 +823,32 @@ def compile_to_pymc(
                 dim = f"{reg.lhs}_{term.variable}_levels"
                 beta_name = f"beta_{reg.lhs}_{term.variable}"
                 if call.prior == "hierarchical":
-                    mu = priors[f"mu_{beta_name}"].create_variable(f"mu_{beta_name}")
+                    from pathmc.categorical import (
+                        contrast_indices,
+                        has_population_mean,
+                        sums_to_zero,
+                    )
+
                     sigma = priors[f"sigma_{beta_name}"].create_variable(
                         f"sigma_{beta_name}"
                     )
-                    categorical_coefficients[cat_key] = pm.Normal(
-                        beta_name, mu=mu, sigma=sigma, dims=dim
-                    )
+                    if has_population_mean(reg, call):
+                        mu = priors[f"mu_{beta_name}"].create_variable(
+                            f"mu_{beta_name}"
+                        )
+                        categorical_coefficients[cat_key] = pm.Normal(
+                            beta_name, mu=mu, sigma=sigma, dims=dim
+                        )
+                    elif sums_to_zero(reg, call):
+                        # One coefficient per level, constrained to sum to zero.
+                        # The design holds the non-reference contrasts, so the
+                        # linear predictor uses that slice of the full vector.
+                        full = pm.ZeroSumNormal(beta_name, sigma=sigma, dims=dim)
+                        categorical_coefficients[cat_key] = full[contrast_indices(call)]
+                    else:
+                        categorical_coefficients[cat_key] = pm.Normal(
+                            beta_name, mu=0.0, sigma=sigma, dims=dim
+                        )
                 else:
                     categorical_coefficients[cat_key] = _ensure_dims(
                         priors[beta_name], dim
