@@ -1,0 +1,22 @@
+docs/user_guide/11-model-specification.qmd
+  h_63db634213747e 275
+pathmc/_model.py
+  h_63db634213747e 525-526,1512-1564,1581-1583,1585,1929-1931
+pathmc/compile.py
+  h_63db634213747e 596-600
+pathmc/simulate.py
+  h_63db634213747e 1384-1430,1448-1451,1509-1517,1608-1610,1612
+tests/test_residual_cov.py
+  h_63db634213747e 203-281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3ea54de4f62ddac672637cc326f4920b244a4e83",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
