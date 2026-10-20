@@ -36,6 +36,10 @@ class TestPosterior:
         assert "beta_Y" in post
         assert post.sizes["chain"] == 1
 
+    def test_returns_dataset_not_datatree_view(self) -> None:
+        idata = _idata_with_beta(np.array([[[0.0, 2.0]]]))
+        assert isinstance(posterior(idata), xr.Dataset)
+
 
 class TestBetaDraws:
     def test_selects_named_predictor(self) -> None:

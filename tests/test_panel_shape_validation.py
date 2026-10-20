@@ -121,6 +121,18 @@ class TestMalformedPanelShape:
         assert model._panel_info is not None
         assert model._panel_info.unit_labels == ["A", "B", "C"]
 
+    def test_ragged_panel_with_delayed_adstock_raises(self):
+        """Vectorized convolution transforms also require rectangular panels."""
+        df = _balanced_panel(n_units=3, n_times=5)
+        df = df[~((df["unit"] == "B") & (df["time"] == 3))].reset_index(drop=True)
+        with pytest.raises(ValueError, match="unbalanced|rectangular"):
+            pathmc.model(
+                "Y ~ delayed_adstock(X, decay=theta, theta=peak)",
+                data=df,
+                panel={"unit": "unit", "time": "time"},
+                pooling="partial",
+            )
+
     def test_duplicate_unit_time_rows_accepted_by_row_wise_compiler(self):
         """Repeated (unit, time) rows are only a problem for the reshape."""
         df = _balanced_panel(n_units=3, n_times=5)

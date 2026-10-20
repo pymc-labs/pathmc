@@ -1,0 +1,25 @@
+name: Check for broken documentation links
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1"
+
+permissions: {}
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Crawl the published documentation
+        uses: ScholliYT/Broken-Links-Crawler-Action@21eab52f98097989d343116dbbd46dc4541b849b # v3.3.2
+        with:
+          website_url: "https://pathmc.pymc-labs.com/"
+          exclude_url_prefix: "mailto:,https://github.com,https://www.linkedin.com,https://linkedin.com,https://twitter.com,https://x.com,https://discord.gg"
+          verbose: "error"
+          connect_limit_per_host: 20
+          resolve_before_filtering: "true"
+          max_retry_time: 30
+          max_retries: 3
+          max_depth: -1

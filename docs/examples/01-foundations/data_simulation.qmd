@@ -17,7 +17,7 @@ The `pathmc.simulate()` function builds a generative PyMC model from the specifi
 :::: {.callout-note}
 ## MMM examples run on `simulate()`
 
-The applied-models notebooks are moving to `pathmc.simulate()` for their ground-truth DGPs: [MMM with Latent Brand Awareness](/examples/05-applied-models/mmm_awareness.qmd) simulates a latent AR(1) mediator via the `latent=` and `families=` arguments, and pairs with [Media Mix Models](/examples/05-applied-models/mmm.qmd), which walks through panel adstock/saturation structures under partial pooling. Everything shown on this page extends to those settings through the same `params` interface.
+The applied-models notebooks are moving to `pathmc.simulate()` for their ground-truth DGPs: [MMM with Latent Brand Awareness](/docs/examples/applied-models/mmm_awareness.html) simulates a latent AR(1) mediator via the `latent=` and `families=` arguments, and pairs with [Media Mix Models](/docs/examples/applied-models/mmm.html), which walks through panel adstock/saturation structures under partial pooling. Everything shown on this page extends to those settings through the same `params` interface.
 ::::
 
 ```{python}
@@ -93,7 +93,7 @@ Fit the model on the simulated data and check that the posterior covers the true
 
 ```{python}
 model_simple = pathmc.model("Y ~ a*X", data=df_simple)
-model_simple.fit(draws=500, tune=500, chains=4, random_seed=42)
+model_simple.fit(random_seed=42)
 model_simple.effects_summary()
 ```
 
@@ -172,7 +172,7 @@ total := c + a*b
 """
 
 model_med = pathmc.model(spec_med, data=df_med)
-idata_med = model_med.fit(draws=500, tune=500, chains=4, random_seed=42)
+idata_med = model_med.fit(random_seed=42)
 model_med.effects_summary()
 ```
 
@@ -314,7 +314,7 @@ plt.show()
 
 ```{python}
 model_bin = pathmc.model("Y ~ X1 + X2", data=df_bin, families={"Y": "bernoulli"})
-model_bin.fit(draws=500, tune=500, chains=4, random_seed=42)
+model_bin.fit(random_seed=42)
 model_bin.summary()
 ```
 
@@ -341,7 +341,10 @@ tmp.equations()
 
 ```{python}
 template = pathmc.simulate_params_template(
-    "M ~ X\nY ~ M + X",
+    """
+    M ~ X
+    Y ~ M + X
+    """,
     data=pd.DataFrame({"X": [0.0]}),
 )
 for name, desc in sorted(template.items()):

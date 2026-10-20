@@ -25,6 +25,7 @@ handles temporal propagation natively.
 
 from __future__ import annotations
 
+import builtins
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -48,7 +49,7 @@ from pathmc.idata import hdi_label
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
 from pathmc.reprs import ReprSpec, ResultReprMixin
-from pathmc.scaling import ScalingFactors
+from pathmc.scaling import ScaleContext, ScalingFactors
 
 if TYPE_CHECKING:
     import matplotlib.axes
@@ -198,27 +199,22 @@ def _to_business_units(
     scan_info: Any | None = None,
 ) -> xr.DataArray:
     """Map internal-scale draws for *var* to business units."""
-    if scaling_factors is None or var not in scaling_factors.factors:
+    if scaling_factors is None:
         return da
     if data is None:
         raise ValueError(
             "scaling_factors requires data= so per-row divisors can be aligned."
         )
-    if scan_info is not None:
-        per_row = scaling_factors._per_row(data, var)
-        factor_mat = (
-            per_row[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
-        )
-        obs = _obs_dims(da)
-        if len(obs) >= 2:
-            t_dim, u_dim = obs[0], obs[1]
-            fda = xr.DataArray(
-                factor_mat,
-                dims=[t_dim, u_dim],
-                coords={t_dim: da.coords[t_dim], u_dim: da.coords[u_dim]},
-            )
-            return da * fda
-    return scaling_factors.unscale_xarray(var, da, data)
+    return scaling_factors.to_business(
+        da,
+        kind="outcome",
+        dims=ScaleContext(
+            term=var,
+            data=data,
+            scan_info=scan_info,
+            scalar="mean",
+        ),
+    )
 
 
 def _unscale_do_dataset(
@@ -229,15 +225,11 @@ def _unscale_do_dataset(
     """Return *ds* with scaled endogenous variables in business units."""
     if scaling_factors is None:
         return ds
-    data_vars = {
-        var: (
-            scaling_factors.unscale_xarray(var, ds[var], data)
-            if var in scaling_factors.factors
-            else ds[var]
-        )
-        for var in ds.data_vars
-    }
-    return xr.Dataset(data_vars)
+    return scaling_factors.to_business(
+        ds,
+        kind="outcome",
+        dims=ScaleContext(data=data, scalar="mean"),
+    )
 
 
 def _spread_over_time(
@@ -1253,9 +1245,15 @@ def _scale_cross_section_intervention(
     scaling_factors: ScalingFactors | None,
 ) -> np.ndarray:
     """Divide a length-n intervention by the column's per-row scale factors."""
-    if scaling_factors is None or var not in scaling_factors.factors:
+    if scaling_factors is None:
         return arr
-    return arr / scaling_factors._per_row(data, var)
+    return np.asarray(
+        scaling_factors.to_internal(
+            arr,
+            kind="regressor",
+            dims=ScaleContext(term=var, data=data),
+        )
+    )
 
 
 def _scale_scan_intervention(
@@ -1266,13 +1264,15 @@ def _scale_scan_intervention(
     scaling_factors: ScalingFactors | None,
 ) -> np.ndarray:
     """Divide a ``(n_times, n_units)`` intervention by scan-aligned factors."""
-    if scaling_factors is None or var not in scaling_factors.factors:
+    if scaling_factors is None:
         return mat
-    per_row = scaling_factors._per_row(data, var)
-    factor_mat = (
-        per_row[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
+    return np.asarray(
+        scaling_factors.to_internal(
+            mat,
+            kind="regressor",
+            dims=ScaleContext(term=var, data=data, scan_info=scan_info),
+        )
     )
-    return mat / factor_mat
 
 
 def _broadcast_intervention(
@@ -1294,18 +1294,6 @@ def _as_unit_dim(mu: xr.DataArray) -> xr.DataArray:
     return mu.rename({obs[0]: "unit"})
 
 
-def _exog_value(
-    var: str, data: nw.DataFrame, subgroup_indices: np.ndarray | None
-) -> float:
-    """Empirical fill for an exogenous variable, restricted to a subgroup."""
-    if var not in data.columns:
-        return 0.0
-    col = data[var].to_numpy()
-    if subgroup_indices is not None:
-        col = col[subgroup_indices]
-    return _exogenous_fill(col)
-
-
 def _business_exog_value(
     var: str,
     data: nw.DataFrame,
@@ -1313,10 +1301,21 @@ def _business_exog_value(
     scaling_factors: ScalingFactors | None,
 ) -> float:
     """Empirical fill for an exogenous variable in business units."""
-    val = _exog_value(var, data, subgroup_indices)
-    if scaling_factors is not None and var in scaling_factors.factors:
-        val *= scaling_factors.mean_factor(var, data)
-    return val
+    if var not in data.columns:
+        return 0.0
+    values = np.asarray(data[var].to_numpy(), dtype=float)
+    if scaling_factors is not None:
+        values = np.asarray(
+            scaling_factors.to_business(
+                values,
+                kind="regressor",
+                dims=ScaleContext(term=var, data=data),
+            ),
+            dtype=float,
+        )
+    if subgroup_indices is not None:
+        values = values[subgroup_indices]
+    return _exogenous_fill(values)
 
 
 def run_do_pymc(
@@ -1330,6 +1329,7 @@ def run_do_pymc(
     subgroup_indices: np.ndarray | None = None,
     average_units: bool = True,
     scaling_factors: ScalingFactors | None = None,
+    categorical_vars: set[str] | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -1382,23 +1382,16 @@ def run_do_pymc(
         set = {}
     if families is None:
         families = {}
+    if categorical_vars is None:
+        categorical_vars = builtins.set()
 
     N = len(data)
     latent = graph_info.latent
 
-    free_rv_names = {rv.name for rv in gen_model.free_RVs}
-    det_names_set = {d.name for d in gen_model.deterministics}
-
-    block_vars = {
-        var
-        for var in graph_info.topological_order
-        if var in graph_info.endogenous
-        and var not in free_rv_names
-        and var not in latent
-        and f"mu_{var}" in det_names_set
-    }
+    block_vars = {v for block in graph_info.residual_blocks for v in block}
 
     replacements: dict[str, Any] = {}
+    data_basis_bindings = getattr(gen_model, "_pathmc_data_bases", {})
     for var, val in set.items():
         key = f"mu_{var}" if (var in latent or var in block_vars) else var
         arr = _scale_cross_section_intervention(
@@ -1406,6 +1399,13 @@ def run_do_pymc(
         )
         target_dtype = gen_model[key].dtype
         replacements[key] = arr.astype(target_dtype)
+        if data_basis_bindings:
+            from pathmc.basis import replay_data_bases
+
+            for data_name, columns in replay_data_bases(
+                data_basis_bindings, {var: arr}
+            ).items():
+                replacements[data_name] = columns.astype(gen_model[data_name].dtype)
 
     if kind == "mean":
         with _forced_generative_carry(gen_model):
@@ -1458,6 +1458,8 @@ def run_do_pymc(
             if var in set:
                 data_vars[var] = _broadcast_intervention(ones, set[var], N)
             elif var in graph_info.exogenous:
+                if var in categorical_vars:
+                    continue
                 data_vars[var] = ones * _business_exog_value(
                     var, data, subgroup_indices, scaling_factors
                 )
@@ -1508,6 +1510,8 @@ def run_do_pymc(
         if var in set:
             predictive_vars[var] = _broadcast_intervention(ones, set[var], N)
         elif var in graph_info.exogenous:
+            if var in categorical_vars:
+                continue
             predictive_vars[var] = ones * _business_exog_value(
                 var, data, subgroup_indices, scaling_factors
             )
@@ -1521,6 +1525,43 @@ def run_do_pymc(
             predictive_vars[var] = src.rename({obs[0]: "unit"}) if obs else src
 
     return DoResult(ds=xr.Dataset(predictive_vars))
+
+
+def _panel_predictive_sample_kwargs(
+    do_model: pm.Model,
+    graph_info: GraphInfo,
+    set: dict[str, float | np.ndarray],
+) -> dict[str, Any]:
+    """Keyword args for ``sample_posterior_predictive`` on intervened scan panels.
+
+    Masked panel outcomes split into ``{var}_observed`` and
+    ``{var}_unobserved`` free RVs. After ``pm.do()`` changes upstream
+    nodes, PyMC freezes the unobserved imputations unless they are listed
+    in ``sample_vars``. We resample every ``*_unobserved`` imputation RV in
+    the do-model, not only those downstream of the intervention, so
+    predictive draws stay consistent with the intervened generative graph.
+    Requesting only ``sample_vars`` drops the merged outcome from
+    ``posterior_predictive``, so ``var_names`` must name the non-latent
+    endogenous variables we still read from the PPC output. Latents not
+    in ``set`` are excluded from ``var_names`` and recovered through
+    ``compute_deterministics`` with the fitted posterior (including
+    ``innovations_{var}`` for stochastic latents), not fresh process noise.
+    """
+    if not set:
+        return {}
+    unobs = [rv.name for rv in do_model.free_RVs if rv.name.endswith("_unobserved")]
+    if not unobs:
+        return {}
+    var_names = [
+        var
+        for var in graph_info.topological_order
+        if var in graph_info.endogenous
+        and var not in set
+        and var not in graph_info.latent
+    ]
+    if not var_names:
+        return {"sample_vars": unobs}
+    return {"sample_vars": unobs, "var_names": var_names}
 
 
 def run_do_panel_unified(
@@ -1580,6 +1621,9 @@ def run_do_panel_unified(
     n_times = scan_info.n_times
     n_units = scan_info.n_units
     latent = graph_info.latent
+    stochastic_latent = {
+        v for v in latent if families.get(v, "gaussian") == "latent_normal"
+    }
 
     replacements: dict[str, Any] = {}
     scan_intervene_updates: dict[str, np.ndarray] = {}
@@ -1599,7 +1643,10 @@ def run_do_panel_unified(
         # intervened var is no longer a free RV that compute_deterministics /
         # sample_posterior_predictive must bind from the posterior (the
         # fitted idata never sampled it -- it is observed during fit()).
-        key = f"mu_{var}" if var in latent else var
+        if var in latent and var not in stochastic_latent:
+            key = f"mu_{var}"
+        else:
+            key = var
         target_dtype = gen_model[key].dtype
         replacements[key] = mat.astype(target_dtype)
         if var in graph_info.endogenous:
@@ -1619,13 +1666,9 @@ def run_do_panel_unified(
             if var in graph_info.endogenous and var not in set and var not in latent:
                 replacements[var] = gen_model[f"mu_{var}"] * 1
 
-        stochastic_latent = {
-            v for v in latent if families.get(v, "gaussian") == "latent_normal"
-        }
-
         det_names = []
         for var in graph_info.topological_order:
-            if var in graph_info.endogenous:
+            if var in graph_info.endogenous and var not in set:
                 if var in stochastic_latent:
                     det_names.append(var)
                 else:
@@ -1673,9 +1716,6 @@ def run_do_panel_unified(
         )
 
     # kind == "predictive"
-    stochastic_latent = {
-        v for v in latent if families.get(v, "gaussian") == "latent_normal"
-    }
     latent_det_names = []
     for var in graph_info.topological_order:
         if var in latent and var not in set:
@@ -1691,7 +1731,11 @@ def run_do_panel_unified(
                 "ignore", message="Could not extract data from symbolic observation"
             )
             with do_model:
-                ppc = pm.sample_posterior_predictive(idata, progressbar=False)
+                ppc = pm.sample_posterior_predictive(
+                    idata,
+                    progressbar=False,
+                    **_panel_predictive_sample_kwargs(do_model, graph_info, set),
+                )
 
         if latent_det_names:
             latent_det = pm.compute_deterministics(

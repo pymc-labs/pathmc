@@ -1,0 +1,27 @@
+name: Sync labels from closing issues
+
+on:
+  # Safe: this job runs a SHA-pinned action, does not check out PR code, and
+  # grants only pull-requests: write.
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
+    types: [opened, reopened, edited, synchronize]
+
+permissions: {}
+
+concurrency:
+  group: closing-issue-labels-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Copy labels from closing issues
+        uses: williambdean/closing-labels@bb2b635942f1a96dee500ab688438c8ee1821ab5 # v1.0.0
+        with:
+          exclude: >-
+            good first issue,help wanted,question,duplicate,invalid,wontfix,blocked?,
+            ready-for-agent,agents,stress-test
+          respect_unlabeled: true

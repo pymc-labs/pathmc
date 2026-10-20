@@ -392,8 +392,14 @@ def _format_term(t: Term) -> str:
     elif t.label:
         prefix = f"{t.label}*"
 
-    if t.hsgp is not None:
-        return f"f_hsgp({t.hsgp.variable})"
+    if t.basis is not None:
+        from pathmc.basis import get_basis
+
+        return get_basis(t.basis.name).render(t.basis)
+    if t.categorical is not None:
+        call = t.categorical
+        levels = ", ".join(repr(level) for level in call.levels)
+        return f"C({call.variable}, reference={call.reference!r}, levels=[{levels}])"
     if t.transform is not None:
         return f"{prefix}{_format_transform(t.transform)}"
     if t.interaction_of is not None:
@@ -497,8 +503,18 @@ def _format_term_latex(t: Term) -> str:
     else:
         prefix = ""
 
-    if t.hsgp is not None:
-        return rf"f_{{\mathrm{{hsgp}}}}({_latex_symbol(t.hsgp.variable)})"
+    if t.basis is not None:
+        from pathmc.basis import get_basis
+
+        return get_basis(t.basis.name).render_latex(_latex_symbol(t.basis.variable))
+    if t.categorical is not None:
+        call = t.categorical
+        levels = ", ".join(str(level) for level in call.levels)
+        return (
+            rf"\operatorname{{C}}({_latex_symbol(call.variable)};\,"
+            rf"\mathrm{{ref}}={_latex_escape(str(call.reference))};\,"
+            rf"\mathrm{{levels}}=\{{{_latex_escape(levels)}\}})"
+        )
     if t.transform is not None:
         return f"{prefix}{_format_transform_latex(t.transform)}"
     if t.interaction_of is not None:
@@ -684,26 +700,30 @@ def build_priors(
                 )
                 entries[f"slope_{reg.lhs}_{svar}"] = "Normal(mu_slope, sigma_slope)"
         for term in reg.terms:
+            if term.categorical is not None:
+                beta_name = f"beta_{reg.lhs}_{term.variable}"
+                if term.categorical.prior == "hierarchical":
+                    entries[f"mu_{beta_name}"] = _entry(
+                        f"mu_{beta_name}", "Normal(0, 10)"
+                    )
+                    entries[f"sigma_{beta_name}"] = _entry(
+                        f"sigma_{beta_name}", "HalfNormal(1)"
+                    )
+                    entries[beta_name] = f"Normal(mu_{beta_name}, sigma_{beta_name})"
+                else:
+                    entries[beta_name] = _entry(beta_name, "Normal(0, 10)")
             if term.transform is not None:
                 _collect_transform_priors(
                     term.transform, entries, seen_transform_params, prior_config
                 )
-            if term.hsgp is not None:
-                var = term.hsgp.variable
-                entries[f"ell_{reg.lhs}_{var}"] = _entry(
-                    f"ell_{reg.lhs}_{var}", "InverseGamma(3, 1)"
-                )
-                entries[f"eta_{reg.lhs}_{var}"] = _entry(
-                    f"eta_{reg.lhs}_{var}", "HalfNormal(1)"
-                )
-                # beta_hsgp is only a tunable prior in the non-centered
-                # parametrization; in centered mode beta uses the data-derived
-                # sqrt_psd scale, so it is intentionally not listed to match
-                # what default_priors registers (tune ell/eta instead).
-                if not term.hsgp.centered:
-                    entries[f"beta_hsgp_{reg.lhs}_{var}"] = _entry(
-                        f"beta_hsgp_{reg.lhs}_{var}", "Normal(0, 1)"
-                    )
+            if term.basis is not None:
+                from pathmc.basis import get_basis
+
+                basis = get_basis(term.basis.name)
+                for name, description in basis.prior_descriptions(
+                    reg.lhs, term.basis
+                ).items():
+                    entries[name] = _entry(name, description)
 
     # --- by_var structured pooling ---
     for name, entry in by_var_entries.items():

@@ -69,9 +69,11 @@ tags:
     Simulation: dices
     Priors: sliders-horizontal
     Transforms: waves
+    Basis Functions: grid-3x3
     Latent Variables: eye-off
     Media Mix Modeling: megaphone
     Hierarchical Effects: layers
+    Categorical Predictors: list-tree
     Gaussian Process: waves
     HSGP: spline
     Nonparametric: trending-up
@@ -163,6 +165,28 @@ include_in_header:
         });
       });
       </script>
+      <style>
+      /* great-docs sets figure.figure:has(.mermaid) { display: flex }, which
+         lays the caption out beside the SVG and leaves the diagram at its
+         intrinsic width. Stack the caption underneath a full-width diagram.
+         Upstream: https://github.com/posit-dev/great-docs/issues/361 */
+      .cell-output-display figure.figure:has(.mermaid-js),
+      .cell-output-display figure.figure:has(.mermaid) {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .cell-output-display figure.figure:has(.mermaid) > div,
+      .cell-output-display figure.figure:has(.mermaid-js) > div {
+        width: 100%;
+      }
+      svg.mermaid-js,
+      .cell-output-display svg[id^="mermaid-"] {
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+      }
+      </style>
 
 # SEO ------------------------------------------------------------------------
 # Public docs URL at pathmc.pymc-labs.com (matches pyproject.toml [project.urls] Documentation).

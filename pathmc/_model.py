@@ -31,6 +31,8 @@ import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
 from pathmc.compile import (
+    _requires_rectangular_panel,
+    _SCAN_PANEL_RESIDUAL_COV_MSG,
     _build_lag_map,
     _has_temporal_deps,
     _identify_residual_blocks,
@@ -85,7 +87,13 @@ from pathmc.panel import (
 from pathmc.parse import Spec, parse_spec
 from pathmc.refute import PlaceboRefutationResult, refute_placebo as _refute_placebo
 from pathmc.sensitivity import SensitivityResult, compute_sensitivity
-from pathmc.scaling import Scaling, ScalingFactors, fit_scaling, validate_scaling_config
+from pathmc.scaling import (
+    ScaleContext,
+    Scaling,
+    ScalingFactors,
+    fit_scaling,
+    validate_scaling_config,
+)
 from pathmc.simulate import (
     DoResult,
     EstimandResult,
@@ -172,12 +180,18 @@ def _scale_set_for_bounds(
         return interventions
     out: dict[str, float | np.ndarray] = {}
     for var, val in interventions.items():
-        if var not in factors.factors:
-            out[var] = val
-            continue
-        row_div = factors._per_row(data, var)
         vals = np.asarray(val, dtype=float)
-        out[var] = (vals.reshape(-1, 1) / row_div.reshape(1, -1)).ravel()
+        if vals.ndim == 0:
+            vals = np.full(len(data), float(vals))
+        elif vals.size != len(data):
+            vals = np.broadcast_to(vals.reshape(-1, 1), (vals.size, len(data)))
+        out[var] = np.asarray(
+            factors.to_internal(
+                vals,
+                kind="regressor",
+                dims=ScaleContext(term=var, data=data),
+            )
+        ).ravel()
     return out
 
 
@@ -192,21 +206,19 @@ def _layout_unscaled_column(
         mat = raw[scan_info.sort_idx].reshape(scan_info.n_units, scan_info.n_times).T
         if mat.shape == sizes:
             return mat
-        if mat.size == int(np.prod(sizes)):
-            return mat.reshape(sizes)
     if raw.shape == sizes:
         return raw
-    if raw.size == int(np.prod(sizes)):
-        return raw.reshape(sizes)
     raise ValueError(
         f"Cannot align unscaled column of length {raw.size} to observed_data "
-        f"shape {sizes}."
+        f"shape {sizes}. Shapes must match exactly; an equal element count "
+        "does not establish dimension alignment."
     )
 
 
 def _unscale_predict_groups(
     idata: Any,
-    data: nw.DataFrame,
+    prediction_data: nw.DataFrame,
+    fitted_data: nw.DataFrame,
     scaling_factors: ScalingFactors,
     scan_info: Any | None,
 ) -> None:
@@ -218,18 +230,21 @@ def _unscale_predict_groups(
     pp = getattr(idata, "posterior_predictive", None)
     if pp is not None:
         for var in list(pp.data_vars):
-            if var in scaling_factors.factors:
-                pp[var] = _to_business_units(
-                    var, pp[var], data, scaling_factors, scan_info
-                )
+            pp[var] = _to_business_units(
+                var, pp[var], prediction_data, scaling_factors, scan_info
+            )
     obs = getattr(idata, "observed_data", None)
     if obs is None:
         return
     for var in list(obs.data_vars):
-        if var not in scaling_factors.factors or var not in data.columns:
+        if not scaling_factors.has_factor(var) or var not in fitted_data.columns:
             continue
-        raw = scaling_factors.inverse_transform_column(
-            np.asarray(data[var].to_numpy(), dtype=float), var, data
+        raw = np.asarray(
+            scaling_factors.to_business(
+                np.asarray(fitted_data[var].to_numpy(), dtype=float),
+                kind="outcome",
+                dims=ScaleContext(term=var, data=fitted_data),
+            )
         )
         template = obs[var]
         values = _layout_unscaled_column(raw, template, scan_info)
@@ -242,18 +257,83 @@ def _unscale_predict_groups(
 
 def _scale_scalar_intervention(var: str, val: float, factors: ScalingFactors) -> float:
     """Divide a unit-less scalar by a uniform fitted factor, or raise."""
-    if var not in factors.factors:
-        return float(val)
-    _dims, table = factors.factors[var]
-    uniq = {float(v) for v in table.values()}
-    if len(uniq) != 1:
+    try:
+        return float(
+            factors.to_internal(
+                val,
+                kind="regressor",
+                dims=ScaleContext(term=var, scalar="uniform"),
+            )
+        )
+    except ValueError as exc:
         raise ValueError(
-            f"Cannot apply per-unit scaling of {var!r} to a single scalar "
-            f"(factors differ across units {sorted(table)[:5]}). "
+            f"Cannot apply per-unit scaling of {var!r} to a single scalar. "
             "Use do() on the panel, or pass a value already in scaled units "
             "on a model with a single global scale."
+        ) from exc
+
+
+def _raw_basis_input_vars(spec: Spec) -> set[str]:
+    """Collect basis inputs whose declared units scaling must preserve."""
+    from pathmc.basis import get_basis
+
+    return {
+        term.basis.variable
+        for reg in spec.regressions
+        for term in reg.terms
+        if term.basis is not None
+        and get_basis(term.basis.name).capabilities.requires_raw_input_units
+    }
+
+
+def _exclude_scaled_basis_inputs(
+    scaling: Scaling | ScalingFactors,
+    basis_inputs: set[str],
+    target_columns: set[str],
+    channel_columns: set[str],
+) -> tuple[Scaling | ScalingFactors, set[str]]:
+    """Preserve basis input units and report any requested scale exclusions."""
+    if isinstance(scaling, ScalingFactors):
+        excluded = {
+            column
+            for column in basis_inputs & (target_columns | channel_columns)
+            if scaling.has_factor(column)
+        }
+        scaling = scaling.without_columns(excluded)
+    elif isinstance(scaling, Scaling):
+        excluded = set()
+        if scaling.target is not None:
+            excluded.update(basis_inputs & target_columns)
+        if scaling.channel is not None:
+            excluded.update(basis_inputs & channel_columns)
+    else:
+        return scaling, set()
+
+    if excluded:
+        warnings.warn(
+            "Scaling was requested for basis input column(s) "
+            f"{sorted(excluded)}, but those columns remain in their declared "
+            "units so the basis parameters retain their meaning. Scaling is "
+            "also skipped for plain-regressor uses of the same columns.",
+            UserWarning,
+            stacklevel=3,
         )
-    return float(val) / next(iter(uniq))
+    return scaling, excluded
+
+
+def _exclude_categorical_scaling(
+    factors: ScalingFactors,
+    categorical_vars: set[str],
+) -> ScalingFactors:
+    """Return fitted factors without categorical source columns.
+
+    Numeric category labels identify groups rather than magnitudes. Filtering
+    here also protects callers that reuse a pre-fitted ``ScalingFactors``
+    object containing a column that is categorical in the current model.
+    """
+    if not any(factors.has_factor(column) for column in categorical_vars):
+        return factors
+    return factors.without_columns(categorical_vars)
 
 
 def _warn_extrapolation(
@@ -350,6 +430,9 @@ class PathModel:
         self._pooling = pooling
         self._latent: set[str] = latent if latent is not None else set()
         self._families: dict[str, str] = families if families is not None else {}
+        from pathmc.categorical import categorical_terms
+
+        self._categorical_terms = categorical_terms(spec)
         # Original model() arguments, recorded so refutation can faithfully
         # re-fit on perturbed data. Set by model(); None for direct
         # construction (in which case refute_placebo raises).
@@ -466,6 +549,12 @@ class PathModel:
             self._pymc_model = pm.observe(self._gen_model, observations)
         else:
             self._pymc_model = self._gen_model
+        self._pymc_model._pathmc_data_bases = getattr(
+            self._gen_model, "_pathmc_data_bases", {}
+        )
+        self._pymc_model._pathmc_basis_states = getattr(
+            self._gen_model, "_pathmc_basis_states", {}
+        )
 
         # Enable the observed carry unconditionally, not only when
         # ``observations`` is non-empty. A variable with any NaN is skipped
@@ -858,7 +947,13 @@ class PathModel:
                 )
         return self._idata
 
-    def predict(self, *, one_step_ahead: bool = True, **kwargs: Any) -> xr.DataTree:
+    def predict(
+        self,
+        data: IntoFrame | None = None,
+        *,
+        one_step_ahead: bool = True,
+        **kwargs: Any,
+    ) -> xr.DataTree:
         """Run posterior predictive sampling.
 
         Wraps ``pm.sample_posterior_predictive()`` and extends the
@@ -866,6 +961,11 @@ class PathModel:
 
         Parameters
         ----------
+        data : IntoFrame | None
+            Optional predictor data for out-of-sample prediction. It must have
+            the same number of rows as the fitted cross-sectional model.
+            Categorical columns are encoded with the fitted level order and
+            reference; unseen levels raise a clear error.
         one_step_ahead : bool
             Only meaningful for panel models with a lagged endogenous
             term such as ``y ~ lag(y)``. When ``True`` (default) each
@@ -911,14 +1011,100 @@ class PathModel:
         scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
         if scan_info is not None:
             validate_panel_scan_shape(self._pymc_model, scan_info)
-        with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
-            pp = pm.sample_posterior_predictive(idata, **kwargs)
+        with self._prediction_data(data) as prediction_data:
+            with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
+                pp = pm.sample_posterior_predictive(idata, **kwargs)
         result = pp if not kwargs["extend_inferencedata"] else idata
-        if self._scaling_factors is not None and self._data is not None:
+        if self._scaling_factors is not None and prediction_data is not None:
+            assert self._data is not None
             _unscale_predict_groups(
-                result, self._data, self._scaling_factors, scan_info
+                result,
+                prediction_data,
+                self._data,
+                self._scaling_factors,
+                scan_info,
             )
         return result
+
+    @contextmanager
+    def _prediction_data(self, data: IntoFrame | None) -> Iterator[nw.DataFrame | None]:
+        """Temporarily update mutable predictor nodes for ``predict(data=...)``.
+
+        Data-backed basis columns (e.g. ``fourier()``) are always replayed
+        from the active raw input values so a caller who swapped raw data
+        in with ``pm.set_data`` gets matching basis columns. Categorical
+        indicator matrices are rebuilt from the frozen fit-time level set.
+        """
+        assert self._pymc_model is not None
+        from pathmc.basis import replay_data_bases
+
+        data_basis_bindings = getattr(self._pymc_model, "_pathmc_data_bases", {})
+
+        if data is None:
+            if data_basis_bindings:
+                raw_values = {
+                    binding.call.variable: self._pymc_model[
+                        binding.call.variable
+                    ].get_value()
+                    for binding in data_basis_bindings.values()
+                }
+                basis_updates = replay_data_bases(data_basis_bindings, raw_values)
+                if basis_updates:
+                    with self._pymc_model:
+                        pm.set_data(basis_updates)
+            yield self._data
+            return
+        assert self._data is not None
+        if self._panel_info is not None:
+            raise NotImplementedError(
+                "predict(data=...) with replacement data is currently supported "
+                "for cross-sectional models only."
+            )
+        new_data = nw.from_native(data, eager_only=True)
+        if len(new_data) != len(self._data):
+            raise ValueError(
+                f"predict(data=...) received {len(new_data)} row(s), but this "
+                f"model was fitted with {len(self._data)}. Provide the same row "
+                "count; variable-size posterior prediction is not supported yet."
+            )
+        if self._scaling_factors is not None:
+            new_data = self._scaling_factors.transform(new_data)
+
+        from pathmc.categorical import encode_categorical
+
+        categorical_vars = {call.variable for _, call in self._categorical_terms}
+        updates: dict[str, np.ndarray] = {}
+        for var in self._graph_info.exogenous - categorical_vars:
+            if var not in self._pymc_model.named_vars:
+                continue
+            if var not in new_data.columns:
+                raise ValueError(
+                    f"Prediction data is missing predictor column '{var}'. Add "
+                    "the column using values in the model's fitted scale."
+                )
+            updates[var] = np.asarray(new_data[var].to_numpy(), dtype=float)
+        for lhs, call in self._categorical_terms:
+            if call.variable not in new_data.columns:
+                raise ValueError(
+                    f"Prediction data is missing categorical predictor "
+                    f"'{call.variable}'."
+                )
+            updates[f"_cat_{lhs}_{call.variable}"] = encode_categorical(
+                call,
+                new_data[call.variable].to_numpy(),
+            )
+        if data_basis_bindings:
+            updates.update(replay_data_bases(data_basis_bindings, updates))
+
+        shared: dict[str, Any] = {name: self._pymc_model[name] for name in updates}
+        previous = {name: shared_var.get_value() for name, shared_var in shared.items()}
+        for name, shared_var in shared.items():
+            shared_var.set_value(updates[name])
+        try:
+            yield new_data
+        finally:
+            for name, shared_var in shared.items():
+                shared_var.set_value(previous[name])
 
     def latent_trajectory(self, var: str) -> xr.DataArray:
         """Return the posterior latent state of a panel variable over time.
@@ -1122,14 +1308,28 @@ class PathModel:
         families : dict[str, str] | None
             Per-variable families for the reduced model only.
         priors : dict | None
-            Prior overrides for the reduced model, merged with inherited
-            outcome dispersion priors.
+            Prior overrides for the reduced equation. A shared key is
+            inherited when its shape does not follow the predictor set or
+            treatment coding: outcome dispersion priors, transform-parameter
+            priors used by the reduced formula, and scalar hierarchical
+            categorical hyperpriors (``mu_beta_*``, ``sigma_beta_*``).
+            Otherwise a custom parent value must be passed here or
+            construction raises. That includes coefficient priors and
+            non-scalar hyperpriors. Unknown shared keys fail closed the
+            same way. An explicit value here still wins.
 
         Returns
         -------
         AdjustmentModel
             Facade with ``fit()`` and ``ate()`` / ``att()`` / ``atu()`` /
             ``cate()`` delegating to the inner outcome model.
+
+        Raises
+        ------
+        ValueError
+            If this model has a custom prior on a shared key whose shape
+            follows the predictor set or treatment coding, or on an unknown
+            shared key, and ``priors`` does not override that key.
 
         See Also
         --------
@@ -1194,8 +1394,13 @@ class PathModel:
         treatment: str,
         outcome: str,
     ) -> list[str]:
-        """Check if any variable in the proposed adjustment set is a
-        collider that could introduce bias.
+        """Warn when a proposed adjustment variable is a collider on a
+        path between treatment and outcome.
+
+        This is a structural heuristic. It flags the collider even when
+        the rest of the set keeps that path blocked.
+        ``is_valid_adjustment_set()`` decides whether the set satisfies
+        the backdoor criterion.
 
         .. note::
 
@@ -1305,7 +1510,50 @@ class PathModel:
             families=self._families,
             subgroup_indices=subgroup_indices,
             scaling_factors=self._scaling_factors,
+            categorical_vars={call.variable for _, call in self._categorical_terms},
         )
+
+    @contextmanager
+    def _categorical_intervention(self, values: Mapping[str, Any]) -> Iterator[None]:
+        """Temporarily replace fitted categorical bases for a hard intervention."""
+        if not values:
+            yield
+            return
+        assert self._gen_model is not None
+        assert self._data is not None
+        from pathmc.categorical import encode_categorical
+
+        known = {call.variable for _, call in self._categorical_terms}
+        unknown = set(values) - known
+        if unknown:
+            raise KeyError(f"Unknown categorical intervention(s): {sorted(unknown)!r}.")
+
+        shared: dict[str, Any] = {}
+        updates: dict[str, np.ndarray] = {}
+        for lhs, call in self._categorical_terms:
+            if call.variable not in values:
+                continue
+            value = values[call.variable]
+            if np.asarray(value).ndim != 0:
+                raise ValueError(
+                    f"Categorical intervention for '{call.variable}' must be one "
+                    "level label, not an array."
+                )
+            basis_name = f"_cat_{lhs}_{call.variable}"
+            shared[basis_name] = self._gen_model[basis_name]
+            updates[basis_name] = encode_categorical(
+                call,
+                np.repeat(value, len(self._data)),
+            )
+
+        previous = {name: var.get_value() for name, var in shared.items()}
+        for name, var in shared.items():
+            var.set_value(updates[name])
+        try:
+            yield
+        finally:
+            for name, var in shared.items():
+                var.set_value(previous[name])
 
     def _subgroup_effect(
         self,
@@ -1332,9 +1580,18 @@ class PathModel:
                 "Use do() with manual subgroup selection instead."
             )
 
+        subgroup_values: float | np.ndarray = subgroup_value
+        if self._scaling_factors is not None:
+            subgroup_values = np.asarray(
+                self._scaling_factors.to_internal(
+                    np.full(len(self._data), subgroup_value, dtype=float),
+                    kind="regressor",
+                    dims=ScaleContext(term=treatment, data=self._data),
+                )
+            )
         mask = np.isclose(
             np.asarray(self._data[treatment].to_numpy(), dtype=float),
-            subgroup_value,
+            subgroup_values,
         )
         subgroup_idx = np.where(mask)[0]
         if len(subgroup_idx) == 0:
@@ -1558,7 +1815,7 @@ class PathModel:
 
     def do(
         self,
-        set: dict[str, float | np.ndarray] | None = None,
+        set: dict[str, Any] | None = None,
         shift: dict[str, float] | None = None,
         kind: str = "mean",
         simulate_over: str | None = None,
@@ -1627,8 +1884,20 @@ class PathModel:
                 "ate(), cate(), prob(), or sensitivity()."
             )
 
-        if set:
-            scaled_set = _scale_set_for_bounds(set, self._scaling_factors, self._data)
+        categorical_vars = {call.variable for _, call in self._categorical_terms}
+        categorical_set = {
+            var: value for var, value in (set or {}).items() if var in categorical_vars
+        }
+        numeric_set = {
+            var: value
+            for var, value in (set or {}).items()
+            if var not in categorical_vars
+        }
+
+        if numeric_set:
+            scaled_set = _scale_set_for_bounds(
+                numeric_set, self._scaling_factors, self._data
+            )
             _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_set)
             _warn_extrapolation(self._data, scaled_set)
 
@@ -1645,8 +1914,8 @@ class PathModel:
                 else len(self._data[self._panel_info.time].unique())
             )
 
-            if set:
-                for var, val in set.items():
+            if numeric_set:
+                for var, val in numeric_set.items():
                     if isinstance(val, np.ndarray) and len(val) != n_times:
                         raise ValueError(
                             f"Intervention array for '{var}' has length "
@@ -1672,7 +1941,7 @@ class PathModel:
                     idata=idata,
                     panel_info=self._panel_info,
                     scan_info=scan_info,
-                    set=set,
+                    set=numeric_set,
                     kind=kind,
                     families=self._families,
                     observed_by_time=observed_by_time,
@@ -1681,7 +1950,8 @@ class PathModel:
                 )
             # Non-scan panel models fall through to the cross-sectional path.
 
-        return self._run_do(set, kind)
+        with self._categorical_intervention(categorical_set):
+            return self._run_do(numeric_set, kind)
 
     def counterfactual(
         self,
@@ -2238,9 +2508,12 @@ class PathModel:
         )
 
     def datagrid(self, **cols: list[float] | list[int]) -> pd.DataFrame:
-        """Build a covariate grid from the fitted data frame.
+        """Build a business-unit covariate grid from the fitted data frame.
 
-        See :func:`pathmc.datagrid` for details.
+        On a model fitted with ``scaling=``, user-supplied values are already
+        business units. Columns held at their fitted mean or mode are converted
+        from the model's internal scale before the grid is returned. See
+        :func:`pathmc.datagrid` for details.
 
         Parameters
         ----------
@@ -2254,7 +2527,23 @@ class PathModel:
         """
         self._require_data("datagrid")
         assert self._data is not None
-        return _datagrid(self._data, **cols)
+        grid = _datagrid(self._data, **cols)
+        factors = self._scaling_factors
+        if factors is None:
+            return grid
+
+        for column in factors.columns_present_in(grid.columns):
+            if column in cols or column not in grid.columns:
+                continue
+            raw_values = np.asarray(
+                factors.to_business(
+                    np.asarray(self._data[column].to_numpy(), dtype=float),
+                    kind="regressor",
+                    dims=ScaleContext(term=column, data=self._data),
+                )
+            )
+            grid[column] = float(raw_values.mean())
+        return grid
 
 
 def model(
@@ -2350,9 +2639,14 @@ def model(
     """
     spec = parse_spec(spec_string)
     latent_set = set(latent) if latent is not None else set()
-    graph_info = build_graph(spec, latent=latent_set)
 
     nw_data = nw.from_native(data, eager_only=True) if data is not None else None
+    categorical_vars: set[str] = set()
+    if nw_data is not None:
+        from pathmc.categorical import fit_categorical_terms
+
+        categorical_vars = fit_categorical_terms(spec, nw_data)
+    graph_info = build_graph(spec, latent=latent_set)
 
     has_lag_terms = any(
         term.lag_of is not None for reg in spec.regressions for term in reg.terms
@@ -2380,13 +2674,13 @@ def model(
                 "panel= requires data. Provide data= alongside panel=, "
                 "or omit panel= for data-free DAG exploration."
             )
-        # Only the scan compiler reshapes rows to a dense (n_times,
-        # n_units) grid, so only it needs a rectangular panel. Non-temporal
-        # panel models take the row-wise compiler and may be unbalanced.
+        # The scan compiler and vectorized convolution transforms reshape rows
+        # to a dense (n_times, n_units) grid; only row-wise panel models with
+        # no lag/adstock convolution may be unbalanced.
         panel_info = build_panel_info(
             nw_data,
             panel,
-            require_rectangular=_has_temporal_deps(spec),
+            require_rectangular=_requires_rectangular_panel(spec, graph_info),
         )
         nw_data = attach_composite_unit(nw_data, panel_info)
 
@@ -2402,12 +2696,23 @@ def model(
         for reg in spec.regressions:
             for t in reg.terms:
                 term_vars.update(_term_base_vars(t))
+        target_columns = endogenous_lhs - latent_set
+        channel_columns = term_vars - endogenous_lhs
+        scaling, excluded = _exclude_scaled_basis_inputs(
+            scaling,
+            _raw_basis_input_vars(spec),
+            target_columns,
+            channel_columns,
+        )
         scaling_factors = fit_scaling(
             scaling,
             nw_data,
             panel_info=panel_info,
-            target_columns=endogenous_lhs - latent_set,
-            channel_columns=term_vars - endogenous_lhs,
+            target_columns=target_columns - excluded,
+            channel_columns=channel_columns - excluded - categorical_vars,
+        )
+        scaling_factors = _exclude_categorical_scaling(
+            scaling_factors, categorical_vars
         )
         nw_data = scaling_factors.transform(nw_data)
 
@@ -2446,14 +2751,12 @@ def _invert_generated_columns(
     """Multiply generated endogenous columns back into business units."""
     out: dict[str, nw.Series] = {}
     for var, series in columns.items():
-        if var in factors.factors:
-            out[var] = nw.new_series(
-                var,
-                factors.inverse_transform_column(series.to_numpy(), var, df),
-                backend=backend,
-            )
-        else:
-            out[var] = series
+        values = factors.to_business(
+            np.asarray(series.to_numpy(), dtype=float),
+            kind="outcome",
+            dims=ScaleContext(term=var, data=df),
+        )
+        out[var] = nw.new_series(var, np.asarray(values), backend=backend)
     return out
 
 
@@ -2514,9 +2817,10 @@ def simulate(
         (``~~``), supply ``"chol_{block_name}"`` as the packed
         lower-triangular Cholesky vector of length ``k(k+1)/2``
         (PyMC ``LKJCholeskyCov`` packing); block members' simulated
-        columns share the correlated residuals. ``~~`` simulation
-        supports blocks whose members are terminal in the DAG; a
-        descendant of a block member raises ``NotImplementedError``.
+        columns share the correlated residuals. Descendants of block
+        members receive the realized noisy draws. Within-block directed
+        edges (one member regressing on another) still raise
+        ``NotImplementedError``.
         For ``hsgp()``
         terms, supply ``"ell_{lhs}_{var}"``, ``"eta_{lhs}_{var}"``, and
         ``"beta_hsgp_{lhs}_{var}"`` (length ``m``). Transform
@@ -2578,9 +2882,8 @@ def simulate(
     ------
     ValueError
         If required parameter values are missing from *params*, if a
-        ``chol_{block_name}`` vector has the wrong length for its block,
-        or if the spec contains ``lag()`` terms but ``panel=`` was
-        omitted.
+        parameter array has the wrong shape, or if the spec contains
+        ``lag()`` terms but ``panel=`` was omitted.
 
     Examples
     --------
@@ -2601,38 +2904,37 @@ def simulate(
     spec = parse_spec(spec_string)
     latent_set = set(latent) if latent else set()
     block_var_set, blocks = _identify_residual_blocks(spec)
-    graph_info = build_graph(spec, latent=latent_set)
-
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
 
     if spec.residual_covs and panel is not None and _has_temporal_deps(spec):
-        raise NotImplementedError(
-            "simulate() does not yet support residual covariances (~~) with "
-            "scan-compiled panel models (lag() or adstock()). Fit or simulate "
-            "the ~~ block without lag()/adstock(), or drop the ~~ clause."
-        )
+        raise NotImplementedError(_SCAN_PANEL_RESIDUAL_COV_MSG)
 
     if block_var_set:
-        consumers: dict[str, set[str]] = {}
+        var_to_block = {v: block for block in blocks for v in block}
+        within_block_readers: dict[str, set[str]] = {}
         for reg in spec.regressions:
+            if reg.lhs not in var_to_block:
+                continue
+            own_block = var_to_block[reg.lhs]
             read_vars = {v for term in reg.terms for v in _scan_term_base_vars(term)}
-            block_deps = (block_var_set & read_vars) - {reg.lhs}
+            block_deps = (own_block & read_vars) - {reg.lhs}
             if block_deps:
-                consumers[reg.lhs] = block_deps
-        if consumers:
-            block_deps = set().union(*consumers.values())
+                within_block_readers[reg.lhs] = block_deps
+        if within_block_readers:
+            block_deps = set().union(*within_block_readers.values())
             raise NotImplementedError(
-                f"simulate() cannot yet generate {sorted(consumers)}: they are "
-                "downstream of and read residual-covariance block member(s) "
-                f"{sorted(block_deps)}. "
-                "The generative graph wires block members through their mean "
-                "structure, so the realized correlated residuals would not reach "
-                "the descendant. Simulate the block in one call, then simulate "
-                "descendants in a second call using the returned columns."
+                f"simulate() cannot yet generate {sorted(within_block_readers)}: "
+                "a residual-covariance block member reads another member of "
+                f"the same ~~ block ({sorted(block_deps)}). Drop the "
+                "within-block path or the ~~ clause."
             )
 
     nw_data = nw.from_native(data, eager_only=True)
+    from pathmc.categorical import fit_categorical_terms
+
+    categorical_vars = fit_categorical_terms(spec, nw_data)
+    graph_info = build_graph(spec, latent=latent_set)
 
     panel_info: PanelInfo | None = None
     if panel is not None:
@@ -2645,6 +2947,14 @@ def simulate(
         for reg in spec.regressions:
             for t in reg.terms:
                 term_vars.update(_term_base_vars(t))
+        target_columns = endo_set - latent_set
+        channel_columns = term_vars - endo_set
+        scaling, excluded = _exclude_scaled_basis_inputs(
+            scaling,
+            _raw_basis_input_vars(spec),
+            target_columns,
+            channel_columns,
+        )
         # Channel factors are fitted on the supplied exogenous columns;
         # target factors must come from a grid (or the pre-fitted object)
         # because outcomes do not exist before simulation.
@@ -2652,9 +2962,12 @@ def simulate(
             scaling,
             nw_data,
             panel_info=panel_info,
-            target_columns=endo_set - latent_set,
-            channel_columns=term_vars - endo_set,
+            target_columns=target_columns - excluded,
+            channel_columns=channel_columns - excluded - categorical_vars,
             roles_with_data=frozenset({"channel"}),
+        )
+        scaling_factors = _exclude_categorical_scaling(
+            scaling_factors, categorical_vars
         )
 
     data_sim = _prepare_simulation_frame(spec, nw_data, panel_info, scaling_factors)
@@ -2681,10 +2994,12 @@ def simulate(
         pooling=pooling,
         graph_info=graph_info,
         latent=latent_set,
+        generative=True,
     )
 
     all_rv_names = {rv.name for rv in gen_model.free_RVs}
     endo_rv_names = endo_set & all_rv_names
+    block_joint_rvs: set[str] = getattr(gen_model, "_pathmc_block_joint_rvs", set())
 
     scan_info = getattr(gen_model, "_pathmc_panel_scan", None)
     families_eff = families or {}
@@ -2709,7 +3024,9 @@ def simulate(
 
     # Innovation sequences drive the scan recursion itself; they are
     # simulation noise, not user-supplied parameters.
-    param_rv_names = all_rv_names - endo_rv_names - innovation_rv_names
+    param_rv_names = (
+        all_rv_names - endo_rv_names - innovation_rv_names - block_joint_rvs
+    )
 
     missing = param_rv_names - set(params.keys())
     if missing:
@@ -2810,7 +3127,10 @@ def simulate(
         result = nw_data.with_columns(list(new_columns.values()))
         return drop_composite_unit(result, panel_info).to_native()
 
-    endo_order = [v for v in graph_info.topological_order if v in endo_rv_names]
+    named_vars = gen_model.named_vars
+    endo_order = [
+        v for v in graph_info.topological_order if v in endo_set and v in named_vars
+    ]
 
     det_names = {d.name for d in gen_model.deterministics}
     latent_det_vars = [
@@ -2819,66 +3139,24 @@ def simulate(
         if v in latent_set and v not in endo_rv_names and f"mu_{v}" in det_names
     ]
 
-    # Block members are observed MvNormal components (not free RVs): draw
-    # their ``mu_{var}`` deterministics, then add correlated Cholesky noise.
-    block_members = [v for v in graph_info.topological_order if v in block_var_set]
-
     vars_to_draw = [fixed_model[var] for var in endo_order]
     latent_det_tensors = [fixed_model[f"mu_{v}"] for v in latent_det_vars]
-    block_mu_tensors = [fixed_model[f"mu_{v}"] for v in block_members]
 
-    all_to_draw = vars_to_draw + latent_det_tensors + block_mu_tensors
+    all_to_draw = vars_to_draw + latent_det_tensors
     drawn = pm.draw(all_to_draw, random_seed=random_seed)
     if not isinstance(drawn, list):
         drawn = [drawn]
 
     n_endo = len(endo_order)
-    n_latent_det = len(latent_det_vars)
     new_columns_xs: dict[str, nw.Series] = {}
     for var, values in zip(endo_order, drawn[:n_endo]):
         new_columns_xs[var] = nw.new_series(
             var, np.asarray(values), backend=nw_data.implementation
         )
-    for var, values in zip(latent_det_vars, drawn[n_endo : n_endo + n_latent_det]):
+    for var, values in zip(latent_det_vars, drawn[n_endo:]):
         new_columns_xs[var] = nw.new_series(
             var, np.asarray(values), backend=nw_data.implementation
         )
-
-    n_tail = n_endo + n_latent_det
-    block_mu_draws = {
-        var: np.asarray(values) for var, values in zip(block_members, drawn[n_tail:])
-    }
-
-    rng = (
-        random_seed
-        if isinstance(random_seed, np.random.Generator)
-        else np.random.default_rng(random_seed)
-    )
-    n_obs = len(nw_data)
-    for block in blocks:
-        # Split the Cholesky noise across members in sorted(block) order --
-        # the MvNormal column order used at compile time.
-        block_sorted = sorted(block)
-        k = len(block_sorted)
-        packed = np.asarray(
-            params[f"chol_{'_'.join(block_sorted)}"], dtype=float
-        ).ravel()
-        expected = k * (k + 1) // 2
-        if packed.size != expected:
-            raise ValueError(
-                f"chol_{'_'.join(block_sorted)} has length {packed.size}, but "
-                f"the residual block {block_sorted} requires a packed "
-                f"lower-triangular Cholesky vector of length {expected}. "
-                "Provide the PyMC LKJCholeskyCov packing of a (k, k) lower-"
-                "triangular matrix."
-            )
-        chol_mat = np.zeros((k, k))
-        chol_mat[np.tril_indices(k)] = packed
-        eps = rng.standard_normal((n_obs, k)) @ chol_mat.T
-        for j, var in enumerate(block_sorted):
-            new_columns_xs[var] = nw.new_series(
-                var, block_mu_draws[var] + eps[:, j], backend=nw_data.implementation
-            )
 
     if scaling_factors is not None:
         new_columns_xs = _invert_generated_columns(
@@ -2985,9 +3263,12 @@ def simulate_params_template(
     spec = parse_spec(spec_string)
     validate_scaling_config(scaling)
     latent_set = set(latent) if latent else set()
-    graph_info = build_graph(spec, latent=latent_set)
 
     nw_data = nw.from_native(data, eager_only=True)
+    from pathmc.categorical import fit_categorical_terms
+
+    fit_categorical_terms(spec, nw_data)
+    graph_info = build_graph(spec, latent=latent_set)
 
     has_lag_terms = any(
         term.lag_of is not None for reg in spec.regressions for term in reg.terms
@@ -3020,7 +3301,10 @@ def simulate_params_template(
         pooling=pooling,
         latent=latent_set,
         graph_info=graph_info,
+        generative=True,
     )
+
+    block_joint_rvs: set[str] = getattr(gen_model, "_pathmc_block_joint_rvs", set())
 
     template: dict[str, Any] = {}
     for rv in gen_model.free_RVs:
@@ -3028,10 +3312,15 @@ def simulate_params_template(
         # latents) are simulation outputs, not params entries. The
         # ``innovations_*`` / ``carry_innovations_*`` sequences drive the
         # scan recursion itself: simulate() draws them internally.
-        if rv.name in endo_set or rv.name.startswith((
-            "innovations_",
-            "carry_innovations_",
-        )):
+        # Residual-block joint RVs are realized noise, not user params.
+        if (
+            rv.name in endo_set
+            or rv.name in block_joint_rvs
+            or rv.name.startswith((
+                "innovations_",
+                "carry_innovations_",
+            ))
+        ):
             continue
         shape = tuple(int(d) for d in rv.shape.eval())
         if len(shape) == 0:

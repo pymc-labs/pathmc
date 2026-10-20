@@ -158,3 +158,12 @@ class TestTemplateResidualCovariance:
             "shape": (k * (k + 1) // 2,),
             "dtype": "float64",
         }
+        assert "Y1_Y2_joint" not in template
+
+    def test_descendant_spec_excludes_joint_rv(self, mediation_df):
+        template = pathmc.simulate_params_template(
+            "Y1 ~ X\nY2 ~ X\nZ ~ Y1\nY1 ~~ Y2", data=mediation_df
+        )
+        assert "Y1_Y2_joint" not in template
+        assert "sigma_Z" in template
+        assert "chol_Y1_Y2" in template

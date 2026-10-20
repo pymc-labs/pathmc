@@ -4,6 +4,7 @@ changelog:
   exclude:
     labels:
       - wontfix
+      - no releasenotes
   categories:
     - title: New Features 🎉
       labels:
@@ -14,6 +15,15 @@ changelog:
     - title: Documentation 📖
       labels:
         - documentation
+    - title: Developer Operations ⚙️
+      labels:
+        - dev ops
+    - title: Tests 🧪
+      labels:
+        - tests
+    - title: Refactoring 🧹
+      labels:
+        - Refactor
     - title: Maintenance 🔧
       labels:
         - "*"
