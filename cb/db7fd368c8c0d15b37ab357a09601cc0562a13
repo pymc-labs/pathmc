@@ -1,0 +1,30 @@
+pathmc/skills/pathmc/SKILL.md
+  s_ebc85c4cdf121f::t_bf44b8b1e05ad4 160
+pathmc/adjustment.py
+  s_ebc85c4cdf121f::t_65b56b6798ec35 474-483,487,491-494
+  s_ebc85c4cdf121f::t_b91b2365df4dbe 39-43
+  s_ebc85c4cdf121f::t_207a7d5cbde98f 233-253,257,260-278,280-289,291,293-294,301,304-316,319-320
+  s_ebc85c4cdf121f::t_01112bb1ef3cd1 33
+tests/test_adjustment.py
+  s_ebc85c4cdf121f::t_3fab606f577b96 373-446
+  s_ebc85c4cdf121f::t_faa4b98977afa2 45-52
+pathmc/_model.py
+  s_ebc85c4cdf121f::t_a1c6f258560931 1311-1319,1327-1331
+  s_ebc85c4cdf121f::t_2dd06fb3373ff1 1332
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cbdb7fd368c8c0d15b37ab357a09601cc0562a13",
+  "prompts": {},
+  "sessions": {
+    "s_ebc85c4cdf121f": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "79e4b3a1-1e9f-4174-bae2-81e36082c8f3",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

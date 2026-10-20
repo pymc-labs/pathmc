@@ -1,0 +1,22 @@
+_freeze/docs/examples/panel-time/history_dependent_policies/execute-results/html.json
+  h_63db634213747e 5
+_freeze/user-guide/history-dependent-policies/execute-results/html.json
+  h_63db634213747e 2,5
+docs/examples/04-panel-time/history_dependent_policies.qmd
+  h_63db634213747e 12,14,320
+docs/user_guide/18-panel-data.qmd
+  h_63db634213747e 255
+docs/user_guide/21-history-dependent-policies.qmd
+  h_63db634213747e 4,9,11-35,66,124,138-140,142-147,149,151-157,161-178,180,182,197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "71c9b16a17bbe0be6267b9bea1018daf3ee9285f",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

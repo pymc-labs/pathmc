@@ -1,0 +1,19 @@
+pathmc/identify.py
+  s_ec233505aac067::t_8ed2e0f28c14a7 187-189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "aa460a184f739842c7bc1db21d1adabc5300e4a1",
+  "prompts": {},
+  "sessions": {
+    "s_ec233505aac067": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ad63dd39-c2d2-4b1a-9da4-008d6cf97aa4",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

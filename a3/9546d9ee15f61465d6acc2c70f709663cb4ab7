@@ -1,0 +1,25 @@
+tests/test_adjustment.py
+  s_ebc85c4cdf121f::t_8eb65746768e8f 448-483
+  s_ebc85c4cdf121f::t_f1021289106c09 436-437,439,443
+pathmc/adjustment.py
+  s_ebc85c4cdf121f::t_64f3757c24834b 344-348
+  s_ebc85c4cdf121f::t_f0987d1f94ae01 285,287-291,297-300
+  s_ebc85c4cdf121f::t_b84b86ca3014e6 250-254,258-276
+  s_ebc85c4cdf121f::t_860ed648730b71 277-278,301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a39546d9ee15f61465d6acc2c70f709663cb4ab7",
+  "prompts": {},
+  "sessions": {
+    "s_ebc85c4cdf121f": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "79e4b3a1-1e9f-4174-bae2-81e36082c8f3",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

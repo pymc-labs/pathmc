@@ -1,0 +1,46 @@
+docs/examples/01-foundations/categorical_predictors.qmd
+  s_e76142691d7a06::t_cc668265259ad5 11,14,17-19
+  s_e76142691d7a06::t_40049c0e25ff7d 428,433,439-443
+  s_e76142691d7a06::t_404c11378dbe03 672
+  s_e76142691d7a06::t_1c5f1b73e66dca 810,812,814-817
+  s_e76142691d7a06::t_d4131a0977e78d 651-656
+  s_e76142691d7a06::t_567e373cba0115 190
+  s_e76142691d7a06::t_c8e42864e0ec58 674
+  s_e76142691d7a06::t_b31f409faf2f90 628,632-633
+  s_e76142691d7a06::t_57c88cb8110b0f 559
+  s_e76142691d7a06::t_ab88328c55be8e 789
+  s_e76142691d7a06::t_a0242873d7da16 226-227,229-232,302-308,381-387
+  s_e76142691d7a06::t_4edbe1578d6c48 228
+  s_e76142691d7a06::t_dfa3b33c3e0f1e 689,691,700
+  s_e76142691d7a06::t_0cc226543df76c 799,806,808
+  s_e76142691d7a06::t_51d61a00ecc3c7 539
+  s_e76142691d7a06::t_7e362b6e95fa5b 239
+  s_e76142691d7a06::t_5a12fceb1f664b 597
+  s_e76142691d7a06::t_513f7abdcb2a1e 444
+  s_e76142691d7a06::t_7b85d043d095d9 701
+docs/user_guide/categorical-predictors.qmd
+  s_e76142691d7a06::t_10fa833987b21d 158,167
+  s_e76142691d7a06::t_6a5d0821a9dea4 84
+  s_e76142691d7a06::t_5511bef78fbe71 51
+  s_e76142691d7a06::t_919592a0cdf9dc 125-130
+  s_e76142691d7a06::t_0c0ae86ea5631a 207
+  s_e76142691d7a06::t_af1352805b215a 66
+_freeze/docs/examples/foundations/categorical_predictors/execute-results/html.json
+  s_e76142691d7a06::t_8dc8eb5e266a9c 2,5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d0a3880470623e1c408b05051b03cb96aa597c98",
+  "prompts": {},
+  "sessions": {
+    "s_e76142691d7a06": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "05e5326e-455f-43c5-bbad-b291cf852c3f",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

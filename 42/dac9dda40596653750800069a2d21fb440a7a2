@@ -1,0 +1,40 @@
+tests/test_adjustment.py
+  s_ec233505aac067::t_136edd3f0128d2 458-466,469-475,478-480,484-488
+  s_ec233505aac067::t_79bdc97c68f5aa 203-231,233-237,242
+  s_ec233505aac067::t_b68f0ba8307203 27
+  s_ec233505aac067::t_f8b4e1a4d00bb2 467-468,476-477,481-483
+  s_ec233505aac067::t_9e471cde6a60cf 232,238-241
+  s_ec233505aac067::t_25e07eaccf1df3 196,201
+pathmc/identify.py
+  s_ec233505aac067::t_2f40c4f34cc588 185
+  s_ec233505aac067::t_cbfdb7ccbd1d94 418-419,421-424
+  s_ec233505aac067::t_2d24bef4330f03 186-189
+pathmc/adjustment.py
+  s_ec233505aac067::t_faa9c55e5e27e5 214-217,235-242
+  s_ec233505aac067::t_26859d3e2e9954 218-234
+tests/test_identification_oracle.py
+  s_ec233505aac067::t_04d9899cee053f 292-297,300-329
+  s_ec233505aac067::t_4123501ca870f1 46
+  s_ec233505aac067::t_0aee76ac841ec7 257-258
+  s_ec233505aac067::t_7e61a1daa2268f 298-299
+pathmc/_model.py
+  s_ec233505aac067::t_4dc8f43b04fe28 1383-1389
+pathmc/skills/pathmc/SKILL.md
+  s_ec233505aac067::t_be2927e549e3b1 103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "42dac9dda40596653750800069a2d21fb440a7a2",
+  "prompts": {},
+  "sessions": {
+    "s_ec233505aac067": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ad63dd39-c2d2-4b1a-9da4-008d6cf97aa4",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

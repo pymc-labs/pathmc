@@ -1,0 +1,20 @@
+pathmc/_model.py
+  h_63db634213747e 1311-1319,1330-1332
+pathmc/adjustment.py
+  h_63db634213747e 28,33,39,267,271-272,274-275,277-279,281-284,289-297,299,305,307,309-312,317-320,484,490
+pathmc/skills/pathmc/SKILL.md
+  h_63db634213747e 160-167
+tests/test_adjustment.py
+  h_63db634213747e 505-507,509,528-577
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7fa5a6889a15cbe178bd8c5be0c8032faa36bb74",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

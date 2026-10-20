@@ -1,0 +1,16 @@
+pathmc/policy_exec.py
+  h_63db634213747e 586-588,595-596,715-717
+tests/test_policy.py
+  h_63db634213747e 846-904
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b680083b97bb57854a73cc242ac1f51cd906bfdf",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+great-docs.yml
+  h_63db634213747e 98,106
+pathmc/simulate.py
+  h_63db634213747e 58-59,504-509
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e6a06c25d8fead64330a3578322177cf8ed8eb34",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

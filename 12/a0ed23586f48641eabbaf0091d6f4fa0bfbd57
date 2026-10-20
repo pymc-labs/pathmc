@@ -1,0 +1,27 @@
+docs/user_guide/18-panel-data.qmd
+  s_f67402575a823d::t_d07a1fcf100cc4 23,58-75
+pathmc/compile.py
+  s_f67402575a823d::t_50c7d092bd6268 40,105,559,672-678,2432-2454,2466,2734-2766,3267
+pathmc/panel.py
+  s_f67402575a823d::t_f47a9120a4a946 19,21-22,26,28,403-572
+pathmc/simulate.py
+  s_f67402575a823d::t_57b16548fd0eb6 1696,1749,1751-1755,1819
+tests/test_initial_states.py
+  s_f67402575a823d::t_d8614a1aab02ef 1-328
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "12a0ed23586f48641eabbaf0091d6f4fa0bfbd57",
+  "prompts": {},
+  "sessions": {
+    "s_f67402575a823d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14015-7c0e-7ff3-b15f-ece3d15d41f9",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

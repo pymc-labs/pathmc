@@ -1,0 +1,20 @@
+tests/test_graph_consistency.py
+  s_54bbe6fbd47221::t_3b0ff4b79e2983 245-250
+  s_54bbe6fbd47221::t_6f24338068ff2b 152-216,224,231-235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "71840995f02318b84fc4add91dd2f3955bec7d48",
+  "prompts": {},
+  "sessions": {
+    "s_54bbe6fbd47221": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "f14b90ed-3412-4b6a-95c9-7994f5efbd9b",
+        "model": "grok-4.7"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

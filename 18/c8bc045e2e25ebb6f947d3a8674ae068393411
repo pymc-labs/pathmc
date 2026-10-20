@@ -1,0 +1,24 @@
+docs/user_guide/categorical-predictors.qmd
+  h_63db634213747e 119,188,314
+pathmc/categorical.py
+  h_63db634213747e 104-114,138-172,174,176-179,293,306-314,316,352,354-356,358-360,367-368,395,399-400,416-425
+pathmc/compile.py
+  h_63db634213747e 826-830,832-834,839-851
+pathmc/introspect.py
+  h_63db634213747e 30,747-749,754-758,760
+pathmc/simulate.py
+  h_63db634213747e 1030,1040
+tests/test_categorical_edges.py
+  h_63db634213747e 186,196,198-199,203-230,253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "18c8bc045e2e25ebb6f947d3a8674ae068393411",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
