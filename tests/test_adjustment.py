@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import numpy as np
+import narwhals.stable.v1 as nw
 import pandas as pd
 import polars as pl
 import pymc as pm
@@ -24,7 +25,7 @@ from pymc_extras.prior import Prior
 
 import pathmc
 from pathmc.graph import build_graph
-from pathmc.identify import is_valid_adjustment_set
+from pathmc.identify import collider_warnings, is_valid_adjustment_set
 from pathmc.idata import posterior as _posterior
 from pathmc.parse import parse_spec
 
@@ -39,6 +40,14 @@ def _fork_df(rng: np.random.Generator, n: int = 200) -> pd.DataFrame:
     x = 0.7 * z + rng.normal(scale=0.5, size=n)
     y = 0.5 * x + 0.3 * z + rng.normal(scale=0.5, size=n)
     return pd.DataFrame({"X": x, "Z": z, "Y": y})
+
+
+def _region_fork_df(rng: np.random.Generator, n: int = 90) -> pd.DataFrame:
+    region = np.tile(["north", "south", "west"], n // 3)
+    coded = np.where(region == "south", 1.0, np.where(region == "west", -1.0, 0.0))
+    x = 0.7 * coded + rng.normal(scale=0.5, size=region.size)
+    y = 0.5 * x + 0.3 * coded + rng.normal(scale=0.5, size=region.size)
+    return pd.DataFrame({"X": x, "Y": y, "region": region})
 
 
 def _n_posterior_samples(model) -> int:
@@ -193,11 +202,52 @@ class TestInvalidAdjustmentAndFormulaVars:
             "Y": rng.normal(size=80),
         })
         model = pathmc.model("Z ~ X\nM ~ X + Z\nY ~ M + Z", data=df)
-        with pytest.raises(ValueError, match="descendant"):
+        with pytest.raises(ValueError, match="descendant") as exc_info:
             model.adjustment_model(
                 "X -> Y",
                 formula="Y ~ X + Z + M",
             )
+        assert "formula=" in str(exc_info.value)
+
+    def test_formula_extras_that_open_a_path_together(self, rng):
+        """Each collider is valid alone; conditioning on both opens the path.
+
+        X <- U1 -> M <- U2 -> N <- U3 -> Y, with X -> Y. ``{M}`` stays
+        blocked at N, and ``{N}`` stays blocked at M. ``{M, N}`` opens
+        the only backdoor.
+        """
+        n = 60
+        u1 = rng.normal(size=n)
+        u2 = rng.normal(size=n)
+        u3 = rng.normal(size=n)
+        x = u1 + rng.normal(scale=0.2, size=n)
+        spec = "M ~ U1 + U2\nN ~ U2 + U3\nX ~ U1\nY ~ X + U3"
+        g = build_graph(parse_spec(spec))
+        assert is_valid_adjustment_set(g, "X", "Y", {"M"})
+        assert is_valid_adjustment_set(g, "X", "Y", {"N"})
+        with pytest.raises(ValueError, match="does not block all backdoor"):
+            is_valid_adjustment_set(g, "X", "Y", {"M", "N"})
+
+        df = pd.DataFrame({
+            "U1": u1,
+            "U2": u2,
+            "U3": u3,
+            "M": u1 + u2 + rng.normal(scale=0.2, size=n),
+            "N": u2 + u3 + rng.normal(scale=0.2, size=n),
+            "X": x,
+            "Y": 0.4 * x + u3 + rng.normal(scale=0.2, size=n),
+        })
+        model = pathmc.model(spec, data=df)
+        with pytest.raises(ValueError, match="does not block all backdoor") as exc_info:
+            model.adjustment_model(
+                "X -> Y",
+                adjustment_set=set(),
+                formula="Y ~ X + M + N",
+            )
+        message = str(exc_info.value)
+        assert "Formula predictors ['M', 'N']" in message
+        assert "formula=" in message
+        assert "adjustment_set=" not in message
 
 
 class TestTreatmentAlwaysInFormula:
@@ -249,6 +299,281 @@ class TestPriorInheritance:
             adjusted.outcome_model._priors["sigma_Y"].to_dict()["kwargs"]["sigma"]
             == 3.0
         )
+
+    def test_parent_beta_override_satisfied_by_user_priors(self, rng):
+        df = _fork_df(rng)
+        model = pathmc.model(
+            "X ~ Z\nY ~ X + Z",
+            data=df,
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=2.0)},
+        )
+        adjusted = model.adjustment_model(
+            "X -> Y",
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=2.0)},
+        )
+        beta = adjusted.outcome_model._priors["beta_Y"].to_dict()
+        assert beta["dist"] == "Normal"
+        assert beta["kwargs"]["sigma"] == 2.0
+
+    def test_parent_beta_override_without_user_beta_still_raises(self, rng):
+        df = _fork_df(rng)
+        model = pathmc.model(
+            "X ~ Z\nY ~ X + Z",
+            data=df,
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=2.0)},
+        )
+        with pytest.raises(ValueError, match="beta_Y"):
+            model.adjustment_model(
+                "X -> Y",
+                priors={"sigma_Y": Prior("HalfNormal", sigma=3.0)},
+            )
+
+    def test_user_beta_override_keeps_inherited_dispersion(self, rng):
+        df = _fork_df(rng)
+        model = pathmc.model(
+            "X ~ Z\nY ~ X + Z",
+            data=df,
+            priors={
+                "beta_Y": Prior("Normal", mu=0, sigma=2.0),
+                "sigma_Y": Prior("HalfNormal", sigma=4.0),
+            },
+        )
+        adjusted = model.adjustment_model(
+            "X -> Y",
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=5.0)},
+        )
+        priors = adjusted.outcome_model._priors
+        assert priors["beta_Y"].to_dict()["kwargs"]["sigma"] == 5.0
+        assert priors["sigma_Y"].to_dict()["kwargs"]["sigma"] == 4.0
+
+    def test_set_priors_beta_override_requires_reduced_override(self, rng):
+        model = pathmc.model("X ~ Z\nY ~ X + Z", data=_fork_df(rng))
+        model.set_priors({"beta_Y": Prior("Normal", mu=0, sigma=2)})
+
+        with pytest.raises(ValueError, match=r"priors=\{'beta_Y'"):
+            model.adjustment_model("X -> Y")
+
+        adjusted = model.adjustment_model(
+            "X -> Y", priors={"beta_Y": Prior("Normal", mu=0, sigma=3)}
+        )
+        assert (
+            adjusted.outcome_model._priors["beta_Y"].to_dict()["kwargs"]["sigma"] == 3
+        )
+
+    def test_reset_beta_to_default_does_not_raise(self, rng):
+        model = pathmc.model(
+            "X ~ Z\nY ~ X + Z",
+            data=_fork_df(rng),
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=2)},
+        )
+        model.set_priors({"beta_Y": Prior("Normal", mu=0, sigma=10)})
+
+        adjusted = model.adjustment_model("X -> Y")
+        assert adjusted.outcome_model._priors["beta_Y"] == model._priors["beta_Y"]
+
+    def test_direct_pathmodel_beta_override_requires_reduced_override(self, rng):
+        spec = parse_spec("X ~ Z\nY ~ X + Z")
+        model = pathmc.PathModel(
+            spec=spec,
+            graph_info=build_graph(spec),
+            data=nw.from_native(_fork_df(rng), eager_only=True),
+            priors={"beta_Y": Prior("Normal", mu=0, sigma=2)},
+        )
+
+        with pytest.raises(ValueError, match=r"priors=\{'beta_Y'"):
+            model.adjustment_model("X -> Y")
+
+    def test_transform_parameter_prior_inherited_for_custom_formula(self, rng):
+        formula = "Y ~ logistic_saturation(X, lam=lam_x) + Z"
+        model = pathmc.model(
+            f"X ~ Z\n{formula}",
+            data=_fork_df(rng),
+            priors={"lam_x": Prior("HalfNormal", sigma=7)},
+        )
+
+        adjusted = model.adjustment_model("X -> Y", formula=formula)
+        assert adjusted.outcome_model._priors["lam_x"] == model._priors["lam_x"]
+
+    def test_set_transform_parameter_prior_and_reduced_override(self, rng):
+        formula = "Y ~ logistic_saturation(X, lam=lam_x) + Z"
+        model = pathmc.model(f"X ~ Z\n{formula}", data=_fork_df(rng))
+        model.set_priors({"lam_x": Prior("HalfNormal", sigma=7)})
+
+        adjusted = model.adjustment_model("X -> Y", formula=formula)
+        assert adjusted.outcome_model._priors["lam_x"] == model._priors["lam_x"]
+
+        overridden = model.adjustment_model(
+            "X -> Y",
+            formula=formula,
+            priors={"lam_x": Prior("HalfNormal", sigma=3)},
+        )
+        assert (
+            overridden.outcome_model._priors["lam_x"].to_dict()["kwargs"]["sigma"] == 3
+        )
+
+    def test_explicit_categorical_coefficient_requires_override(self, rng):
+        df = _region_fork_df(rng)
+        parent_formula = "Y ~ X + C(region, reference='north')"
+        model = pathmc.model(
+            f"X ~ C(region)\n{parent_formula}",
+            data=df,
+            priors={
+                "beta_Y_region": Prior(
+                    "Normal",
+                    mu=[10.0, -10.0],
+                    sigma=1.0,
+                    dims=("Y_region_levels",),
+                )
+            },
+        )
+        reduced = "Y ~ X + C(region, reference='south')"
+
+        with pytest.raises(ValueError, match=r"priors=\{'beta_Y_region'"):
+            model.adjustment_model("X -> Y", formula=reduced)
+
+        adjusted = model.adjustment_model(
+            "X -> Y",
+            formula=reduced,
+            priors={
+                "beta_Y_region": Prior(
+                    "Normal",
+                    mu=[1.0, 2.0],
+                    sigma=1.0,
+                    dims=("Y_region_levels",),
+                )
+            },
+        )
+        mu = adjusted.outcome_model._priors["beta_Y_region"].to_dict()["kwargs"]["mu"]
+        assert mu == [1.0, 2.0]
+
+    def test_inferred_categorical_coefficient_requires_override(self, rng):
+        df = _region_fork_df(rng)
+        model = pathmc.model(
+            "X ~ region\nY ~ X + region",
+            data=df,
+            priors={
+                "beta_Y_region": Prior(
+                    "Normal",
+                    mu=[10.0, -10.0],
+                    sigma=1.0,
+                    dims=("Y_region_levels",),
+                )
+            },
+        )
+
+        with pytest.raises(ValueError, match=r"priors=\{'beta_Y_region'"):
+            model.adjustment_model("X -> Y")
+
+    def test_default_categorical_coefficient_does_not_raise(self, rng):
+        df = _region_fork_df(rng)
+        model = pathmc.model("X ~ region\nY ~ X + region", data=df)
+        adjusted = model.adjustment_model("X -> Y")
+        beta = adjusted.outcome_model._priors["beta_Y_region"].to_dict()
+        assert beta["kwargs"]["sigma"] == 10
+        assert beta["kwargs"]["mu"] == 0
+
+    def test_hierarchical_categorical_hyperprior_is_inherited(self, rng):
+        df = _region_fork_df(rng)
+        parent = "Y ~ X + C(region, prior='hierarchical', reference='north')"
+        reduced = "Y ~ X + C(region, prior='hierarchical', reference='south')"
+        model = pathmc.model(
+            f"X ~ C(region)\n{parent}",
+            data=df,
+            priors={"mu_beta_Y_region": Prior("Normal", mu=2.0, sigma=1.0)},
+        )
+        adjusted = model.adjustment_model("X -> Y", formula=reduced)
+        mu = adjusted.outcome_model._priors["mu_beta_Y_region"].to_dict()
+        assert mu["kwargs"]["mu"] == 2.0
+        assert "beta_Y_region" not in adjusted.outcome_model._priors
+
+    def test_vector_hierarchical_hyperprior_requires_override(self, rng):
+        df = _region_fork_df(rng)
+        parent = "Y ~ X + C(region, prior='hierarchical', reference='north')"
+        reduced = "Y ~ X + C(region, prior='hierarchical', reference='south')"
+        model = pathmc.model(
+            f"X ~ C(region)\n{parent}",
+            data=df,
+            priors={
+                "mu_beta_Y_region": Prior(
+                    "Normal",
+                    mu=[10.0, -10.0],
+                    sigma=1.0,
+                )
+            },
+        )
+
+        with pytest.raises(
+            ValueError, match=r"priors=\{'mu_beta_Y_region'"
+        ) as exc_info:
+            model.adjustment_model("X -> Y", formula=reduced)
+        assert "coefficient" not in str(exc_info.value)
+
+        adjusted = model.adjustment_model(
+            "X -> Y",
+            formula=reduced,
+            priors={
+                "mu_beta_Y_region": Prior(
+                    "Normal",
+                    mu=[1.0, 2.0],
+                    sigma=1.0,
+                    dims=("Y_region_levels",),
+                )
+            },
+        )
+        mu = adjusted.outcome_model._priors["mu_beta_Y_region"].to_dict()["kwargs"][
+            "mu"
+        ]
+        assert mu == [1.0, 2.0]
+
+    def test_beta_named_transform_parameter_is_inherited(self, rng):
+        formula = "Y ~ logistic_saturation(X, lam=beta_lam) + Z"
+        model = pathmc.model(
+            f"X ~ Z\n{formula}",
+            data=_fork_df(rng),
+            priors={"beta_lam": Prior("HalfNormal", sigma=7)},
+        )
+
+        adjusted = model.adjustment_model("X -> Y", formula=formula)
+        assert adjusted.outcome_model._priors["beta_lam"] == model._priors["beta_lam"]
+
+    def test_unknown_shared_prior_fails_closed(self):
+        from pathmc.adjustment import _resolve_reduced_priors
+
+        spec = parse_spec("Y ~ X")
+        custom = Prior("Normal", mu=0, sigma=2)
+        default = Prior("Normal", mu=0, sigma=10)
+        with pytest.raises(ValueError, match="kappa_Y") as exc_info:
+            _resolve_reduced_priors(
+                {"kappa_Y": custom},
+                {"kappa_Y": default},
+                {"kappa_Y": default},
+                spec,
+                "Y",
+                None,
+            )
+        message = str(exc_info.value)
+        assert "coefficient" not in message
+        assert "priors={'kappa_Y'" in message
+
+        inherited = _resolve_reduced_priors(
+            {"kappa_Y": default},
+            {"kappa_Y": default},
+            {"kappa_Y": default},
+            spec,
+            "Y",
+            None,
+        )
+        assert "kappa_Y" not in inherited
+
+        overridden = _resolve_reduced_priors(
+            {"kappa_Y": custom},
+            {"kappa_Y": default},
+            {"kappa_Y": default},
+            spec,
+            "Y",
+            {"kappa_Y": Prior("Normal", mu=1, sigma=1)},
+        )
+        assert "kappa_Y" not in overridden
 
 
 class TestInnerModelTypes:
@@ -413,6 +738,37 @@ class TestIsValidAdjustmentSet:
         g = build_graph(parse_spec("M ~ X\nY ~ M"))
         with pytest.raises(ValueError, match="descendant"):
             is_valid_adjustment_set(g, "X", "Y", {"M"})
+
+    def test_blocked_collider_is_valid(self):
+        """M-bias plus a direct effect: {A, M} and {B, M} satisfy backdoor.
+
+        M is a collider on X <- A -> M <- B -> Y, but A (or B) already
+        blocks that path. Conditioning on M alone opens it.
+        """
+        g = build_graph(parse_spec("M ~ A + B\nX ~ A\nY ~ X + B"))
+        assert is_valid_adjustment_set(g, "X", "Y", {"A", "M"})
+        assert is_valid_adjustment_set(g, "X", "Y", {"B", "M"})
+        warnings = collider_warnings(g, {"A", "M"}, "X", "Y")
+        assert any("collider" in warning for warning in warnings)
+        with pytest.raises(ValueError, match="does not block all backdoor"):
+            is_valid_adjustment_set(g, "X", "Y", {"M"})
+
+    def test_adjustment_model_accepts_blocked_collider(self, rng):
+        n = 40
+        a = rng.normal(size=n)
+        b = rng.normal(size=n)
+        noise = rng.normal(scale=0.3, size=n)
+        x = a + rng.normal(scale=0.3, size=n)
+        df = pd.DataFrame({
+            "A": a,
+            "B": b,
+            "M": a + b + noise,
+            "X": x,
+            "Y": 0.5 * x + b + rng.normal(scale=0.3, size=n),
+        })
+        model = pathmc.model("M ~ A + B\nX ~ A\nY ~ X + B", data=df)
+        adjusted = model.adjustment_model("X -> Y", adjustment_set={"A", "M"})
+        assert adjusted.adjustment_set == frozenset({"A", "M"})
 
 
 class TestResidualBlockValidation:

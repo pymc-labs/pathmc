@@ -194,7 +194,7 @@ model.equations()
 The equations and priors show both the structural parameters (`b`, `sigma_response`) and the transform parameters (`n`, `K`). Transform parameters are first-class model parameters --- they appear in the posterior, respond to `set_priors()`, and propagate uncertainty through `do()`.
 
 ```{python}
-idata = model.fit(draws=500, tune=500, chains=4, random_seed=42)
+idata = model.fit(random_seed=42)
 ```
 
 ## Parameter recovery

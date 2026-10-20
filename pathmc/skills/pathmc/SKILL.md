@@ -49,7 +49,7 @@ indirect := a*b
 """
 
 m = pathmc.model(spec, data=df)   # returns a PathModel (NOT a fitted result)
-m.fit(draws=1000, chains=2)       # MCMC happens here
+m.fit()                            # MCMC happens here
 
 m.effects_summary()                # labeled coefficients + defined params
 m.ate("Y", "X", values=(0, 1))     # average treatment effect via do()
@@ -79,7 +79,7 @@ The DSL is lavaan-inspired:
 | Inspect priors only                               | `m.priors()`                                           |
 | Refine priors                                     | `m.set_priors({"beta_Y": Prior(...)})`                 |
 | Prior predictive check                            | `m.sample_prior_predictive()`                          |
-| Run MCMC                                          | `m.fit(draws=1000, chains=2)`                          |
+| Run MCMC                                          | `m.fit()`                                              |
 | Summarize posteriors                              | `m.summary()` or `m.effects_summary()`                 |
 | Standardized (stdyx) coefficients                 | `m.standardized()`                                     |
 | Path-specific effect (e.g. `X -> M -> Y`)         | `m.effect("X -> M -> Y")`                              |
@@ -101,7 +101,7 @@ The DSL is lavaan-inspired:
 | Adjustment sets for identification                | `m.adjustment_sets(treatment, outcome)`                |
 | Yes/no identification check                       | `m.is_identifiable(treatment, outcome)`                |
 | Front-door identification                         | `m.frontdoor_identifiable(treatment, outcome)`         |
-| Warn about colliders in an adjustment set         | `m.collider_warnings(adjust, treatment, outcome)`      |
+| Flag colliders on any path (heuristic; validity is `is_valid_adjustment_set`) | `m.collider_warnings(adjust, treatment, outcome)` |
 | Enumerate implied conditional independences       | `m.implied_independences()`                            |
 | Test DAG implications against data                | `m.test_implications()`                                |
 | Falsify the whole DAG (permutation test)          | `m.falsify()`                                          |
@@ -158,6 +158,14 @@ The DSL is lavaan-inspired:
    sets exist, pass `adjustment_set=` explicitly; pathmc does not pick
    among them. Pass `data=` when the parent structural model is
    data-free. Panel models are not supported on the adjustment path.
+   A shared prior key is inherited when its shape does not follow the
+   predictor set or treatment coding: outcome dispersion (`sigma_Y`,
+   `nu_Y`, `alpha_disp_Y`), transform parameters named in the reduced
+   formula, and scalar hierarchical hyperpriors (`mu_beta_*`,
+   `sigma_beta_*`). Otherwise a custom parent value must be passed in
+   `priors=` or construction raises. That includes coefficient priors
+   and non-scalar hyperpriors. Unknown shared keys fail closed the same
+   way. An explicit `priors=` value still wins.
 10. **`predictions()` / `comparisons()` / `slopes()` share one API on
    `PathModel` and `AdjustmentModel`.** On the structural model they
    use truncated-factorization g-computation; on
@@ -248,7 +256,7 @@ m.is_identifiable("X", "Y")    # can we estimate the effect at all?
 
 ```python
 m = pathmc.model(spec, data=df)
-m.fit(draws=1000, chains=2)
+m.fit()
 m.effects_summary()                          # labeled coefs
 m.ate("Y", "X", values=(0, 1))               # ATE
 m.cate("Y", "X", condition={"Z": 1})         # CATE | Z=1
@@ -262,7 +270,7 @@ m = pathmc.model(spec, data=df)              # structural DAG + data
 adj = m.adjustment_model("X -> Y")           # inspect before fit
 adj.adjustment_set                           # validated backdoor set
 adj.formula                                  # reduced outcome equation
-adj.fit(draws=1000, chains=2)
+adj.fit()
 adj.ate(values=(0, 1))                       # outcome-regression standardization
 adj.comparisons(comparison="lift")             # same API as PathModel
 adj.slopes(wrt="X")                            # defaults to designated treatment

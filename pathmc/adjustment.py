@@ -25,7 +25,7 @@ import pymc as pm
 import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame
 
-from pathmc.compile import _term_base_vars
+from pathmc.compile import _collect_transform_param_names, _term_base_vars
 from pathmc.graph import GraphInfo
 from pathmc.identify import adjustment_sets, is_valid_adjustment_set
 from pathmc.interpret import InterpretResult
@@ -36,6 +36,7 @@ from pathmc.simulate import EstimandResult
 
 __all__ = ["AdjustmentModel"]
 
+# Dispersion keys are shape-free: they do not follow the predictor set.
 _OUTCOME_PRIOR_SUFFIXES = ("sigma", "nu", "alpha_disp")
 
 
@@ -211,42 +212,113 @@ def _validate_reduced_spec(
     dag = graph_info.contemporaneous_dag
     dag_nodes = set(dag.nodes)
     extra_dag_vars = predictors - adjustment_set - {treatment}
-    for var in sorted(extra_dag_vars):
-        if var in dag_nodes:
+    # One joint check: two colliders can each leave the backdoor closed
+    # and open it only when both are conditioned on.
+    structural_extras = extra_dag_vars & dag_nodes
+    if structural_extras:
+        try:
             is_valid_adjustment_set(
                 graph_info,
                 treatment,
                 outcome,
-                set(adjustment_set | {var}),
+                set(adjustment_set | structural_extras),
             )
-        elif data is not None and var not in data.columns:
+        except ValueError as exc:
+            # The set was already valid before these predictors were added,
+            # so the fix is in formula=, not adjustment_set=.
+            extras = sorted(structural_extras)
+            detail = str(exc).replace("adjustment_set=", "formula=")
             raise ValueError(
-                f"Formula variable '{var}' is not in the DAG and not found "
-                f"in data columns. Available columns: "
-                f"{sorted(data.columns)}."
-            )
+                f"Formula predictors {extras} make conditioning set "
+                f"{sorted(set(adjustment_set) | structural_extras)} invalid "
+                f"for '{treatment}' -> '{outcome}'. {detail}"
+            ) from exc
+    if data is not None:
+        for var in sorted(extra_dag_vars - dag_nodes):
+            if var not in data.columns:
+                raise ValueError(
+                    f"Formula variable '{var}' is not in the DAG and not found "
+                    f"in data columns. Available columns: "
+                    f"{sorted(data.columns)}."
+                )
 
 
-def _inherit_outcome_priors(
+def _is_scalar_value(value: Any) -> bool:
+    """True when *value* does not carry one entry per level or predictor."""
+    if isinstance(value, (str, bytes, list, tuple)):
+        return isinstance(value, (str, bytes))
+    if isinstance(value, np.ndarray):
+        return value.ndim == 0
+    shape = getattr(value, "shape", None)
+    if shape is not None:
+        return tuple(shape) == ()
+    return True
+
+
+def _is_scalar_prior(prior: Any) -> bool:
+    """True when a prior has no dims and only scalar parameters."""
+    dims = getattr(prior, "dims", None) or ()
+    if tuple(dims):
+        return False
+    parameters = getattr(prior, "parameters", None) or {}
+    return all(_is_scalar_value(value) for value in parameters.values())
+
+
+def _resolve_reduced_priors(
     parent_priors: dict[str, Any],
-    construction_priors: dict[str, Any] | None,
+    parent_defaults: dict[str, Any],
+    reduced_defaults: dict[str, Any],
+    reduced_spec: Spec,
     outcome: str,
+    user_priors: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Copy outcome dispersion priors from the parent; reject beta overrides."""
-    beta_key = f"beta_{outcome}"
-    if construction_priors and beta_key in construction_priors:
-        raise ValueError(
-            f"The structural model has a custom prior on '{beta_key}'. "
-            f"Adjustment models do not inherit coefficient priors. Pass "
-            f"priors= on adjustment_model() for the reduced equation."
-        )
+    """Inherit shared priors whose shape does not follow the predictor set.
+
+    A shared key is inherited when its shape does not follow the predictor
+    set or treatment coding. Otherwise a custom parent value must be passed
+    in ``priors=`` or construction raises. Unknown shared keys fail closed.
+    """
+    shape_free = {f"{suffix}_{outcome}" for suffix in _OUTCOME_PRIOR_SUFFIXES}
+    shape_free.update(_collect_transform_param_names(reduced_spec))
 
     inherited: dict[str, Any] = {}
-    for suffix in _OUTCOME_PRIOR_SUFFIXES:
-        key = f"{suffix}_{outcome}"
-        if key in parent_priors:
-            inherited[key] = parent_priors[key]
-    return inherited
+    missing: list[str] = []
+    for key in sorted(reduced_defaults):
+        if key not in parent_priors:
+            continue
+        parent_prior = parent_priors[key]
+        # Scalar hyperpriors have no level order. A vector ``mu`` or
+        # ``sigma`` still follows treatment coding, so it is not shape-free.
+        scalar_hyperprior = key.startswith((
+            "mu_beta_",
+            "sigma_beta_",
+        )) and _is_scalar_prior(parent_prior)
+        if key in shape_free or scalar_hyperprior:
+            inherited[key] = parent_prior
+            continue
+        if parent_prior == parent_defaults.get(key):
+            continue
+        if user_priors is not None and key in user_priors:
+            continue
+        missing.append(key)
+    if not missing:
+        return inherited
+    if len(missing) == 1:
+        key = missing[0]
+        raise ValueError(
+            f"The structural model has a custom prior on '{key}'. "
+            f"Adjustment models inherit a shared key only when its shape "
+            f"does not follow the predictor set or treatment coding. Pass "
+            f"priors={{'{key}': ...}} to adjustment_model() to set it on "
+            f"the reduced equation."
+        )
+    listed = ", ".join(f"'{key}'" for key in missing)
+    raise ValueError(
+        f"The structural model has custom priors on {listed}. "
+        f"Adjustment models inherit a shared key only when its shape "
+        f"does not follow the predictor set or treatment coding. Pass "
+        f"priors= to adjustment_model() with an entry for each of {listed}."
+    )
 
 
 class AdjustmentModel:
@@ -392,17 +464,30 @@ class AdjustmentModel:
         if families is not None:
             outcome_families.update(families)
 
-        construction_priors = (
-            parent._construction.get("priors") if parent._construction else None
+        parent_defaults = default_priors(
+            parent._spec,
+            families=parent._families,
+            pooling=parent._pooling,
+            latent=parent._latent,
+            panel_info=parent._panel_info,
         )
-        inherited_priors = _inherit_outcome_priors(
-            parent._priors,
-            construction_priors,
-            outcome_name,
-        )
+        # Resolve inferred categoricals before choosing priors. The default
+        # reduced formula names confounders as bare variables, so a string
+        # column only becomes ``beta_{outcome}_{var}`` after fitting.
+        from pathmc.categorical import fit_categorical_terms
+
+        fit_categorical_terms(reduced_spec, nw_data)
         reduced_defaults = default_priors(
             reduced_spec,
             families=outcome_families or None,
+        )
+        inherited_priors = _resolve_reduced_priors(
+            parent._priors,
+            parent_defaults,
+            reduced_defaults,
+            reduced_spec,
+            outcome_name,
+            priors,
         )
         merged_priors = merge_priors(reduced_defaults, inherited_priors)
         if priors is not None:

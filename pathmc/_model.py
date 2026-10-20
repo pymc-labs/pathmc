@@ -1326,14 +1326,28 @@ class PathModel:
         families : dict[str, str] | None
             Per-variable families for the reduced model only.
         priors : dict | None
-            Prior overrides for the reduced model, merged with inherited
-            outcome dispersion priors.
+            Prior overrides for the reduced equation. A shared key is
+            inherited when its shape does not follow the predictor set or
+            treatment coding: outcome dispersion priors, transform-parameter
+            priors used by the reduced formula, and scalar hierarchical
+            categorical hyperpriors (``mu_beta_*``, ``sigma_beta_*``).
+            Otherwise a custom parent value must be passed here or
+            construction raises. That includes coefficient priors and
+            non-scalar hyperpriors. Unknown shared keys fail closed the
+            same way. An explicit value here still wins.
 
         Returns
         -------
         AdjustmentModel
             Facade with ``fit()`` and ``ate()`` / ``att()`` / ``atu()`` /
             ``cate()`` delegating to the inner outcome model.
+
+        Raises
+        ------
+        ValueError
+            If this model has a custom prior on a shared key whose shape
+            follows the predictor set or treatment coding, or on an unknown
+            shared key, and ``priors`` does not override that key.
 
         See Also
         --------
@@ -1398,8 +1412,13 @@ class PathModel:
         treatment: str,
         outcome: str,
     ) -> list[str]:
-        """Check if any variable in the proposed adjustment set is a
-        collider that could introduce bias.
+        """Warn when a proposed adjustment variable is a collider on a
+        path between treatment and outcome.
+
+        This is a structural heuristic. It flags the collider even when
+        the rest of the set keeps that path blocked.
+        ``is_valid_adjustment_set()`` decides whether the set satisfies
+        the backdoor criterion.
 
         .. note::
 

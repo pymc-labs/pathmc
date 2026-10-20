@@ -3,14 +3,14 @@ title: "Basis Terms"
 guide-section: "Concepts"
 ---
 
-A basis term expands one predictor into several columns and gives that expansion its own vector of coefficients. This differs from a [transform](12-transforms-families.qmd), which transforms one column before it receives the equation's usual scalar coefficient. Basis terms are useful when a relationship needs a flexible but structured shape.
+A basis term expands one predictor into several columns and gives that expansion its own vector of coefficients. This differs from a [transform](transforms.qmd), which transforms one column before it receives the equation's usual scalar coefficient. Basis terms are useful when a relationship needs a flexible but structured shape.
 
 | Basis | Syntax | Coefficients | Current support |
 | --- | --- | --- | --- |
 | HSGP | `hsgp(x, m=20, c=1.5)` | Kernel-scaled basis weights | Cross-sectional, exogenous 1-D input |
 | Fourier | `fourier(week, n=3, period=52)` | `2n` independent harmonic weights | Cross-sectional; observed or latent 1-D input |
 
-For example, a weekly seasonal pattern with three harmonics is a Fourier basis; the [Fourier seasonality example](/docs/examples/panel-time/fourier_seasonality.html) shows a complete workflow:
+For example, a weekly seasonal pattern with three harmonics is a Fourier basis; the [Fourier seasonality example](/docs/examples/basis-terms/fourier_seasonality.html) shows a complete workflow:
 
 ```python
 seasonal = pathmc.model(
@@ -31,6 +31,6 @@ model = pathmc.model(
 )
 ```
 
-`hsgp()` uses the same owned-coefficient mechanism but has a kernel-informed prior and a boundary frozen from the fitted data. Its `do()` interventions must remain inside that boundary; see the [HSGP worked example](/docs/examples/foundations/hsgp_1d.html). Fourier has no fitted support boundary, so it remains well-defined outside the observed range.
+`hsgp()` uses the same owned-coefficient mechanism but has a kernel-informed prior and a boundary frozen from the fitted data. Its `do()` interventions must remain inside that boundary; see the [HSGP worked example](/docs/examples/basis-terms/hsgp_1d.html). Fourier has no fitted support boundary, so it remains well-defined outside the observed range.
 
 Basis terms currently cannot be used in panel/scan models, inside residual-covariance blocks, or nested in transforms. These limits are checked before compilation and name the equation or variable that needs changing.
