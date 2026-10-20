@@ -1,0 +1,25 @@
+pathmc/panel.py
+  s_ad4f6de7f05202::t_11fb5f49462fb4 22,457-460
+pathmc/interpret.py
+  s_ad4f6de7f05202::t_11fb5f49462fb4 383,398
+pathmc/falsify.py
+  s_ad4f6de7f05202::t_11fb5f49462fb4 355
+pathmc/simulate.py
+  s_ad4f6de7f05202::t_6cc71a4fc9f824 30,1586,1616-1618,1628
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a8c864f9a50f0776ad1a2184ee13b70b0fb62aac",
+  "prompts": {},
+  "sessions": {
+    "s_ad4f6de7f05202": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b42-0a8b-7693-a632-c6b7b37faefa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
