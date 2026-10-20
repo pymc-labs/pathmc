@@ -1,0 +1,14 @@
+_freeze/docs/examples/basis-terms/hsgp_1d/execute-results/html.json
+  h_63db634213747e 2,5,15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5a1d9e2d28fcfc6cb0ad94af8504d961c42a0334",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
