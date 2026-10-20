@@ -380,6 +380,7 @@ def _unit_prediction(
     assert model._idata is not None
 
     def _run() -> xr.DataArray:
+        assert model._idata is not None
         result = run_do_pymc(
             gen_model=model._gen_model,
             graph_info=model._graph_info,
@@ -394,7 +395,7 @@ def _unit_prediction(
         if outcome not in result.dataset:
             raise KeyError(
                 f"Outcome '{outcome}' not found in do() output. "
-                f"Available: {sorted(result.dataset.data_vars)}"
+                f"Available: {sorted(str(name) for name in result.dataset.data_vars)}"
             )
         return result.dataset[outcome]
 

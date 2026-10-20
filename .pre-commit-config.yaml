@@ -18,22 +18,25 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: ["--maxkb=1500"]
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.12
+  - repo: local
     hooks:
       - id: ruff
+        name: ruff
+        entry: uv run --locked --all-extras ruff check --fix
+        language: system
         types_or: [python, pyi, jupyter]
-        args: [--fix]
       - id: ruff-format
+        name: ruff format
+        entry: uv run --locked --all-extras ruff format
+        language: system
         types_or: [python, pyi, jupyter, text]
         files: \.(py|pyi|ipynb|qmd)$
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.15.0
-    hooks:
       - id: mypy
-        args: [--ignore-missing-imports]
+        name: mypy
+        entry: uv run --locked --all-extras mypy --ignore-missing-imports
+        language: system
+        pass_filenames: false
         files: ^pathmc/
-        additional_dependencies: [numpy>=1.20, pandas-stubs, narwhals]
   - repo: https://github.com/lucianopaz/head_of_apache
     rev: "0.1.1"
     hooks:
