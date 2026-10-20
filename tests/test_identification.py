@@ -24,6 +24,7 @@ from pathmc.identify import (
     collider_warnings,
     implied_independences,
     is_identifiable,
+    is_valid_adjustment_set,
 )
 from pathmc.parse import parse_spec
 
@@ -312,3 +313,19 @@ class TestResidualNameCollision:
         sets = adjustment_sets(g, "T", "Y")
         assert {"_u_resid_0"} in sets
         assert is_identifiable(g, "T", "Y")
+
+
+def test_equal_treatment_and_outcome_is_not_a_backdoor_query():
+    """Querying a variable on itself must not leak NetworkXError.
+
+    NetworkX rejects a d-separator whose endpoint sets intersect. The
+    public helpers should return a defined negative result instead.
+    """
+    g = _graph("Y ~ X\nX ~ Z")
+    assert is_identifiable(g, "Y", "Y") is False
+    assert adjustment_sets(g, "Y", "Y") == []
+    with pytest.raises(ValueError, match="does not block all backdoor paths"):
+        is_valid_adjustment_set(g, "Y", "Y", set())
+    model = pathmc.model("Y ~ X\nX ~ Z")
+    assert model.is_identifiable("Y", "Y") is False
+    assert model.adjustment_sets("Y", "Y") == []

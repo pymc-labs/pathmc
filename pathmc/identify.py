@@ -108,6 +108,50 @@ def _fresh_latent_name(index: int, used_names: set[str]) -> str:
     return name
 
 
+def _mutilate_outgoing(dag: nx.DiGraph, treatment: str) -> nx.DiGraph:
+    """Drop arrows out of *treatment*, leaving only backdoor paths.
+
+    Pearl's backdoor criterion is d-separation in this graph. Removing
+    incoming arrows instead would delete the backdoor paths themselves.
+    """
+    mutilated = dag.copy()
+    mutilated.remove_edges_from(list(dag.out_edges(treatment)))
+    return mutilated
+
+
+def _backdoor_separated(
+    dag: nx.DiGraph, treatment: str, outcome: str, z: set[str]
+) -> bool:
+    """Return whether *z* blocks every backdoor path from treatment to outcome.
+
+    ``nx.is_d_separator`` is polynomial in the graph size. Enumerating
+    simple paths is exponential in the number of paths, which made
+    identification unusable around 16–20 nodes.
+
+    Equal endpoints are not a backdoor query: NetworkX rejects a separator
+    whose sets are not disjoint, and a variable is not a cause of itself.
+    """
+    if treatment == outcome:
+        return False
+    return nx.is_d_separator(
+        _mutilate_outgoing(dag, treatment), {treatment}, {outcome}, z
+    )
+
+
+def _minimal_adjustment_candidates(
+    dag: nx.DiGraph, treatment: str, outcome: str, latent: set[str]
+) -> set[str]:
+    """Observed ancestors that can appear in a *minimal* adjustment set.
+
+    Minimal separators never contain non-ancestors of the query pair
+    (van der Zander, Liskiewicz & Textor 2019). A non-ancestor can still
+    pad a non-minimal set; ``is_valid_adjustment_set`` accepts those.
+    """
+    ancestors = nx.ancestors(dag, treatment) | nx.ancestors(dag, outcome)
+    descendants = nx.descendants(dag, treatment)
+    return ancestors - descendants - latent - {treatment, outcome}
+
+
 def adjustment_sets(
     graph_info: GraphInfo,
     treatment: str,
@@ -147,28 +191,24 @@ def adjustment_sets(
     -------
     list[set[str]]
         All valid minimal adjustment sets, sorted by size then
-        alphabetically. Empty list if no valid set exists or if
-        the effect is already identified without adjustment.
+        alphabetically. The empty set is included when no adjustment is
+        needed. Empty list only when no valid set exists.
     """
     _require_nodes(graph_info.contemporaneous_dag, treatment=treatment, outcome=outcome)
 
     dag, latent = _with_residual_confounders(graph_info)
 
-    descendants = nx.descendants(dag, treatment)
-    candidates = set(dag.nodes) - {treatment, outcome} - descendants - latent
-
-    mutilated = dag.copy()
-    mutilated.remove_edges_from(list(dag.in_edges(treatment)))
+    candidates = _minimal_adjustment_candidates(dag, treatment, outcome, latent)
+    ordered = sorted(candidates)
 
     valid_sets: list[set[str]] = []
-
-    for size in range(len(candidates) + 1):
-        for subset in combinations(sorted(candidates), size):
+    for size in range(len(ordered) + 1):
+        for subset in combinations(ordered, size):
             z = set(subset)
-            if _blocks_all_backdoor_paths(dag, mutilated, treatment, outcome, z):
-                if _is_minimal(z, valid_sets):
-                    valid_sets.append(z)
-
+            if any(existing < z for existing in valid_sets):
+                continue
+            if _backdoor_separated(dag, treatment, outcome, z):
+                valid_sets.append(z)
     valid_sets.sort(key=lambda s: (len(s), sorted(s)))
     return valid_sets
 
@@ -250,9 +290,7 @@ def is_valid_adjustment_set(
             f"in an adjustment set — remove them from adjustment_set=."
         )
 
-    mutilated = dag.copy()
-    mutilated.remove_edges_from(list(dag.in_edges(treatment)))
-    if not _blocks_all_backdoor_paths(dag, mutilated, treatment, outcome, z):
+    if not _backdoor_separated(dag, treatment, outcome, z):
         raise ValueError(
             f"Adjustment set {sorted(z)} does not block all backdoor paths "
             f"from '{treatment}' to '{outcome}'. Call adjustment_sets() on "
@@ -299,7 +337,11 @@ def is_identifiable(
         True if at least one valid backdoor adjustment set exists
         (including the empty set, meaning no adjustment is needed).
     """
-    return len(adjustment_sets(graph_info, treatment, outcome)) > 0
+    _require_nodes(graph_info.contemporaneous_dag, treatment=treatment, outcome=outcome)
+    dag, latent = _with_residual_confounders(graph_info)
+    # The full observed-ancestor set is valid iff any adjustment set exists.
+    canonical = _minimal_adjustment_candidates(dag, treatment, outcome, latent)
+    return _backdoor_separated(dag, treatment, outcome, canonical)
 
 
 def frontdoor_identifiable(
@@ -889,11 +931,3 @@ def _is_collider_on_path(
     except nx.NetworkXError:
         pass
     return False
-
-
-def _is_minimal(candidate: set[str], existing: list[set[str]]) -> bool:
-    """A set is minimal if no existing valid set is a proper subset of it."""
-    for s in existing:
-        if s < candidate:
-            return False
-    return True
