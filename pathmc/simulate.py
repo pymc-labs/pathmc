@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import builtins
 import warnings
-from collections.abc import Iterator, Mapping
+from collections.abc import Hashable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
@@ -1789,7 +1789,7 @@ def _simulation_labels(innovations: xr.Dataset | None) -> tuple[Any, ...] | None
     if len(labelled) != len(innovations.data_vars):
         raise ValueError(
             "Innovations must all include a simulation dimension, or none of them. "
-            f"Missing it: {sorted(set(innovations.data_vars) - set(labelled))}."
+            f"Missing it: {sorted(str(name) for name in set(innovations.data_vars) - set(labelled))}."
         )
     reference = innovations[labelled[0]]
     if "simulation" not in reference.coords:
@@ -1819,7 +1819,9 @@ def _repeat_draw_axis(trace: xr.Dataset, n_sim: int) -> xr.Dataset:
     stacked noise layout ``di * n_sim + si``.
     """
     n_draw = int(trace.sizes["draw"])
-    data_vars = {}
+    data_vars: dict[
+        Hashable, xr.DataArray | tuple[tuple[Hashable, ...], np.ndarray]
+    ] = {}
     for name, value in trace.data_vars.items():
         if "draw" not in value.dims:
             data_vars[name] = value
@@ -1829,7 +1831,7 @@ def _repeat_draw_axis(trace: xr.Dataset, n_sim: int) -> xr.Dataset:
             value.dims,
             np.repeat(np.asarray(value.values), n_sim, axis=axis),
         )
-    coords: dict[str, Any] = {}
+    coords: dict[Hashable, Any] = {}
     for name, coord in trace.coords.items():
         if name == "draw":
             coords[name] = np.arange(n_draw * n_sim)
