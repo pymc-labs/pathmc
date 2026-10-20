@@ -398,7 +398,7 @@ def run_policy_evaluation(
     )
     scales = _unit_factors(
         model._scaling_factors,
-        set(plan.current_deps) | set(plan.previous_deps) | {plan.target},
+        names,
         scan.unit_labels,
         model._panel_info.unit,
     )

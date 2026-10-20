@@ -19,7 +19,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
 import narwhals.stable.v1 as nw
 import numpy as np
@@ -489,7 +489,8 @@ def _unit_alignment_frame(data: nw.DataFrame, panel_info: PanelInfo) -> nw.DataF
                 "the panel data. Supply data that contains every fitted unit."
             )
         frames.append(rows.head(1))
-    return nw.concat(frames)
+    # concat preserves the stable-v1 frame at runtime, but widens its type.
+    return cast(nw.DataFrame, nw.concat(frames))
 
 
 def normalize_initial_states(
