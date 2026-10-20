@@ -28,12 +28,15 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import matplotlib.axes
+import matplotlib.figure
 import numpy as np
 import pymc as pm
 import xarray as xr
 
 from pathmc.compile import compile_to_pymc, lag_base_kinds
 from pathmc.idata import posterior as posterior_dataset
+from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.panel import normalize_initial_states
 from pathmc.policy import (
     TimeSchedule,
@@ -42,7 +45,12 @@ from pathmc.policy import (
     plan_policy,
     reject_unsupported_policy_model,
 )
-from pathmc.simulate import _execute_gaussian_panel, _stack_sample, _stack_sample_time
+from pathmc.simulate import (
+    DoResult,
+    _execute_gaussian_panel,
+    _stack_sample,
+    _stack_sample_time,
+)
 
 _COUPLING = "common-random-numbers"
 
@@ -170,6 +178,29 @@ class PolicyRun:
         """Return the posterior mean of *var* under this policy."""
         return float(np.mean(_stack_sample(self.population[var])))
 
+    def hdi(self, var: str, prob: float = DEFAULT_HDI_PROB) -> np.ndarray:
+        """Return the posterior highest-density interval ``[lower, upper]``."""
+        return DoResult(ds=self.population).hdi(var, prob=prob)
+
+    def plot(
+        self,
+        var: str,
+        *,
+        vs: str | None = None,
+        observed: np.ndarray | None = None,
+        ax: matplotlib.axes.Axes | None = None,
+        prob: float = DEFAULT_HDI_PROB,
+    ) -> matplotlib.figure.Figure:
+        """Plot the posterior trajectory and HDI, with an optional observed series.
+
+        Pass ``ax`` to reuse an axes, ``prob`` for the interval mass, and
+        ``observed`` for a time-aligned overlay. Aggregate results have no
+        time dimension; use :meth:`hdi` to summarize their uncertainty.
+        """
+        return DoResult(ds=self.population).plot(
+            var, vs=vs, observed=observed, ax=ax, prob=prob
+        )
+
     def by_time(self, var: str) -> np.ndarray:
         """Return per-time posterior draws, shape ``(n_times, n_samples)``."""
         if "time" not in self.population[var].dims:
@@ -284,6 +315,8 @@ def policy_innovations(
     n_simulations: int,
     n_units: int,
     n_times: int,
+    *,
+    simulation_indices: Sequence[int] | None = None,
 ) -> dict[str, np.ndarray]:
     """Standard-normal noise keyed by variable, chain, draw, and simulation.
 
@@ -292,6 +325,9 @@ def policy_innovations(
     not part of the key.
     """
     out: dict[str, np.ndarray] = {}
+    simulations = (
+        range(n_simulations) if simulation_indices is None else simulation_indices
+    )
     for var in states:
         var_code = _label_code(var)
         arr = np.empty((
@@ -303,7 +339,7 @@ def policy_innovations(
         ))
         for ci, chain in enumerate(chain_labels):
             for di, draw in enumerate(draw_labels):
-                for sim in range(n_simulations):
+                for si, sim in enumerate(simulations):
                     ss = np.random.SeedSequence([
                         _label_code(seed),
                         var_code,
@@ -311,7 +347,7 @@ def policy_innovations(
                         _label_code(draw),
                         int(sim),
                     ])
-                    arr[ci, di, sim] = np.random.default_rng(ss).standard_normal((
+                    arr[ci, di, si] = np.random.default_rng(ss).standard_normal((
                         n_units,
                         n_times,
                     ))
@@ -428,17 +464,10 @@ def run_policy_evaluation(
     noise = (
         {var: np.asarray(innovations[var], dtype=float) for var in states}
         if innovations is not None
-        else policy_innovations(
-            seed,
-            states,
-            list(post.coords["chain"].values),
-            list(post.coords["draw"].values),
-            n_sim,
-            int(scan.n_units),
-            n_times,
-        )
+        else None
     )
-    _check_innovations(noise, states, post, n_sim, int(scan.n_units), n_times)
+    if noise is not None:
+        _check_innovations(noise, states, post, n_sim, int(scan.n_units), n_times)
     interventions = _model_interventions(
         schedules,
         scales,
@@ -447,7 +476,7 @@ def run_policy_evaluation(
         policy_scan.unit_labels,
         policy_scan.time_values,
     )
-    state_mu, action_mu = _execute_chunks(
+    unit_means, retained_states = _execute_chunks(
         policy_model,
         post,
         states,
@@ -459,18 +488,17 @@ def run_policy_evaluation(
         time_values=list(scan.time_values),
         policy_name=policy.name,
         target=plan.target,
+        n_simulations=n_sim,
+        seed=seed,
+        scales=scales,
+        keep=keep,
     )
-    business_states = {
-        var: _unscale(values, scales.get(var)) for var, values in state_mu.items()
-    }
-    if plan.target not in business_states:
-        business_states[plan.target] = _unscale(action_mu, scales.get(plan.target))
     population, sim_draws, trajectories = _pack_results(
-        business_states,
+        unit_means,
+        retained_states,
         post,
         list(scan.time_values),
         list(scan.unit_labels),
-        keep,
     )
     info = PolicySimulationInfo(
         policy_name=policy.name,
@@ -649,7 +677,13 @@ def _resolve_initial(
                 f"initial= names {unknown} are not fitted variables. "
                 f"Available names: {sorted(known)}."
             )
-        required = sorted(observed | set(extra) | set(initial))
+        required = sorted(observed | set(extra))
+        unused = sorted(set(initial) - set(required))
+        if unused:
+            raise ValueError(
+                f"initial= names {unused} are unused by the lag or policy "
+                f"previous references. Remove them; required keys: {required}."
+            )
         missing = sorted((observed | set(extra)) - set(initial))
         if missing:
             raise ValueError(
@@ -752,7 +786,7 @@ def _check_innovations(
 
 
 def _chunk_innovations(
-    noise: Mapping[str, np.ndarray],
+    noise: Mapping[str, np.ndarray] | None,
     states: tuple[str, ...],
     post_slice: xr.Dataset,
     chain_i: int,
@@ -760,14 +794,33 @@ def _chunk_innovations(
     sim_idx: np.ndarray,
     unit_labels: Sequence[Any],
     time_values: Sequence[Any],
+    seed: int,
 ) -> xr.Dataset:
     """One chunk of shared noise, labelled to the posterior slice."""
     data = {}
+    generated = (
+        policy_innovations(
+            seed,
+            states,
+            list(post_slice.coords["chain"].values),
+            list(post_slice.coords["draw"].values),
+            len(sim_idx),
+            len(unit_labels),
+            len(time_values),
+            simulation_indices=sim_idx.tolist(),
+        )
+        if noise is None
+        else None
+    )
     for var in states:
-        block = noise[var][chain_i][draw_idx[:, None], sim_idx[None, :]]
+        if generated is not None:
+            block = generated[var]
+        else:
+            assert noise is not None
+            block = noise[var][chain_i][draw_idx[:, None], sim_idx[None, :]][None, ...]
         data[var] = (
             ("chain", "draw", "simulation", "unit", "time"),
-            block[None, ...],
+            block,
         )
     return xr.Dataset(
         data,
@@ -785,7 +838,7 @@ def _execute_chunks(
     policy_model: pm.Model,
     post: xr.Dataset,
     states: tuple[str, ...],
-    noise: Mapping[str, np.ndarray],
+    noise: Mapping[str, np.ndarray] | None,
     interventions: dict[str, xr.DataArray],
     *,
     batch_draws: int,
@@ -794,16 +847,28 @@ def _execute_chunks(
     time_values: list[Any],
     policy_name: str,
     target: str,
-) -> tuple[dict[str, np.ndarray], np.ndarray]:
+    n_simulations: int,
+    seed: int,
+    scales: dict[str, np.ndarray],
+    keep: bool,
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray] | None]:
     n_chain = post.sizes["chain"]
     n_draw = post.sizes["draw"]
-    n_sim = next(iter(noise.values())).shape[2]
+    n_sim = n_simulations
     n_unit = len(unit_labels)
     n_time = len(time_values)
-    state_mu = {
-        var: np.empty((n_chain, n_draw, n_sim, n_unit, n_time)) for var in states
+    output_names = tuple(dict.fromkeys((*states, target)))
+    unit_means = {
+        var: np.empty((n_chain, n_draw, n_sim, n_time)) for var in output_names
     }
-    action_mu = np.empty((n_chain, n_draw, n_sim, n_unit, n_time))
+    retained = (
+        {
+            var: np.empty((n_chain, n_draw, n_sim, n_unit, n_time))
+            for var in output_names
+        }
+        if keep
+        else None
+    )
     scan_info = policy_model._pathmc_panel_scan
     action_name = scan_info.policy_action or "_policy_action"
     chain_labels = list(post.coords["chain"].values)
@@ -827,6 +892,7 @@ def _execute_chunks(
                         sim_idx,
                         scan_info.unit_labels,
                         scan_info.time_values,
+                        seed,
                     ),
                     interventions=interventions or None,
                 )
@@ -841,12 +907,16 @@ def _execute_chunks(
                     sim_idx=sim_idx,
                     chain_label=chain_labels[chain_i],
                 )
-                for var in states:
-                    state_mu[var][chain_i, draw_idx[:, None], sim_idx[None, :]] = (
-                        np.asarray(result[var].values)[0]
-                    )
-                action_mu[chain_i, draw_idx[:, None], sim_idx[None, :]] = chunk_action
-    return state_mu, action_mu
+                for var in output_names:
+                    values = np.asarray(
+                        result[var if var in states else action_name].values
+                    )[0]
+                    business = _unscale(values, scales.get(var))
+                    index = (chain_i, draw_idx[:, None], sim_idx[None, :])
+                    unit_means[var][index] = business.mean(axis=2)
+                    if retained is not None:
+                        retained[var][index] = business
+    return unit_means, retained
 
 
 def _reject_nonfinite_action(
@@ -881,27 +951,26 @@ def _unscale(values: np.ndarray, factor: np.ndarray | None) -> np.ndarray:
 
 
 def _pack_results(
-    states: dict[str, np.ndarray],
+    unit_means: dict[str, np.ndarray],
+    retained: dict[str, np.ndarray] | None,
     post: xr.Dataset,
     time_values: list[Any],
     unit_labels: list[Any],
-    keep: bool,
 ) -> tuple[xr.Dataset, xr.Dataset, xr.Dataset | None]:
-    """Average units, then simulations, in business units.
+    """Pack unit-averaged replicate summaries and optional business-unit paths.
 
-    ``states`` arrays are ``(chain, draw, simulation, unit, time)``.
+    ``unit_means`` arrays are ``(chain, draw, simulation, time)``.
     """
     time = np.asarray(time_values)
     chain = post.coords["chain"].values
     draw = post.coords["draw"].values
-    n_sim = next(iter(states.values())).shape[2]
+    n_sim = next(iter(unit_means.values())).shape[2]
     sim = np.arange(n_sim)
     units = np.asarray(unit_labels)
     population = {}
     sim_draws = {}
     trajectories = {}
-    for var, values in states.items():
-        unit_mean = values.mean(axis=3)
+    for var, unit_mean in unit_means.items():
         population[var] = (
             ("time", "chain", "draw"),
             unit_mean.mean(axis=2).transpose(2, 0, 1),
@@ -910,17 +979,17 @@ def _pack_results(
             ("time", "chain", "draw", "simulation"),
             unit_mean.transpose(3, 0, 1, 2),
         )
-        if keep:
+        if retained is not None:
             trajectories[var] = (
                 ("chain", "draw", "simulation", "unit", "time"),
-                values,
+                retained[var],
             )
     coords = {"time": time, "chain": chain, "draw": draw}
     pop = xr.Dataset(population, coords=coords)
     sims = xr.Dataset(sim_draws, coords={**coords, "simulation": sim})
     traj = (
         xr.Dataset(trajectories, coords={**coords, "simulation": sim, "unit": units})
-        if keep
+        if retained is not None
         else None
     )
     return pop, sims, traj

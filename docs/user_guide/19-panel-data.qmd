@@ -231,6 +231,7 @@ fixed = model.do(
     simulate_over="time",
     horizon=6,
     initial=baseline,
+    random_seed=7,
 )
 adaptive = model.do(
     policy=responsive,
