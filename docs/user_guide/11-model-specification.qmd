@@ -272,7 +272,7 @@ M1 ~~ M2
 """
 ```
 
-Under the hood, pathmc groups `~~`-connected variables into multivariate normal blocks with an LKJ prior on the residual correlation matrix.
+Under the hood, pathmc groups `~~`-connected variables into multivariate normal blocks with an LKJ prior on the residual correlation matrix. `do(kind="predictive")` carries that residual noise into descendant draws; `kind="mean"` stays on the noise-free structural path.
 
 ## Directed acyclic graphs
 

@@ -522,6 +522,8 @@ class PathModel:
     def _compile(self) -> None:
         """Compile the generative PyMC model and attach observations."""
         assert self._data is not None
+        # Drop any generative sibling; it must be rebuilt against this compile.
+        self._residual_predictive_model = None
         self._gen_model = compile_to_pymc(
             self._spec,
             self._data,
@@ -1507,6 +1509,59 @@ class PathModel:
             categorical_vars=self._categorical_vars,
         )
 
+    def _sync_predictive_shared(self, sibling: pm.Model) -> None:
+        """Copy estimation-model shared values onto the generative sibling.
+
+        ``do()`` rewrites categorical bases on the estimation model before
+        sampling. The sibling is compiled once and must see those values,
+        plus any other shared data, or predictive draws use the pre-intervention
+        design.
+        """
+        assert self._gen_model is not None
+        for name, var in self._gen_model.named_vars.items():
+            getter = getattr(var, "get_value", None)
+            if getter is None:
+                continue
+            other = sibling.named_vars.get(name)
+            setter = getattr(other, "set_value", None)
+            if setter is None:
+                continue
+            value = np.array(getter(borrow=True), copy=True)
+            dtype = getattr(other, "dtype", None)
+            if dtype is not None:
+                value = value.astype(dtype, copy=False)
+            setter(value)
+
+    def _predictive_gen_model(self) -> pm.Model:
+        """Return the model predictive ``do()`` should sample.
+
+        Residual-block members are observed on the estimation model, so its
+        free RVs are noise-free and descendant predictive draws omit upstream
+        residual noise. A generative sibling keeps those members as slices of
+        a free joint. Models without ``~~`` keep using the estimation model.
+        """
+        assert self._gen_model is not None
+        assert self._data is not None
+        if not self._graph_info.residual_blocks:
+            return self._gen_model
+        sibling = getattr(self, "_residual_predictive_model", None)
+        if sibling is None:
+            sibling = compile_to_pymc(
+                self._spec,
+                self._data,
+                self._design_matrices,
+                families=self._families,
+                panel_info=self._panel_info,
+                pooling=self._pooling,
+                latent=self._latent,
+                graph_info=self._graph_info,
+                priors=self._priors,
+                generative=True,
+            )
+            self._residual_predictive_model = sibling
+        self._sync_predictive_shared(sibling)
+        return sibling
+
     def _run_do(
         self,
         set: dict[str, float | np.ndarray] | None,
@@ -1523,8 +1578,11 @@ class PathModel:
         assert self._gen_model is not None
         assert self._data is not None
         assert self._idata is not None
+        gen_model = (
+            self._predictive_gen_model() if kind == "predictive" else self._gen_model
+        )
         return run_do_pymc(
-            gen_model=self._gen_model,
+            gen_model=gen_model,
             graph_info=self._graph_info,
             idata=self._idata,
             data=self._data,
@@ -1868,7 +1926,9 @@ class PathModel:
             Not implemented; raises :exc:`NotImplementedError` if given.
         kind : str
             ``"mean"`` for deterministic propagation via mu Deterministics,
-            ``"predictive"`` to include residual noise.
+            ``"predictive"`` to include residual noise. Residual-covariance
+            blocks are sampled from a generative sibling so that noise reaches
+            descendants; the estimation likelihood is unchanged.
         simulate_over : str | None
             ``"time"`` to activate time-forward panel simulation. Required
             for models with ``lag()`` or ``adstock()``, which also require

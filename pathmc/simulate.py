@@ -1381,6 +1381,58 @@ def _business_exog_value(
     return _exogenous_fill(values)
 
 
+def _residual_predictive_sample_kwargs(
+    gen_model: pm.Model,
+    do_model: pm.Model,
+    graph_info: GraphInfo,
+    intervened: dict[str, float | np.ndarray],
+) -> dict[str, Any]:
+    """Resample residual-block joints and keep noisy descendant draws.
+
+    The estimation model observes block members, so predictive ``do()``
+    samples a generative sibling. Those joints, and any non-intervened
+    endogenous free RVs, must be listed in ``sample_vars``: a posterior
+    that already contains them would otherwise freeze the estimation draws.
+    ``var_names`` keeps the noisy block slices in the posterior predictive.
+    """
+    joint_names = set(getattr(gen_model, "_pathmc_block_joint_rvs", ()))
+    if not joint_names:
+        return {}
+    free_names = {rv.name for rv in do_model.free_RVs}
+    resample = [
+        name
+        for name in sorted(free_names)
+        if name in joint_names or name in graph_info.endogenous
+    ]
+    # The sibling owns its own data nodes, so PyMC treats posterior
+    # coefficients as stale unless they are explicitly frozen.
+    freeze = [
+        name
+        for name in sorted(free_names)
+        if name not in joint_names and name not in graph_info.endogenous
+    ]
+    var_names = []
+    for var in graph_info.topological_order:
+        if var not in graph_info.endogenous or var in intervened:
+            continue
+        if var in do_model.named_vars:
+            var_names.append(var)
+            continue
+        # A deterministic latent is only ``mu_{var}``. Computing it later
+        # from a zero-filled posterior drops the sampled parent joint.
+        mu_name = f"mu_{var}"
+        if mu_name in do_model.named_vars:
+            var_names.append(mu_name)
+    kwargs: dict[str, Any] = {}
+    if resample:
+        kwargs["sample_vars"] = resample
+    if freeze:
+        kwargs["freeze_vars"] = freeze
+    if var_names:
+        kwargs["var_names"] = var_names
+    return kwargs
+
+
 def run_do_pymc(
     gen_model: pm.Model,
     graph_info: GraphInfo,
@@ -1398,7 +1450,10 @@ def run_do_pymc(
 
     For ``kind="predictive"``: uses ``pm.do()`` on the generative model
     followed by ``pm.sample_posterior_predictive()`` to forward-sample
-    through the causal chain with residual noise.
+    through the causal chain with residual noise. Residual-block models
+    pass a generative sibling whose block members are named Deterministics
+    of a free joint, so a hard intervention replaces that Deterministic
+    and descendants read the intervened value plus their own noise.
 
     For ``kind="mean"``: uses ``pm.do()`` for interventions, then computes
     cloned mu Deterministics with upstream endogenous variables replaced by
@@ -1454,14 +1509,30 @@ def run_do_pymc(
     block_vars = {v for block in graph_info.residual_blocks for v in block}
 
     replacements: dict[str, Any] = {}
+    scaled_interventions: dict[str, np.ndarray] = {}
     data_basis_bindings = getattr(gen_model, "_pathmc_data_bases", {})
     for var, val in set.items():
-        key = f"mu_{var}" if (var in latent or var in block_vars) else var
+        # Generative siblings name the block member itself. Descendants
+        # read that realized value, so replacing it drops the intervened
+        # parent's residual and leaves the descendant's own joint slice.
+        # Block members read the structural mean, so the mean walk below
+        # also substitutes ``mu_{var}`` or ``pathmc_resp_{var}``.
+        keys: list[str] = []
+        if var in block_vars and var in gen_model.named_vars:
+            keys.append(var)
+            mu_name = f"mu_{var}"
+            if mu_name in gen_model.named_vars:
+                keys.append(mu_name)
+        elif var in latent or var in block_vars:
+            keys.append(f"mu_{var}")
+        else:
+            keys.append(var)
         arr = _scale_cross_section_intervention(
             var, _intervention_array(val, N), data, scaling_factors
         )
-        target_dtype = gen_model[key].dtype
-        replacements[key] = arr.astype(target_dtype)
+        scaled_interventions[var] = arr
+        for key in keys:
+            replacements[key] = arr.astype(gen_model[key].dtype)
         if data_basis_bindings:
             from pathmc.basis import replay_data_bases
 
@@ -1476,6 +1547,21 @@ def run_do_pymc(
 
         mean_det_names: dict[str, str] = {}
         expr_replacements: dict[Any, Any] = {}
+        # Block members read the parent's structural mean, not its free RV.
+        # pm.do already replaced the RV, which non-block equations read.
+        for var, arr in scaled_interventions.items():
+            if var in block_vars or var in latent:
+                continue
+            family = families.get(var, "")
+            node_name = (
+                f"pathmc_resp_{var}"
+                if family in ("bernoulli", "poisson", "negbinomial")
+                else f"mu_{var}"
+            )
+            if node_name not in do_model.named_vars:
+                continue
+            node = do_model[node_name]
+            expr_replacements[node] = pt.as_tensor_variable(arr).astype(node.dtype)
         mu_source_exprs = [
             do_model[f"mu_{var}"] * 1
             for var in graph_info.topological_order
@@ -1547,8 +1633,11 @@ def run_do_pymc(
         warnings.filterwarnings(
             "ignore", message="Could not extract data from symbolic observation"
         )
+        ppc_kwargs = _residual_predictive_sample_kwargs(
+            gen_model, do_model, graph_info, set
+        )
         with do_model:
-            ppc = pm.sample_posterior_predictive(idata, progressbar=False)
+            ppc = pm.sample_posterior_predictive(idata, progressbar=False, **ppc_kwargs)
 
     extra_det_names = [
         f"mu_{var}"
