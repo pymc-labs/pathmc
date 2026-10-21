@@ -707,7 +707,7 @@ def compile_to_pymc(
                     str(level) for level in coefficient_levels(term.categorical)
                 ]
 
-    needs_unit_coord = bool(coef_entries) or none_transform_flag
+    needs_unit_coord = bool(coef_entries) or none_transform_flag or bool(slope_vars)
     if (has_random_intercepts or needs_unit_coord) and panel_info is not None:
         coords["unit"] = panel_info.unit_labels
         unit_idx = _build_unit_index(data, panel_info)
@@ -1682,15 +1682,50 @@ def _build_unit_index(data: nw.DataFrame, panel_info: PanelInfo) -> np.ndarray:
         ) from exc
 
 
+def _noncentered_unit_effect(
+    name: str,
+    mu: Any,
+    sigma: Any,
+    *,
+    mu_name: str,
+    sigma_name: str,
+) -> Any:
+    """Unit-level effect outside the centered funnel.
+
+    ``Normal(mu, sigma)`` makes the sampler walk a funnel when the group
+    scale is weakly informed, which is the usual partial-pooling posterior.
+    The free parameter is a unit-normal offset. ``name`` stays the centered
+    effect so posterior tables and ``simulate(params=)`` keep that key.
+    """
+    offset_name = f"{name}_offset"
+    offset = pm.Normal(offset_name, mu=0.0, sigma=1.0, dims="unit")
+    centered = pm.Deterministic(name, mu + sigma * offset, dims="unit")
+    model = pm.modelcontext(None)
+    mapping = getattr(model, "_pathmc_noncentered", None)
+    if mapping is None:
+        mapping = {}
+        model._pathmc_noncentered = mapping
+    mapping[name] = (offset_name, mu_name, sigma_name)
+    return centered
+
+
 def _compile_random_intercept(
     var: str,
     unit_idx: np.ndarray,
     priors: dict[str, Any],
 ) -> Any:
     """Emit hierarchical random intercept for *var*, return alpha[unit_idx]."""
-    mu_alpha = priors[f"mu_alpha_{var}"].create_variable(f"mu_alpha_{var}")
-    sigma_alpha = priors[f"sigma_alpha_{var}"].create_variable(f"sigma_alpha_{var}")
-    alpha = pm.Normal(f"alpha_{var}", mu=mu_alpha, sigma=sigma_alpha, dims="unit")
+    mu_name = f"mu_alpha_{var}"
+    sigma_name = f"sigma_alpha_{var}"
+    mu_alpha = priors[mu_name].create_variable(mu_name)
+    sigma_alpha = priors[sigma_name].create_variable(sigma_name)
+    alpha = _noncentered_unit_effect(
+        f"alpha_{var}",
+        mu_alpha,
+        sigma_alpha,
+        mu_name=mu_name,
+        sigma_name=sigma_name,
+    )
     return alpha[unit_idx]
 
 
@@ -1706,24 +1741,21 @@ def _compile_random_slopes(
     Uses the symbolic ``pm.Data`` variables so that ``pm.do()``
     interventions propagate through the random slope terms.
     """
-    import pymc as pm
-
     contribution = 0
     term_variables = {t.variable for t in reg.terms}
     for svar in slope_vars:
         if svar not in term_variables:
             continue
-        mu_slope = priors[f"mu_slope_{reg.lhs}_{svar}"].create_variable(
-            f"mu_slope_{reg.lhs}_{svar}"
-        )
-        sigma_slope = priors[f"sigma_slope_{reg.lhs}_{svar}"].create_variable(
-            f"sigma_slope_{reg.lhs}_{svar}"
-        )
-        slope = pm.Normal(
+        mu_name = f"mu_slope_{reg.lhs}_{svar}"
+        sigma_name = f"sigma_slope_{reg.lhs}_{svar}"
+        mu_slope = priors[mu_name].create_variable(mu_name)
+        sigma_slope = priors[sigma_name].create_variable(sigma_name)
+        slope = _noncentered_unit_effect(
             f"slope_{reg.lhs}_{svar}",
-            mu=mu_slope,
-            sigma=sigma_slope,
-            dims="unit",
+            mu_slope,
+            sigma_slope,
+            mu_name=mu_name,
+            sigma_name=sigma_name,
         )
         x_symbolic = data_vars[svar]
         contribution = contribution + slope[unit_idx] * x_symbolic
@@ -2599,12 +2631,16 @@ def _compile_scan_panel(
         slope_rvs: dict[str, dict[str, Any]] = {}
         if has_ri:
             for var in endogenous_order:
-                mu_a = priors[f"mu_alpha_{var}"].create_variable(f"mu_alpha_{var}")
-                sig_a = priors[f"sigma_alpha_{var}"].create_variable(
-                    f"sigma_alpha_{var}"
-                )
-                alpha_rvs[var] = pm.Normal(
-                    f"alpha_{var}", mu=mu_a, sigma=sig_a, dims="unit"
+                mu_name = f"mu_alpha_{var}"
+                sigma_name = f"sigma_alpha_{var}"
+                mu_a = priors[mu_name].create_variable(mu_name)
+                sig_a = priors[sigma_name].create_variable(sigma_name)
+                alpha_rvs[var] = _noncentered_unit_effect(
+                    f"alpha_{var}",
+                    mu_a,
+                    sig_a,
+                    mu_name=mu_name,
+                    sigma_name=sigma_name,
                 )
         for var in endogenous_order:
             reg = reg_by_lhs[var]
@@ -2612,17 +2648,16 @@ def _compile_scan_panel(
             slope_rvs[var] = {}
             for svar in slope_vars:
                 if svar in term_variables:
-                    mu_s = priors[f"mu_slope_{var}_{svar}"].create_variable(
-                        f"mu_slope_{var}_{svar}"
-                    )
-                    sig_s = priors[f"sigma_slope_{var}_{svar}"].create_variable(
-                        f"sigma_slope_{var}_{svar}"
-                    )
-                    slope_rvs[var][svar] = pm.Normal(
+                    mu_name = f"mu_slope_{var}_{svar}"
+                    sigma_name = f"sigma_slope_{var}_{svar}"
+                    mu_s = priors[mu_name].create_variable(mu_name)
+                    sig_s = priors[sigma_name].create_variable(sigma_name)
+                    slope_rvs[var][svar] = _noncentered_unit_effect(
                         f"slope_{var}_{svar}",
-                        mu=mu_s,
-                        sigma=sig_s,
-                        dims="unit",
+                        mu_s,
+                        sig_s,
+                        mu_name=mu_name,
+                        sigma_name=sigma_name,
                     )
 
         # --- by_var pooled / unpooled coefficients ---
