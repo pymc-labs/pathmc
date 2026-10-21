@@ -1,0 +1,16 @@
+pathmc/hsgp.py
+  h_63db634213747e 73-78,81-82,84-85
+tests/test_hsgp_priors.py
+  h_63db634213747e 101-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "980fa748a4132716cf642c7938eadf416e3d056c",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
