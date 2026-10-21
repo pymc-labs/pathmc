@@ -152,9 +152,9 @@ class PolicyRun(_DrawStorageMixin):
     simulation_draws: xr.Dataset
     _trajectories: xr.Dataset | None = None
 
-    @property
-    def _ds(self) -> xr.Dataset:
-        return self.population
+    def __post_init__(self) -> None:
+        # The mixin declares ``_ds`` assignable, so a property override is a type error.
+        object.__setattr__(self, "_ds", self.population)
 
     @property
     def dataset(self) -> xr.Dataset:
