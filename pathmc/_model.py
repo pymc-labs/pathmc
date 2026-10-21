@@ -1482,7 +1482,16 @@ class PathModel:
 
         A significant result flags a *violation*: the data show an
         association that the DAG says should not exist, suggesting a
-        missing edge or incorrect structure.
+        missing edge or incorrect structure. Each row also reports
+        ``requested_k``, ``effective_k``, ``rank_collapsed``, and ``df``.
+        When a conditioner is constant, duplicated, collinear with the
+        others, or a single-level categorical that contributed no columns,
+        ``rank_collapsed`` is set and a warning is emitted: the p-value
+        then refers to the columns that entered, not the independence
+        implied by the DAG. ``n_violations``, ``violations``, the compact
+        representation, and the HTML banner exclude that row. The display
+        does not mark it pass or fail. Drop the redundant variable and
+        re-test.
 
         Uses the observed data, not the posterior.
 
@@ -1660,6 +1669,18 @@ class PathModel:
         :meth:`test_implications`. Because that test is linear, purely
         nonlinear dependencies are not detected, so a "not rejected"
         verdict is only as strong as the linear-Gaussian assumption.
+        ``local_violations`` includes ``requested_k``, ``effective_k``,
+        ``rank_collapsed``, and ``df`` for each test on this DAG. A
+        rank-deficient parent set (a constant, duplicate, or collinear
+        parent) sets ``rank_collapsed`` and warns. That row stays in the
+        frame, but ``given_lmc_violations``, ``n_lmc_tests``,
+        ``violations``, and the permutation fraction all exclude it.
+        A permuted DAG that produced no written parental test is omitted
+        from that fraction, not scored as zero violations. If every drawn
+        permutation is omitted, ``falsified`` is unset and the summary,
+        compact repr, and HTML say the LMC comparison was not run. The
+        summary names the collapsed count separately. If every requested
+        test collapses, the DAG cannot be evaluated.
 
         Uses the observed data, not the posterior, and works before
         sampling. Models with residual covariances (``~~``) are not
