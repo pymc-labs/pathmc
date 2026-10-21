@@ -620,7 +620,7 @@ def compile_to_pymc(
         latent = set()
 
     if priors is None:
-        priors = default_priors(spec, families, pooling, latent, panel_info)
+        priors = default_priors(spec, families, pooling, latent, panel_info, data=data)
 
     if graph_info is None:
         from pathmc.graph import build_graph
@@ -2455,7 +2455,7 @@ def _compile_scan_panel(
     from pathmc.priors import _ensure_dims, default_priors
 
     if priors is None:
-        priors = default_priors(spec, families, pooling, latent, panel_info)
+        priors = default_priors(spec, families, pooling, latent, panel_info, data=data)
 
     reg_by_lhs = {r.lhs: r for r in spec.regressions}
     transform_map = _build_transform_map(spec)

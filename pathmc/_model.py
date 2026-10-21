@@ -463,6 +463,7 @@ class PathModel:
             pooling=pooling,
             latent=self._latent,
             panel_info=panel_info,
+            data=data,
         )
         self._priors = merge_priors(defaults, priors)
 

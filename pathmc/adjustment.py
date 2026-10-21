@@ -470,6 +470,7 @@ class AdjustmentModel:
             pooling=parent._pooling,
             latent=parent._latent,
             panel_info=parent._panel_info,
+            data=parent._data,
         )
         # Resolve inferred categoricals before choosing priors. The default
         # reduced formula names confounders as bare variables, so a string
@@ -480,6 +481,7 @@ class AdjustmentModel:
         reduced_defaults = default_priors(
             reduced_spec,
             families=outcome_families or None,
+            data=nw_data,
         )
         inherited_priors = _resolve_reduced_priors(
             parent._priors,

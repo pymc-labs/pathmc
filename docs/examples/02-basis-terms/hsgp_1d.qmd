@@ -86,7 +86,7 @@ The default priors expose the kernel amplitude (`eta_response_dose`), lengthscal
 model.priors()
 ```
 
-The lengthscale prior is in **raw input units**. The default `InverseGamma(3, 1)` has mean 0.5, so an input that spans several units pulls against it. Override `ell_response_dose` so its mean sits on the dose scale (here, 2 dose units). A range-scaled default is tracked in [issue #375](https://github.com/pymc-labs/pathmc/issues/375). Even with that prior, this posterior still diverges at the default target acceptance, because the lengthscale and the basis weights trade off. `target_accept=0.99` is the setting that samples it cleanly.
+The lengthscale prior matches the compiled input column. With data, the default is `InverseGamma(3, beta)` where `beta` is that column's span, so the mean is half the span. This page does not scale dose, so the span is the raw range 0 to 8 and the default mean is 4. Channel scaling rewrites the column before the prior is built, and `beta` then matches the internal span, not the business-unit range. The cell below tightens the prior to a mean of 2 dose units. Even with that prior, this posterior still diverges at the default target acceptance, because the lengthscale and the basis weights trade off. `target_accept=0.99` is the setting that samples it cleanly.
 
 ```{python}
 # Mean lengthscale of 2 dose units: InverseGamma(3, 4) has mean 4 / (3 - 1).
@@ -241,4 +241,4 @@ Phase 1 supports a single 1-D **exogenous** input on cross-sectional models. Mul
 
 The input must be exogenous because the basis is built by evaluating it: PyMC derives the centering midpoint and the boundary from the input's realized values. Smoothing an endogenous variable (one that is itself the outcome of another equation) would freeze the basis at a random prior draw, so `pathmc` rejects it rather than fitting a model whose result depends on compilation-time RNG.
 
-**Takeaway:** use `hsgp()` for a smooth that should not be forced into a line or a repeating cycle, set the lengthscale prior on the scale of the input, and use `do()` to read the curve past the observed range but inside the basis boundary. For a pattern that repeats, see [Fourier seasonality](fourier_seasonality.qmd).
+**Takeaway:** use `hsgp()` for a smooth that should not be forced into a line or a repeating cycle, set the lengthscale prior on the scale of the compiled input, and use `do()` to read the curve past the observed range but inside the basis boundary. For a pattern that repeats, see [Fourier seasonality](fourier_seasonality.qmd).

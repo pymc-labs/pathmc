@@ -40,6 +40,8 @@ def default_priors(
     pooling: str | dict | None = None,
     latent: set[str] | None = None,
     panel_info: PanelInfo | None = None,
+    *,
+    data: Any | None = None,
 ) -> PriorConfig:
     """Build default priors for all customizable model parameters.
 
@@ -53,6 +55,10 @@ def default_priors(
         Pooling specification for panel models.
     latent : set[str] | None
         Latent variables (no sigma/likelihood priors emitted).
+    data : dataframe | None
+        Observed frame. When present, each HSGP lengthscale default is
+        scaled to that input column's range. Omitted data keeps the
+        unit-span default.
 
     Returns
     -------
@@ -159,6 +165,15 @@ def default_priors(
                 from pathmc.basis import get_basis
 
                 get_basis(term.basis.name).default_priors(reg.lhs, term.basis, priors)
+                if data is not None and term.basis.name == "hsgp":
+                    from pathmc.hsgp import apply_lengthscale_prior
+
+                    apply_lengthscale_prior(
+                        priors,
+                        f"ell_{reg.lhs}_{term.basis.variable}",
+                        data,
+                        term.basis.variable,
+                    )
 
     # --- by_var structured pooling ---
     for name, entry in by_var_entries.items():
