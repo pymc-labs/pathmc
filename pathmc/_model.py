@@ -19,7 +19,7 @@ import sys
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING, cast
 
 import arviz as az
 import graphviz
@@ -49,9 +49,11 @@ from pathmc.effects import (
     build_effects_summary,
     build_standardized_effects,
     compute_path_effect,
+    user_facing_labeled_draws,
 )
 from pathmc.falsify import FalsificationResult, falsify_graph as _falsify_graph
 from pathmc.graph import GraphInfo, build_graph
+from pathmc.idata import posterior
 from pathmc.identify import (
     ConditionalIndependence,
     ImplicationTestResult,
@@ -85,6 +87,13 @@ from pathmc.panel import (
     observed_means_by_time,
 )
 from pathmc.parse import Spec, parse_spec
+from pathmc.plotting import (
+    _label_scan_axes,
+    _reject_unused_coords,
+    _reposition_point_mass_labels,
+    _select_draws,
+    plot_density,
+)
 from pathmc.refute import PlaceboRefutationResult, refute_placebo as _refute_placebo
 from pathmc.sensitivity import SensitivityResult, compute_sensitivity
 from pathmc.scaling import (
@@ -105,6 +114,8 @@ from pathmc.simulate import (
 )
 
 if TYPE_CHECKING:
+    import matplotlib.axes
+    import matplotlib.figure
     from pathmc.adjustment import AdjustmentModel
 
 __all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
@@ -847,6 +858,207 @@ class PathModel:
             scaling_factors=self._scaling_factors,
             data=self._data,
         )
+
+    def plot_dist(
+        self,
+        var: str | list[str],
+        *,
+        coords: Mapping[str, Any] | None = None,
+        aggregate: Literal["time_mean", "unit_pool"] | None = None,
+        ref: float | list[float] | None = None,
+        color: str | list[str] | None = None,
+        ax: matplotlib.axes.Axes | None = None,
+    ) -> matplotlib.figure.Figure:
+        """Plot posterior densities for labeled coefficients and defined parameters.
+
+        Each name in *var* may be a labeled coefficient (``"a"``), a defined
+        parameter (``"indirect"``), or a raw posterior variable (``"sigma_Y"``).
+        Labeled coefficients and ``:=`` parameters use the business-unit draws
+        reported by ``effects_summary``: coefficients are rescaled first, then
+        the expression is evaluated. Only labels required by *var* are
+        rescaled, so a raw name still plots when another coefficient sits on
+        a transform that does not declare ``homogeneous``. Requesting that
+        coefficient, or a ``:=`` parameter that uses it, raises and names the
+        requested term. Raw posterior variables stay on the estimation scale
+        used by ``summary``. A reference copied from ``effects_summary``
+        therefore meets a labeled series and does not meet a raw series.
+
+        A raw variable plots without *coords* when every non-sample dimension
+        has size 1. A dimension that still has size greater than 1 after
+        selection must be named in *coords*. Selectors are applied only to
+        variables that have that dimension, so one mapping can overlay
+        ``beta_M`` and ``beta_Y``. Every requested selector must match at least
+        one selected variable.
+
+        Parameters
+        ----------
+        var : str | list[str]
+            Names to plot; labels and defined parameters resolve via the spec,
+            then raw posterior variables are selected from the posterior group.
+        coords : Mapping[str, Any] | None
+            Coordinate selection for raw posterior variables (e.g.
+            ``{"Y_predictors": "X"}``). Keys absent from a variable are skipped
+            for that variable.
+        aggregate : {'time_mean', 'unit_pool'} | None
+            Explicit collapse when a selected variable has more than one
+            ``time`` or ``unit`` value. Omitted by default: those dimensions
+            are not silently averaged or pooled. The legend names the collapse.
+            On a scan panel model, anonymous trailing ``(n_times, n_units)``
+            axes are labeled ``time`` and ``unit`` before this check, matching
+            ``latent_trajectory``. A density curve cannot share an axes with a
+            point mass or probability bars.
+        ref : float | list[float] | None
+            Reference value(s) marked with a dashed vertical line. A scalar marks
+            every series at the same value; a list aligns positionally with *var*.
+            No line when ``None``.
+        color : str | list[str] | None
+            Color(s) for the density lines and fills. A single string applies
+            the same color to all variables. A list aligns positionally with
+            *var*. Defaults to the matplotlib color cycle when ``None``.
+        ax : matplotlib.axes.Axes | None
+            Axes to draw on, including when *var* has several names. Creates a
+            new figure if ``None``.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            The figure containing the overlay. Display is left to the caller.
+
+        Raises
+        ------
+        RuntimeError
+            If the model was created without data, or called before ``.fit()``.
+        KeyError
+            If a name in *var* is not a known label, defined parameter, or
+            posterior variable, or if a coord value is not on that dimension.
+        ValueError
+            If *var* is empty, *ref* or *color* has the wrong length, a selector
+            matches no selected variable, or a selected variable still has a
+            non-sample dimension of size greater than 1.
+        """
+        idata = self._require_fitted("plot_dist")
+
+        import matplotlib.pyplot as plt
+
+        if isinstance(var, str):
+            var = [var]
+        if not var:
+            raise ValueError(
+                "var must name at least one posterior quantity. "
+                "Pass a label, defined parameter, or posterior variable name."
+            )
+
+        named_draws = user_facing_labeled_draws(
+            self._spec,
+            idata,
+            scaling_factors=self._scaling_factors,
+            data=self._data,
+            names=var,
+        )
+        posterior_ds = posterior(idata)
+        if aggregate is not None and all(name in named_draws for name in var):
+            raise ValueError(
+                f"aggregate={aggregate!r} applies to raw posterior variables "
+                "with a time or unit dimension, not to labeled coefficients "
+                "or defined parameters. Omit aggregate for these names."
+            )
+
+        refs: list[float | None]
+        if ref is None:
+            refs = [None] * len(var)
+        elif isinstance(ref, (int, float)):
+            refs = [float(ref)] * len(var)
+        else:
+            if len(ref) != len(var):
+                raise ValueError(
+                    f"ref must be a scalar or a list matching len(var)={len(var)}, "
+                    f"got {len(ref)} entries."
+                )
+            refs = [float(r) for r in ref]
+
+        draws_by_name: list[tuple[str, np.ndarray]] = []
+        scan_info = (
+            getattr(self._gen_model, "_pathmc_panel_scan", None)
+            if self._gen_model is not None
+            else None
+        )
+        panel_time = (
+            list(scan_info.time_values) or list(range(scan_info.n_times))
+            if scan_info is not None
+            else None
+        )
+        panel_units = list(scan_info.unit_labels) if scan_info is not None else None
+        available_named = sorted(
+            {
+                term.label
+                for reg in self._spec.regressions
+                for term in reg.terms
+                if term.label is not None
+            }
+            | {dp.name for dp in self._spec.defined_params}
+        )
+        applied: set[str] = set()
+        for name in var:
+            if name in named_draws:
+                draws_by_name.append((name, np.asarray(named_draws[name])))
+                continue
+            if name not in posterior_ds.data_vars:
+                raise KeyError(
+                    f"Unknown name '{name}'. Available labels/defined params: "
+                    f"{available_named}; posterior variables: "
+                    f"{sorted(str(v) for v in posterior_ds.data_vars)}"
+                )
+            array = posterior_ds[name]
+            if scan_info is not None:
+                array = _label_scan_axes(
+                    array,
+                    n_times=scan_info.n_times,
+                    n_units=scan_info.n_units,
+                    time_values=panel_time or [],
+                    unit_labels=panel_units or [],
+                )
+            draws, label, matched = _select_draws(
+                array,
+                name=name,
+                coords=coords,
+                aggregate=aggregate,
+            )
+            applied |= matched
+            draws_by_name.append((label, draws))
+        _reject_unused_coords(coords, applied, var)
+
+        if isinstance(color, str):
+            colors = [color] * len(var)
+        elif color is None:
+            cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+            colors = [cycle[i % len(cycle)] for i in range(len(var))]
+        else:
+            if len(color) != len(var):
+                raise ValueError(
+                    f"color must be a string or a list matching len(var)={len(var)}, "
+                    f"got {len(color)} entries."
+                )
+            colors = list(color)
+
+        if ax is None:
+            fig, target = plt.subplots(figsize=(8, 4))
+            created = True
+        else:
+            target = ax
+            figure = target.get_figure()
+            if figure is None or target not in figure.axes:
+                raise ValueError(
+                    "ax is not attached to a figure. Pass an axes from "
+                    "plt.subplots(), or omit ax to create a new figure."
+                )
+            fig = cast("matplotlib.figure.Figure", figure)
+            created = False
+        for i, (label, draws) in enumerate(draws_by_name):
+            plot_density(draws, label=label, ref=refs[i], color=colors[i], ax=target)
+        if created:
+            fig.tight_layout()
+        _reposition_point_mass_labels(target)
+        return fig
 
     def standardized(self) -> pd.DataFrame:
         """Return stdyx-standardized coefficients for labeled effects.

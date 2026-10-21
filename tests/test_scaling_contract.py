@@ -429,6 +429,7 @@ _EXECUTABLE_NUMERIC_METHODS = frozenset({
     "comparisons",
     "slopes",
     "datagrid",
+    "plot_dist",
 })
 
 
@@ -448,6 +449,7 @@ PUBLIC_METHOD_CONTRACTS = {
         "set_priors": "mutation",
         "sample_prior_predictive": "internal",
         "summary": "internal",
+        "plot_dist": "labeled-business-raw-internal",
         "effects_summary": "business",
         "standardized": "dimensionless",
         "effect": "business",
@@ -494,6 +496,7 @@ def test_every_business_facing_numeric_contract_is_executable():
         "business-and-dimensionless",
         "business-diff-or-dimensionless-ratio",
         "kind-dependent",
+        "labeled-business-raw-internal",
     }
     required = {
         name
@@ -681,6 +684,28 @@ def _datagrid(model: PathModel) -> np.ndarray:
     return model.datagrid(T=[0.0, 1.0]).select_dtypes(include="number").to_numpy()
 
 
+def _point_mass_values(model: PathModel, names: list[str], **kwargs) -> np.ndarray:
+    """X positions of point-mass series, in ``names`` order."""
+    import matplotlib.pyplot as plt
+
+    fig = model.plot_dist(names, **kwargs)
+    try:
+        values: list[float] = []
+        for line in fig.axes[0].lines:
+            x = np.asarray(line.get_xdata(), dtype=float)
+            y = np.asarray(line.get_ydata(), dtype=float)
+            if x.size >= 2 and np.allclose(x, x[0]) and np.ptp(y) > 0:
+                values.append(float(x[0]))
+        assert len(values) == len(names)
+        return np.asarray(values)
+    finally:
+        plt.close(fig)
+
+
+def _plot_dist(model: PathModel) -> np.ndarray:
+    return _point_mass_values(model, ["b", "c"])
+
+
 SurfaceCase = Callable[[PathModel], np.ndarray]
 BUSINESS_SURFACE_CASES: dict[str, SurfaceCase] = {
     "effects_summary": _effects_summary,
@@ -700,6 +725,7 @@ BUSINESS_SURFACE_CASES: dict[str, SurfaceCase] = {
     "comparisons": _comparisons,
     "slopes": _slopes,
     "datagrid": _datagrid,
+    "plot_dist": _plot_dist,
 }
 
 
@@ -946,6 +972,275 @@ def test_public_defined_parameter_uses_business_coefficients(mock_pymc_sample):
     assert summary.loc["a", "mean"] == pytest.approx(20.0)
     assert summary.loc["b", "mean"] == pytest.approx(3.0)
     assert summary.loc["indirect", "mean"] == pytest.approx(60.0)
+
+
+def test_plot_dist_labeled_names_match_effects_summary(mock_pymc_sample):
+    x = np.arange(10.0, 70.0, 10.0)
+    frame = pd.DataFrame({"X": x, "M": 2.0 * x, "Y": 6.0 * x})
+    model = pathmc.model(
+        "M ~ a*X\nY ~ b*M\nindirect := a*b",
+        data=frame,
+        scaling=Scaling(
+            target={"method": "fixed", "value": 100.0},
+            channel={"method": "fixed", "value": 10.0},
+        ),
+    )
+    model.fit()
+    _pin_beta(model, "M", {"Intercept": 0.0, "X": 2.0})
+    _pin_beta(model, "Y", {"Intercept": 0.0, "M": 3.0})
+    posterior = model._idata["posterior"].dataset.copy(deep=True)
+    posterior["sigma_Y"] = posterior["sigma_Y"] * 0 + 1.5
+    model._idata["posterior"].dataset = posterior
+
+    summary = model.effects_summary()
+    labeled = _point_mass_values(model, ["a", "b", "indirect"])
+    raw = _point_mass_values(model, ["sigma_Y"])
+
+    assert labeled[0] == pytest.approx(summary.loc["a", "mean"])
+    assert labeled[1] == pytest.approx(summary.loc["b", "mean"])
+    assert labeled[2] == pytest.approx(summary.loc["indirect", "mean"])
+    assert labeled[2] == pytest.approx(labeled[0] * labeled[1])
+    assert labeled[2] != pytest.approx(2.0 * 3.0)
+    assert raw[0] == pytest.approx(1.5)
+
+
+def test_plot_dist_per_unit_uses_the_effects_summary_reduction(mock_pymc_sample):
+    frame = pd.concat(
+        [
+            pd.DataFrame({
+                "geo": geo,
+                "week": np.arange(4),
+                "X": np.linspace(10.0, 40.0, 4),
+                "Y": np.linspace(100.0, 400.0, 4),
+            })
+            for geo in ("A", "B")
+        ],
+        ignore_index=True,
+    )
+    model = pathmc.model(
+        "Y ~ b*X\nproduct := b*b",
+        data=frame,
+        panel={"unit": "geo", "time": "week"},
+        scaling=Scaling(
+            target={
+                "method": "fixed",
+                "value": {"A": 100.0, "B": 400.0},
+                "dims": ("geo",),
+            },
+            channel={"method": "fixed", "value": 10.0},
+        ),
+    )
+    model.fit()
+    _pin_beta(model, "Y", {"Intercept": 0.0, "X": 2.0})
+
+    summary = model.effects_summary()
+    plotted = _point_mass_values(model, ["b", "product"])
+
+    assert plotted[0] == pytest.approx(summary.loc["b", "mean"])
+    assert plotted[1] == pytest.approx(summary.loc["product", "mean"])
+    assert plotted[1] == pytest.approx(plotted[0] ** 2)
+    assert plotted[0] != pytest.approx(20.0)
+    assert plotted[0] != pytest.approx(80.0)
+
+
+def test_plot_dist_skips_unscalable_labels_it_did_not_request(mock_pymc_sample):
+    from pathmc.effects import _expression_names
+    from pathmc.transforms import REGISTRY, ParamSpec, Transform, register_transform
+
+    assert _expression_names("(b + 1).mean()") == {"b"}
+    assert _expression_names("b * 1e-2") == {"b"}
+    assert _expression_names("b * 1E-2") == {"b"}
+
+    class _Hillish(Transform):
+        name = "hillish"
+        param_specs = {
+            "n": ParamSpec(constraint="positive", default_prior="HalfNormal(1)")
+        }
+        homogeneous = None
+
+        def apply_pymc(self, x, params, *, panel_info=None, data=None):
+            return x
+
+    x = np.arange(10.0, 70.0, 10.0)
+    frame = pd.DataFrame({"X": x, "Z": x, "W": x, "V": x, "Y": 6.0 * x})
+    register_transform(_Hillish())
+    try:
+        model = pathmc.model(
+            "Y ~ b*X + e*hillish(Z, n=n) + shape*hillish(W, n=m)"
+            " + E*hillish(V, n=p)\n"
+            "only_b := b + 1\n"
+            "uses_e := b + e\n"
+            "safe_sci := b * 1e-2\n"
+            "safe_exp := b * 1E-2\n"
+            "safe_attr := (b + 1) + 0 * (b + 1).shape[0]",
+            data=frame,
+            scaling=Scaling(
+                target={"method": "fixed", "value": 100.0},
+                channel={"method": "fixed", "value": 10.0},
+            ),
+        )
+        model.fit()
+        _pin_beta(
+            model,
+            "Y",
+            {"Intercept": 0.0, "X": 2.0, "Z": 2.0, "W": 2.0, "V": 2.0},
+        )
+        posterior = model._idata["posterior"].dataset.copy(deep=True)
+        posterior["sigma_Y"] = posterior["sigma_Y"] * 0 + 1.25
+        posterior["n"] = posterior["n"] * 0 + 0.4
+        model._idata["posterior"].dataset = posterior
+
+        plotted = _point_mass_values(
+            model,
+            ["sigma_Y", "b", "only_b", "n", "safe_sci", "safe_exp", "safe_attr"],
+        )
+        assert plotted[0] == pytest.approx(1.25)
+        assert plotted[1] == pytest.approx(20.0)
+        assert plotted[2] == pytest.approx(21.0)
+        assert plotted[3] == pytest.approx(0.4)
+        assert plotted[4] == pytest.approx(0.2)
+        assert plotted[5] == pytest.approx(0.2)
+        assert plotted[6] == pytest.approx(21.0)
+        raw_beta = _point_mass_values(model, ["beta_Y"], coords={"Y_predictors": "X"})
+        assert raw_beta[0] == pytest.approx(2.0)
+
+        with pytest.raises(ValueError, match="'e'"):
+            model.plot_dist("e")
+        with pytest.raises(ValueError, match="'uses_e'"):
+            model.plot_dist("uses_e")
+        with pytest.raises(ValueError, match="'shape'"):
+            model.plot_dist("shape")
+        with pytest.raises(KeyError, match="safe_sci") as missing:
+            model.plot_dist(["b", "not_a_name"])
+        assert "not_a_name" in str(missing.value)
+        assert "Available labels/defined params: []" not in str(missing.value)
+        with pytest.raises(ValueError, match="hillish"):
+            model.effects_summary()
+
+        REGISTRY["hillish"].homogeneous = False
+        declared = _point_mass_values(model, ["e", "uses_e"])
+        assert declared[0] == pytest.approx(200.0)
+        assert declared[1] == pytest.approx(220.0)
+    finally:
+        REGISTRY.pop("hillish", None)
+
+
+def test_plot_dist_uses_a_label_its_own_parameter_has_not_overwritten(
+    mock_pymc_sample,
+):
+    x = np.arange(10.0, 70.0, 10.0)
+    frame = pd.DataFrame({"X": x, "Z": x, "Y": 6.0 * x})
+    scaling = Scaling(
+        target={"method": "fixed", "value": 100.0},
+        channel={"method": "fixed", "value": 10.0},
+    )
+
+    shadowed = pathmc.model(
+        "Y ~ b*X + c*Z\nb := b + 1",
+        data=frame,
+        scaling=scaling,
+    )
+    shadowed.fit()
+    _pin_beta(shadowed, "Y", {"Intercept": 0.0, "X": 2.0, "Z": 0.3})
+    summary = shadowed.effects_summary()
+    plotted = _point_mass_values(shadowed, ["b", "c"])
+    assert summary.loc["b", "mean"] == pytest.approx(21.0)
+    assert plotted[0] == pytest.approx(summary.loc["b", "mean"])
+    assert plotted[1] == pytest.approx(summary.loc["c", "mean"])
+    assert plotted[1] == pytest.approx(3.0)
+
+    earlier = pathmc.model(
+        "Y ~ b*X + c*Z\nshifted := b + 1\nb := c",
+        data=frame,
+        scaling=scaling,
+    )
+    earlier.fit()
+    _pin_beta(earlier, "Y", {"Intercept": 0.0, "X": 2.0, "Z": 0.3})
+    earlier_summary = earlier.effects_summary()
+    shifted = _point_mass_values(earlier, ["shifted"])
+    redefined = _point_mass_values(earlier, ["b"])
+    assert earlier_summary.loc["shifted", "mean"] == pytest.approx(21.0)
+    assert shifted[0] == pytest.approx(21.0)
+    assert redefined[0] == pytest.approx(earlier_summary.loc["b", "mean"])
+    assert redefined[0] == pytest.approx(3.0)
+
+    later = pathmc.model(
+        "Y ~ b*X + c*Z\nb := c\nlater := b + 1",
+        data=frame,
+        scaling=scaling,
+    )
+    later.fit()
+    _pin_beta(later, "Y", {"Intercept": 0.0, "X": 2.0, "Z": 0.3})
+    assert _point_mass_values(later, ["later"])[0] == pytest.approx(
+        later.effects_summary().loc["later", "mean"]
+    )
+    assert _point_mass_values(later, ["later"])[0] == pytest.approx(4.0)
+
+
+def test_plot_dist_follows_each_assignment_of_a_reused_name(mock_pymc_sample):
+    x = np.arange(10.0, 70.0, 10.0)
+    frame = pd.DataFrame({"X": x, "Z": x, "Y": 6.0 * x})
+    scaling = Scaling(
+        target={"method": "fixed", "value": 100.0},
+        channel={"method": "fixed", "value": 10.0},
+    )
+
+    def fit(spec: str) -> pathmc.PathModel:
+        model = pathmc.model(spec, data=frame, scaling=scaling)
+        model.fit()
+        _pin_beta(model, "Y", {"Intercept": 0.0, "X": 2.0, "Z": 0.3})
+        return model
+
+    redefined = fit("Y ~ b*X + c*Z\nb := c\nb := b + 1")
+    assert redefined.effects_summary().loc["b", "mean"] == pytest.approx(4.0)
+    assert _point_mass_values(redefined, ["b"])[0] == pytest.approx(4.0)
+
+    mid = fit("Y ~ b*X + c*Z\nb := c + 1\nmid := b\nb := c")
+    assert mid.effects_summary().loc["mid", "mean"] == pytest.approx(4.0)
+    assert _point_mass_values(mid, ["mid"])[0] == pytest.approx(4.0)
+    together = _point_mass_values(mid, ["mid", "b"])
+    assert together[0] == pytest.approx(4.0)
+    assert together[1] == pytest.approx(3.0)
+
+    chain = fit("Y ~ b*X + c*Z\nb := b + 1\nalias := b\nshifted := alias\nb := c")
+    assert chain.effects_summary().loc["shifted", "mean"] == pytest.approx(21.0)
+    assert _point_mass_values(chain, ["shifted"])[0] == pytest.approx(21.0)
+    assert _point_mass_values(chain, ["alias"])[0] == pytest.approx(21.0)
+    assert _point_mass_values(chain, ["b"])[0] == pytest.approx(3.0)
+
+    panel = pd.concat(
+        [
+            pd.DataFrame({
+                "geo": geo,
+                "week": np.arange(4),
+                "X": np.linspace(10.0, 40.0, 4),
+                "Z": np.linspace(10.0, 40.0, 4),
+                "Y": np.linspace(100.0, 400.0, 4),
+            })
+            for geo in ("A", "B")
+        ],
+        ignore_index=True,
+    )
+    per_unit = pathmc.model(
+        "Y ~ b*X + c*Z\nb := b + 1\nshifted := b + 1\nb := c",
+        data=panel,
+        panel={"unit": "geo", "time": "week"},
+        scaling=Scaling(
+            target={
+                "method": "fixed",
+                "value": {"A": 100.0, "B": 400.0},
+                "dims": ("geo",),
+            },
+            channel={"method": "fixed", "value": 10.0},
+        ),
+    )
+    per_unit.fit()
+    _pin_beta(per_unit, "Y", {"Intercept": 0.0, "X": 2.0, "Z": 0.3})
+    summary = per_unit.effects_summary()
+    assert summary.loc["shifted", "mean"] == pytest.approx(52.0)
+    assert summary.loc["b", "mean"] == pytest.approx(7.5)
+    assert _point_mass_values(per_unit, ["shifted"])[0] == pytest.approx(52.0)
+    assert _point_mass_values(per_unit, ["b"])[0] == pytest.approx(7.5)
 
 
 def test_public_hsgp_do_obeys_the_business_boundary(mock_pymc_sample):

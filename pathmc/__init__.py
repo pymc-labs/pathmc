@@ -46,6 +46,7 @@ from pathmc._model import (  # noqa: E402
     simulate,
     simulate_params_template,
 )
+from pathmc.plotting import plot_density  # noqa: E402
 from pathmc.refute import PlaceboRefutationResult  # noqa: E402
 from pathmc.sensitivity import SensitivityResult  # noqa: E402
 from pathmc.scaling import Scaling, ScalingFactors  # noqa: E402
@@ -80,6 +81,7 @@ __all__ = [
     "dag_to_spec",
     "datagrid",
     "model",
+    "plot_density",
     "register_basis",
     "register_transform",
     "same_markov_equivalence_class",

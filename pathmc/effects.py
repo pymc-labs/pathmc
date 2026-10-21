@@ -19,9 +19,11 @@ Provides the logic behind ``PathModel.effects_summary()`` and
 
 from __future__ import annotations
 
-import re
+import ast
 import warnings
+from collections.abc import Collection
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import narwhals.stable.v1 as nw
 import numpy as np
@@ -30,8 +32,13 @@ import xarray as xr
 
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi, hdi_label
 from pathmc.parse import Spec, Term
+from pathmc.plotting import plot_density
 from pathmc.reprs import ReprSpec, ResultReprMixin
 from pathmc.scaling import ScaleContext, ScalingFactors
+
+if TYPE_CHECKING:
+    import matplotlib.axes
+    import matplotlib.figure
 
 __all__ = ["EffectResult"]
 
@@ -109,6 +116,32 @@ class EffectResult(ResultReprMixin):
         """Highest density interval for the effect."""
         return hdi(self.draws, prob=prob)
 
+    def plot_dist(
+        self,
+        *,
+        ref: float | None = None,
+        color: str = "C0",
+        ax: matplotlib.axes.Axes | None = None,
+    ) -> matplotlib.figure.Figure:
+        """Plot the posterior density of the effect.
+
+        Parameters
+        ----------
+        ref : float | None
+            Reference value marked with a dashed vertical line (e.g. ``0`` for a
+            null effect). No line when ``None``.
+        color : str
+            Line and fill color (default ``"C0"``).
+        ax : matplotlib.axes.Axes | None
+            Axes to plot on. Creates a new figure if ``None``.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            The figure containing the density plot. Display is left to the caller.
+        """
+        return plot_density(self.draws, label=self.name, ref=ref, color=color, ax=ax)
+
     def _repr_compact(self) -> str:
         lo, hi = self.hdi()
         label = hdi_label()
@@ -130,7 +163,7 @@ class EffectResult(ResultReprMixin):
                 ["P(> 0)", f"{self.prob_gt_zero:.4f}"],
                 ["Draws", str(n)],
             ],
-            footer="Methods: .hdi() &nbsp;·&nbsp; Attributes: .mean .sd .prob_gt_zero .draws",
+            footer="Methods: .hdi() .plot_dist() &nbsp;·&nbsp; Attributes: .mean .sd .prob_gt_zero .draws",
         )
 
 
@@ -166,9 +199,75 @@ def extract_labeled_draws(
     return labeled_draws
 
 
+def _expression_names(expression: str) -> set[str]:
+    """Names loaded by a ``:=`` expression, ignoring literals and attributes.
+
+    ``b * 1e-2`` loads ``b``, not ``e``. ``(b + 1).mean()`` loads ``b``, not
+    ``mean``. A word regex treats both of those tokens as coefficient names.
+    """
+    tree = ast.parse(expression, mode="eval")
+    return {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+    }
+
+
+def _latest_earlier_definition(spec: Spec, name: str, before: int) -> int | None:
+    """Latest ``:=`` of ``name`` whose index is strictly less than ``before``."""
+    for index in range(before - 1, -1, -1):
+        if spec.defined_params[index].name == name:
+            return index
+    return None
+
+
+def _draw_dependencies(spec: Spec, names: Collection[str]) -> tuple[set[str], set[int]]:
+    """Return labels and ``:=`` indices required to plot ``names``.
+
+    A raw posterior name contributes nothing, so requesting it does not
+    enter coefficient conversion. A name can be assigned more than once.
+    Each load resolves to the latest assignment with a strictly smaller
+    index, otherwise to the label. A parameter cannot see its own result,
+    and an earlier expression cannot see a later assignment of the same
+    name. Selecting indices, not names, keeps an unused earlier assignment
+    from running and hiding the label that assignment still needs.
+    """
+    labels = {
+        term.label
+        for reg in spec.regressions
+        for term in reg.terms
+        if term.label is not None
+    }
+    last_index = {dp.name: index for index, dp in enumerate(spec.defined_params)}
+    needed_labels: set[str] = set()
+    needed_indices: set[int] = set()
+    pending = [last_index[name] for name in names if name in last_index]
+    seen: set[int] = set()
+    while pending:
+        index = pending.pop()
+        if index in seen:
+            continue
+        seen.add(index)
+        needed_indices.add(index)
+        for loaded in _expression_names(spec.defined_params[index].expression):
+            earlier = _latest_earlier_definition(spec, loaded, index)
+            if earlier is not None:
+                pending.append(earlier)
+                continue
+            if loaded in labels:
+                needed_labels.add(loaded)
+    for name in names:
+        if name in labels and name not in last_index:
+            needed_labels.add(name)
+    return needed_labels, needed_indices
+
+
 def evaluate_defined_params(
     spec: Spec,
     labeled_draws: dict[str, np.ndarray],
+    *,
+    only: Collection[str] | None = None,
+    indices: Collection[int] | None = None,
 ) -> dict[str, np.ndarray]:
     """Evaluate ``:=`` expressions over posterior draws.
 
@@ -177,7 +276,16 @@ def evaluate_defined_params(
     spec : Spec
         Parsed model specification containing defined parameter expressions.
     labeled_draws : dict[str, np.ndarray]
-        Posterior draws for labeled coefficients.
+    only : Collection[str] | None
+        Defined-parameter names to evaluate. ``None`` does not filter by
+        name. A name can be assigned more than once; this still runs every
+        assignment of each selected name.
+    indices : Collection[int] | None
+        Definition positions to evaluate, in spec order. Unlike ``only``,
+        this skips an earlier assignment of the same name unless that
+        assignment is one of the positions. A later expression then still
+        sees the label, matching a full ``effects_summary`` pass that has
+        not reached the later assignment.
 
     Returns
     -------
@@ -191,12 +299,16 @@ def evaluate_defined_params(
     # into later ones (e.g. total := indirect + c).
     affected_names = set(affected_labels)
 
-    for dp in spec.defined_params:
+    for index, dp in enumerate(spec.defined_params):
+        if indices is not None and index not in indices:
+            continue
+        if only is not None and dp.name not in only:
+            continue
         namespace: dict = {k: v for k, v in labeled_draws.items()}
         namespace.update(defined_draws)
         namespace["__builtins__"] = {}
 
-        tokens = set(re.findall(r"[A-Za-z_]\w*", dp.expression))
+        tokens = _expression_names(dp.expression)
         used_affected = sorted(tokens & affected_names)
         if used_affected:
             edges = sorted({
@@ -258,6 +370,80 @@ def _labeled_coef_business_scale(
     return 1.0
 
 
+def user_facing_labeled_draws(
+    spec: Spec,
+    idata: xr.DataTree,
+    *,
+    scaling_factors: ScalingFactors | None = None,
+    data: nw.DataFrame | None = None,
+    names: Collection[str] | None = None,
+) -> dict[str, np.ndarray]:
+    """Labeled coefficients and ``:=`` draws on the effects_summary scale.
+
+    With scaling factors and data, labeled draws are converted to business
+    units before defined parameters are evaluated. A product such as
+    ``indirect := a*b`` is then the product of the rescaled draws, not a
+    rescaled product of internal draws. Without scaling, draws stay on the
+    estimation scale. Raw posterior variables are not included.
+
+    ``names`` limits conversion to labels required by those requests. A raw
+    name then does not enter coefficient conversion, so a coefficient on a
+    transform that does not declare ``homogeneous`` cannot block an unrelated
+    plot. Requesting that coefficient, or a defined parameter that uses it,
+    still raises, and the error names the requested term. ``None`` converts
+    every labeled coefficient, which is what ``effects_summary`` needs.
+    """
+    labeled_draws = extract_labeled_draws(spec, idata)
+    needed_labels: set[str] | None
+    needed_indices: set[int] | None
+    if names is None:
+        needed_labels = None
+        needed_indices = None
+    else:
+        needed_labels, needed_indices = _draw_dependencies(spec, names)
+    if scaling_factors is not None and data is not None:
+        converted: dict[str, np.ndarray] = {}
+        for reg in spec.regressions:
+            for term in reg.terms:
+                if term.label is None or term.label not in labeled_draws:
+                    continue
+                if needed_labels is not None and term.label not in needed_labels:
+                    continue
+                try:
+                    converted[term.label] = np.asarray(
+                        scaling_factors.to_business(
+                            labeled_draws[term.label],
+                            kind="coefficient",
+                            dims=ScaleContext(term=term, outcome=reg.lhs, data=data),
+                        )
+                    )
+                except ValueError as exc:
+                    if names is None:
+                        raise
+                    requesters = [
+                        name
+                        for name in names
+                        if term.label in _draw_dependencies(spec, [name])[0]
+                    ]
+                    requested = ", ".join(repr(name) for name in requesters)
+                    raise ValueError(
+                        f"Cannot plot {requested} in business units because "
+                        f"labeled coefficient {term.label!r} cannot be "
+                        f"rescaled. {exc}"
+                    ) from exc
+        labeled_draws = converted
+    elif needed_labels is not None:
+        labeled_draws = {
+            name: value
+            for name, value in labeled_draws.items()
+            if name in needed_labels
+        }
+    return {
+        **labeled_draws,
+        **evaluate_defined_params(spec, labeled_draws, indices=needed_indices),
+    }
+
+
 def build_effects_summary(
     spec: Spec,
     idata: xr.DataTree,
@@ -278,24 +464,12 @@ def build_effects_summary(
     pd.DataFrame
         Summary with mean, sd, hdi_3%, hdi_97% for each effect.
     """
-    labeled_draws = extract_labeled_draws(spec, idata)
-    if scaling_factors is not None and data is not None:
-        converted: dict[str, np.ndarray] = {}
-        for reg in spec.regressions:
-            for term in reg.terms:
-                if term.label is None or term.label not in labeled_draws:
-                    continue
-                converted[term.label] = np.asarray(
-                    scaling_factors.to_business(
-                        labeled_draws[term.label],
-                        kind="coefficient",
-                        dims=ScaleContext(term=term, outcome=reg.lhs, data=data),
-                    )
-                )
-        labeled_draws = converted
-    defined_draws = evaluate_defined_params(spec, labeled_draws)
-
-    all_draws = {**labeled_draws, **defined_draws}
+    all_draws = user_facing_labeled_draws(
+        spec,
+        idata,
+        scaling_factors=scaling_factors,
+        data=data,
+    )
 
     rows = []
     for name, draws in all_draws.items():
