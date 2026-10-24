@@ -1,0 +1,30 @@
+docs/examples/04-identification/dag_falsification.qmd
+  h_63db634213747e 192
+docs/examples/04-identification/dag_testing.qmd
+  h_63db634213747e 431
+docs/user_guide/categorical-predictors.qmd
+  h_63db634213747e 244
+pathmc/_ci.py
+  h_63db634213747e 24-26,430-467,510-513
+pathmc/_ci_report.py
+  h_63db634213747e 25,48-65,123,126-127,137-140
+pathmc/_model.py
+  h_63db634213747e 1487-1490
+pathmc/falsify.py
+  h_63db634213747e 61,154-155,616,623,633-636,643-644,646-653,801-805,881
+pathmc/identify.py
+  h_63db634213747e 32,34,543-544,773-777,785,798,805,811,819-830,835,838,864,884-885
+tests/test_ci_engine.py
+  h_63db634213747e 34-37,841-983
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "76160dd29a40c54a19bcc555662e6fb8a137cdc7",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

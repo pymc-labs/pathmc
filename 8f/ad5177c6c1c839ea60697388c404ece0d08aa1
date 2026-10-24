@@ -1,0 +1,16 @@
+pathmc/falsify.py
+  h_63db634213747e 221-228,232,283,285,304-312,400-402,411-417
+tests/test_ci_engine.py
+  h_63db634213747e 732-741
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8fad5177c6c1c839ea60697388c404ece0d08aa1",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

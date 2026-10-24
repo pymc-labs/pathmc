@@ -1,0 +1,27 @@
+pathmc/panel.py
+  s_ad4f6de7f05202::t_eb37b11ba3ed09 22,457-458
+tests/test_policy_scaling_regressions.py
+  s_ad4f6de7f05202::t_fd8d2271716125 1-13,25-31,44,56
+  s_ad4f6de7f05202::t_fb65ac2565ee14 14-24,32-43,45-55,57-150
+  s_ad4f6de7f05202::t_eb37b11ba3ed09 151-170
+pathmc/policy_exec.py
+  s_ad4f6de7f05202::t_a13345ddfca460 401
+pathmc/_model.py
+  s_ad4f6de7f05202::t_a13345ddfca460 3010,3289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fa4f827c94af71f14edf4805ac35c95027c2f7be",
+  "prompts": {},
+  "sessions": {
+    "s_ad4f6de7f05202": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b42-0a8b-7693-a632-c6b7b37faefa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

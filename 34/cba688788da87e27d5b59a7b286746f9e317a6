@@ -1,0 +1,52 @@
+.pre-commit-config.yaml
+  s_ad4f6de7f05202::t_49e118f8ea0675 21,24-26,29-31,35-38
+tests/test_check_pr.py
+  s_ad4f6de7f05202::t_d9214a576db19e 1-13,43-45,111-118,136-138,152-154,195-197
+  s_ad4f6de7f05202::t_6cc71a4fc9f824 29-31
+  s_ad4f6de7f05202::t_1f16bd407318a1 71,76-77,90-92,101,103,159-170,174-182,220-227
+  s_ad4f6de7f05202::t_bf7b9abbd4a03a 206
+  s_ad4f6de7f05202::t_6fbbfb0abfba05 14-28,32-42,46-70,72-75,78-89,93-100,102,104-110,119-135,139-151,155-158,171-173,183-194,198-205,207-219,228-241
+  s_ad4f6de7f05202::t_7388fcae158d1f 242-243
+.github/workflows/ci.yml
+  s_ad4f6de7f05202::t_49e118f8ea0675 80-81
+scripts/check_pr.py
+  s_ad4f6de7f05202::t_670fab05eb1df0 62-65,67,162-168,185-187
+  s_ad4f6de7f05202::t_a8fbdfc9c7205a 150
+  s_ad4f6de7f05202::t_d7bf65f9386e56 1-13,87,89-92,94-110,114,130,151-153,155-157,160-161,182-184,190-191,193-195,197,199-203
+  s_ad4f6de7f05202::t_49e118f8ea0675 14-61,66,68-86,88,93,111-113,115-129,131-149,154,158-159,169-181,188-189,192,196,198,204-209
+  s_ad4f6de7f05202::t_e7f098c8706829 210-211
+pathmc/falsify.py
+  s_ad4f6de7f05202::t_a8fbdfc9c7205a 355
+AGENTS.md
+  s_ad4f6de7f05202::t_d7bf65f9386e56 13
+  s_ad4f6de7f05202::t_c4afc0c6e8f419 14
+CONTRIBUTING.md
+  s_ad4f6de7f05202::t_d7bf65f9386e56 157-158,166
+  s_ad4f6de7f05202::t_c4afc0c6e8f419 141-156,159-160
+pathmc/interpret.py
+  s_ad4f6de7f05202::t_a8fbdfc9c7205a 383,398
+Makefile
+  s_ad4f6de7f05202::t_49e118f8ea0675 8,29,32-43,52,55,58
+  s_ad4f6de7f05202::t_c4afc0c6e8f419 28
+  s_ad4f6de7f05202::t_d7bf65f9386e56 9,16,44-47
+pyproject.toml
+  s_ad4f6de7f05202::t_705b068b2856a3 59
+uv.lock
+  s_ad4f6de7f05202::t_0d31ce5b480b5d 2242-2253,2306,2341,2376
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "34cba688788da87e27d5b59a7b286746f9e317a6",
+  "prompts": {},
+  "sessions": {
+    "s_ad4f6de7f05202": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b42-0a8b-7693-a632-c6b7b37faefa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

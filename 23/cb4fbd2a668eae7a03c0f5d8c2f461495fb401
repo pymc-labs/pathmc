@@ -1,0 +1,14 @@
+tests/test_ci_engine.py
+  h_63db634213747e 26,40-58,548,674
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "23cb4fbd2a668eae7a03c0f5d8c2f461495fb401",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

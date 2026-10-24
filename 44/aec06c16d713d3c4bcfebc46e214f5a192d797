@@ -1,0 +1,20 @@
+docs/examples/04-identification/dag_falsification.qmd
+  h_63db634213747e 192
+pathmc/_model.py
+  h_63db634213747e 1677-1680
+pathmc/falsify.py
+  h_63db634213747e 117-120,126-132,156-158,255-276,285-297,307-316,334-338,341,374-379,394-406,421,506-527,546,548,862-865,872,874,877-882
+tests/test_ci_engine.py
+  h_63db634213747e 743-792
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "44aec06c16d713d3c4bcfebc46e214f5a192d797",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

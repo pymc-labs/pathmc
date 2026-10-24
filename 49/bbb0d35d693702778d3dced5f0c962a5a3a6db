@@ -1,0 +1,18 @@
+pathmc/_model.py
+  h_63db634213747e 94,1037
+pathmc/plotting.py
+  h_63db634213747e 48,164-214,222-223,226,228,232,234,355,400
+tests/test_plot_dist.py
+  h_63db634213747e 604-656
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "49bbb0d35d693702778d3dced5f0c962a5a3a6db",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

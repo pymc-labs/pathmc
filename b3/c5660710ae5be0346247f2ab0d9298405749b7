@@ -1,0 +1,14 @@
+tests/test_scaling_contract.py
+  h_63db634213747e 451
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b3c5660710ae5be0346247f2ab0d9298405749b7",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

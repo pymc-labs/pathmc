@@ -1,0 +1,57 @@
+.github/workflows/git-ai-sweep.yml
+  s_ad4f6de7f05202::t_a3374d8c7f6255 1-201
+.github/workflows/git-ai.yml
+  s_ad4f6de7f05202::t_adaec47d9cf3c6 19-21,23
+CONTRIBUTING.md
+  s_ad4f6de7f05202::t_83165e7e5dbd4e 71,73-75
+_freeze/docs/examples/foundations/categorical_predictors/execute-results/html.json
+  s_ad4f6de7f05202::t_f91957c4e19988 2,5,15
+docs/examples/01-foundations/categorical_predictors.qmd
+  s_ad4f6de7f05202::t_1c25ca4972ff70 416-417,455-460,463,805,825,832
+docs/user_guide/11-model-specification.qmd
+  s_ad4f6de7f05202::t_ca336f041781da 101
+docs/user_guide/categorical-predictors.qmd
+  s_ad4f6de7f05202::t_4114db03ea58ab 115-120,144,146,180,186-190,209,217,231-235,240-244,303,305,307-309,314,317
+pathmc/_ci.py
+  s_ad4f6de7f05202::t_682bd213da52d8 23-32,37,42,64-68,70-72,76,78-80,88,96-114,122,128-131,133,136-142,148-154,156-160,166,171,195-336,340-343,347-353,372,374-378
+pathmc/_model.py
+  s_ad4f6de7f05202::t_4ea28089193556 178-179,185-190,349-354,358-360,451-453,1093,1503-1508,1536,1549,1705,1725-1729,1731,1913,1984-1985,1998,2000-2006,2008-2011,2043-2044,2050-2054,2058-2062
+pathmc/categorical.py
+  s_ad4f6de7f05202::t_c0d1c3c31ecd30 18,27,43-63,104-181,207-210,213-218,244,282-304,306-314,316-317,320,351-381,384,395,399-400,416-425
+pathmc/compile.py
+  s_ad4f6de7f05202::t_65a9a4dcce3067 242-243,248-249,826-831,835-851
+pathmc/falsify.py
+  s_ad4f6de7f05202::t_12fa80bf6f94cd 49,497,527-531,549-551,624
+pathmc/identify.py
+  s_ad4f6de7f05202::t_133406c5b2585e 23,32,680-681,690-696,710-713,738-742,778-779,785-789,794-795
+pathmc/introspect.py
+  s_ad4f6de7f05202::t_15b9bc650b1b2f 26-31,34,38-70,388,392-393,423,439,531,549-558,750-760
+pathmc/parse.py
+  s_ad4f6de7f05202::t_af010c1f23ef74 107,109-112,358-360
+pathmc/priors.py
+  s_ad4f6de7f05202::t_420423357935b5 146-149
+pathmc/refute.py
+  s_ad4f6de7f05202::t_f0c179081b6479 53,482-503,675-678,742-763,803-809
+pathmc/simulate.py
+  s_ad4f6de7f05202::t_101ac61061c2e6 1023-1042,1046,1059-1065,1069-1078,1083-1092,1097-1103,1114-1115,1122-1126,1128-1129,1132-1137,1195-1202,1218-1224,1226-1229,1232,1234,1242,1245-1246,1251,1253,1259
+pathmc/skills/pathmc/SKILL.md
+  s_ad4f6de7f05202::t_31dfe8552b33f9 67-69
+tests/test_categorical_edges.py
+  s_ad4f6de7f05202::t_13e7a05309962e 1-707
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "55f2082df6ad6244300d14ed9f9ed6bda9187d86",
+  "prompts": {},
+  "sessions": {
+    "s_ad4f6de7f05202": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b42-0a8b-7693-a632-c6b7b37faefa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

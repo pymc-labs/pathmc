@@ -1,0 +1,38 @@
+_freeze/docs/examples/applied-models/dynamic_pricing/execute-results/html.json
+  h_63db634213747e 2,5,15
+_freeze/docs/examples/applied-models/dynamic_pricing/figure-html/cell-7-output-1.svg
+  h_63db634213747e 4,8-10,28,35,48,61
+_freeze/docs/examples/applied-models/dynamic_pricing/figure-html/fig-pymc-graph-output-1.svg
+  h_63db634213747e 4,7-10,18-19,23-24,26,28-32,35,37-82,87-88,91,93-96,99,101-102,105,107-110,113,115-116,118-124,126-132,134-138,140-156,158-160,162-168,170-174,177,179-182,187-190,193,195-196,199,201-204,207,209-210,212-218,220,222-224,227,229-230,232,234-253,255-258,261,263-264
+_freeze/docs/examples/applied-models/mmm/execute-results/html.json
+  h_63db634213747e 2,5,15
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-22-output-1.svg
+  h_63db634213747e 4,8-10,28,41,70-72,79
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-24-output-1.svg
+  h_63db634213747e 4,7-8,10,13-14,18-19,23-24,27,29-32,34,36-40,42-46,49,51-68,73-74,76-84,86-88,90-94,96-102,104-108,111,113-116,121-128,133-136,139,141-142,147-150,155-156,161-164,169-170,175-178,183-184
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-47-output-1.svg
+  h_63db634213747e 4,7-10,13-19,23-24,26-32,35,37-46,49,51-54,56-62,64-83,85-88,91,93-94,97,99-100,102-108,110-116,118-122,124-130,132-136,138-142,144-162,165,167-170,172-178,180-182,184-188,190-196,198-230,233,235-238,241,243-244,247,249-252,255,257-258,261,263-266,269,271-272,275,277-280,284-286,288-294,296,298-300,303,305-308,311,313-314,319-320
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-5-output-1.svg
+  h_63db634213747e 4,8-10,28
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-7-output-1.svg
+  h_63db634213747e 4,7-10,18-19,23-24,35,43,48-61,63,65-68,71,73-74,77,79-82,87-88,93-96,99,101-102,107-110,115-118,121,123-124,126,128-132,134,136-138,140,142-163,171,176-182,184-188,190-196,198,200-202,204-210,212,214-216,218,220-222,224-230,232-236,239,241-244,247,249-250
+_freeze/docs/examples/panel-time/panel_data/execute-results/html.json
+  h_63db634213747e 2,5,15
+_freeze/docs/examples/panel-time/panel_data/figure-html/cell-4-output-1.svg
+  h_63db634213747e 4,46
+_freeze/docs/examples/panel-time/panel_data/figure-html/cell-9-output-1.svg
+  h_63db634213747e 4,7-10,46,53
+_freeze/user-guide/panel-interventions/execute-results/html.json
+  h_63db634213747e 2,5,15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1d2bf447ab9a69fdeeb1e4d2ccfe0358dcf58c3f",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

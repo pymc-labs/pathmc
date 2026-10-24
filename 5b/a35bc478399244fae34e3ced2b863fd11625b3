@@ -1,0 +1,14 @@
+.github/workflows/xdist-worker-probe.yml
+  h_63db634213747e 1-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5ba35bc478399244fae34e3ced2b863fd11625b3",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

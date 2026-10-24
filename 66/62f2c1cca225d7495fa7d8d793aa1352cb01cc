@@ -1,0 +1,16 @@
+pathmc/_model.py
+  h_63db634213747e 2830,2835-2838,2842,2844,2864-2866,3125,3167-3182
+tests/test_noncentered_pooling.py
+  h_63db634213747e 81-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6662f2c1cca225d7495fa7d8d793aa1352cb01cc",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

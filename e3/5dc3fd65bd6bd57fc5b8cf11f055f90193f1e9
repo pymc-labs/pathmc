@@ -1,0 +1,38 @@
+docs/examples/05-panel-time/panel_data.qmd
+  h_63db634213747e 268
+docs/examples/06-applied-models/dynamic_pricing.qmd
+  h_63db634213747e 287,327,687
+docs/examples/06-applied-models/mmm.qmd
+  h_63db634213747e 1055,1079
+docs/user_guide/19-panel-data.qmd
+  h_63db634213747e 71,86-87
+docs/user_guide/20-panel-interventions.qmd
+  h_63db634213747e 264
+pathmc/_model.py
+  h_63db634213747e 2817-2862,2909-2912,3119-3120,3123-3126,3128,3130,3137-3138,3152,3154,3161,3406-3407,3409-3425,3432-3433,3437,3444-3446
+pathmc/compile.py
+  h_63db634213747e 710,1685-1711,1718-1728,1749-1753,1755-1758,2634-2643,2651-2655,2657-2660
+tests/test_noncentered_pooling.py
+  h_63db634213747e 1-126
+tests/test_panel.py
+  h_63db634213747e 67-68,175-178
+tests/test_panel_by_time.py
+  h_63db634213747e 76-78
+tests/test_panel_do.py
+  h_63db634213747e 70-74,91-92
+tests/test_random_slopes.py
+  h_63db634213747e 49-50,62-63,75-76,102-103,105
+tests/test_transforms_compile.py
+  h_63db634213747e 182-183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e35dc3fd65bd6bd57fc5b8cf11f055f90193f1e9",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

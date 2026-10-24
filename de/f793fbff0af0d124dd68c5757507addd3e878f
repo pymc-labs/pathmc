@@ -1,0 +1,18 @@
+pathmc/_model.py
+  h_63db634213747e 878-884,956
+pathmc/effects.py
+  h_63db634213747e 24,202-232,236-237,246-248,263-264,337,346-352,355-361,368-376,378-391,393-402
+tests/test_scaling_contract.py
+  h_63db634213747e 687,691,1046-1100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "def793fbff0af0d124dd68c5757507addd3e878f",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

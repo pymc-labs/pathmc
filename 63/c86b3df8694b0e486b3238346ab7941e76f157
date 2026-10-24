@@ -1,0 +1,18 @@
+docs/examples/02-basis-terms/hsgp_1d.qmd
+  h_63db634213747e 89,244
+docs/user_guide/basis-terms.qmd
+  h_63db634213747e 34
+pathmc/hsgp.py
+  h_63db634213747e 59,62-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "63c86b3df8694b0e486b3238346ab7941e76f157",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

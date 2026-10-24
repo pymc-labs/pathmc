@@ -1,0 +1,44 @@
+.github/workflows/ci.yml
+  h_63db634213747e 80-81
+.pre-commit-config.yaml
+  h_63db634213747e 21,24-26,29-31,35-38
+AGENTS.md
+  h_63db634213747e 13-14
+CONTRIBUTING.md
+  h_63db634213747e 143-162,168
+Makefile
+  h_63db634213747e 8-9,16,28-29,32-47,52,55,58
+pathmc/_types.py
+  h_63db634213747e 1-78
+pathmc/falsify.py
+  h_63db634213747e 49,52,60,292,305,333,344
+pathmc/interpret.py
+  h_63db634213747e 29,216,226-229,235-240,244,258
+pathmc/refute.py
+  h_63db634213747e 56,362,381-385,395-396,400,416,454
+pyproject.toml
+  h_63db634213747e 59
+scripts/check_pr.py
+  h_63db634213747e 1-211
+tests/test_check_pr.py
+  h_63db634213747e 1-243
+tests/test_interpret.py
+  h_63db634213747e 342-369
+tests/test_refute.py
+  h_63db634213747e 186-187,189-214
+tests/test_types.py
+  h_63db634213747e 1-80
+uv.lock
+  h_63db634213747e 2242-2253,2306,2341,2376
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b912794a9f2f85ae3ba58accba797605c46332e6",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+pathmc/simulate.py
+  h_63db634213747e 1414-1425,1514-1519,1521-1524,1526,1528,1532-1533
+tests/test_residual_cov.py
+  h_63db634213747e 246-269,305-350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a07a3d4582a9bbc64257ca7ffb03bff7001bc58b",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

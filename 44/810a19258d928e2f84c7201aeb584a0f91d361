@@ -1,0 +1,19 @@
+pathmc/adjustment.py
+  s_ad4f6de7f05202::t_3a02f828658818 30-34,110-121,128-140,143-148,150-153,155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "44810a19258d928e2f84c7201aeb584a0f91d361",
+  "prompts": {},
+  "sessions": {
+    "s_ad4f6de7f05202": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b42-0a8b-7693-a632-c6b7b37faefa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
