@@ -1,0 +1,16 @@
+pathmc/effects.py
+  h_63db634213747e 386
+tests/test_standardized.py
+  h_63db634213747e 179-204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "096eb4b3e053faa6c175288c2bc98205abc64403",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
