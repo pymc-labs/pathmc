@@ -26,7 +26,7 @@ import pytest
 import pathmc
 from pathmc.effects import build_effects_summary
 from pathmc.exceptions import DuplicateEquationError
-from pathmc.parse import DefinedParam, Regression, Spec, Term, parse_spec
+from pathmc.parse import DefinedParam, Regression, Spec, Term, TransformCall, parse_spec
 
 
 def _assert_names_clash(spec: str, *names: str) -> None:
@@ -61,6 +61,25 @@ def test_every_colliding_name_is_reported() -> None:
     _assert_names_clash("Y ~ a*X + b*Z\na := 1\nb := 2", "a", "b")
 
 
+def test_collision_message_cites_the_transformed_term() -> None:
+    """The owning equation must still show the transform, not only its input."""
+    statement = "Y ~ 1 + slope*log(X)"
+    with pytest.raises(DuplicateEquationError, match="coefficient label") as exc:
+        parse_spec(f"{statement}\nslope := slope * 2")
+    message = str(exc.value)
+    assert statement in message
+    assert "slope*X" not in message
+
+
+def test_collision_message_cites_a_parameterized_transform() -> None:
+    statement = "sales ~ b*adstock(tv, decay=theta)"
+    with pytest.raises(DuplicateEquationError, match="coefficient label") as exc:
+        parse_spec(f"{statement}\nb := b * 2")
+    message = str(exc.value)
+    assert statement in message
+    assert "b*tv" not in message
+
+
 def test_distinct_defined_name_still_parses() -> None:
     spec = parse_spec("Y ~ a*X\ntwice := a * 2")
     assert spec.defined_params[0].name == "twice"
@@ -82,6 +101,26 @@ def test_build_effects_summary_rejects_hand_built_collision() -> None:
         DuplicateEquationError, match="'a' is already the coefficient label"
     ):
         build_effects_summary(spec, idata)
+
+
+def test_hand_built_transform_collision_names_the_call() -> None:
+    spec = Spec(
+        regressions=[
+            Regression(
+                "Y",
+                [Term("X", label="slope", transform=TransformCall("log", "X", {}))],
+            )
+        ],
+        defined_params=[DefinedParam("slope", "slope * 2")],
+    )
+    idata = az.from_dict(
+        {"posterior": {"beta_Y": np.tile([4.0], (1, 4, 1))}},
+        coords={"Y_predictors": ["X"]},
+        dims={"beta_Y": ["Y_predictors"]},
+    )
+    with pytest.raises(DuplicateEquationError, match="log\\(X\\)") as exc:
+        build_effects_summary(spec, idata)
+    assert "slope*X" not in str(exc.value)
 
 
 def test_distinct_name_keeps_label_posterior() -> None:

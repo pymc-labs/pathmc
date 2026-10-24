@@ -281,23 +281,57 @@ def parse_spec(spec_string: str) -> Spec:
         residual_covs=residual_covs,
         defined_params=defined_params,
     )
-    _reject_defined_param_label_collisions(spec)
+    _reject_defined_param_label_collisions(spec, seen_labels)
     return spec
 
 
-def _reject_defined_param_label_collisions(spec: Spec) -> None:
+def _format_transform_call(tc: TransformCall) -> str:
+    """Render a transform call, including a nested input."""
+    inner = (
+        _format_transform_call(tc.input_expr)
+        if isinstance(tc.input_expr, TransformCall)
+        else tc.input_expr
+    )
+    if not tc.params:
+        return f"{tc.name}({inner})"
+    args = ", ".join(f"{key}={value}" for key, value in tc.params.items())
+    return f"{tc.name}({inner}, {args})"
+
+
+def _label_owner(reg: Regression, term: Term) -> str:
+    """Name the term that owns a label when no source statement is available."""
+    if term.transform is not None:
+        predictor = _format_transform_call(term.transform)
+    elif term.basis is not None:
+        predictor = f"{term.basis.name}({term.basis.variable})"
+    else:
+        predictor = term.variable
+    return f"{reg.lhs} ~ {term.label}*{predictor}"
+
+
+def _reject_defined_param_label_collisions(
+    spec: Spec,
+    label_statements: dict[str, str] | None = None,
+) -> None:
     """Reject a ``:=`` name that would replace a coefficient label.
 
     ``effects_summary()`` reports each labeled coefficient and each defined
     parameter. Merging those draws by name lets the defined parameter occupy
     the label, so the collision is rejected instead of overwritten.
+
+    ``label_statements`` maps a label to the source statement. Parsed specs
+    pass that map so the error cites the equation the user wrote, including
+    transforms. A hand-built ``Spec`` falls back to the term itself.
     """
+    statements = label_statements or {}
     label_sites: dict[str, str] = {}
     for reg in spec.regressions:
         for term in reg.terms:
             if term.label is None or term.label in label_sites:
                 continue
-            label_sites[term.label] = f"{reg.lhs} ~ {term.label}*{term.variable}"
+            label_sites[term.label] = statements.get(term.label) or _label_owner(
+                reg, term
+            )
     clashes: list[str] = []
     for dp in spec.defined_params:
         if dp.name in label_sites and dp.name not in clashes:
