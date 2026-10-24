@@ -327,11 +327,7 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             tokens.append(("id", numeral.group(0)))
             i += numeral.end()
             continue
-        matched = re.match(
-            r"[A-Za-z_\u0080-\u00ff][A-Za-z0-9_.:\u0080-\u00ff]*"
-            r"|\d+[A-Za-z0-9_.:\u0080-\u00ff]+",
-            text[i:],
-        )
+        matched = re.match(r"(?u)[^\W\d:][\w.:]*", text[i:])
         if matched:
             tokens.append(("id", matched.group(0)))
             i += matched.end()
@@ -344,13 +340,7 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             tokens.append(":")
             i += 1
             continue
-        end = i + 1
-        while end < n and not text[end].isspace() and text[end] not in '{}[]=,;+"<':
-            if text[end : end + 2] in {"->", "--"}:
-                break
-            end += 1
-        tokens.append(("id", text[i:end]))
-        i = end
+        raise _dot_parse_error(f"unsupported DOT syntax near {ch!r}.")
     return tokens
 
 
@@ -437,6 +427,11 @@ class _DotBodyParser:
                 while self.peek() == "[":
                     self.take_attr_list()
                 return
+            nxt = _id_text(self.peek(1))
+            if nxt is not None and nxt.startswith("-"):
+                raise _dot_parse_error(
+                    "unsupported DOT syntax near '-'. A hyphen is not part of a node id."
+                )
         if _is_id(token) and self.peek(1) == "=":
             self.pop()
             self.pop()

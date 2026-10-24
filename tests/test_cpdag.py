@@ -664,6 +664,21 @@ def test_html_comment_markers_numerals_and_comma_lists_keep_edges():
     with pytest.raises(ValueError, match=","):
         _parse_dot("digraph { A -> B [dir=none], C }")
 
+    unicode_id = "digraph { subgraph cluster { café_α -> Y; Z -> Y } }"
+    assert _parse_dot(unicode_id)[0] == {"café_α", "Y", "Z"}
+    assert (
+        same_markov_equivalence_class(unicode_id, 'digraph { "café_α" -> Y; Z -> Y }')
+        is True
+    )
+    for bad, token in (
+        ("digraph { Node-2 -> Y }", "-"),
+        ("digraph { node-2 -> Y }", "-"),
+        ("digraph { foo(bar) -> Y }", r"\("),
+        ("digraph { foo\\bar -> Y }", r"\\"),
+    ):
+        with pytest.raises(ValueError, match=token):
+            _parse_dot(bad)
+
 
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""
