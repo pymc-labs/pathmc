@@ -1,0 +1,26 @@
+docs/user_guide/11-model-specification.qmd
+  h_63db634213747e 176-177
+pathmc/_model.py
+  h_63db634213747e 833-836
+pathmc/effects.py
+  h_63db634213747e 32,280-285,287
+pathmc/exceptions.py
+  h_63db634213747e 26
+pathmc/parse.py
+  h_63db634213747e 219-221,279,284-315
+pathmc/skills/pathmc/SKILL.md
+  h_63db634213747e 130-132
+tests/test_defined_param_label_collision.py
+  h_63db634213747e 1-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "560c8ba43615811375a7974b3e4a78c35cf73a17",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
