@@ -1,0 +1,16 @@
+pathmc/sensitivity.py
+  h_63db634213747e 115-122,134,224-239
+tests/test_sensitivity.py
+  h_63db634213747e 173-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f138b7ee1ad305f61bf1d7f7a708e6812229d4c7",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
