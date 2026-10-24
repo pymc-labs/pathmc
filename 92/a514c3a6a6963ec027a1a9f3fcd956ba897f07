@@ -1,0 +1,16 @@
+pathmc/parse.py
+  h_63db634213747e 284,288-315,321-324,326,332-334
+tests/test_defined_param_label_collision.py
+  h_63db634213747e 29,64-82,106-125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "92a514c3a6a6963ec027a1a9f3fcd956ba897f07",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
