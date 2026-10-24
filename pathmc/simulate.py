@@ -1409,6 +1409,15 @@ def _observed_endogenous_binding(
     return {key: observed for key in _float_descendants_of(model_var, mu_source_exprs)}
 
 
+def _name_in_graph(name: str, exprs: list[Any]) -> bool:
+    """Whether *name* is a node in any of *exprs*."""
+    for expr in exprs:
+        for node in ancestors([expr]):
+            if getattr(node, "name", None) == name:
+                return True
+    return False
+
+
 _DO_KINDS = ("mean", "predictive")
 
 
@@ -1545,6 +1554,14 @@ def run_do_pymc(
                         binding = _observed_endogenous_binding(
                             data, var, do_model[var], mu_source_exprs
                         )
+                        if not binding and _name_in_graph(var, mu_source_exprs):
+                            raise ValueError(
+                                f"predictions() without set= needs the observed "
+                                f"column '{var}' in the query frame. The column "
+                                "is missing or not numeric, so the mediator cannot "
+                                "be held at its observed value. Include it, or "
+                                "pass set= to intervene."
+                            )
                     if binding:
                         expr_replacements.update(binding)
                     elif var in do_model.named_vars:

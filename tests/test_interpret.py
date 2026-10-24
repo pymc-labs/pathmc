@@ -226,6 +226,63 @@ class TestPredictions:
             np.asarray(mid.dataset["Y"]).reshape(-1), 2.0 * m_obs
         )
 
+    def test_omitted_set_rejects_query_frame_missing_mediator(self):
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        df = pd.DataFrame({"X": x, "M": [0.0, 1.0, 100.0, 3.0], "Y": np.zeros(4)})
+        model = pathmc.model("M ~ X\nY ~ M + X", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": np.array([[[0.0, 5.0]]]),
+                    "sigma_M": np.array([[1.0]]),
+                    "beta_Y": np.array([[[0.0, 2.0, 3.0]]]),
+                    "sigma_Y": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "M", "X"],
+            },
+            dims={"beta_M": ["M_predictors"], "beta_Y": ["Y_predictors"]},
+        )
+        with pytest.raises(ValueError, match="column 'M'"):
+            model.predictions(
+                "Y", newdata=pd.DataFrame({"X": [1.0, 2.0], "Y": [0.0, 0.0]})
+            )
+        chain = pathmc.model(
+            "M ~ X\nY ~ M\nZ ~ Y",
+            data=pd.DataFrame({
+                "X": x,
+                "M": [0.0, 1.0, 100.0, 3.0],
+                "Y": [1.0, 0.0, 7.0, 2.0],
+                "Z": np.zeros(4),
+            }),
+        )
+        chain._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": np.array([[[0.0, 5.0]]]),
+                    "sigma_M": np.array([[1.0]]),
+                    "beta_Y": np.array([[[0.0, 2.0]]]),
+                    "sigma_Y": np.array([[1.0]]),
+                    "beta_Z": np.array([[[0.0, 4.0]]]),
+                    "sigma_Z": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "M"],
+                "Z_predictors": ["Intercept", "Y"],
+            },
+            dims={
+                "beta_M": ["M_predictors"],
+                "beta_Y": ["Y_predictors"],
+                "beta_Z": ["Z_predictors"],
+            },
+        )
+        with pytest.raises(ValueError, match="column 'Y'"):
+            chain.predictions("Z", newdata=pd.DataFrame({"X": x, "M": x, "Z": x}))
+
 
 class TestRatioLift:
     def test_ratio_and_lift_finite(self, fork_model):
