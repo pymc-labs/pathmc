@@ -1885,7 +1885,8 @@ class PathModel:
         RuntimeError
             If called before ``.fit()``.
         ValueError
-            If ``simulate_over="time"`` without panel, or if an intervention
+            If ``kind`` is not ``"mean"`` or ``"predictive"``. Also if
+            ``simulate_over="time"`` without panel, or if an intervention
             on an ``hsgp()`` input falls outside the basis boundary
             ``[mid - L, mid + L]`` frozen from the fitted data (beyond it
             the basis aliases instead of extrapolating), or if a temporal

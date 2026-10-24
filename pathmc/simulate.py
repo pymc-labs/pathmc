@@ -1381,6 +1381,15 @@ def _business_exog_value(
     return _exogenous_fill(values)
 
 
+_DO_KINDS = ("mean", "predictive")
+
+
+def _require_do_kind(kind: str) -> None:
+    """Reject a ``kind`` that would otherwise sample posterior predictive."""
+    if kind not in _DO_KINDS:
+        raise ValueError(f"kind must be 'mean' or 'predictive', got {kind!r}.")
+
+
 def run_do_pymc(
     gen_model: pm.Model,
     graph_info: GraphInfo,
@@ -1441,6 +1450,7 @@ def run_do_pymc(
         Propagated posterior draws for every endogenous variable.
     """
 
+    _require_do_kind(kind)
     if set is None:
         set = {}
     if families is None:
@@ -1675,6 +1685,7 @@ def run_do_panel_unified(
         columns are treated as business units and divided by the
         scan-aligned factor before graph surgery.
     """
+    _require_do_kind(kind)
     if set is None:
         set = {}
     if families is None:
@@ -1778,7 +1789,7 @@ def run_do_panel_unified(
             observed_by_time=observed_by_time,
         )
 
-    # kind == "predictive"
+    # kind == "predictive" (other values already raised)
     latent_det_names = []
     for var in graph_info.topological_order:
         if var in latent and var not in set:
