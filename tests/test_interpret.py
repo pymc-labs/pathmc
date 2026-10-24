@@ -449,3 +449,43 @@ class TestStringCategoricalPredictions:
         message = str(exc_info.value)
         assert "central" in message
         assert "market" in message
+
+    def test_conditional_label_reaches_encoder(self):
+        import arviz as az
+
+        df = pd.DataFrame({
+            "region": ["north", "south", "north"],
+            "x": [0.0, 1.0, 2.0],
+            "Y": [1.0, 4.5, 2.0],
+        })
+        model = pathmc.model("Y ~ x + region", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_Y": np.array([[[1.0, 0.5]]]),
+                    "beta_Y_region": np.array([[[3.0]]]),
+                    "sigma_Y": np.array([[0.1]]),
+                }
+            },
+            coords={
+                "Y_predictors": ["Intercept", "x"],
+                "Y_region_levels": ["south"],
+            },
+            dims={
+                "beta_Y": ["Y_predictors"],
+                "beta_Y_region": ["Y_region_levels"],
+            },
+        )
+
+        held = model.slopes("Y", "x", conditional={"region": "south"})
+        assert float(held.dataset["Y"].mean()) == pytest.approx(0.5)
+        contrast = model.comparisons(
+            "Y", "x", contrast=(0.0, 1.0), conditional={"region": "south"}
+        )
+        assert float(contrast.dataset["Y"].mean()) == pytest.approx(0.5)
+
+        with pytest.raises(ValueError, match="region") as exc_info:
+            model.comparisons("Y", "x", conditional={"region": "delta"})
+        message = str(exc_info.value)
+        assert "region" in message
+        assert "delta" in message

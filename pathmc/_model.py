@@ -2433,7 +2433,7 @@ class PathModel:
         self,
         outcome: str,
         *,
-        set: dict[str, float | np.ndarray] | None = None,
+        set: dict[str, float | np.ndarray | str] | None = None,
         newdata: IntoFrame | None = None,
     ) -> InterpretResult:
         """Interventional or associational response-mean predictions.
@@ -2442,9 +2442,9 @@ class PathModel:
         ----------
         outcome : str
             Outcome variable name.
-        set : dict[str, float] or None
-            Intervention values. When omitted, predictions are
-            associational (no graph surgery).
+        set : dict[str, float | str] or None
+            Intervention values. A categorical predictor takes a fitted
+            level label. When omitted, predictions are associational.
         newdata : IntoFrame or None
             Covariate grid or frame to predict on, in *business* units.
             Defaults to the fitted data. On a scaled model the grid is
@@ -2466,7 +2466,7 @@ class PathModel:
         *,
         contrast: tuple[float, float] = (0.0, 1.0),
         comparison: Literal["diff", "ratio", "lift"] = "diff",
-        conditional: dict[str, float] | None = None,
+        conditional: dict[str, float | str] | None = None,
         average_by: Literal["all"] | None = "all",
     ) -> EstimandResult | InterpretResult:
         """Interventional contrasts between two values of a variable.
@@ -2484,8 +2484,9 @@ class PathModel:
             ``(lo, hi)`` intervention values.
         comparison : str
             ``"diff"``, ``"ratio"``, or ``"lift"``.
-        conditional : dict[str, float] or None
-            Additional variables held fixed at scalar values.
+        conditional : dict[str, float | str] or None
+            Additional variables held fixed at scalar values. A categorical
+            predictor takes a fitted level label.
         average_by : str or None
             ``"all"`` collapses to :class:`EstimandResult`; ``None`` keeps
             unit-level :class:`InterpretResult` draws.
@@ -2512,7 +2513,7 @@ class PathModel:
         *,
         slope: Literal["dydx", "eyex", "eydx", "dyex"] = "dydx",
         eps: float = 1e-4,
-        conditional: dict[str, float] | None = None,
+        conditional: dict[str, float | str] | None = None,
         average_by: Literal["all"] | None = "all",
     ) -> EstimandResult | InterpretResult:
         """Finite-difference interventional slopes.
@@ -2527,8 +2528,9 @@ class PathModel:
             Slope type: ``"dydx"``, ``"eyex"``, ``"eydx"``, or ``"dyex"``.
         eps : float
             Finite-difference step size.
-        conditional : dict[str, float] or None
-            Additional variables held fixed at scalar values.
+        conditional : dict[str, float | str] or None
+            Additional variables held fixed at scalar values. A categorical
+            predictor takes a fitted level label.
         average_by : str or None
             ``"all"`` collapses to :class:`EstimandResult`; ``None`` keeps
             unit-level draws.
