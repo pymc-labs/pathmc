@@ -856,6 +856,7 @@ class PathModel:
         ``effects_summary()``. ``sd(X)`` and ``sd(Y)`` are the observed
         marginal SDs of the data passed to ``model()``, including on a
         scaled model whose internal columns were divided by per-unit factors.
+        Binary 0/1 predictors are omitted: their SD depends on the base rate.
 
         Returns
         -------

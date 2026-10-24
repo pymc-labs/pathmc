@@ -90,6 +90,39 @@ class TestStandardizedEffects:
             assert row["hdi_3%"] < row["hdi_97%"]
 
 
+class TestBinaryPredictorsSkipped:
+    """0/1 predictors are omitted; their SD depends on the base rate."""
+
+    @pytest.mark.parametrize("base_rate", [0.5, 0.1, 0.8])
+    @pytest.mark.parametrize("dtype", [float, int])
+    def test_label_absent_at_every_base_rate(
+        self, base_rate: float, dtype: type
+    ) -> None:
+        n = 80
+        n_treated = int(n * base_rate)
+        treatment = np.array([1] * n_treated + [0] * (n - n_treated), dtype=dtype)
+        covariate = np.linspace(-2.0, 3.0, n)
+        frame = pd.DataFrame({
+            "T": treatment,
+            "X": covariate,
+            "Y": 0.2 * covariate + 2.0,
+        })
+        model = pathmc.model("Y ~ b*T + c*X", data=frame)
+        order = [str(name) for name in model.pymc_model.coords["Y_predictors"]]
+        injected = [{"T": 4.0, "X": 0.3, "Intercept": 0.0}[name] for name in order]
+        model._idata = az.from_dict(
+            {"posterior": {"beta_Y": np.tile(injected, (1, 4, 1))}},
+            coords={"Y_predictors": order},
+            dims={"beta_Y": ["Y_predictors"]},
+        )
+
+        result = model.standardized()
+
+        assert "b" not in result.index
+        assert "c" in result.index
+        assert np.isfinite(result.loc["c", "mean"])
+
+
 class TestStandardizedBeforeSample:
     def test_raises_before_sample(self):
         df = pd.DataFrame({

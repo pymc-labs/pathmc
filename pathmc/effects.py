@@ -377,6 +377,31 @@ def _observed_sd(
     return float(sd)
 
 
+def _is_binary_01(column: nw.Series) -> bool:
+    """Return whether observed values are only 0 and 1.
+
+    STDYX for a 0/1 column depends on the base rate, not the scale of the
+    effect, so those predictors are skipped. Non-numeric values are not
+    treated as binary here.
+    """
+    values = column.drop_nulls().unique().to_list()
+    if not values:
+        return False
+    observed: set[float] = set()
+    for value in values:
+        if isinstance(value, bool):
+            observed.add(float(value))
+            continue
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            number = float(value)
+        else:
+            return False
+        if not np.isfinite(number):
+            return False
+        observed.add(number)
+    return observed <= {0.0, 1.0}
+
+
 def build_standardized_effects(
     spec: Spec,
     idata: xr.DataTree,
@@ -396,7 +421,9 @@ def build_standardized_effects(
     observed marginal SDs of the data the caller passed, not the SDs of
     internally divided columns. This gives the expected change in Y (in
     SD units) per SD change in X. Edges involving latent variables (no
-    observed SD) or non-Gaussian outcomes are skipped.
+    observed SD), binary 0/1 predictors, or non-Gaussian outcomes are
+    skipped. A 0/1 predictor is skipped because its SD depends on the
+    base rate, not the scale of the effect.
 
     Parameters
     ----------
@@ -447,6 +474,8 @@ def build_standardized_effects(
 
             var = term.variable
             if var in latent or var not in data.columns:
+                continue
+            if _is_binary_01(data[var]):
                 continue
             sd_x = _observed_sd(data, var, scaling_factors)
             if sd_x is None:
