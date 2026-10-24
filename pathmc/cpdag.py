@@ -299,8 +299,16 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
                 i += 1
             else:
                 raise _dot_parse_error("unterminated quoted string.")
-            tokens.append(("id", "".join(buf)))
+            tokens.append(("qid", "".join(buf)))
             i += 1
+            while i < n and text[i] == ":":
+                i += 1
+                port = re.match(r"[A-Za-z0-9_\u0080-\u00ff]+", text[i:])
+                if port is None:
+                    raise _dot_parse_error(
+                        "unsupported compass port after a quoted id."
+                    )
+                i += port.end()
             continue
         if ch == "<":
             end = _skip_html(text, i)
@@ -324,7 +332,11 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             tokens.append(("id", numeral.group(0)))
             i += numeral.end()
             continue
-        matched = re.match(r"[A-Za-z_][A-Za-z0-9_:.]*|\d+[A-Za-z0-9_:.]+", text[i:])
+        matched = re.match(
+            r"[A-Za-z_\u0080-\u00ff][A-Za-z0-9_.:\u0080-\u00ff]*"
+            r"|\d+[A-Za-z0-9_.:\u0080-\u00ff]+",
+            text[i:],
+        )
         if matched:
             tokens.append(("id", matched.group(0)))
             i += matched.end()
@@ -334,7 +346,7 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
 
 
 def _id_text(token: str | tuple[str, str] | None) -> str | None:
-    if isinstance(token, tuple) and token[0] == "id":
+    if isinstance(token, tuple) and token[0] in {"id", "qid"}:
         return token[1]
     return None
 
@@ -344,8 +356,9 @@ def _is_id(token: str | tuple[str, str] | None) -> bool:
 
 
 def _is_keyword(token: str | tuple[str, str] | None, word: str) -> bool:
-    text = _id_text(token)
-    return text is not None and text.lower() == word
+    if isinstance(token, tuple) and token[0] == "id":
+        return token[1].lower() == word
+    return False
 
 
 class _DotBodyParser:
@@ -376,7 +389,7 @@ class _DotBodyParser:
         return token
 
     def add_node(self, name: str) -> None:
-        if not name or name in _RESERVED:
+        if not name:
             return
         self.nodes.add(name)
         self.scopes[-1].add(name)
@@ -510,8 +523,10 @@ class _DotBodyParser:
         name = _id_text(token)
         if name is None:
             raise _dot_parse_error(f"unsupported edge endpoint {token!r}.")
+        literal = isinstance(token, tuple) and token[0] == "qid"
         self.pop()
         while self.peek() == "+":
+            literal = True
             self.pop()
             extra = _id_text(self.peek())
             if extra is None:
@@ -520,9 +535,9 @@ class _DotBodyParser:
                 )
             self.pop()
             name += extra
-        self.add_node(name)
-        if name in _RESERVED:
+        if not literal and name in _RESERVED:
             return set()
+        self.add_node(name)
         return {name}
 
     def parse_subgraph(self) -> set[str]:

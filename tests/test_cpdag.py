@@ -631,6 +631,18 @@ def test_html_comment_markers_numerals_and_comma_lists_keep_edges():
     assert directed == set()
     assert undirected == {frozenset({"A", "C"}), frozenset({"B", "C"})}
 
+    quoted = 'digraph { "node" -> Y; Z -> Y }'
+    nodes, directed, undirected = _parse_dot(quoted)
+    assert nodes == {"node", "Y", "Z"}
+    assert directed == {("node", "Y"), ("Z", "Y")}
+    assert same_markov_equivalence_class(quoted, "digraph { Z -> Y }") is False
+    assert _parse_dot('digraph { "subgraph" -> Y }')[0] == {"subgraph", "Y"}
+    assert _parse_dot('digraph { "no" + "de" -> Y }')[1] == {("node", "Y")}
+    assert _parse_dot("digraph { café -> Y }")[0] == {"café", "Y"}
+    port_nodes, port_edges, _ = _parse_dot('digraph { "A":n -> B }')
+    assert port_nodes == {"A", "B"}
+    assert port_edges == {("A", "B")}
+
 
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""
