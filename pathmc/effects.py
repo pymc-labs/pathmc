@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from pathmc.compile import predictor_coordinate
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi, hdi_label
 from pathmc.parse import Spec, Term, _reject_defined_param_label_collisions
 from pathmc.reprs import ReprSpec, ResultReprMixin
@@ -107,6 +108,7 @@ def _compiled_edge_draws(
     lhs: str,
     variable: str,
     *,
+    coordinate: str | None = None,
     fixed: bool = False,
 ) -> np.ndarray:
     """Posterior draws for one regression edge.
@@ -115,9 +117,14 @@ def _compiled_edge_draws(
     removed from the flat ``beta_{lhs}`` vector. Read that RV. Do not index a
     ``beta_{lhs}`` entry the compiler dropped, and do not treat an unrelated
     ``beta_{variable}`` as this edge.
+
+    ``coordinate`` is the flat-beta label. It differs from ``variable`` when
+    two terms share a column name and the compiler assigned a distinct
+    coordinate.
     """
     from pathmc.idata import posterior
 
+    coord = variable if coordinate is None else coordinate
     post = posterior(idata)
     beta_lhs = f"beta_{lhs}"
     coord_name = f"{lhs}_predictors"
@@ -125,10 +132,10 @@ def _compiled_edge_draws(
     if beta_lhs in post:
         beta = post[beta_lhs]
         if coord_name in beta.coords:
-            kept_in_flat = variable in np.asarray(beta.coords[coord_name])
+            kept_in_flat = coord in np.asarray(beta.coords[coord_name])
     if not kept_in_flat and _is_compiled_by_var_edge(post, variable, fixed=fixed):
         return _stack_samples(post[f"beta_{variable}"])
-    return beta_draws(idata, beta_lhs, coord_name, variable)
+    return beta_draws(idata, beta_lhs, coord_name, coord)
 
 
 def _has_labeled_terms(spec: Spec) -> bool:
@@ -280,7 +287,13 @@ def extract_labeled_draws(
     for reg in spec.regressions:
         for term in reg.terms:
             if term.label is not None:
-                draws = _compiled_edge_draws(idata, reg.lhs, term.variable)
+                draws = _compiled_edge_draws(
+                    idata,
+                    reg.lhs,
+                    term.variable,
+                    coordinate=predictor_coordinate(reg, term),
+                    fixed=term.fixed_value is not None,
+                )
                 labeled_draws[term.label] = draws
     return labeled_draws
 
@@ -715,7 +728,11 @@ def compute_path_effect(
             draws = labeled_draws[matched_term.label]
         else:
             draws = _compiled_edge_draws(
-                idata, target, source, fixed=matched_term.fixed_value is not None
+                idata,
+                target,
+                source,
+                coordinate=predictor_coordinate(reg, matched_term),
+                fixed=matched_term.fixed_value is not None,
             )
 
         if scaling_factors is not None and data is not None:

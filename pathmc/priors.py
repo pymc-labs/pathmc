@@ -105,13 +105,12 @@ def default_priors(
     seen_transform_params: set[str] = set()
 
     for reg in spec.regressions:
-        free_cols = [
-            c
-            for c in get_free_predictor_columns(
-                reg, pooling=pooling, panel_info=panel_info
-            )
-            if c not in coef_names
-        ]
+        free_cols = get_free_predictor_columns(
+            reg,
+            pooling=pooling,
+            panel_info=panel_info,
+            exclude_variables=coef_names,
+        )
         if free_cols:
             priors[f"beta_{reg.lhs}"] = Prior("Normal", mu=0, sigma=10)
 
