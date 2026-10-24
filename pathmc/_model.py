@@ -36,6 +36,7 @@ from pathmc.compile import (
     _build_lag_map,
     _has_temporal_deps,
     _identify_residual_blocks,
+    _scan_discrete_sample_vars,
     _scan_term_base_vars,
     _term_base_vars,
     build_design_matrix,
@@ -3048,6 +3049,7 @@ def simulate(
         v for v in latent_set if families_eff.get(v, "gaussian") == "latent_normal"
     }
     stochastic_carry_vars: set[str] = set()
+    discrete_draw_vars: set[str] = set()
     innovation_rv_names: set[str] = set()
     if scan_info is not None:
         endo_lag_bases = {
@@ -3059,9 +3061,20 @@ def simulate(
             if v not in latent_set
             and families_eff.get(v, "gaussian") in ("gaussian", "studentt")
         }
+        discrete_draw_vars = _scan_discrete_sample_vars(spec, families_eff, latent_set)
         innovation_rv_names = {f"innovations_{v}" for v in stochastic_latent_vars} | {
             f"carry_innovations_{v}" for v in stochastic_carry_vars
         }
+        # Per-time uniforms drive Poisson/NegativeBinomial structural draws.
+        # They are simulation noise, like carry innovations, unless the caller
+        # pins them. Bernoulli uniforms stay required parameters.
+        count_uniform_names = {
+            f"discrete_uniforms_{v}"
+            for v in discrete_draw_vars
+            if families_eff.get(v, "gaussian") in ("poisson", "negbinomial")
+        }
+        supplied_count_uniforms = count_uniform_names & set(params)
+        innovation_rv_names |= count_uniform_names - supplied_count_uniforms
 
     # Innovation sequences drive the scan recursion itself; they are
     # simulation noise, not user-supplied parameters.
@@ -3138,6 +3151,10 @@ def simulate(
                         fixed_model[f"carry_innovations_{var}"],
                     ],
                 ))
+            elif var in discrete_draw_vars:
+                # Observation RVs are a second draw. Children already
+                # consumed ``_scan_draw_{var}`` inside the scan.
+                entries.append(("state", var, [fixed_model[f"_scan_draw_{var}"]]))
             else:
                 entries.append(("obs", var, [fixed_model[var]]))
 
@@ -3348,15 +3365,24 @@ def simulate_params_template(
     block_joint_rvs: set[str] = getattr(gen_model, "_pathmc_block_joint_rvs", set())
 
     template: dict[str, Any] = {}
+    families_eff = families or {}
+    count_uniform_names = {
+        f"discrete_uniforms_{v}"
+        for v in _scan_discrete_sample_vars(spec, families_eff, latent_set)
+        if families_eff.get(v, "gaussian") in ("poisson", "negbinomial")
+    }
     for rv in gen_model.free_RVs:
         # Stochastic endogenous RVs (observed outcomes / stochastic
         # latents) are simulation outputs, not params entries. The
         # ``innovations_*`` / ``carry_innovations_*`` sequences drive the
         # scan recursion itself: simulate() draws them internally.
         # Residual-block joint RVs are realized noise, not user params.
+        # Poisson/NegativeBinomial per-time uniforms are the same kind of
+        # noise. Bernoulli uniforms stay required parameters.
         if (
             rv.name in endo_set
             or rv.name in block_joint_rvs
+            or rv.name in count_uniform_names
             or rv.name.startswith((
                 "innovations_",
                 "carry_innovations_",
