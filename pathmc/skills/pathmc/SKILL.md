@@ -127,7 +127,9 @@ The DSL is lavaan-inspired:
    shows a tidy summary. `m.do(...)` returns a `DoResult` describing the whole
    system, where accessors still take a variable name (`r.mean("Y")`).
 4. **The DSL is lavaan-*inspired*, not a 1:1 reimplementation.**
-   `~`, `~~`, `:=`, and labeled coefficients all work. Latent-variable
+   `~`, `~~`, `:=`, and labeled coefficients all work. A `:=` name must
+   not match a coefficient label (`a := a * 2` is rejected; use a
+   distinct name such as `twice := a * 2`). Latent-variable
    measurement models (`=~`) are out of scope in v0.1 — see the user
    guide for the full operator list.
 5. **`Prior` is re-exported from `pymc_extras` for convenience.**

@@ -216,8 +216,9 @@ def parse_spec(spec_string: str) -> Spec:
     ParseError
         On malformed syntax (missing RHS, invalid operators, etc.).
     DuplicateEquationError
-        If two regressions share the same LHS variable, or a coefficient
-        label is reused across equations.
+        If two regressions share the same LHS variable, a coefficient
+        label is reused across equations, or a defined parameter (``:=``)
+        uses a coefficient label's name.
     """
     spec_string = _join_continuation_lines(spec_string)
     raw_statements = re.split(r"[;\n]", spec_string)
@@ -275,10 +276,42 @@ def parse_spec(spec_string: str) -> Spec:
                 "or defined parameter (:=)."
             )
 
-    return Spec(
+    spec = Spec(
         regressions=regressions,
         residual_covs=residual_covs,
         defined_params=defined_params,
+    )
+    _reject_defined_param_label_collisions(spec)
+    return spec
+
+
+def _reject_defined_param_label_collisions(spec: Spec) -> None:
+    """Reject a ``:=`` name that would replace a coefficient label.
+
+    ``effects_summary()`` reports each labeled coefficient and each defined
+    parameter. Merging those draws by name lets the defined parameter occupy
+    the label, so the collision is rejected instead of overwritten.
+    """
+    label_sites: dict[str, str] = {}
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.label is None or term.label in label_sites:
+                continue
+            label_sites[term.label] = f"{reg.lhs} ~ {term.label}*{term.variable}"
+    clashes: list[str] = []
+    for dp in spec.defined_params:
+        if dp.name in label_sites and dp.name not in clashes:
+            clashes.append(dp.name)
+    if not clashes:
+        return
+    details = "; ".join(
+        f"'{name}' is already the coefficient label in '{label_sites[name]}'"
+        for name in clashes
+    )
+    raise DuplicateEquationError(
+        "Defined parameter name collides with a coefficient label: "
+        f"{details}. A defined parameter must not occupy a label's name. "
+        "Use a distinct name for the defined parameter."
     )
 
 

@@ -29,7 +29,7 @@ import pandas as pd
 import xarray as xr
 
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi, hdi_label
-from pathmc.parse import Spec, Term
+from pathmc.parse import Spec, Term, _reject_defined_param_label_collisions
 from pathmc.reprs import ReprSpec, ResultReprMixin
 from pathmc.scaling import ScaleContext, ScalingFactors
 
@@ -277,7 +277,14 @@ def build_effects_summary(
     -------
     pd.DataFrame
         Summary with mean, sd, hdi_3%, hdi_97% for each effect.
+
+    Raises
+    ------
+    DuplicateEquationError
+        If a defined parameter uses a coefficient label's name. The defined
+        parameter must not replace that label in the summary.
     """
+    _reject_defined_param_label_collisions(spec)
     labeled_draws = extract_labeled_draws(spec, idata)
     if scaling_factors is not None and data is not None:
         converted: dict[str, np.ndarray] = {}
