@@ -643,6 +643,20 @@ def test_html_comment_markers_numerals_and_comma_lists_keep_edges():
     assert port_nodes == {"A", "B"}
     assert port_edges == {("A", "B")}
 
+    escaped = r'digraph { A -> B [label="\""] }'
+    assert _parse_dot(escaped)[1] == {("A", "B")}
+    commented = 'digraph { X -> Y [label="a\\" // not comment"]; Z -> Y }'
+    assert _parse_dot(commented)[1] == {("X", "Y"), ("Z", "Y")}
+    assert _parse_dot("digraph { α -> β; γ -> β }")[0] == {"α", "β", "γ"}
+    for ported in (
+        'digraph { "A" : n -> B }',
+        'digraph { "A": n -> B }',
+        'digraph { "A":"n" -> B }',
+    ):
+        nodes, edges, _ = _parse_dot(ported)
+        assert nodes == {"A", "B"}
+        assert edges == {("A", "B")}
+
 
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""

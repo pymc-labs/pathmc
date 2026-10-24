@@ -143,6 +143,20 @@ def _dot_parse_error(detail: str) -> ValueError:
     return ValueError(f"Could not parse DOT text: {detail}")
 
 
+def _end_of_quoted(text: str, start: int) -> int:
+    """Index just after the quoted string at *start*, honoring ``\\"``."""
+    i = start + 1
+    n = len(text)
+    while i < n:
+        if text[i] == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if text[i] == '"':
+            return i + 1
+        i += 1
+    return n
+
+
 def _strip_comments(text: str) -> str:
     """Remove ``//``, ``#`` and ``/* ... */`` comments, ignoring quoted strings.
 
@@ -154,19 +168,12 @@ def _strip_comments(text: str) -> str:
     out: list[str] = []
     i = 0
     n = len(text)
-    in_quotes = False
     while i < n:
         ch = text[i]
-        if in_quotes:
-            out.append(ch)
-            if ch == '"':
-                in_quotes = False
-            i += 1
-            continue
         if ch == '"':
-            in_quotes = True
-            out.append(ch)
-            i += 1
+            end = _end_of_quoted(text, i)
+            out.append(text[i:end])
+            i = end
             continue
         if ch == "<":
             end = _skip_html(text, i)
@@ -223,18 +230,16 @@ def _brace_interior(text: str) -> str | None:
 
 def _opening_brace(cleaned: str) -> int | None:
     """Index of the first ``{`` outside quotes and HTML labels."""
-    in_quotes = False
     i = 0
     while i < len(cleaned):
         ch = cleaned[i]
         if ch == '"':
-            in_quotes = not in_quotes
-            i += 1
+            i = _end_of_quoted(cleaned, i)
             continue
-        if not in_quotes and ch == "<":
+        if ch == "<":
             i = _skip_html(cleaned, i)
             continue
-        if not in_quotes and ch == "{":
+        if ch == "{":
             return i
         i += 1
     return None
@@ -243,21 +248,19 @@ def _opening_brace(cleaned: str) -> int | None:
 def _brace_interior_from(cleaned: str, start: int) -> str | None:
     """Match the ``{`` at *start*, skipping quotes and HTML labels."""
     depth = 0
-    in_quotes = False
     saw_close = False
     i = start
     while i < len(cleaned):
         ch = cleaned[i]
         if ch == '"':
-            in_quotes = not in_quotes
-            i += 1
+            i = _end_of_quoted(cleaned, i)
             continue
-        if not in_quotes and ch == "<":
+        if ch == "<":
             i = _skip_html(cleaned, i)
             continue
-        if not in_quotes and ch == "{":
+        if ch == "{":
             depth += 1
-        elif not in_quotes and ch == "}":
+        elif ch == "}":
             saw_close = True
             depth -= 1
             if depth == 0:
@@ -301,14 +304,6 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
                 raise _dot_parse_error("unterminated quoted string.")
             tokens.append(("qid", "".join(buf)))
             i += 1
-            while i < n and text[i] == ":":
-                i += 1
-                port = re.match(r"[A-Za-z0-9_\u0080-\u00ff]+", text[i:])
-                if port is None:
-                    raise _dot_parse_error(
-                        "unsupported compass port after a quoted id."
-                    )
-                i += port.end()
             continue
         if ch == "<":
             end = _skip_html(text, i)
@@ -341,7 +336,17 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             tokens.append(("id", matched.group(0)))
             i += matched.end()
             continue
-        raise _dot_parse_error(f"unexpected character {ch!r}.")
+        if ch == ":":
+            tokens.append(":")
+            i += 1
+            continue
+        end = i + 1
+        while end < n and not text[end].isspace() and text[end] not in '{}[]=,;+"<':
+            if text[end : end + 2] in {"->", "--"}:
+                break
+            end += 1
+        tokens.append(("id", text[i:end]))
+        i = end
     return tokens
 
 
@@ -535,10 +540,22 @@ class _DotBodyParser:
                 )
             self.pop()
             name += extra
+        if literal:
+            self._skip_quoted_ports()
         if not literal and name in _RESERVED:
             return set()
         self.add_node(name)
         return {name}
+
+    def _skip_quoted_ports(self) -> None:
+        while self.peek() == ":":
+            self.pop()
+            if not _is_id(self.peek()):
+                raise _dot_parse_error(
+                    "unsupported compass port after a quoted id "
+                    f"before {self.peek()!r}."
+                )
+            self.pop()
 
     def parse_subgraph(self) -> set[str]:
         if _is_keyword(self.peek(), "subgraph"):
