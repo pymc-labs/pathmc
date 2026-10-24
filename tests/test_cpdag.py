@@ -679,6 +679,12 @@ def test_html_comment_markers_numerals_and_comma_lists_keep_edges():
         with pytest.raises(ValueError, match=token):
             _parse_dot(bad)
 
+    assert _parse_dot("digraph { © -> Y; Z -> Y }")[0] == {"©", "Y", "Z"}
+    fullwidth = "digraph { subgraph cluster { ３abc -> Y; Z -> Y } }"
+    assert _parse_dot(fullwidth)[0] == {"３abc", "Y", "Z"}
+    with pytest.raises(ValueError, match="-"):
+        _parse_dot("digraph { A -> Node-2 }")
+
 
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""

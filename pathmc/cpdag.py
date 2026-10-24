@@ -322,25 +322,28 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             tokens.append(ch)
             i += 1
             continue
-        numeral = re.match(r"-?(?:\d+(?:\.\d*)?|\.\d+)", text[i:])
+        numeral = re.match(r"-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)", text[i:])
         if numeral and numeral.group(0) not in {"-", "."}:
             tokens.append(("id", numeral.group(0)))
             i += numeral.end()
-            continue
-        matched = re.match(r"(?u)[^\W\d:][\w.:]*", text[i:])
-        if matched:
-            tokens.append(("id", matched.group(0)))
-            i += matched.end()
             continue
         if ch == "-":
             raise _dot_parse_error(
                 "unsupported DOT syntax near '-'. A hyphen is not part of a node id."
             )
+        if ch in "()\\":
+            raise _dot_parse_error(f"unsupported DOT syntax near {ch!r}.")
         if ch == ":":
             tokens.append(":")
             i += 1
             continue
-        raise _dot_parse_error(f"unsupported DOT syntax near {ch!r}.")
+        end = i + 1
+        while end < n and not text[end].isspace() and text[end] not in '{}[]=,;+"<()\\':
+            if text[end : end + 2] in {"->", "--"} or text[end] == "-":
+                break
+            end += 1
+        tokens.append(("id", text[i:end]))
+        i = end
     return tokens
 
 
@@ -549,6 +552,12 @@ class _DotBodyParser:
             name += extra
         if literal:
             self._skip_quoted_ports()
+        if not literal and name.lower() in _RESERVED:
+            nxt = _id_text(self.peek())
+            if nxt is not None and nxt.startswith("-"):
+                raise _dot_parse_error(
+                    "unsupported DOT syntax near '-'. A hyphen is not part of a node id."
+                )
         if not literal and name in _RESERVED:
             return set()
         self.add_node(name)
