@@ -260,6 +260,115 @@ def _panel_unit_mean(da: xr.DataArray, time_index: np.ndarray) -> xr.DataArray:
     )
 
 
+def _static_panel_time_index(data: nw.DataFrame, time_col: str) -> np.ndarray:
+    """Sorted unique time labels, matching scan compilation order."""
+    return np.asarray(sorted(data[time_col].unique().to_list()))
+
+
+def _align_static_panel_intervention(
+    var: str,
+    val: float | np.ndarray,
+    row_times: np.ndarray,
+    time_index: np.ndarray,
+) -> float | np.ndarray:
+    """Map a scalar or length-``n_times`` intervention onto frame rows.
+
+    A length-``n_times`` vector is in time order, not row order. Each row
+    receives the value for its own time label.
+    """
+    arr = np.asarray(val)
+    if arr.ndim == 0:
+        return float(arr)
+    flat = np.asarray(arr, dtype=float).reshape(-1)
+    n_times = len(time_index)
+    if arr.ndim != 1 or flat.size != n_times:
+        raise ValueError(
+            f"Intervention array for '{var}' has length {flat.size}, expected "
+            f"{n_times} (one per time step)."
+        )
+    aligned = np.full(len(row_times), np.nan, dtype=float)
+    for value, label in zip(flat, time_index, strict=True):
+        aligned[row_times == label] = value
+    if np.isnan(aligned).any():
+        raise ValueError(
+            f"Intervention for '{var}' could not be aligned to every panel row."
+        )
+    return aligned
+
+
+def _fold_rows_to_time(
+    da: xr.DataArray,
+    row_times: np.ndarray,
+    time_index: np.ndarray,
+) -> xr.DataArray:
+    """Average row-ordered draws within each time label.
+
+    Cross-sectional propagation stores one value per frame row on ``unit``.
+    Panel ``simulate_over="time"`` reports the unit mean at each time, in
+    time order, so a shuffled frame cannot be mistaken for the trajectory.
+    """
+    if "unit" not in da.dims:
+        folded = da.expand_dims(time=np.asarray(time_index))
+    else:
+        pieces = []
+        for label in time_index:
+            rows = np.flatnonzero(row_times == label)
+            pieces.append(da.isel(unit=rows).mean("unit"))
+        folded = xr.concat(pieces, dim="time")
+    return folded.transpose("time", "chain", "draw").assign_coords(
+        time=np.asarray(time_index)
+    )
+
+
+def run_do_static_panel(
+    gen_model: pm.Model,
+    graph_info: GraphInfo,
+    idata: xr.DataTree,
+    data: nw.DataFrame,
+    panel_info: PanelInfo,
+    set: dict[str, float | np.ndarray] | None = None,
+    kind: str = "mean",
+    families: dict[str, str] | None = None,
+    scaling_factors: ScalingFactors | None = None,
+    categorical_vars: set[str] | None = None,
+    observed_by_time: Mapping[str, np.ndarray] | None = None,
+) -> DoResult:
+    """Time-aligned ``do`` for a panel model that was not scan-compiled.
+
+    Models without ``lag()`` or ``adstock()`` still have a time axis. A
+    length-``n_times`` intervention is applied to the matching time of every
+    unit, then averaged within time. The result carries a ``time`` dim so
+    :meth:`DoResult.by_time` works. It is not the row-order average from
+    cross-sectional ``do``.
+    """
+    if set is None:
+        set = {}
+    time_col = panel_info.time
+    row_times = np.asarray(data[time_col].to_numpy())
+    time_index = _static_panel_time_index(data, time_col)
+    aligned = {
+        var: _align_static_panel_intervention(var, val, row_times, time_index)
+        for var, val in set.items()
+    }
+    result = run_do_pymc(
+        gen_model=gen_model,
+        graph_info=graph_info,
+        idata=idata,
+        data=data,
+        set=aligned,
+        kind=kind,
+        families=families,
+        average_units=False,
+        scaling_factors=scaling_factors,
+        categorical_vars=categorical_vars,
+    )
+    folded = {
+        name: _fold_rows_to_time(da, row_times, time_index)
+        for name, da in result.dataset.data_vars.items()
+    }
+    return DoResult(ds=xr.Dataset(folded), observed_by_time=observed_by_time)
+
+
 def _fill_missing_posterior_rvs(
     posterior_ds: xr.Dataset,
     do_model: pm.Model,

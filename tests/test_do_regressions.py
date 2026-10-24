@@ -294,3 +294,90 @@ def test_panel_do_fills_bool_and_object_numeric_exogenous() -> None:
     assert float(result.dataset["O"].mean()) == pytest.approx(3.0)
     assert result.dataset["B"].dims == ("chain", "draw")
     assert result.dataset["O"].dims == ("chain", "draw")
+
+def _static_panel_model(frame: pd.DataFrame) -> pathmc.PathModel:
+    """Panel ``Y ~ X`` with an injected intercept-1, slope-2 posterior."""
+    model = pathmc.model(
+        "Y ~ X",
+        data=frame,
+        panel={"unit": "unit", "time": "week"},
+    )
+    model._idata = az.from_dict(
+        {
+            "posterior": {
+                "beta_Y": np.array([[[1.0, 2.0]]]),
+                "sigma_Y": np.array([[0.1]]),
+            }
+        },
+        coords={"Y_predictors": ["Intercept", "X"]},
+        dims={"beta_Y": ["Y_predictors"]},
+    )
+    return model
+
+
+def test_static_panel_time_do_returns_time_aligned_trajectory() -> None:
+    """A shuffled panel must not treat a length-n_times intervention as row order.
+
+    Weeks are stored as [3, 1, 4, 2]. The intervention [0, 20, 10, 30] is in
+    time order, so week 1 gets 0 and week 3 gets 10, not the reverse.
+    """
+    week = np.array([3, 1, 4, 2])
+    observed_x = np.array([10.0, 0.0, 30.0, 20.0])
+    frame = pd.DataFrame({
+        "unit": ["A"] * 4,
+        "week": week,
+        "X": observed_x,
+        "Y": 1.0 + 2.0 * observed_x,
+    })
+    model = _static_panel_model(frame)
+    traj = [0.0, 20.0, 10.0, 30.0]
+    result = model.do(set={"X": traj}, simulate_over="time", kind="mean")
+
+    assert list(result.time_index) == [1, 2, 3, 4]
+    np.testing.assert_allclose(result.by_time("X").mean(axis=1), traj)
+    np.testing.assert_allclose(
+        result.by_time("Y").mean(axis=1), 1.0 + 2.0 * np.array(traj)
+    )
+    assert result.dataset["Y"].dims == ("time", "chain", "draw")
+
+
+def test_static_panel_time_do_averages_units_not_rows() -> None:
+    """Two units with different row orders share one time-aligned trajectory."""
+    rows = []
+    for unit, weeks in (("A", [3, 1, 4, 2]), ("B", [2, 4, 1, 3])):
+        for week in weeks:
+            rows.append({"unit": unit, "week": week, "X": float(week), "Y": 1.0})
+    model = _static_panel_model(pd.DataFrame(rows))
+    traj = np.array([0.0, 20.0, 10.0, 30.0])
+    result = model.do(set={"X": traj}, simulate_over="time", kind="mean")
+
+    np.testing.assert_allclose(result.by_time("Y").mean(axis=1), 1.0 + 2.0 * traj)
+    assert result.by_time("Y").shape[0] == 4
+
+
+def test_static_panel_scalar_time_do_is_flat_trajectory() -> None:
+    """A scalar time simulation is the same intervention at every time, not one average."""
+    week = np.array([4, 1, 3, 2])
+    frame = pd.DataFrame({
+        "unit": ["A"] * 4,
+        "week": week,
+        "X": week.astype(float),
+        "Y": np.ones(4),
+    })
+    model = _static_panel_model(frame)
+    result = model.do(set={"X": 5.0}, simulate_over="time", kind="mean")
+
+    np.testing.assert_allclose(result.by_time("Y").mean(axis=1), np.full(4, 11.0))
+    plain = model.do(set={"X": 5.0}, kind="mean")
+    assert plain.dataset["Y"].dims == ("chain", "draw")
+
+
+def test_static_panel_time_do_rejects_row_length_vector() -> None:
+    """A multi-unit vector must be one value per time, not one per row."""
+    rows = []
+    for unit in ("A", "B"):
+        for week in (1, 2):
+            rows.append({"unit": unit, "week": week, "X": 0.0, "Y": 1.0})
+    model = _static_panel_model(pd.DataFrame(rows))
+    with pytest.raises(ValueError, match="expected 2"):
+        model.do(set={"X": [0.0, 1.0, 2.0, 3.0]}, simulate_over="time", kind="mean")
