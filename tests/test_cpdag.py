@@ -581,6 +581,57 @@ def test_comment_and_html_braces_are_not_subgraph_boundaries():
     assert set(graph.edges) == {("X", "Y")}
 
 
+def test_html_comment_markers_numerals_and_comma_lists_keep_edges():
+    """Layout syntax must not drop the edges of an otherwise identical graph.
+
+    ``//`` and ``#`` inside an HTML label are label text. A leading ``-`` is a
+    numeral id. A comma separates a node list, so ``A -> B, C`` is the same
+    edges as ``A -> { B C }``.
+    """
+    flat = "digraph { X -> Y; Z -> Y; }"
+    html_url = "digraph {\n  X [label=<http://example.com>];\n  X -> Y;\n  Z -> Y;\n}"
+    html_hash = (
+        "digraph { subgraph cluster { X [label=<http://ex.com/a#b>]; X -> Y; Z -> Y } }"
+    )
+    for dot in (html_url, html_hash):
+        nodes, directed, undirected = _parse_dot(dot)
+        assert nodes == {"X", "Y", "Z"}
+        assert directed == {("X", "Y"), ("Z", "Y")}
+        assert undirected == set()
+        assert same_markov_equivalence_class(dot, flat) is True
+
+    weighted = "digraph { subgraph cluster { X -> Y [weight=-1]; Z -> Y } }"
+    nodes, directed, undirected = _parse_dot(weighted)
+    assert nodes == {"X", "Y", "Z"}
+    assert directed == {("X", "Y"), ("Z", "Y")}
+    assert same_markov_equivalence_class(weighted, flat) is True
+
+    numeral = "digraph { -1 -> Y; Z -> Y [weight=-1] }"
+    nodes, directed, undirected = _parse_dot(numeral)
+    assert nodes == {"-1", "Y", "Z"}
+    assert directed == {("-1", "Y"), ("Z", "Y")}
+
+    plus = 'digraph { X -> Y [label="a" + "b"]; Z -> Y }'
+    assert same_markov_equivalence_class(plus, flat) is True
+    assert _parse_dot('"a" + "b" -> Y'.join(["digraph { ", " }"]))[0] == {"ab", "Y"}
+
+    assert (
+        same_markov_equivalence_class(
+            "digraph { A -> B, C }", "digraph { A -> { B C } }"
+        )
+        is True
+    )
+    nodes, directed, undirected = _parse_dot(
+        "digraph { subgraph cluster { B, C -> D } }"
+    )
+    assert nodes == {"B", "C", "D"}
+    assert directed == {("B", "D"), ("C", "D")}
+    assert undirected == set()
+    nodes, directed, undirected = _parse_dot("digraph { A, B -> C [dir=none] }")
+    assert directed == set()
+    assert undirected == {frozenset({"A", "C"}), frozenset({"B", "C"})}
+
+
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""
     g = nx.DiGraph()

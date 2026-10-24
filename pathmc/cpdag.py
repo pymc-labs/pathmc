@@ -147,29 +147,47 @@ def _strip_comments(text: str) -> str:
     """Remove ``//``, ``#`` and ``/* ... */`` comments, ignoring quoted strings.
 
     A ``#`` or ``//`` inside a double-quoted DOT string (e.g.
-    ``fillcolor="#eef5ff"``) is *not* a comment and must survive, otherwise
-    the rest of the statement — including the node it declares — is lost.
+    ``fillcolor="#eef5ff"``) or an HTML label (``label=<http://example.com>``)
+    is *not* a comment and must survive, otherwise the rest of the statement
+    — including the node it declares — is lost.
     """
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    out_lines = []
-    for raw in text.splitlines():
-        kept: list[str] = []
-        in_quotes = False
-        i = 0
-        while i < len(raw):
-            ch = raw[i]
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    in_quotes = False
+    while i < n:
+        ch = text[i]
+        if in_quotes:
+            out.append(ch)
             if ch == '"':
-                in_quotes = not in_quotes
-                kept.append(ch)
-            elif not in_quotes and (
-                ch == "#" or (ch == "/" and raw[i + 1 : i + 2] == "/")
-            ):
-                break
-            else:
-                kept.append(ch)
+                in_quotes = False
             i += 1
-        out_lines.append("".join(kept))
-    return "\n".join(out_lines)
+            continue
+        if ch == '"':
+            in_quotes = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "<":
+            end = _skip_html(text, i)
+            out.append(text[i:end])
+            i = end
+            continue
+        if ch == "#" or (ch == "/" and text[i + 1 : i + 2] == "/"):
+            newline = text.find("\n", i)
+            if newline == -1:
+                break
+            i = newline
+            continue
+        if ch == "/" and text[i + 1 : i + 2] == "*":
+            end = text.find("*/", i + 2)
+            if end == -1:
+                break
+            i = end + 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _skip_html(text: str, start: int) -> int:
@@ -293,11 +311,20 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             tokens.append(text[i : i + 2])
             i += 2
             continue
+        if ch == "+":
+            tokens.append("+")
+            i += 1
+            continue
         if ch in "{}[]=,;":
             tokens.append(ch)
             i += 1
             continue
-        matched = re.match(r"[A-Za-z0-9_:.]+", text[i:])
+        numeral = re.match(r"-?(?:\d+(?:\.\d*)?|\.\d+)", text[i:])
+        if numeral and numeral.group(0) not in {"-", "."}:
+            tokens.append(("id", numeral.group(0)))
+            i += numeral.end()
+            continue
+        matched = re.match(r"[A-Za-z_][A-Za-z0-9_:.]*|\d+[A-Za-z0-9_:.]+", text[i:])
         if matched:
             tokens.append(("id", matched.group(0)))
             i += matched.end()
@@ -371,7 +398,7 @@ class _DotBodyParser:
                 if stop_at_rbrace:
                     return
                 raise _dot_parse_error("unsupported subgraph syntax (unexpected '}').")
-            if token in {";", ","}:
+            if token == ";":
                 self.pop()
                 continue
             self.parse_statement()
@@ -397,17 +424,26 @@ class _DotBodyParser:
 
     def take_value(self) -> None:
         token = self.peek()
-        if _is_id(token) or (isinstance(token, tuple) and token[0] == "html"):
+        if isinstance(token, tuple) and token[0] == "html":
             self.pop()
             return
-        raise _dot_parse_error(
-            "unsupported subgraph syntax in an attribute value. "
-            f"Offending token: {token!r}."
-        )
+        if not _is_id(token):
+            raise _dot_parse_error(
+                "unsupported subgraph syntax in an attribute value. "
+                f"Offending token: {token!r}."
+            )
+        self.pop()
+        while self.peek() == "+":
+            self.pop()
+            if not _is_id(self.peek()):
+                raise _dot_parse_error(
+                    "unsupported subgraph syntax in an attribute value. "
+                    f"Offending token: {self.peek()!r}."
+                )
+            self.pop()
 
     def parse_node_or_edge(self) -> None:
-        left = self.parse_endpoint()
-        self.skip_attrs_belonging_to_node()
+        left = self.parse_node_list()
         if self.peek() not in {"->", "--"}:
             while self.peek() == "[":
                 self.take_attr_list()
@@ -418,8 +454,7 @@ class _DotBodyParser:
             op = self.pop()
             if not isinstance(op, str):
                 raise _dot_parse_error(f"unsupported edge endpoint {op!r}.")
-            right = self.parse_endpoint()
-            self.skip_attrs_belonging_to_node()
+            right = self.parse_node_list()
             for u in current:
                 for v in right:
                     if u != v:
@@ -434,17 +469,28 @@ class _DotBodyParser:
             else:
                 self.directed.add((u, v))
 
+    def parse_node_list(self) -> set[str]:
+        """Parse a comma-separated endpoint list (``B, C`` or ``{B C}, D``)."""
+        names = self.parse_endpoint()
+        self.skip_attrs_belonging_to_node()
+        while self.peek() == ",":
+            self.pop()
+            names |= self.parse_endpoint()
+            self.skip_attrs_belonging_to_node()
+        return names
+
     def skip_attrs_belonging_to_node(self) -> None:
-        """Drop ``[attr]`` groups that sit on a node before the next edge op.
+        """Drop ``[attr]`` groups that sit on a node before the next hop.
 
         ``A [label=x] -> B [dir=none]`` puts the first list on ``A`` and the
-        second on the edge. If no operator follows, leave the list for the
+        second on the edge. A list followed by ``,`` belongs to that node in
+        a node list. If no operator or comma follows, leave the list for the
         caller: it is either a node-statement attribute or ``dir=none``.
         """
         saved = self.i
         while self.peek() == "[":
             self.take_attr_list()
-        if self.peek() in {"->", "--"}:
+        if self.peek() in {"->", "--", ","}:
             return
         self.i = saved
 
@@ -465,6 +511,15 @@ class _DotBodyParser:
         if name is None:
             raise _dot_parse_error(f"unsupported edge endpoint {token!r}.")
         self.pop()
+        while self.peek() == "+":
+            self.pop()
+            extra = _id_text(self.peek())
+            if extra is None:
+                raise _dot_parse_error(
+                    f"unsupported '+' in a DOT id before {self.peek()!r}."
+                )
+            self.pop()
+            name += extra
         self.add_node(name)
         if name in _RESERVED:
             return set()
@@ -536,8 +591,8 @@ def _parse_dot(
     A ``subgraph`` block, including an anonymous ``{ ... }`` cluster, is layout
     only: its nodes and edges are parsed, and the cluster id is not a node.
     An edge into a subgraph connects to each node in that subgraph.
-    ``;`` is optional, and a comma separates statements, so ``X -> Y Z -> Y``
-    and ``{ B, C }`` keep the real node ids. A ``}`` inside a comment or an
+    ``;`` is optional, so ``X -> Y Z -> Y`` is two edges. A comma separates
+    a node list (``A -> B, C``), not statements. A ``}`` inside a comment or an
     HTML label is not a subgraph boundary. Node identity is the DOT id;
     ``label`` attributes are not used as identity.
 
