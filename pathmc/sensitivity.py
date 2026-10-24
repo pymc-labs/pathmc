@@ -112,8 +112,14 @@ class SensitivityResult(ResultReprMixin):
 
     def _repr_spec(self) -> ReprSpec:
         hdi_vals = self.observed_ate_hdi
-        tp = abs(self.tipping_point)
-        sym = float(np.sqrt(tp)) if tp > 0 else 0.0
+        gamma, delta = _symmetric_nullifying_pair(self.tipping_point)
+        # adjusted ATE = observed ATE − γ × δ. A same-sign pair for a
+        # negative tipping point is off by about 2|ATE|; a correctly
+        # signed pair is off by at most a few ulps. Only the latter is 0.
+        adjusted = self.observed_ate - gamma * delta
+        scale = abs(self.tipping_point)
+        nullifies = abs(adjusted) <= 8 * np.spacing(scale if scale else 1.0)
+        claim = " would nullify the effect" if nullifies else ""
         label = hdi_label()
         return ReprSpec(
             title=f"Sensitivity Analysis — {self.treatment} → {self.outcome}",
@@ -125,7 +131,7 @@ class SensitivityResult(ResultReprMixin):
                 ["Tipping point", f"γ × δ = {self.tipping_point:.4f}"],
                 [
                     "Symmetric example",
-                    f"γ = {sym:.4f}, δ = {sym:.4f} would nullify the effect",
+                    f"γ = {gamma:.4f}, δ = {delta:.4f}{claim}",
                 ],
             ],
             footer="Methods: .plot() &nbsp;·&nbsp; Attributes: .tipping_point .observed_ate_hdi",
@@ -213,6 +219,22 @@ class SensitivityResult(ResultReprMixin):
         )
 
         return fig
+
+
+def _symmetric_nullifying_pair(tipping_point: float) -> tuple[float, float]:
+    """Return equal-magnitude (γ, δ) whose product is ``tipping_point``.
+
+    A positive tipping point keeps both coordinates positive, so the
+    displayed line is unchanged. A negative tipping point puts the sign
+    on δ so the product has the tipping point's sign. Division by γ
+    keeps that product within a few ulps, which is what the summary
+    treats as a nullifying pair.
+    """
+    if tipping_point == 0.0:
+        return 0.0, 0.0
+    gamma = float(np.sqrt(abs(tipping_point)))
+    delta = float(tipping_point / gamma)
+    return gamma, delta
 
 
 def compute_sensitivity(

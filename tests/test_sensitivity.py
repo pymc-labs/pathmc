@@ -170,6 +170,43 @@ class TestSensitivityResult:
         assert "Tipping point" in html
         assert "<table" in html
 
+    def test_symmetric_example_matches_tipping_point_sign(self):
+        """The displayed pair multiplies to the tipping point, including sign.
+
+        A same-sign pair for a negative ATE must not be labeled as nullifying.
+        The positive-ATE line stays both coordinates positive.
+        """
+        cited = compute_sensitivity(np.array([-2.0]), "Y", "T", (-2, 2), (-2, 2), 5)
+        cited_text = dict(cited._repr_spec().rows)["Symmetric example"]
+        assert cited_text == ("γ = 1.4142, δ = -1.4142 would nullify the effect")
+        positive = compute_sensitivity(np.array([2.0]), "Y", "T", (-2, 2), (-2, 2), 5)
+        positive_text = dict(positive._repr_spec().rows)["Symmetric example"]
+        assert positive_text == ("γ = 1.4142, δ = 1.4142 would nullify the effect")
+
+        draws_cases = [
+            np.array([-2.0]),
+            np.array([2.0]),
+            np.array([0.0]),
+            np.array([-9.0, -9.0, -1.0]),
+            np.array([0.25, 0.5, 0.75]),
+            np.random.default_rng(1).normal(loc=-0.37, scale=0.05, size=40),
+            np.random.default_rng(2).normal(loc=1.7, scale=0.1, size=30),
+            np.random.default_rng(3).normal(loc=-4.5, scale=0.2, size=20),
+        ]
+        for draws in draws_cases:
+            result = compute_sensitivity(draws, "Y", "T", (-3.0, 3.0), (-3.0, 3.0), 7)
+            tipping = result.tipping_point
+            magnitude = 0.0 if tipping == 0.0 else float(np.sqrt(abs(tipping)))
+            gamma = magnitude
+            delta = 0.0 if tipping == 0.0 else float(np.copysign(magnitude, tipping))
+            text = dict(result._repr_spec().rows)["Symmetric example"]
+            assert text == (
+                f"γ = {gamma:.4f}, δ = {delta:.4f} would nullify the effect"
+            ), text
+            # expected formats the equal-magnitude pair whose product is the
+            # tipping point. The previous summary used +sqrt(|ATE|) for both
+            # coordinates, so a negative ATE failed this string.
+
     def test_observed_ate_hdi(self):
         draws = np.random.default_rng(0).normal(loc=0.5, scale=0.1, size=1000)
         result = compute_sensitivity(
