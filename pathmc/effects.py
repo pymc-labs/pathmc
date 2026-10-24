@@ -413,10 +413,9 @@ def _values_are_binary_01(values: np.ndarray, *, atol: float = 0.0) -> bool:
         return False
     if atol == 0.0:
         return set(np.unique(finite).tolist()) <= {0.0, 1.0}
-    close_to_code = np.isclose(finite, 0.0, rtol=0.0, atol=atol) | np.isclose(
-        finite, 1.0, rtol=0.0, atol=atol
-    )
-    return bool(np.all(close_to_code))
+    close_0 = np.isclose(finite, 0.0, rtol=0.0, atol=atol)
+    close_1 = np.isclose(finite, 1.0, rtol=0.0, atol=atol)
+    return bool(np.any(close_0) and np.any(close_1) and np.all(close_0 | close_1))
 
 
 def _predictor_is_binary_01(
