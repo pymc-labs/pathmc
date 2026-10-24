@@ -722,17 +722,32 @@ def compute_path_effect(
                 stacklevel=2,
             )
 
-        if matched_term.fixed_value is not None:
-            draws = np.asarray([float(matched_term.fixed_value)])
-        elif matched_term.label is not None and matched_term.label in labeled_draws:
-            draws = labeled_draws[matched_term.label]
+        # A leading fixed term (``1*X``) is not a posterior column. When a
+        # later free term shares that variable, select that free column.
+        # Selecting the fixed term's coordinate raises KeyError once the
+        # two terms no longer share the label ``X``.
+        coef_term = matched_term
+        if not (matched_term.label is not None and matched_term.label in labeled_draws):
+            for term in reg.terms:
+                if (
+                    term.variable == source
+                    and term.fixed_value is None
+                    and term.basis is None
+                    and term.categorical is None
+                ):
+                    coef_term = term
+                    break
+        if coef_term.fixed_value is not None:
+            draws = np.asarray([float(coef_term.fixed_value)])
+        elif coef_term.label is not None and coef_term.label in labeled_draws:
+            draws = labeled_draws[coef_term.label]
         else:
             draws = _compiled_edge_draws(
                 idata,
                 target,
                 source,
-                coordinate=predictor_coordinate(reg, matched_term),
-                fixed=matched_term.fixed_value is not None,
+                coordinate=predictor_coordinate(reg, coef_term),
+                fixed=coef_term.fixed_value is not None,
             )
 
         if scaling_factors is not None and data is not None:
@@ -741,7 +756,7 @@ def compute_path_effect(
                     draws,
                     kind="coefficient",
                     dims=ScaleContext(
-                        term=matched_term,
+                        term=coef_term,
                         outcome=target,
                         data=data,
                     ),

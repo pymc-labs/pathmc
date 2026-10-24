@@ -62,3 +62,15 @@ def test_two_transforms_of_one_variable_are_not_averaged():
     assert summary.loc["b", "mean"] == 8.0
     assert summary.loc["a", "sd"] == 0.0
     assert model.effect("X -> Y").mean == 3.0
+
+
+def test_effect_skips_a_leading_fixed_term_without_mixing():
+    model, order = _pin(
+        "Y ~ 1*X + b*adstock(X, decay=theta)",
+        [0.0, 9.0],
+    )
+    assert order == ["Intercept", "adstock(X, decay=theta)"]
+    summary = model.effects_summary()
+    assert summary.loc["b", "mean"] == 9.0
+    assert summary.loc["b", "sd"] == 0.0
+    assert model.effect("X -> Y").mean == 9.0
