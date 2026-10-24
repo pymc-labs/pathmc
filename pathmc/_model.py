@@ -909,7 +909,10 @@ class PathModel:
             If the model was created without data, or called before
             ``.fit()``.
         ValueError
-            If a node is not endogenous or an edge does not exist.
+            If a node is not endogenous, an edge does not exist, or a drawn
+            edge exists only as an interaction constituent. In that last case
+            the error names the interaction term (for example ``X:Z``)
+            instead of claiming the edge is absent.
         NotImplementedError
             If a multi-edge path includes a non-Gaussian edge target
             whose coefficient would be multiplied across link scales.

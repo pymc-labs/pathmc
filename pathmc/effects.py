@@ -19,6 +19,8 @@ Provides the logic behind ``PathModel.effects_summary()`` and
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import re
 import warnings
 from dataclasses import dataclass
@@ -48,6 +50,35 @@ def _interacting_vars(reg) -> set[str]:
         if t.interaction_of is not None:
             interacting.update(t.interaction_of)
     return interacting
+
+
+def _unmatched_edge_error(
+    source: str, target: str, terms: Sequence[Term]
+) -> ValueError:
+    """Error when ``source -> target`` has no main-effect term.
+
+    If ``graph()`` draws that edge only because ``source`` is a constituent
+    of an interaction, name those interaction terms. Do not claim the edge
+    is absent. A genuinely missing edge keeps the ``No direct edge`` message.
+    """
+    interactions = [
+        term
+        for term in terms
+        if term.interaction_of is not None and source in term.interaction_of
+    ]
+    if not interactions:
+        return ValueError(
+            f"No direct edge from '{source}' to '{target}' in the model. "
+            f"Check the path specification."
+        )
+    names = ", ".join(repr(term.variable) for term in interactions)
+    noun = "term" if len(interactions) == 1 else "terms"
+    example = interactions[0].variable
+    return ValueError(
+        f"'{source} -> {target}' is drawn because of interaction {noun} {names}, "
+        f"not a main-effect coefficient of '{source}'. "
+        f"Request the interaction term, for example '{example} -> {target}'."
+    )
 
 
 def _interaction_affected_labels(spec: Spec) -> dict[str, str]:
@@ -494,7 +525,11 @@ def compute_path_effect(
     Raises
     ------
     ValueError
-        If a node in the path is not endogenous or an edge does not exist.
+        If a node in the path is not endogenous, or an edge does not exist.
+        If the graph draws the edge only because the source is a constituent
+        of an interaction (for example ``Y ~ X:Z`` and ``"X -> Y"``), the
+        error names that interaction term instead of claiming the edge is
+        absent.
     NotImplementedError
         If a multi-edge path includes a non-Gaussian edge target whose
         coefficient would be multiplied across link scales.
@@ -521,10 +556,7 @@ def compute_path_effect(
                 break
 
         if matched_term is None:
-            raise ValueError(
-                f"No direct edge from '{source}' to '{target}' in the model. "
-                f"Check the path specification."
-            )
+            raise _unmatched_edge_error(source, target, reg.terms)
 
         interaction_terms = [
             t
