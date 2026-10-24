@@ -1403,7 +1403,10 @@ def _observed_endogenous_binding(
     raw = np.asarray(data[var].to_numpy())
     if raw.dtype.kind not in "iufc":
         return {}
-    observed = pt.as_tensor_variable(np.asarray(raw, dtype=float))
+    observed_values = np.asarray(raw, dtype=float)
+    if not np.isfinite(observed_values).all():
+        return {}
+    observed = pt.as_tensor_variable(observed_values)
     if str(getattr(model_var, "dtype", "")).startswith("float"):
         return {model_var: observed}
     return {key: observed for key in _float_descendants_of(model_var, mu_source_exprs)}
@@ -1554,13 +1557,20 @@ def run_do_pymc(
                         binding = _observed_endogenous_binding(
                             data, var, do_model[var], mu_source_exprs
                         )
-                        if not binding and _name_in_graph(var, mu_source_exprs):
+                        used_downstream = _name_in_graph(var, mu_source_exprs) or any(
+                            graph_info._dag.successors(var)
+                        )
+                        if (
+                            not binding
+                            and used_downstream
+                            and var not in graph_info.latent
+                        ):
                             raise ValueError(
-                                f"predictions() without set= needs the observed "
-                                f"column '{var}' in the query frame. The column "
-                                "is missing or not numeric, so the mediator cannot "
-                                "be held at its observed value. Include it, or "
-                                "pass set= to intervene."
+                                f"predictions() without set= needs a fully observed "
+                                f"numeric column '{var}' in the query frame. The "
+                                "column is missing, not numeric, or has a non-finite "
+                                "value, so the mediator cannot be held at its observed "
+                                "value. Include it, or pass set= to intervene."
                             )
                     if binding:
                         expr_replacements.update(binding)

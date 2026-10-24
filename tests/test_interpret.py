@@ -283,6 +283,43 @@ class TestPredictions:
         with pytest.raises(ValueError, match="column 'Y'"):
             chain.predictions("Z", newdata=pd.DataFrame({"X": x, "M": x, "Z": x}))
 
+    def test_omitted_set_rejects_partially_observed_mediator(self):
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        m_obs = np.array([0.0, np.nan, 100.0, np.nan])
+        df = pd.DataFrame({"X": x, "M": m_obs, "Y": np.zeros(4)})
+        model = pathmc.model("M ~ X\nY ~ M + X", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": np.array([[[0.0, 5.0]]]),
+                    "sigma_M": np.array([[1.0]]),
+                    "beta_Y": np.array([[[0.0, 2.0, 3.0]]]),
+                    "sigma_Y": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "M", "X"],
+            },
+            dims={"beta_M": ["M_predictors"], "beta_Y": ["Y_predictors"]},
+        )
+        with pytest.raises(ValueError, match="column 'M'"):
+            model.predictions("Y")
+        complete = pathmc.model(
+            "M ~ X\nY ~ M + X",
+            data=pd.DataFrame({"X": x, "M": [0.0, 1.0, 100.0, 3.0], "Y": np.zeros(4)}),
+        )
+        complete._idata = model._idata
+        with pytest.raises(ValueError, match="column 'M'"):
+            complete.predictions(
+                "Y",
+                newdata=pd.DataFrame({
+                    "X": x,
+                    "M": [0.0, 1.0, np.nan, 3.0],
+                    "Y": np.zeros(4),
+                }),
+            )
+
 
 class TestRatioLift:
     def test_ratio_and_lift_finite(self, fork_model):
