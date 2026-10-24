@@ -1,0 +1,16 @@
+pathmc/effects.py
+  h_63db634213747e 556-572,580,589
+tests/test_duplicate_predictor_coords.py
+  h_63db634213747e 65-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ed8d42532a61ae8f82e0960349d14ffe996cca32",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
