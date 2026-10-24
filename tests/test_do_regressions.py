@@ -16,8 +16,10 @@
 import arviz as az
 import numpy as np
 import pandas as pd
+import pytest
 
 import pathmc
+from pathmc.simulate import run_do_panel_unified
 
 
 def test_mean_do_propagates_bernoulli_mediator_on_response_scale() -> None:
@@ -109,3 +111,42 @@ def test_mean_do_averages_interaction_rows_within_each_draw() -> None:
 
     assert result.dataset["Y"].dims == ("chain", "draw")
     np.testing.assert_allclose(result.draws("Y"), [13.5, 27.0])
+
+
+@pytest.mark.parametrize("kind", ["time-forward", "forecast", "MEAN", ""])
+def test_unrecognized_do_kind_raises_and_names_legal_values(kind: str) -> None:
+    """A typo must not silently take the posterior-predictive branch."""
+    data = pd.DataFrame({"X": np.array([0.0, 1.0]), "Y": np.array([0.0, 2.0])})
+    model = pathmc.model("Y ~ X", data=data)
+    model._idata = az.from_dict(
+        {
+            "posterior": {
+                "beta_Y": np.array([[[0.0, 2.0]]]),
+                "sigma_Y": np.array([[0.3]]),
+            }
+        },
+        coords={"Y_predictors": ["Intercept", "X"]},
+        dims={"beta_Y": ["Y_predictors"]},
+    )
+
+    with pytest.raises(ValueError, match="predictive") as exc_info:
+        model.do(set={"X": 0.0}, kind=kind)
+
+    message = str(exc_info.value)
+    assert "mean" in message
+    assert repr(kind) in message
+
+
+def test_panel_do_rejects_unrecognized_kind_before_predictive() -> None:
+    """Scan-panel do() shares the same kind contract as cross-sectional do()."""
+    with pytest.raises(ValueError, match="mean") as exc_info:
+        run_do_panel_unified(
+            gen_model=None,  # type: ignore[arg-type]
+            graph_info=None,  # type: ignore[arg-type]
+            idata=None,  # type: ignore[arg-type]
+            panel_info=None,  # type: ignore[arg-type]
+            scan_info=None,  # type: ignore[arg-type]
+            kind="time-forward",
+        )
+
+    assert "predictive" in str(exc_info.value)
