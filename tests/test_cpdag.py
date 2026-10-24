@@ -469,6 +469,10 @@ def test_subgraph_layout_variants_do_not_invent_nodes():
         ),
         'digraph { subgraph "c 1" { "X" -> "Y"; "Z" -> "Y"; } }',
         "graph { subgraph cluster { X -- Y; Z -- Y } }",
+        "digraph { subgraph cluster { X -> Y Z -> Y } }",
+        "digraph { X -> Y subgraph cluster { Z -> Y } }",
+        "digraph { rankdir=LR subgraph cluster { X -> Y; Z -> Y } }",
+        'digraph { subgraph c { label="collider" style=dashed X -> Y; Z -> Y } }',
     ]
     for dot in variants:
         nodes, directed, undirected = _parse_dot(dot)
@@ -522,6 +526,12 @@ def test_edge_into_subgraph_expands_to_member_nodes():
     assert directed == set()
     assert undirected == {frozenset({"A", "B"}), frozenset({"A", "C"})}
 
+    comma_nodes = "digraph { A -> subgraph cluster_c { B, C } }"
+    nodes, directed, undirected = _parse_dot(comma_nodes)
+    assert nodes == {"A", "B", "C"}
+    assert directed == {("A", "B"), ("A", "C")}
+    assert undirected == set()
+
 
 def test_malformed_subgraph_raises_instead_of_inventing_nodes():
     """Unbalanced or bare ``subgraph`` syntax raises, naming that syntax."""
@@ -542,6 +552,33 @@ def test_dag_parser_uses_subgraph_nodes_not_invented_ones():
     )
     assert set(graph.nodes) == {"X", "Y", "Z"}
     assert set(graph.edges) == {("X", "Y"), ("Z", "Y")}
+
+
+def test_comment_and_html_braces_are_not_subgraph_boundaries():
+    """A ``}`` in a comment or HTML label is not unsupported subgraph syntax.
+
+    The previous reader accepted these and kept the real edge. Treating the
+    brace as a subgraph boundary must not raise or invent a node.
+    """
+    from pathmc.dag import BuildModelFromDAG
+
+    commented = "digraph { X -> Y; Z -> Y; }\n// note }\n"
+    nodes, directed, undirected = _parse_dot(commented)
+    assert nodes == {"X", "Y", "Z"}
+    assert directed == {("X", "Y"), ("Z", "Y")}
+    assert undirected == set()
+    assert (
+        same_markov_equivalence_class(commented, "digraph { X -> Y; Z -> Y; }") is True
+    )
+
+    html = "digraph { X [label=<foo {bar}>]; X -> Y }"
+    nodes, directed, undirected = _parse_dot(html)
+    assert nodes == {"X", "Y"}
+    assert directed == {("X", "Y")}
+    assert undirected == set()
+    graph = BuildModelFromDAG._parse_dag(html)
+    assert set(graph.nodes) == {"X", "Y"}
+    assert set(graph.edges) == {("X", "Y")}
 
 
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():

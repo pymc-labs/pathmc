@@ -77,21 +77,17 @@ def _parse_dag(dag_str: str) -> nx.DiGraph:
     g = nx.DiGraph()
 
     if s.lower().startswith("digraph"):
-        brace_start = s.find("{")
-        brace_end = s.rfind("}")
-        if brace_start == -1 or brace_end == -1 or brace_end <= brace_start:
+        # Shared brace match so a ``}`` in a comment or HTML label is not the
+        # end of the graph, and a ``}`` only in a trailing comment is ignored.
+        from pathmc.cpdag import _brace_interior, _parse_dot_body
+
+        body = _brace_interior(s)
+        if body is None:
             raise ValueError(
                 "Malformed DOT digraph: missing braces. Expected "
                 "'digraph { A -> B; ... }'."
             )
-        # Reuse the shared DOT body parser so quoted ids (as emitted by
-        # TBFPC.to_digraph / get_all_cdags_from_cpdag), chained edges, and
-        # attribute brackets are all handled consistently.
-        from pathmc.cpdag import _parse_dot_body
-
-        nodes, directed, undirected = _parse_dot_body(
-            s[brace_start + 1 : brace_end], is_undirected_graph=False
-        )
+        nodes, directed, undirected = _parse_dot_body(body, is_undirected_graph=False)
         if undirected:
             pretty = ", ".join(
                 f"{u}--{v}" for u, v in sorted(tuple(sorted(e)) for e in undirected)

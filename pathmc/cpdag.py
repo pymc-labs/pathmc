@@ -48,11 +48,6 @@ class _SupportsSource(Protocol):
     def source(self) -> str: ...
 
 
-# A DOT identifier: either a double-quoted string or a bare alphanumeric token.
-_ID = r'(?:"([^"]+)"|([A-Za-z0-9_]+))'
-_RESERVED = frozenset({"graph", "node", "edge"})
-
-
 def same_markov_equivalence_class(
     graph1: str | _SupportsSource | nx.DiGraph,
     graph2: str | _SupportsSource | nx.DiGraph,
@@ -139,6 +134,15 @@ def _coerce_to_components(
     )
 
 
+# Reserved statement keywords. A bare ``node`` / ``graph`` / ``edge`` is not a
+# node id; ``node [shape=box]`` is a style declaration.
+_RESERVED = frozenset({"graph", "node", "edge"})
+
+
+def _dot_parse_error(detail: str) -> ValueError:
+    return ValueError(f"Could not parse DOT text: {detail}")
+
+
 def _strip_comments(text: str) -> str:
     """Remove ``//``, ``#`` and ``/* ... */`` comments, ignoring quoted strings.
 
@@ -168,273 +172,354 @@ def _strip_comments(text: str) -> str:
     return "\n".join(out_lines)
 
 
-def _split_statements(body: str) -> list[str]:
-    """Split a DOT body on ``;``/newline, ignoring separators inside quotes
-    or nested ``{ ... }`` blocks.
-    """
-    statements: list[str] = []
-    current: list[str] = []
-    in_quotes = False
+def _skip_html(text: str, start: int) -> int:
+    """Return the index just after the HTML label that starts at *start*."""
     depth = 0
-    for ch in body:
+    i = start
+    while i < len(text):
+        ch = text[i]
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    raise _dot_parse_error("unterminated HTML label.")
+
+
+def _brace_interior(text: str) -> str | None:
+    """Return the interior of the outer ``{ ... }``, ignoring non-structural braces.
+
+    Comments are stripped first. Braces inside quotes or HTML labels
+    (``label=<foo {bar}>``) do not open or close the graph. Returns ``None``
+    when the text has no matching outer braces. An opening brace that is not
+    closed, while some other ``}`` is present, is unbalanced subgraph syntax.
+    """
+    cleaned = _strip_comments(text)
+    start = _opening_brace(cleaned)
+    if start is None:
+        return None
+    return _brace_interior_from(cleaned, start)
+
+
+def _opening_brace(cleaned: str) -> int | None:
+    """Index of the first ``{`` outside quotes and HTML labels."""
+    in_quotes = False
+    i = 0
+    while i < len(cleaned):
+        ch = cleaned[i]
         if ch == '"':
             in_quotes = not in_quotes
-            current.append(ch)
+            i += 1
+            continue
+        if not in_quotes and ch == "<":
+            i = _skip_html(cleaned, i)
+            continue
+        if not in_quotes and ch == "{":
+            return i
+        i += 1
+    return None
+
+
+def _brace_interior_from(cleaned: str, start: int) -> str | None:
+    """Match the ``{`` at *start*, skipping quotes and HTML labels."""
+    depth = 0
+    in_quotes = False
+    saw_close = False
+    i = start
+    while i < len(cleaned):
+        ch = cleaned[i]
+        if ch == '"':
+            in_quotes = not in_quotes
+            i += 1
+            continue
+        if not in_quotes and ch == "<":
+            i = _skip_html(cleaned, i)
             continue
         if not in_quotes and ch == "{":
             depth += 1
-            current.append(ch)
-            continue
-        if not in_quotes and ch == "}":
-            depth -= 1
-            current.append(ch)
-            continue
-        if ch in ";\n" and not in_quotes and depth == 0:
-            statements.append("".join(current))
-            current = []
-            continue
-        current.append(ch)
-    statements.append("".join(current))
-    return statements
-
-
-def _separate_closed_blocks(body: str) -> str:
-    """Insert ``;`` after a top-level ``}`` that ends a statement.
-
-    DOT makes ``;`` optional, so ``subgraph { A } B -> C`` is two statements.
-    ``subgraph { A } -> C`` is one edge, and ``A -> { B } [dir=none]`` keeps
-    its attribute list. Neither may be split.
-    """
-    out: list[str] = []
-    in_quotes = False
-    depth = 0
-    i = 0
-    while i < len(body):
-        ch = body[i]
-        if ch == '"':
-            in_quotes = not in_quotes
-            out.append(ch)
-            i += 1
-            continue
-        if not in_quotes and ch == "{":
-            depth += 1
-            out.append(ch)
-            i += 1
-            continue
-        if not in_quotes and ch == "}":
-            depth -= 1
-            out.append(ch)
-            if depth == 0:
-                j = i + 1
-                while j < len(body) and body[j] in " \t":
-                    j += 1
-                nxt = body[j : j + 2]
-                follows = j < len(body) and body[j] not in ";\n}["
-                if follows and nxt not in {"->", "--"}:
-                    out.append(";")
-            i += 1
-            continue
-        out.append(ch)
-        i += 1
-    return "".join(out)
-
-
-def _dot_parse_error(detail: str) -> ValueError:
-    return ValueError(f"Could not parse DOT text: {detail}")
-
-
-def _has_subgraph_syntax(text: str) -> bool:
-    """Return True if *text* has an unquoted subgraph keyword or brace."""
-    in_quotes = False
-    i = 0
-    while i < len(text):
-        ch = text[i]
-        if ch == '"':
-            in_quotes = not in_quotes
-            i += 1
-            continue
-        if not in_quotes:
-            if ch in "{}":
-                return True
-            if re.match(r"subgraph\b", text[i:], flags=re.I) and (
-                i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")
-            ):
-                return True
-        i += 1
-    return False
-
-
-def _brace_span(text: str, open_index: int) -> tuple[str, int]:
-    """Return ``(body, index_after_close)`` for the ``{`` at *open_index*."""
-    if open_index >= len(text) or text[open_index] != "{":
-        raise _dot_parse_error("unsupported subgraph syntax (missing '{').")
-    depth = 0
-    in_quotes = False
-    for i in range(open_index, len(text)):
-        ch = text[i]
-        if ch == '"':
-            in_quotes = not in_quotes
-            continue
-        if in_quotes:
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
+        elif not in_quotes and ch == "}":
+            saw_close = True
             depth -= 1
             if depth == 0:
-                return text[open_index + 1 : i], i + 1
-    raise _dot_parse_error(
-        f"unsupported subgraph syntax (unbalanced '{{'). Offending text: {text!r}."
-    )
+                return cleaned[start + 1 : i]
+        i += 1
+    if not saw_close:
+        return None
+    raise _dot_parse_error("unsupported subgraph syntax (unbalanced '{').")
 
 
-_ASSIGNMENT_RE = re.compile(r'^(?:"[^"]*"|[A-Za-z_][A-Za-z0-9_]*)\s*=')
-_SUBGRAPH_ID_RE = re.compile(r'(?:"[^"]*"|[A-Za-z0-9_]+)')
+def _tokenize(text: str) -> list[str | tuple[str, str]]:
+    """Tokenize a DOT body.
 
-
-def _match_subgraph(stmt: str) -> str | None:
-    """Return the body if *stmt* is exactly one subgraph, else None.
-
-    Raises
-    ------
-    ValueError
-        If *stmt* opens a subgraph whose braces do not balance.
+    Whitespace is not a token: DOT makes ``;`` optional, so ``X -> Y Z -> Y``
+    is two statements. ``,`` and ``;`` are explicit separators. Quoted strings
+    and HTML labels are single tokens, so a ``}`` inside either is not a
+    subgraph boundary. ``->`` and ``--`` are operators. A bare id may include
+    ``:`` so a compass port stays part of the id, matching the previous reader.
     """
-    s = stmt.strip()
-    keyword = re.match(r"subgraph\b", s, flags=re.I)
-    i = keyword.end() if keyword else 0
-    rest = s[i:].lstrip()
-    if keyword:
-        ident = _SUBGRAPH_ID_RE.match(rest)
-        if ident:
-            i = len(s) - len(rest) + ident.end()
-            rest = s[i:].lstrip()
-    if not rest.startswith("{"):
-        return None
-    if not keyword and s[: len(s) - len(rest)].strip():
-        return None
-    body, end = _brace_span(s, len(s) - len(rest))
-    if s[end:].strip():
-        return None
-    return body
-
-
-def _split_top_level_attrs(stmt: str) -> tuple[str, str]:
-    """Remove ``[...]`` groups that are outside quotes and braces."""
-    kept: list[str] = []
-    attrs: list[str] = []
-    in_quotes = False
-    brace = 0
-    bracket = 0
-    for ch in stmt:
-        if ch == '"':
-            in_quotes = not in_quotes
-        if not in_quotes:
-            if ch == "{":
-                brace += 1
-            elif ch == "}" and brace:
-                brace -= 1
-            elif ch == "[" and brace == 0:
-                bracket += 1
-            elif ch == "]" and bracket:
-                attrs.append(ch)
-                bracket -= 1
-                continue
-        if bracket:
-            attrs.append(ch)
-        else:
-            kept.append(ch)
-    return "".join(kept).strip(), "".join(attrs)
-
-
-def _has_edge_op(text: str) -> bool:
-    """Return True if *text* has ``->`` or ``--`` outside quotes and braces."""
-    in_quotes = False
-    depth = 0
+    tokens: list[str | tuple[str, str]] = []
     i = 0
-    while i < len(text):
+    n = len(text)
+    while i < n:
         ch = text[i]
+        if ch.isspace():
+            i += 1
+            continue
         if ch == '"':
-            in_quotes = not in_quotes
+            buf: list[str] = []
+            i += 1
+            while i < n:
+                if text[i] == "\\" and i + 1 < n:
+                    buf.append(text[i + 1])
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    break
+                buf.append(text[i])
+                i += 1
+            else:
+                raise _dot_parse_error("unterminated quoted string.")
+            tokens.append(("id", "".join(buf)))
             i += 1
             continue
-        if not in_quotes:
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-            elif depth == 0 and text[i : i + 2] in {"->", "--"}:
-                return True
-        i += 1
-    return False
-
-
-def _split_edge_chain(stmt: str) -> tuple[list[str], list[str]] | None:
-    """Split an edge chain on top-level ``->`` / ``--`` operators."""
-    if not _has_edge_op(stmt):
-        return None
-    endpoints: list[str] = []
-    operators: list[str] = []
-    current: list[str] = []
-    in_quotes = False
-    depth = 0
-    i = 0
-    while i < len(stmt):
-        ch = stmt[i]
-        if ch == '"':
-            in_quotes = not in_quotes
-            current.append(ch)
+        if ch == "<":
+            end = _skip_html(text, i)
+            tokens.append(("html", text[i:end]))
+            i = end
+            continue
+        if text[i : i + 2] in {"->", "--"}:
+            tokens.append(text[i : i + 2])
+            i += 2
+            continue
+        if ch in "{}[]=,;":
+            tokens.append(ch)
             i += 1
             continue
-        if not in_quotes:
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-            elif depth == 0 and stmt[i : i + 2] in {"->", "--"}:
-                endpoints.append("".join(current))
-                operators.append(stmt[i : i + 2])
-                current = []
-                i += 2
-                continue
-        current.append(ch)
-        i += 1
-    endpoints.append("".join(current))
-    if depth != 0 or not operators:
-        return None
-    return endpoints, operators
+        matched = re.match(r"[A-Za-z0-9_:.]+", text[i:])
+        if matched:
+            tokens.append(("id", matched.group(0)))
+            i += matched.end()
+            continue
+        raise _dot_parse_error(f"unexpected character {ch!r}.")
+    return tokens
 
 
-def _plain_node_ids(stmt: str) -> list[str] | None:
-    """Return ids if *stmt* is only whitespace-separated DOT ids."""
-    ids: list[str] = []
-    i = 0
-    s = stmt.strip()
-    while i < len(s):
-        if s[i].isspace():
-            i += 1
-            continue
-        if s[i] == '"':
-            end = s.find('"', i + 1)
-            if end == -1:
-                return None
-            ids.append(s[i + 1 : end])
-            i = end + 1
-            continue
-        matched = re.match(r"[A-Za-z0-9_]+", s[i:])
-        if not matched:
+def _id_text(token: str | tuple[str, str] | None) -> str | None:
+    if isinstance(token, tuple) and token[0] == "id":
+        return token[1]
+    return None
+
+
+def _is_id(token: str | tuple[str, str] | None) -> bool:
+    return _id_text(token) is not None
+
+
+def _is_keyword(token: str | tuple[str, str] | None, word: str) -> bool:
+    text = _id_text(token)
+    return text is not None and text.lower() == word
+
+
+class _DotBodyParser:
+    """Recursive-descent reader for the inside of a DOT ``{ ... }`` block."""
+
+    def __init__(self, body: str, *, is_undirected_graph: bool) -> None:
+        self.tokens = _tokenize(_strip_comments(body))
+        self.i = 0
+        self.is_undirected_graph = is_undirected_graph
+        self.nodes: set[str] = set()
+        self.directed: set[tuple[str, str]] = set()
+        self.undirected: set[frozenset[str]] = set()
+        self.scopes: list[set[str]] = [set()]
+
+    def peek(self, offset: int = 0) -> str | tuple[str, str] | None:
+        index = self.i + offset
+        if index >= len(self.tokens):
             return None
-        ids.append(matched.group(0))
-        i += matched.end()
-    return ids or None
+        return self.tokens[index]
 
+    def pop(self) -> str | tuple[str, str]:
+        token = self.peek()
+        if token is None:
+            raise _dot_parse_error(
+                "unsupported subgraph syntax (unexpected end of graph)."
+            )
+        self.i += 1
+        return token
 
-def _clean_id(token: str) -> str | None:
-    """Strip surrounding quotes/whitespace from a DOT identifier token."""
-    token = token.strip()
-    if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
-        return token[1:-1]
-    return token or None
+    def add_node(self, name: str) -> None:
+        if not name or name in _RESERVED:
+            return
+        self.nodes.add(name)
+        self.scopes[-1].add(name)
+
+    def parse(self) -> tuple[set[str], set[tuple[str, str]], set[frozenset[str]]]:
+        self.parse_statements(stop_at_rbrace=False)
+        return self.nodes, self.directed, self.undirected
+
+    def parse_statements(self, *, stop_at_rbrace: bool) -> None:
+        while True:
+            token = self.peek()
+            if token is None:
+                if stop_at_rbrace:
+                    raise _dot_parse_error(
+                        "unsupported subgraph syntax (unbalanced '{')."
+                    )
+                return
+            if token == "}":
+                if stop_at_rbrace:
+                    return
+                raise _dot_parse_error("unsupported subgraph syntax (unexpected '}').")
+            if token in {";", ","}:
+                self.pop()
+                continue
+            self.parse_statement()
+
+    def parse_statement(self) -> None:
+        token = self.peek()
+        if (
+            _is_keyword(token, "graph")
+            or _is_keyword(token, "node")
+            or _is_keyword(token, "edge")
+        ):
+            if self.peek(1) == "[":
+                self.pop()
+                while self.peek() == "[":
+                    self.take_attr_list()
+                return
+        if _is_id(token) and self.peek(1) == "=":
+            self.pop()
+            self.pop()
+            self.take_value()
+            return
+        self.parse_node_or_edge()
+
+    def take_value(self) -> None:
+        token = self.peek()
+        if _is_id(token) or (isinstance(token, tuple) and token[0] == "html"):
+            self.pop()
+            return
+        raise _dot_parse_error(
+            "unsupported subgraph syntax in an attribute value. "
+            f"Offending token: {token!r}."
+        )
+
+    def parse_node_or_edge(self) -> None:
+        left = self.parse_endpoint()
+        self.skip_attrs_belonging_to_node()
+        if self.peek() not in {"->", "--"}:
+            while self.peek() == "[":
+                self.take_attr_list()
+            return
+        hops: list[tuple[str, str, str]] = []
+        current = left
+        while self.peek() in {"->", "--"}:
+            op = self.pop()
+            if not isinstance(op, str):
+                raise _dot_parse_error(f"unsupported edge endpoint {op!r}.")
+            right = self.parse_endpoint()
+            self.skip_attrs_belonging_to_node()
+            for u in current:
+                for v in right:
+                    if u != v:
+                        hops.append((u, v, op))
+            current = right
+        dir_none = False
+        while self.peek() == "[":
+            dir_none = self.take_attr_list() or dir_none
+        for u, v, op in hops:
+            if self.is_undirected_graph or op == "--" or dir_none:
+                self.undirected.add(frozenset((u, v)))
+            else:
+                self.directed.add((u, v))
+
+    def skip_attrs_belonging_to_node(self) -> None:
+        """Drop ``[attr]`` groups that sit on a node before the next edge op.
+
+        ``A [label=x] -> B [dir=none]`` puts the first list on ``A`` and the
+        second on the edge. If no operator follows, leave the list for the
+        caller: it is either a node-statement attribute or ``dir=none``.
+        """
+        saved = self.i
+        while self.peek() == "[":
+            self.take_attr_list()
+        if self.peek() in {"->", "--"}:
+            return
+        self.i = saved
+
+    def parse_endpoint(self) -> set[str]:
+        token = self.peek()
+        if token == "{" or _is_keyword(token, "subgraph"):
+            return self.parse_subgraph()
+        if not _is_id(token):
+            if token == "subgraph" or (
+                isinstance(token, str) and "subgraph" in token.lower()
+            ):
+                raise _dot_parse_error(
+                    "unsupported subgraph syntax in an edge endpoint. "
+                    f"Offending endpoint: {token!r}."
+                )
+            raise _dot_parse_error(f"unsupported edge endpoint {token!r}.")
+        name = _id_text(token)
+        if name is None:
+            raise _dot_parse_error(f"unsupported edge endpoint {token!r}.")
+        self.pop()
+        self.add_node(name)
+        if name in _RESERVED:
+            return set()
+        return {name}
+
+    def parse_subgraph(self) -> set[str]:
+        if _is_keyword(self.peek(), "subgraph"):
+            self.pop()
+            if _is_id(self.peek()) and self.peek(1) == "{":
+                self.pop()
+            if self.peek() != "{":
+                raise _dot_parse_error(
+                    "unsupported subgraph syntax. A subgraph block must be "
+                    "'subgraph [id] { ... }' (the keyword and id are optional). "
+                    f"Offending token: {self.peek()!r}."
+                )
+        if self.peek() != "{":
+            raise _dot_parse_error(
+                "unsupported subgraph syntax. A subgraph block must be "
+                "'subgraph [id] { ... }' (the keyword and id are optional)."
+            )
+        self.pop()
+        self.scopes.append(set())
+        self.parse_statements(stop_at_rbrace=True)
+        if self.peek() != "}":
+            raise _dot_parse_error("unsupported subgraph syntax (unbalanced '{').")
+        self.pop()
+        inner = self.scopes.pop()
+        self.scopes[-1].update(inner)
+        return inner
+
+    def take_attr_list(self) -> bool:
+        """Consume one ``[ ... ]`` group. Return True if it sets ``dir=none``."""
+        if self.pop() != "[":
+            raise _dot_parse_error("unsupported subgraph syntax (expected '[').")
+        dir_none = False
+        depth = 1
+        prev: str | tuple[str, str] | None = None
+        while depth:
+            token = self.peek()
+            if token is None:
+                raise _dot_parse_error("unsupported subgraph syntax (unbalanced '[').")
+            self.pop()
+            if token == "[":
+                depth += 1
+            elif token == "]":
+                depth -= 1
+            else:
+                attr = _id_text(prev)
+                if token == "=" and attr is not None and attr.lower() == "dir":
+                    value = _id_text(self.peek())
+                    if value is not None and value.lower() == "none":
+                        dir_none = True
+            prev = token
+        return dir_none
 
 
 def _parse_dot(
@@ -450,8 +535,11 @@ def _parse_dot(
     and ``ID = value`` assignments such as ``rankdir=LR``) are ignored.
     A ``subgraph`` block, including an anonymous ``{ ... }`` cluster, is layout
     only: its nodes and edges are parsed, and the cluster id is not a node.
-    An edge into a subgraph connects to each node in that subgraph. Node
-    identity is the DOT id; ``label`` attributes are not used as identity.
+    An edge into a subgraph connects to each node in that subgraph.
+    ``;`` is optional, and a comma separates statements, so ``X -> Y Z -> Y``
+    and ``{ B, C }`` keep the real node ids. A ``}`` inside a comment or an
+    HTML label is not a subgraph boundary. Node identity is the DOT id;
+    ``label`` attributes are not used as identity.
 
     Raises
     ------
@@ -460,16 +548,18 @@ def _parse_dot(
         block is not valid DOT.
     """
     header = re.match(r"\s*(?:strict\s+)?(graph|digraph)\b", dot_text, flags=re.I)
-    brace_start = dot_text.find("{")
-    brace_end = dot_text.rfind("}")
-    if header is None or brace_start == -1 or brace_end <= brace_start:
+    if header is None:
         raise ValueError(
             "Could not parse DOT text. Expected a 'graph { ... }' or "
             "'digraph { ... }' block."
         )
-
+    body = _brace_interior(dot_text)
+    if body is None:
+        raise ValueError(
+            "Could not parse DOT text. Expected a 'graph { ... }' or "
+            "'digraph { ... }' block."
+        )
     is_undirected_graph = header.group(1).lower() == "graph"
-    body = dot_text[brace_start + 1 : brace_end]
     return _parse_dot_body(body, is_undirected_graph=is_undirected_graph)
 
 
@@ -480,164 +570,13 @@ def _parse_dot_body(
 
     Shared by :func:`_parse_dot` and (for directed graphs) by
     ``pathmc.dag._parse_dag``, so all DOT consumers agree on the grammar:
-    quoted ids, chained edges, attribute brackets, quote-aware comment and
-    statement handling, and ``subgraph`` blocks. A subgraph does not add a
-    node for its id; edges and node statements inside it are real.
+    quoted ids, chained edges, attribute brackets, quote-aware comments,
+    HTML labels, optional semicolons, and ``subgraph`` blocks. A subgraph
+    does not add a node for its id; edges and node statements inside it
+    are real.
     """
-    body = _separate_closed_blocks(_strip_comments(body))
-
-    nodes: set[str] = set()
-    directed: set[tuple[str, str]] = set()
-    undirected: set[frozenset[str]] = set()
-
-    for raw_stmt in _split_statements(body):
-        _consume_statement(
-            raw_stmt,
-            nodes,
-            directed,
-            undirected,
-            is_undirected_graph=is_undirected_graph,
-            in_subgraph=in_subgraph,
-        )
-    return nodes, directed, undirected
-
-
-def _consume_statement(
-    raw_stmt: str,
-    nodes: set[str],
-    directed: set[tuple[str, str]],
-    undirected: set[frozenset[str]],
-    *,
-    is_undirected_graph: bool,
-    in_subgraph: bool,
-) -> None:
-    stmt = raw_stmt.strip()
-    if not stmt:
-        return
-    subgraph_body = _match_subgraph(stmt)
-    if subgraph_body is not None:
-        sub_nodes, sub_dir, sub_und = _parse_dot_body(
-            subgraph_body,
-            is_undirected_graph=is_undirected_graph,
-            in_subgraph=True,
-        )
-        nodes.update(sub_nodes)
-        directed.update(sub_dir)
-        undirected.update(sub_und)
-        return
-    if _has_subgraph_syntax(stmt) and not _has_edge_op(stmt):
-        raise _dot_parse_error(
-            "unsupported subgraph syntax. A subgraph block must be "
-            "'subgraph [id] { ... }' (the keyword and id are optional). "
-            f"Offending statement: {stmt!r}."
-        )
-
-    stmt, attrs = _split_top_level_attrs(stmt)
-    if not stmt:
-        return
-    if _ASSIGNMENT_RE.match(stmt):
-        return
-
-    chain = _split_edge_chain(stmt)
-    if chain is not None:
-        _consume_edge(
-            chain,
-            attrs,
-            nodes,
-            directed,
-            undirected,
-            is_undirected_graph=is_undirected_graph,
-        )
-        return
-    if _has_subgraph_syntax(stmt):
-        raise _dot_parse_error(
-            "unsupported subgraph syntax. A subgraph block must be "
-            "'subgraph [id] { ... }' (the keyword and id are optional). "
-            f"Offending statement: {stmt!r}."
-        )
-
-    if in_subgraph:
-        plain = _plain_node_ids(stmt)
-        if plain is not None:
-            nodes.update(name for name in plain if name not in _RESERVED)
-            return
-    name = _clean_id(stmt)
-    if name and name not in _RESERVED:
-        nodes.add(name)
-
-
-def _consume_edge(
-    chain: tuple[list[str], list[str]],
-    attrs: str,
-    nodes: set[str],
-    directed: set[tuple[str, str]],
-    undirected: set[frozenset[str]],
-    *,
-    is_undirected_graph: bool,
-) -> None:
-    endpoints, operators = chain
-    incomplete = len(endpoints) != len(operators) + 1 or not all(
-        part.strip() for part in endpoints
-    )
-    if incomplete:
-        if any(_has_subgraph_syntax(part) for part in endpoints):
-            raise _dot_parse_error(
-                "unsupported subgraph syntax in an edge. "
-                f"Offending edge: {endpoints!r}."
-            )
-        return
-    resolved = [
-        _resolve_endpoint(
-            endpoint,
-            nodes,
-            directed,
-            undirected,
-            is_undirected_graph=is_undirected_graph,
-        )
-        for endpoint in endpoints
-    ]
-    dir_none = re.search(r"dir\s*=\s*none", attrs, flags=re.I) is not None
-    for (left, right), op in zip(zip(resolved, resolved[1:]), operators):
-        for u in left:
-            for v in right:
-                if u == v:
-                    continue
-                if is_undirected_graph or op == "--" or dir_none:
-                    undirected.add(frozenset((u, v)))
-                else:
-                    directed.add((u, v))
-
-
-def _resolve_endpoint(
-    endpoint: str,
-    nodes: set[str],
-    directed: set[tuple[str, str]],
-    undirected: set[frozenset[str]],
-    *,
-    is_undirected_graph: bool,
-) -> set[str]:
-    endpoint = endpoint.strip()
-    body = _match_subgraph(endpoint)
-    if body is not None:
-        sub_nodes, sub_dir, sub_und = _parse_dot_body(
-            body,
-            is_undirected_graph=is_undirected_graph,
-            in_subgraph=True,
-        )
-        nodes.update(sub_nodes)
-        directed.update(sub_dir)
-        undirected.update(sub_und)
-        return sub_nodes
-    if _has_subgraph_syntax(endpoint):
-        raise _dot_parse_error(
-            "unsupported subgraph syntax in an edge endpoint. "
-            f"Offending endpoint: {endpoint!r}."
-        )
-    name = _clean_id(endpoint)
-    if not name:
-        raise _dot_parse_error(f"unsupported edge endpoint {endpoint!r}.")
-    nodes.add(name)
-    return {name}
+    del in_subgraph
+    return _DotBodyParser(body, is_undirected_graph=is_undirected_graph).parse()
 
 
 def _skeleton(
