@@ -91,16 +91,16 @@ The DSL is lavaan-inspired:
 | Inspect adjustment set / formula before fit     | `adj.adjustment_set`, `adj.formula` (before `adj.fit()`) |
 | Interventional / associational predictions      | `m.predictions(outcome, set={...})`                    |
 | Interventional contrasts (structural model)     | `m.comparisons(outcome, variable, contrast=(0, 1))`    |
-| Marginal slopes under intervention              | `m.slopes(outcome, variable)`                          |
+| Marginal slopes under intervention              | `m.slopes(outcome, wrt=...)`                           |
 | Same interpret API on adjustment model          | `adj.comparisons(...)`, `adj.slopes(...)`, etc.         |
 | Probability under intervention                    | `m.prob("Y > 0", set={"X": 1})`                        |
 | Manual intervention                               | `m.do(set={"X": 1})`                                   |
 | Intervene on a categorical level                  | `m.do(set={"region": "south"})`, `m.ate("Y", "region", values=("north", "south"))` |
 | Declare an integer-coded column as labels         | `Y ~ C(store_type)`                                    |
-| Counterfactual / time-forward (panel)             | `m.do(set={...}, kind="time-forward")`                 |
+| Counterfactual / time-forward (panel)             | `m.do(set={...}, simulate_over="time")`                |
 | Adjustment sets for identification                | `m.adjustment_sets(treatment, outcome)`                |
 | Yes/no identification check                       | `m.is_identifiable(treatment, outcome)`                |
-| Front-door identification                         | `m.frontdoor_identifiable(treatment, outcome)`         |
+| Front-door identification                         | `m.frontdoor_identifiable(treatment, mediator, outcome)` |
 | Flag colliders on any path (heuristic; validity is `is_valid_adjustment_set`) | `m.collider_warnings(adjust, treatment, outcome)` |
 | Enumerate implied conditional independences       | `m.implied_independences()`                            |
 | Test DAG implications against data                | `m.test_implications()`                                |
@@ -290,7 +290,7 @@ m = pathmc.model(
     pooling="partial",
 )
 m.fit()
-m.do(set={"price": 1.5}, kind="time-forward")
+m.do(set={"price": 1.5}, simulate_over="time")
 ```
 
 ### Custom priors
