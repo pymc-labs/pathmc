@@ -657,6 +657,13 @@ def test_html_comment_markers_numerals_and_comma_lists_keep_edges():
         assert nodes == {"A", "B"}
         assert edges == {("A", "B")}
 
+    backslash = 'digraph { "foo\\bar" -> Y }'
+    assert _parse_dot(backslash)[0] == {"foo\\bar", "Y"}
+    with pytest.raises(ValueError, match="-"):
+        _parse_dot("digraph { my-node -> Y }")
+    with pytest.raises(ValueError, match=","):
+        _parse_dot("digraph { A -> B [dir=none], C }")
+
 
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""

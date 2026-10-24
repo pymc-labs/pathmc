@@ -292,8 +292,8 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             buf: list[str] = []
             i += 1
             while i < n:
-                if text[i] == "\\" and i + 1 < n:
-                    buf.append(text[i + 1])
+                if text[i] == "\\" and i + 1 < n and text[i + 1] == '"':
+                    buf.append('"')
                     i += 2
                     continue
                 if text[i] == '"':
@@ -336,6 +336,10 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             tokens.append(("id", matched.group(0)))
             i += matched.end()
             continue
+        if ch == "-":
+            raise _dot_parse_error(
+                "unsupported DOT syntax near '-'. A hyphen is not part of a node id."
+            )
         if ch == ":":
             tokens.append(":")
             i += 1
@@ -461,7 +465,7 @@ class _DotBodyParser:
             self.pop()
 
     def parse_node_or_edge(self) -> None:
-        left = self.parse_node_list()
+        left = self.parse_node_list(on_edge=False)
         if self.peek() not in {"->", "--"}:
             while self.peek() == "[":
                 self.take_attr_list()
@@ -472,7 +476,7 @@ class _DotBodyParser:
             op = self.pop()
             if not isinstance(op, str):
                 raise _dot_parse_error(f"unsupported edge endpoint {op!r}.")
-            right = self.parse_node_list()
+            right = self.parse_node_list(on_edge=True)
             for u in current:
                 for v in right:
                     if u != v:
@@ -487,29 +491,37 @@ class _DotBodyParser:
             else:
                 self.directed.add((u, v))
 
-    def parse_node_list(self) -> set[str]:
+    def parse_node_list(self, *, on_edge: bool) -> set[str]:
         """Parse a comma-separated endpoint list (``B, C`` or ``{B C}, D``)."""
         names = self.parse_endpoint()
-        self.skip_attrs_belonging_to_node()
+        self.skip_attrs_belonging_to_node(on_edge=on_edge)
         while self.peek() == ",":
             self.pop()
             names |= self.parse_endpoint()
-            self.skip_attrs_belonging_to_node()
+            self.skip_attrs_belonging_to_node(on_edge=on_edge)
         return names
 
-    def skip_attrs_belonging_to_node(self) -> None:
+    def skip_attrs_belonging_to_node(self, *, on_edge: bool) -> None:
         """Drop ``[attr]`` groups that sit on a node before the next hop.
 
         ``A [label=x] -> B [dir=none]`` puts the first list on ``A`` and the
         second on the edge. A list followed by ``,`` belongs to that node in
-        a node list. If no operator or comma follows, leave the list for the
-        caller: it is either a node-statement attribute or ``dir=none``.
+        a node list before the edge operator. After the operator, ``,``
+        following an attribute list is unsupported: it must not invent a node
+        or drop ``dir=none``.
         """
         saved = self.i
+        consumed = False
         while self.peek() == "[":
             self.take_attr_list()
-        if self.peek() in {"->", "--", ","}:
+            consumed = True
+        if self.peek() in {"->", "--"} or (self.peek() == "," and not on_edge):
             return
+        if on_edge and consumed and self.peek() == ",":
+            raise _dot_parse_error(
+                "unsupported DOT syntax: an attribute list cannot be followed "
+                "by ','. Offending token: ','."
+            )
         self.i = saved
 
     def parse_endpoint(self) -> set[str]:
