@@ -318,12 +318,41 @@ def build_effects_summary(
 _NON_GAUSSIAN_FAMILIES = frozenset({"bernoulli", "poisson", "negbinomial"})
 
 
+def _observed_sd(
+    data: nw.DataFrame,
+    column: str,
+    scaling_factors: ScalingFactors | None,
+) -> float | None:
+    """Sample SD of *column* on the data the caller passed.
+
+    Unscaled columns keep the frame's own SD. Scaled columns are mapped
+    back to business units first, so a heterogeneous divisor is not
+    replaced by the SD of the internally divided column.
+    """
+    if scaling_factors is not None and scaling_factors.has_factor(column):
+        observed = np.asarray(
+            scaling_factors.to_business(
+                np.asarray(data[column].to_numpy(), dtype=float),
+                kind="outcome",
+                dims=ScaleContext(term=column, data=data),
+            ),
+            dtype=float,
+        )
+        sd = pd.Series(observed).std()
+    else:
+        sd = data[column].std()
+    if sd is None or not np.isfinite(float(sd)) or float(sd) == 0:
+        return None
+    return float(sd)
+
+
 def build_standardized_effects(
     spec: Spec,
     idata: xr.DataTree,
     data: nw.DataFrame,
     latent: set[str] | None = None,
     families: dict[str, str] | None = None,
+    scaling_factors: ScalingFactors | None = None,
 ) -> pd.DataFrame:
     """Compute stdyx-standardized coefficients from posterior draws.
 
@@ -331,9 +360,12 @@ def build_standardized_effects(
 
         stdyx = coef * sd(X) / sd(Y)
 
-    This gives the expected change in Y (in SD units) per SD change in X.
-    Edges involving latent variables (no observed SD) or non-Gaussian outcomes
-    are skipped.
+    ``coef`` is the business-unit coefficient (the same scale
+    ``effects_summary()`` reports). ``sd(X)`` and ``sd(Y)`` are the
+    observed marginal SDs of the data the caller passed, not the SDs of
+    internally divided columns. This gives the expected change in Y (in
+    SD units) per SD change in X. Edges involving latent variables (no
+    observed SD) or non-Gaussian outcomes are skipped.
 
     Parameters
     ----------
@@ -371,12 +403,9 @@ def build_standardized_effects(
         if families.get(lhs, "gaussian") in _NON_GAUSSIAN_FAMILIES:
             skipped_non_gaussian.append(lhs)
             continue
-        # narwhals Series.std() returns None for an all-null column; treat that
-        # (and a zero-variance column) as non-standardizable and skip.
-        _sd_y = data[lhs].std()
-        if _sd_y is None or float(_sd_y) == 0:
+        sd_y = _observed_sd(data, lhs, scaling_factors)
+        if sd_y is None:
             continue
-        sd_y = float(_sd_y)
 
         for term in reg.terms:
             if term.label is None or term.label not in labeled_draws:
@@ -388,12 +417,19 @@ def build_standardized_effects(
             var = term.variable
             if var in latent or var not in data.columns:
                 continue
-            _sd_x = data[var].std()
-            if _sd_x is None or float(_sd_x) == 0:
+            sd_x = _observed_sd(data, var, scaling_factors)
+            if sd_x is None:
                 continue
-            sd_x = float(_sd_x)
 
             raw_draws = labeled_draws[term.label]
+            if scaling_factors is not None:
+                raw_draws = np.asarray(
+                    scaling_factors.to_business(
+                        raw_draws,
+                        kind="coefficient",
+                        dims=ScaleContext(term=term, outcome=lhs, data=data),
+                    )
+                )
             std_draws = raw_draws * sd_x / sd_y
             interval = hdi(std_draws)
             rows.append({

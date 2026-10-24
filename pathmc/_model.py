@@ -853,6 +853,10 @@ class PathModel:
 
         Each coefficient is standardized as ``coef * sd(X) / sd(Y)``,
         giving the expected change in Y (in SD units) per SD change in X.
+        ``coef`` is the business-unit coefficient reported by
+        ``effects_summary()``. ``sd(X)`` and ``sd(Y)`` are the observed
+        marginal SDs of the data passed to ``model()``, including on a
+        scaled model whose internal columns were divided by per-unit factors.
 
         Returns
         -------
@@ -882,6 +886,7 @@ class PathModel:
             self._data,
             latent=self._latent,
             families=self._families,
+            scaling_factors=self._scaling_factors,
         )
 
     def effect(self, path: str) -> EffectResult:
