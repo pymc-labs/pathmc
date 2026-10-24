@@ -402,6 +402,41 @@ def _is_binary_01(column: nw.Series) -> bool:
     return observed <= {0.0, 1.0}
 
 
+def _values_are_binary_01(values: np.ndarray) -> bool:
+    """Return whether finite observed numbers are only 0 and 1."""
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return False
+    return set(np.unique(finite).tolist()) <= {0.0, 1.0}
+
+
+def _predictor_is_binary_01(
+    data: nw.DataFrame,
+    variable: str,
+    scaling_factors: ScalingFactors | None,
+) -> bool:
+    """Return whether the predictor is 0/1 in business units.
+
+    Scaled frames store ``value / factor``. Classify the unscaled column so a
+    0/1 treatment is still skipped after a channel scale.
+    """
+    column = data[variable]
+    if scaling_factors is not None and scaling_factors.has_factor(variable):
+        try:
+            business = np.asarray(
+                scaling_factors.to_business(
+                    np.asarray(column.to_numpy(), dtype=float),
+                    kind="regressor",
+                    dims=ScaleContext(term=variable, data=data),
+                ),
+                dtype=float,
+            )
+        except (TypeError, ValueError):
+            return _is_binary_01(column)
+        return _values_are_binary_01(business)
+    return _is_binary_01(column)
+
+
 def build_standardized_effects(
     spec: Spec,
     idata: xr.DataTree,
@@ -438,6 +473,9 @@ def build_standardized_effects(
     families : dict[str, str] | None
         Per-variable distribution families. Non-Gaussian outcomes are
         skipped with a warning.
+    scaling_factors : ScalingFactors | None
+        Fitted scale factors. Used only to recover business-unit 0/1 codings.
+        The stdyx formula still uses the observed SDs of ``data``.
 
     Returns
     -------
@@ -475,7 +513,9 @@ def build_standardized_effects(
             var = term.variable
             if var in latent or var not in data.columns:
                 continue
-            if _is_binary_01(data[var]):
+            # A 0/1 column's SD is the base rate, not a measurement scale.
+            # Classify business units so a channel scale does not hide the coding.
+            if _predictor_is_binary_01(data, var, scaling_factors):
                 continue
             sd_x = _observed_sd(data, var, scaling_factors)
             if sd_x is None:

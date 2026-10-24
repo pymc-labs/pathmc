@@ -122,6 +122,33 @@ class TestBinaryPredictorsSkipped:
         assert "c" in result.index
         assert np.isfinite(result.loc["c", "mean"])
 
+    def test_scaled_channel_still_omits_binary_label(self) -> None:
+        n = 40
+        treatment = np.array([1.0] * 10 + [0.0] * 30)
+        covariate = np.linspace(5.0, 15.0, n)
+        frame = pd.DataFrame({
+            "T": treatment,
+            "X": covariate,
+            "Y": 2.0 * covariate + 3.0,
+        })
+        model = pathmc.model(
+            "Y ~ b*T + c*X",
+            data=frame,
+            scaling=Scaling(channel={"method": "fixed", "value": 10.0}),
+        )
+        order = [str(name) for name in model.pymc_model.coords["Y_predictors"]]
+        injected = [{"T": 4.0, "X": 0.3, "Intercept": 0.0}[name] for name in order]
+        model._idata = az.from_dict(
+            {"posterior": {"beta_Y": np.tile(injected, (1, 4, 1))}},
+            coords={"Y_predictors": order},
+            dims={"beta_Y": ["Y_predictors"]},
+        )
+
+        result = model.standardized()
+
+        assert "b" not in result.index
+        assert "c" in result.index
+
 
 class TestStandardizedBeforeSample:
     def test_raises_before_sample(self):
