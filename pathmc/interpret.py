@@ -401,6 +401,7 @@ def _unit_prediction(
             families=model._families,
             average_units=False,
             scaling_factors=model._scaling_factors,
+            observed_endogenous=not set_dict,
         )
         if outcome not in result.dataset:
             raise KeyError(

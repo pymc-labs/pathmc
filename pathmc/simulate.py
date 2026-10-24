@@ -952,15 +952,19 @@ def _apply_inverse_link(mu_vals: Any, family: str) -> Any:
 
 
 def _replace_graph(expr: Any, replacements: dict[Any, Any]) -> Any:
-    """Clone *expr* with only the replacements that appear in its graph."""
+    """Clone *expr* with only the replacements that appear in its graph.
+
+    One ``graph_replace`` call is required. Replacing keys one at a time
+    clones the graph, so a later key is no longer the node in the clone
+    and a downstream mediator is left as a free random variable.
+    """
     if not replacements:
         return expr
-    result = expr
-    for var, replacement in replacements.items():
-        graph_vars = set(ancestors([result]))
-        if var in graph_vars:
-            result = graph_replace(result, replace={var: replacement}, strict=False)
-    return result
+    present = set(ancestors([expr]))
+    relevant = {var: repl for var, repl in replacements.items() if var in present}
+    if not relevant:
+        return expr
+    return graph_replace(expr, replace=relevant, strict=False)
 
 
 def _float_descendants_of(source_var: Any, exprs: list[Any]) -> list[Any]:
@@ -1381,6 +1385,30 @@ def _business_exog_value(
     return _exogenous_fill(values)
 
 
+def _observed_endogenous_binding(
+    data: nw.DataFrame,
+    var: str,
+    model_var: Any,
+    mu_source_exprs: list[Any],
+) -> dict[Any, Any]:
+    """Map a free endogenous RV to its observed numeric column, if any.
+
+    Used when associational predictions must evaluate downstream equations
+    at the observed mediator instead of substituting its structural mean.
+    Non-numeric columns are left unbound so categorical encodings keep the
+    structural-mean path.
+    """
+    if var not in data.columns:
+        return {}
+    raw = np.asarray(data[var].to_numpy())
+    if raw.dtype.kind not in "iufc":
+        return {}
+    observed = pt.as_tensor_variable(np.asarray(raw, dtype=float))
+    if str(getattr(model_var, "dtype", "")).startswith("float"):
+        return {model_var: observed}
+    return {key: observed for key in _float_descendants_of(model_var, mu_source_exprs)}
+
+
 _DO_KINDS = ("mean", "predictive")
 
 
@@ -1402,6 +1430,8 @@ def run_do_pymc(
     average_units: bool = True,
     scaling_factors: ScalingFactors | None = None,
     categorical_vars: set[str] | None = None,
+    *,
+    observed_endogenous: bool = False,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -1425,6 +1455,7 @@ def run_do_pymc(
         Observed data (used for sizing intervention arrays).
     set : dict[str, float] | None
         Variables to intervene on, with their fixed values.
+        ``observed_endogenous`` is ignored when this is non-empty.
     kind : str
         ``"mean"`` for deterministic propagation, ``"predictive"`` to
         include residual noise at each step.
@@ -1443,6 +1474,12 @@ def run_do_pymc(
         Fitted scale factors. When given, ``set`` values for scaled
         columns are treated as business units and divided by the
         per-row factor before graph surgery.
+    observed_endogenous : bool
+        When ``True`` and ``set`` is empty, downstream equations use the
+        observed numeric values of endogenous covariates instead of those
+        variables' structural means. Associational ``predictions()`` sets
+        this so an omitted ``set`` does no graph surgery. ``do()`` leaves
+        it false and still propagates structural means.
 
     Returns
     -------
@@ -1503,7 +1540,14 @@ def run_do_pymc(
                     mean_det_names[var] = mean_name
 
                     response_expr = _apply_inverse_link(mu_expr, families.get(var, ""))
-                    if var in do_model.named_vars:
+                    binding: dict[Any, Any] = {}
+                    if observed_endogenous and not set and var in do_model.named_vars:
+                        binding = _observed_endogenous_binding(
+                            data, var, do_model[var], mu_source_exprs
+                        )
+                    if binding:
+                        expr_replacements.update(binding)
+                    elif var in do_model.named_vars:
                         model_var = do_model[var]
                         if model_var.dtype.startswith("float"):
                             expr_replacements[model_var] = response_expr
