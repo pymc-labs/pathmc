@@ -1227,7 +1227,9 @@ def _make_scan_resolver(
     prev_exog: dict[str, Any],
     transform_map: dict[str, TransformCall],
     ns_map: dict[str, Any],
-    adstock_state: dict[str, Any],
+    prev_adstock: dict[str, Any],
+    next_adstock: dict[str, Any],
+    current_transform: dict[str, Any],
     n_units: int,
 ) -> Callable[[PredictorSlot], Any]:
     """Create a resolver for scan-panel mu construction.
@@ -1236,7 +1238,10 @@ def _make_scan_resolver(
     exogenous slices, already-computed endogenous values, and
     previous-step carry state for lags.
 
-    Side effect: transform slots update *adstock_state* in-place.
+    Stateful transforms read *prev_adstock* and write the next carry
+    into *next_adstock*. *current_transform* caches this timestep's
+    value, keyed by the leaf carry column, so a transform shared by
+    several equations advances once and every equation sees that value.
     """
     import pytensor.tensor as pt
 
@@ -1254,13 +1259,19 @@ def _make_scan_resolver(
                 "Use a cross-sectional model or remove the basis term."
             )
         if slot.kind == "transform":
+            # A later equation must not step state already advanced by
+            # an earlier equation in this same timestep.
+            if slot.name in current_transform:
+                return current_transform[slot.name]
             tc = transform_map[slot.name]
             inp_name = _get_adstock_input(tc)
             raw = _resolve_var(inp_name)
             transformed, updated = _apply_step_transform(
-                tc, raw, adstock_state, ns_map, slot.name
+                tc, raw, prev_adstock, ns_map, slot.name
             )
-            adstock_state.update(updated)
+            if _has_adstock(tc):
+                next_adstock[slot.name] = updated[slot.name]
+            current_transform[slot.name] = transformed
             return transformed
         if slot.kind == "interaction":
             assert slot.interaction_parts is not None
@@ -2972,6 +2983,7 @@ def _compile_scan_panel(
 
             new_endo: dict[str, Any] = {}
             new_adstock = dict(prev_adstock_state)
+            current_transform: dict[str, Any] = {}
             carry_mu: dict[str, Any] = {}
 
             for var in endo_keys:
@@ -2989,7 +3001,9 @@ def _compile_scan_panel(
                     prev_exog,
                     transform_map,
                     ns_map,
+                    prev_adstock_state,
                     new_adstock,
+                    current_transform,
                     n_units,
                 )
                 mu = build_mu(mu_specs[var], resolver, beta, pt.zeros(n_units))
