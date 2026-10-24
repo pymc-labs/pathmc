@@ -442,7 +442,7 @@ def _predictor_is_binary_01(
             )
         except (TypeError, ValueError):
             return _is_binary_01(column)
-        return _values_are_binary_01(business, atol=1e-8)
+        return _values_are_binary_01(business, atol=16 * float(np.spacing(1.0)))
     return _is_binary_01(column)
 
 

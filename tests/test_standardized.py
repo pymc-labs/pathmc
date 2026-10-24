@@ -176,6 +176,32 @@ class TestBinaryPredictorsSkipped:
         assert "b" not in result.index
         assert "c" in result.index
 
+    def test_scaled_near_zero_continuous_column_is_kept(self) -> None:
+        covariate = np.linspace(1.0, 4.0, 12)
+        outcome = np.linspace(2.0, 5.0, 12)
+        frame = pd.DataFrame({
+            "T": np.linspace(0.0, 5e-9, 12),
+            "X": covariate,
+            "Y": outcome,
+        })
+        model = pathmc.model(
+            "Y ~ b*T + c*X",
+            data=frame,
+            scaling=Scaling(channel={"method": "max"}),
+        )
+        order = [str(name) for name in model.pymc_model.coords["Y_predictors"]]
+        injected = [{"T": 4.0, "X": 0.3, "Intercept": 0.0}[name] for name in order]
+        model._idata = az.from_dict(
+            {"posterior": {"beta_Y": np.tile(injected, (1, 4, 1))}},
+            coords={"Y_predictors": order},
+            dims={"beta_Y": ["Y_predictors"]},
+        )
+
+        result = model.standardized()
+
+        assert "b" in result.index
+        assert "c" in result.index
+
 
 class TestStandardizedBeforeSample:
     def test_raises_before_sample(self):
