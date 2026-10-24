@@ -431,6 +431,119 @@ def test_semicolon_inside_quoted_attribute_does_not_split_statement():
     assert same_markov_equivalence_class(dot, "digraph { A -> B; B -> C; }") is True
 
 
+def test_subgraph_wrapper_matches_flat_collider():
+    """A graphviz ``subgraph`` wrapper is the same collider, not new nodes.
+
+    Layout clusters do not change the nodes, skeleton, or unshielded colliders.
+    The reader must not invent nodes such as ``subgraph cluster { X`` or ``}``
+    and report the graphs as inequivalent.
+    """
+    flat = "digraph { X -> Y; Z -> Y; }"
+    wrapped = "digraph { subgraph cluster { X -> Y; Z -> Y; } }"
+    nodes, directed, undirected = _parse_dot(wrapped)
+    assert nodes == {"X", "Y", "Z"}
+    assert directed == {("X", "Y"), ("Z", "Y")}
+    assert undirected == set()
+    assert same_markov_equivalence_class(wrapped, flat) is True
+    assert same_markov_equivalence_class(_DummySource(wrapped), flat) is True
+
+
+def test_subgraph_layout_variants_do_not_invent_nodes():
+    """Nearby subgraph forms keep the same nodes and edges as the flat graph."""
+    flat = "digraph { X -> Y; Z -> Y; }"
+    variants = [
+        "digraph { { X -> Y; Z -> Y; } }",
+        "digraph { subgraph { X -> Y; Z -> Y } }",
+        "digraph { subgraph outer { subgraph cluster_in { X -> Y; Z -> Y } } }",
+        "digraph { subgraph cluster { X -> Y } Z -> Y }",
+        (
+            "digraph {\n"
+            "  rankdir=LR\n"
+            "  subgraph cluster_c {\n"
+            '    label="collider"\n'
+            "    style=dashed\n"
+            "    X -> Y\n"
+            "    Z -> Y\n"
+            "  }\n"
+            "}"
+        ),
+        'digraph { subgraph "c 1" { "X" -> "Y"; "Z" -> "Y"; } }',
+        "graph { subgraph cluster { X -- Y; Z -- Y } }",
+    ]
+    for dot in variants:
+        nodes, directed, undirected = _parse_dot(dot)
+        assert "}" not in nodes
+        assert all("subgraph" not in node for node in nodes)
+        assert all("=" not in node for node in nodes)
+        if dot.startswith("graph "):
+            assert nodes == {"X", "Y", "Z"}
+            assert directed == set()
+            assert undirected == {frozenset({"X", "Y"}), frozenset({"Z", "Y"})}
+            assert (
+                same_markov_equivalence_class(dot, "graph { X -- Y; Z -- Y }") is True
+            )
+        else:
+            assert nodes == {"X", "Y", "Z"}
+            assert directed == {("X", "Y"), ("Z", "Y")}
+            assert undirected == set()
+            assert same_markov_equivalence_class(dot, flat) is True
+
+
+def test_edge_into_subgraph_expands_to_member_nodes():
+    """An edge into a subgraph connects to each node inside, not to the block."""
+    dotted = "digraph { A -> subgraph { B; C }; }"
+    nodes, directed, undirected = _parse_dot(dotted)
+    assert nodes == {"A", "B", "C"}
+    assert directed == {("A", "B"), ("A", "C")}
+    assert undirected == set()
+    assert same_markov_equivalence_class(dotted, "digraph { A -> B; A -> C; }") is True
+
+    braced = "digraph { { A B } -> C }"
+    nodes, directed, undirected = _parse_dot(braced)
+    assert nodes == {"A", "B", "C"}
+    assert directed == {("A", "C"), ("B", "C")}
+    assert undirected == set()
+
+    internal = "digraph { A -> subgraph { B -> C } }"
+    nodes, directed, undirected = _parse_dot(internal)
+    assert nodes == {"A", "B", "C"}
+    assert directed == {("A", "B"), ("A", "C"), ("B", "C")}
+    assert undirected == set()
+
+    product = "digraph { { A B } -> { C D } }"
+    nodes, directed, undirected = _parse_dot(product)
+    assert nodes == {"A", "B", "C", "D"}
+    assert directed == {("A", "C"), ("A", "D"), ("B", "C"), ("B", "D")}
+    assert undirected == set()
+
+    undirected_into = "digraph { A -> { B C } [dir=none] }"
+    nodes, directed, undirected = _parse_dot(undirected_into)
+    assert nodes == {"A", "B", "C"}
+    assert directed == set()
+    assert undirected == {frozenset({"A", "B"}), frozenset({"A", "C"})}
+
+
+def test_malformed_subgraph_raises_instead_of_inventing_nodes():
+    """Unbalanced or bare ``subgraph`` syntax raises, naming that syntax."""
+    unbalanced = "digraph { subgraph cluster { X -> Y; Z -> Y; }"
+    with pytest.raises(ValueError, match="subgraph"):
+        same_markov_equivalence_class(unbalanced, "digraph { X -> Y; Z -> Y; }")
+    bare = "digraph { subgraph cluster X -> Y; }"
+    with pytest.raises(ValueError, match="subgraph"):
+        _parse_dot(bare)
+
+
+def test_dag_parser_uses_subgraph_nodes_not_invented_ones():
+    """The shared body reader must not invent nodes for ``dag`` either."""
+    from pathmc.dag import BuildModelFromDAG
+
+    graph = BuildModelFromDAG._parse_dag(
+        "digraph { subgraph cluster { X -> Y; Z -> Y } }"
+    )
+    assert set(graph.nodes) == {"X", "Y", "Z"}
+    assert set(graph.edges) == {("X", "Y"), ("Z", "Y")}
+
+
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""
     g = nx.DiGraph()
