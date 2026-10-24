@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import builtins
 import warnings
-from collections.abc import Iterator, Mapping
+from collections.abc import Hashable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
@@ -357,6 +357,56 @@ class _DrawStorageMixin:
         return self._draw_by_time(var)
 
 
+def plot_panel_trajectory(
+    var: str,
+    draws: np.ndarray,
+    time_coords: np.ndarray,
+    *,
+    overlay: np.ndarray | None = None,
+    ax: matplotlib.axes.Axes | None = None,
+    prob: float = DEFAULT_HDI_PROB,
+) -> matplotlib.figure.Figure:
+    """Draw a per-time mean and HDI band.
+
+    Callers validate that *draws* is ``(n_times, n_samples)`` and that
+    *time_coords* matches that length. This is the shared drawer for
+    :class:`DoResult` and policy results; it does not construct either type.
+    """
+    import matplotlib.pyplot as plt
+
+    n_times = draws.shape[0]
+    means = np.mean(draws, axis=1)
+    hdi_band = compute_hdi(draws, prob=prob)
+    if hdi_band.ndim == 1 and hdi_band.shape[0] == 2:
+        lo = np.full(n_times, float(hdi_band[0]))
+        hi = np.full(n_times, float(hdi_band[1]))
+    else:
+        lo = hdi_band[:, 0]
+        hi = hdi_band[:, 1]
+    if overlay is not None and overlay.shape[0] != n_times:
+        raise ValueError(
+            f"observed must have length {n_times} (one per time step), "
+            f"got {overlay.shape[0]}."
+        )
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 4))
+    else:
+        fig = cast("matplotlib.figure.Figure", ax.get_figure())
+    x = np.arange(n_times)
+    ax.fill_between(x, lo, hi, alpha=0.3, label=hdi_label(prob))
+    ax.plot(x, means, color="C0", label="Counterfactual")
+    if overlay is not None:
+        ax.plot(x, overlay, color="C1", linestyle="--", label="Observed")
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(t) for t in time_coords], rotation=45, ha="right")
+    ax.set_xlabel("time")
+    ax.set_ylabel(var)
+    ax.legend(loc="best")
+    ax.set_title(var)
+    fig.tight_layout()
+    return fig
+
+
 class DoResult(_DrawStorageMixin, ResultReprMixin):
     """Container for propagated posterior draws under an intervention.
 
@@ -516,7 +566,6 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             ``vs="observed"`` is requested without a series, or if
             ``observed`` has the wrong length.
         """
-        import matplotlib.pyplot as plt
 
         if var not in self._ds.data_vars:
             available = sorted(str(v) for v in self._ds.data_vars)
@@ -540,15 +589,6 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
 
         draws = self._by_time_draws(var)
         n_times = draws.shape[0]
-        means = np.mean(draws, axis=1)
-        hdi_band = compute_hdi(draws, prob=prob)
-        if hdi_band.ndim == 1 and hdi_band.shape[0] == 2:
-            lo = np.full(n_times, float(hdi_band[0]))
-            hi = np.full(n_times, float(hdi_band[1]))
-        else:
-            lo = hdi_band[:, 0]
-            hi = hdi_band[:, 1]
-
         overlay: np.ndarray | None = None
         if observed is not None:
             overlay = np.asarray(observed, dtype=float)
@@ -563,35 +603,19 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             raise ValueError(
                 f"Unknown vs='{vs}'. Supported values: 'observed' or omit vs."
             )
-
-        if overlay is not None:
-            if overlay.shape[0] != n_times:
-                raise ValueError(
-                    f"observed must have length {n_times} (one per time step), "
-                    f"got {overlay.shape[0]}."
-                )
-
-        if ax is None:
-            fig, ax = plt.subplots(figsize=(8, 4))
-        else:
-            fig = cast("matplotlib.figure.Figure", ax.get_figure())
-
-        x = np.arange(n_times)
-        ax.fill_between(x, lo, hi, alpha=0.3, label=hdi_label(prob))
-        ax.plot(x, means, color="C0", label="Counterfactual")
-        if overlay is not None:
-            ax.plot(x, overlay, color="C1", linestyle="--", label="Observed")
-        ax.set_xticks(x)
-        ax.set_xticklabels([str(t) for t in time_coords], rotation=45, ha="right")
-        ax.set_xlabel("time")
-        ax.set_ylabel(var)
-        ax.legend(loc="best")
-        ax.set_title(var)
-        fig.tight_layout()
-        return fig
+        return plot_panel_trajectory(
+            var,
+            draws,
+            time_coords,
+            overlay=overlay,
+            ax=ax,
+            prob=prob,
+        )
 
     def __sub__(self, other: DoResult) -> DoResult:
         """Element-wise contrast between two DoResults."""
+        if not isinstance(other, DoResult):
+            return NotImplemented
         if self._scenario != other._scenario:
             raise ValueError(
                 "Cannot contrast a counterfactual result with a do() result. "
@@ -1402,6 +1426,7 @@ def run_do_pymc(
     average_units: bool = True,
     scaling_factors: ScalingFactors | None = None,
     categorical_vars: set[str] | None = None,
+    random_seed: int | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -1558,7 +1583,9 @@ def run_do_pymc(
             "ignore", message="Could not extract data from symbolic observation"
         )
         with do_model:
-            ppc = pm.sample_posterior_predictive(idata, progressbar=False)
+            ppc = pm.sample_posterior_predictive(
+                idata, progressbar=False, random_seed=random_seed
+            )
 
     extra_det_names = [
         f"mu_{var}"
@@ -1637,11 +1664,279 @@ def _panel_predictive_sample_kwargs(
     return {"sample_vars": unobs, "var_names": var_names}
 
 
+def _simulation_labels(innovations: xr.Dataset | None) -> tuple[Any, ...] | None:
+    """Return simulation labels when every innovation shares that dimension."""
+    if innovations is None or not innovations.data_vars:
+        return None
+    labelled = [
+        name
+        for name, value in innovations.data_vars.items()
+        if "simulation" in value.dims
+    ]
+    if not labelled:
+        return None
+    if len(labelled) != len(innovations.data_vars):
+        raise ValueError(
+            "Innovations must all include a simulation dimension, or none of them. "
+            f"Missing it: {sorted(str(name) for name in set(innovations.data_vars) - set(labelled))}."
+        )
+    reference = innovations[labelled[0]]
+    if "simulation" not in reference.coords:
+        raise ValueError(
+            f"innovations[{labelled[0]!r}] has a simulation dimension but no coordinate."
+        )
+    labels = tuple(reference.coords["simulation"].values.tolist())
+    for name in labelled[1:]:
+        value = innovations[name]
+        if "simulation" not in value.coords:
+            raise ValueError(
+                f"innovations[{name!r}] has a simulation dimension but no coordinate."
+            )
+        other = tuple(value.coords["simulation"].values.tolist())
+        if other != labels:
+            raise ValueError(
+                "Innovation simulation coordinates must match exactly. "
+                f"{labelled[0]!r} has {list(labels)}, {name!r} has {list(other)}."
+            )
+    return labels
+
+
+def _repeat_draw_axis(trace: xr.Dataset, n_sim: int) -> xr.Dataset:
+    """Repeat each posterior draw ``n_sim`` times along ``draw``.
+
+    The repeated axis is draw-major: simulation varies fastest, matching the
+    stacked noise layout ``di * n_sim + si``.
+    """
+    n_draw = int(trace.sizes["draw"])
+    data_vars: dict[
+        Hashable, xr.DataArray | tuple[tuple[Hashable, ...], np.ndarray]
+    ] = {}
+    for name, value in trace.data_vars.items():
+        if "draw" not in value.dims:
+            data_vars[name] = value
+            continue
+        axis = value.dims.index("draw")
+        data_vars[name] = (
+            value.dims,
+            np.repeat(np.asarray(value.values), n_sim, axis=axis),
+        )
+    coords: dict[Hashable, Any] = {}
+    for name, coord in trace.coords.items():
+        if name == "draw":
+            coords[name] = np.arange(n_draw * n_sim)
+        elif "draw" in coord.dims:
+            axis = coord.dims.index("draw")
+            coords[name] = (
+                coord.dims,
+                np.repeat(np.asarray(coord.values), n_sim, axis=axis),
+            )
+        else:
+            coords[name] = coord
+    return xr.Dataset(data_vars, coords=coords)
+
+
+def _unpack_simulation(
+    result: Any,
+    names: list[str],
+    n_draw: int,
+    sim_labels: tuple[Any, ...],
+    coords: dict[str, Any],
+) -> xr.Dataset:
+    """Reshape stacked draws back to ``(chain, draw, simulation, unit, time)``."""
+    if hasattr(result, "posterior"):
+        result = result.posterior
+    n_sim = len(sim_labels)
+    data_vars = {}
+    for name in names:
+        values = np.asarray(result[name].values)
+        expected = (values.shape[0], n_draw * n_sim, values.shape[-2], values.shape[-1])
+        if values.shape != expected:
+            raise RuntimeError(
+                f"Executor output {name!r} has shape {values.shape}, expected {expected}. "
+                "This is an internal error."
+            )
+        restored = values.reshape(
+            values.shape[0], n_draw, n_sim, values.shape[-2], values.shape[-1]
+        ).transpose(0, 1, 2, 4, 3)
+        data_vars[name] = (("chain", "draw", "simulation", "unit", "time"), restored)
+    return xr.Dataset(
+        data_vars,
+        coords={
+            "chain": coords["chain"],
+            "draw": coords["draw"],
+            "simulation": list(sim_labels),
+            "unit": coords["unit"],
+            "time": coords["time"],
+        },
+    )
+
+
+def _execute_gaussian_panel(
+    gen_model: pm.Model,
+    posterior: xr.Dataset,
+    scan_info: Any,
+    *,
+    initial: Mapping[str, xr.DataArray] | None = None,
+    innovations: xr.Dataset | None = None,
+    interventions: Mapping[str, xr.DataArray] | None = None,
+    random_seed: int | None = None,
+) -> xr.Dataset:
+    """Execute coherent Gaussian states before aggregation, in model units.
+
+    Initial states cover all structural lag bases with ``(unit,)`` arrays.
+    Interventions use ``(unit, time)`` arrays. Supplied innovations cover all
+    endogenous variables with standard-Normal epsilon arrays of dimensions
+    ``(chain, draw, unit, time)``. When every innovation also carries a
+    ``simulation`` dimension, posterior draws are repeated along ``draw`` by
+    that count and the noise is stacked into the same axis. The returned
+    states then include ``simulation`` and, when the scan recorded one, the
+    policy action. Omitted innovations are explicitly refreshed, independently
+    of auxiliary draws in the posterior.
+    """
+    states = scan_info.gaussian_states
+    if not states:
+        raise ValueError("Coherent execution requires an observed Gaussian scan model.")
+    coords = {
+        "chain": posterior.coords["chain"].values,
+        "draw": posterior.coords["draw"].values,
+        "unit": scan_info.unit_labels,
+        "time": scan_info.time_values,
+    }
+
+    def checked(
+        value: xr.DataArray, dims: tuple[str, ...], name: str, expected=None
+    ) -> np.ndarray:
+        reference = coords if expected is None else expected
+        if value.dims != dims or any(
+            d not in value.coords or not np.array_equal(value.coords[d], reference[d])
+            for d in dims
+        ):
+            raise ValueError(
+                f"{name} must have dimensions {dims} and exactly matching coordinates; "
+                "align it to the fitted unit/time and posterior chain/draw labels."
+            )
+        array = np.asarray(value, dtype=float)
+        if not np.isfinite(array).all():
+            raise ValueError(f"{name} contains nonfinite values; supply finite values.")
+        return array
+
+    replacements: dict[str, Any] = {}
+    if initial is not None:
+        if initial.keys() != scan_info.initial_nodes.keys():
+            raise ValueError(
+                f"initial must cover exactly {sorted(scan_info.initial_nodes)}; "
+                "supply every structural lag base and remove other keys."
+            )
+        for var, value in initial.items():
+            replacements[scan_info.initial_nodes[var]] = checked(value, ("unit",), var)
+    for var, value in (interventions or {}).items():
+        if var not in (*states, *scan_info.exogenous):
+            raise ValueError(
+                f"Unknown intervention {var!r}; use an endogenous or exogenous base variable."
+            )
+        key = f"_do_intervene_{var}" if var in states else var
+        replacements[key] = checked(value, ("unit", "time"), var).T
+
+    # Only structural draws may bind the execution graph. In particular, stored
+    # deterministics/imputations must not short-circuit a supplied-noise replay.
+    noise_names = {f"carry_innovations_{var}" for var in states}
+    parameter_names = [
+        rv.name for rv in gen_model.free_RVs if rv.name not in noise_names
+    ]
+    missing = set(parameter_names) - set(posterior.data_vars)
+    if missing:
+        raise ValueError(
+            f"Posterior is missing structural parameters {sorted(missing)}; "
+            "supply fitted draws for every structural parameter."
+        )
+    trace = posterior[parameter_names].copy()
+    sim_labels = _simulation_labels(innovations)
+    action_name = getattr(scan_info, "policy_action", None)
+    if innovations is not None:
+        if set(innovations.data_vars) != set(states):
+            raise ValueError(
+                f"innovations must cover exactly {sorted(states)}; supply one array per state."
+            )
+        if sim_labels is None:
+            for var in states:
+                values = checked(
+                    innovations[var], ("chain", "draw", "unit", "time"), var
+                )
+                trace[f"carry_innovations_{var}"] = (
+                    ("chain", "draw", f"{var}_noise_time", f"{var}_noise_unit"),
+                    values.transpose(0, 1, 3, 2),
+                )
+
+    with _forced_generative_carry(gen_model):
+        execution_model = pm.do(gen_model, replacements)
+        if innovations is None:
+            result = pm.sample_posterior_predictive(
+                trace,
+                model=execution_model,
+                var_names=list(states),
+                sample_vars=sorted(noise_names),
+                random_seed=random_seed,
+                progressbar=False,
+            ).posterior_predictive.dataset
+        elif sim_labels is None:
+            result = pm.compute_deterministics(
+                trace,
+                model=execution_model,
+                var_names=list(states),
+                progressbar=False,
+            )
+        else:
+            n_sim = len(sim_labels)
+            repeated = _repeat_draw_axis(trace, n_sim)
+            noise_coords = {**coords, "simulation": list(sim_labels)}
+            for var in states:
+                values = checked(
+                    innovations[var],
+                    ("chain", "draw", "simulation", "unit", "time"),
+                    var,
+                    noise_coords,
+                )
+                stacked = values.transpose(0, 1, 2, 4, 3).reshape(
+                    values.shape[0],
+                    values.shape[1] * n_sim,
+                    values.shape[4],
+                    values.shape[3],
+                )
+                repeated[f"carry_innovations_{var}"] = (
+                    ("chain", "draw", f"{var}_noise_time", f"{var}_noise_unit"),
+                    stacked,
+                )
+            names = list(states)
+            if action_name:
+                names.append(action_name)
+            simulated = pm.compute_deterministics(
+                repeated,
+                model=execution_model,
+                var_names=names,
+                progressbar=False,
+            )
+            return _unpack_simulation(
+                simulated,
+                names,
+                int(posterior.sizes["draw"]),
+                sim_labels,
+                coords,
+            )
+    return xr.Dataset({
+        var: xr.DataArray(
+            result[var].values.transpose(0, 1, 3, 2),
+            dims=("chain", "draw", "unit", "time"),
+            coords=coords,
+        )
+        for var in states
+    })
+
+
 def run_do_panel_unified(
     gen_model: pm.Model,
     graph_info: GraphInfo,
     idata: xr.DataTree,
-    panel_info: PanelInfo,
+    panel_info: PanelInfo | None,
     scan_info: Any,
     set: dict[str, float | np.ndarray] | None = None,
     kind: str = "mean",
@@ -1649,6 +1944,8 @@ def run_do_panel_unified(
     observed_by_time: Mapping[str, np.ndarray] | None = None,
     data: nw.DataFrame | None = None,
     scaling_factors: ScalingFactors | None = None,
+    random_seed: int | None = None,
+    initial: Mapping[str, xr.DataArray] | None = None,
 ) -> DoResult:
     """Run the do-operator on a scan-compiled panel model.
 
@@ -1686,6 +1983,29 @@ def run_do_panel_unified(
         scan-aligned factor before graph surgery.
     """
     _require_do_kind(kind)
+    legacy = getattr(gen_model, "_pathmc_legacy_model", gen_model)
+    if kind == "mean" and legacy is not gen_model:
+        with _forced_generative_carry(gen_model):
+            return run_do_panel_unified(
+                legacy,
+                graph_info,
+                idata,
+                panel_info,
+                legacy._pathmc_panel_scan,
+                set=set,
+                kind=kind,
+                families=families,
+                observed_by_time=observed_by_time,
+                data=data,
+                scaling_factors=scaling_factors,
+                random_seed=random_seed,
+                initial=initial,
+            )
+    if initial is not None and not (scan_info.gaussian_states and kind == "predictive"):
+        raise RuntimeError(
+            "A non-seam initial override must be compiled into the execution "
+            "model before run_do_panel_unified. This is an internal error."
+        )
     if set is None:
         set = {}
     if families is None:
@@ -1734,6 +2054,37 @@ def run_do_panel_unified(
             # value (see the do_intervene_nodes comment in compile.py).
             node_name = f"_do_intervene_{var}"
             scan_intervene_updates[node_name] = mat.astype(gen_model[node_name].dtype)
+
+    if scan_info.gaussian_states and kind == "predictive":
+        interventions = {
+            var: xr.DataArray(
+                np.asarray(replacements[var]).T,
+                dims=("unit", "time"),
+                coords={"unit": scan_info.unit_labels, "time": scan_info.time_values},
+            )
+            for var in set
+        }
+        states = _execute_gaussian_panel(
+            gen_model,
+            posterior(idata),
+            scan_info,
+            interventions=interventions,
+            initial=initial,
+            random_seed=random_seed,
+        )
+        variables = {}
+        for var in scan_info.gaussian_states:
+            raw = states[var].transpose("chain", "draw", "time", "unit")
+            raw = _to_business_units(var, raw, data, scaling_factors, scan_info)
+            variables[var] = _panel_unit_mean(raw, np.asarray(scan_info.time_values))
+        ones = _chain_draw_ones(posterior(idata))
+        for var in graph_info.exogenous:
+            variables[var] = (
+                _spread_over_time(ones, set[var], np.asarray(scan_info.time_values))
+                if var in set
+                else ones * 0.0
+            )
+        return DoResult(ds=xr.Dataset(variables), observed_by_time=observed_by_time)
 
     if kind == "mean":
         for var in graph_info.topological_order:
@@ -1808,6 +2159,7 @@ def run_do_panel_unified(
                 ppc = pm.sample_posterior_predictive(
                     idata,
                     progressbar=False,
+                    random_seed=random_seed,
                     **_panel_predictive_sample_kwargs(do_model, graph_info, set),
                 )
 
