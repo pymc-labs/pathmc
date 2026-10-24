@@ -402,12 +402,21 @@ def _is_binary_01(column: nw.Series) -> bool:
     return observed <= {0.0, 1.0}
 
 
-def _values_are_binary_01(values: np.ndarray) -> bool:
-    """Return whether finite observed numbers are only 0 and 1."""
+def _values_are_binary_01(values: np.ndarray, *, atol: float = 0.0) -> bool:
+    """Return whether finite observed numbers are only 0 and 1.
+
+    ``atol`` covers a rounding ulp when a channel scale is inverted. It is
+    not used for the stored column, so a near-0/1 continuous column is kept.
+    """
     finite = values[np.isfinite(values)]
     if finite.size == 0:
         return False
-    return set(np.unique(finite).tolist()) <= {0.0, 1.0}
+    if atol == 0.0:
+        return set(np.unique(finite).tolist()) <= {0.0, 1.0}
+    close_to_code = np.isclose(finite, 0.0, rtol=0.0, atol=atol) | np.isclose(
+        finite, 1.0, rtol=0.0, atol=atol
+    )
+    return bool(np.all(close_to_code))
 
 
 def _predictor_is_binary_01(
@@ -433,7 +442,7 @@ def _predictor_is_binary_01(
             )
         except (TypeError, ValueError):
             return _is_binary_01(column)
-        return _values_are_binary_01(business)
+        return _values_are_binary_01(business, atol=1e-8)
     return _is_binary_01(column)
 
 
