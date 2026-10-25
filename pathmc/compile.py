@@ -1200,7 +1200,8 @@ def _make_cross_sectional_resolver(
                 state=(basis_states or {}).get(key),
             )
         if slot.kind == "transform":
-            tc = transform_map[slot.name]
+            assert slot.transform is not None
+            tc = transform_map[_transform_map_key(slot.transform)]
             return _apply_transform_chain(
                 tc,
                 data,
@@ -1240,8 +1241,9 @@ def _make_scan_resolver(
 
     Stateful transforms read *prev_adstock* and write the next carry
     into *next_adstock*. *current_transform* caches this timestep's
-    value, keyed by the leaf carry column, so a transform shared by
+    value, keyed by the transform call, so the same call shared by
     several equations advances once and every equation sees that value.
+    Distinct calls on the same source column keep separate state.
     """
     import pytensor.tensor as pt
 
@@ -1260,18 +1262,21 @@ def _make_scan_resolver(
             )
         if slot.kind == "transform":
             # A later equation must not step state already advanced by
-            # an earlier equation in this same timestep.
-            if slot.name in current_transform:
-                return current_transform[slot.name]
-            tc = transform_map[slot.name]
+            # an earlier equation in this same timestep. Distinct calls
+            # on the same column are not that shared state.
+            assert slot.transform is not None
+            key = _transform_map_key(slot.transform)
+            if key in current_transform:
+                return current_transform[key]
+            tc = transform_map[key]
             inp_name = _get_adstock_input(tc)
             raw = _resolve_var(inp_name)
             transformed, updated = _apply_step_transform(
-                tc, raw, prev_adstock, ns_map, slot.name
+                tc, raw, prev_adstock, ns_map, key
             )
             if _has_adstock(tc):
-                next_adstock[slot.name] = updated[slot.name]
-            current_transform[slot.name] = transformed
+                next_adstock[key] = updated[key]
+            current_transform[key] = transformed
             return transformed
         if slot.kind == "interaction":
             assert slot.interaction_parts is not None
@@ -2034,13 +2039,27 @@ def _create_prior_var(priors: dict[str, Any] | None, name: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _transform_map_key(tc: TransformCall) -> str:
+    """Identity of a transform call, including parameters and nesting.
+
+    Not the source column alone: two calls on the same variable must not
+    collapse to whichever was registered last.
+    """
+    return _render_transform_call(tc)
+
+
 def _build_transform_map(spec: Spec) -> dict[str, TransformCall]:
-    """Map variable names to their TransformCall for all transform terms."""
+    """Map each distinct transform call to its ``TransformCall``.
+
+    Keyed by :func:`_transform_map_key`, not the source variable, so a
+    later call on the same column does not replace an earlier one.
+    Identical calls share one entry and therefore one scan carry.
+    """
     tmap: dict[str, TransformCall] = {}
     for reg in spec.regressions:
         for term in reg.terms:
             if term.transform is not None:
-                tmap[term.variable] = term.transform
+                tmap[_transform_map_key(term.transform)] = term.transform
     return tmap
 
 
