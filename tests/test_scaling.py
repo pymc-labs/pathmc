@@ -398,6 +398,29 @@ class TestModelWiring:
         )
         np.testing.assert_allclose(m._data["X"].to_numpy(), raw["X"].to_numpy() / 2.0)
 
+    def test_lag_only_channel_is_divided_before_compile(self):
+        """A column used only as lag(X) is still that channel."""
+        raw = pd.DataFrame({
+            "geo": ["a", "a", "b", "b"],
+            "week": [0, 1, 0, 1],
+            "X": [8.0, 4.0, 2.0, 6.0],
+            "Z": [10.0, 20.0, 30.0, 40.0],
+            "Y": [1.0, 1.0, 1.0, 1.0],
+        })
+        scaling = Scaling(
+            target={"method": "fixed", "value": 10.0},
+            channel={"method": "fixed", "value": 2.0},
+        )
+        fitted = pathmc.model(
+            "Y ~ lag(X) + Z",
+            data=raw,
+            panel=PANEL,
+            scaling=scaling,
+        )
+        assert fitted._data is not None
+        np.testing.assert_allclose(fitted._data["X"].to_numpy(), raw["X"] / 2.0)
+        np.testing.assert_allclose(fitted._data["Z"].to_numpy(), raw["Z"] / 2.0)
+
     def test_refit_permuted_reaches_model_construction(self, monkeypatch):
         """_refit_permuted must find every _construction key it reads.
 
@@ -454,6 +477,57 @@ class TestSimulateRoundTrip:
         beta = self.PARAMS["beta_Y"]
         expected = (beta[0] + beta[1] * raw["X"] / p) * t
         np.testing.assert_allclose(out["Y"].to_numpy(), expected, atol=1e-2)
+
+    def test_lag_only_channel_divided_before_lag(self):
+        """Divide a lag-only channel before the lag, then restore the target.
+
+        The cited probe is channel factor 4 and target factor 10. A second
+        series with different factors rejects a special case for those
+        numbers, and a contemporaneous companion column must still be divided.
+        """
+        df = pd.DataFrame({
+            "geo": ["a"] * 4,
+            "week": [0, 1, 2, 3],
+            "X": [4.0, 2.0, 6.0, 0.0],
+        })
+        scale = Scaling(
+            target={"method": "fixed", "value": 10.0},
+            channel={"method": "fixed", "value": 4.0},
+        )
+        params = {"beta_Y": [0.0, 3.0], "sigma_Y": 0.0}
+        lag_only = pathmc.simulate(
+            "Y ~ lag(X)",
+            data=df,
+            params=params,
+            panel=PANEL,
+            scaling=scale,
+            random_seed=1,
+        )
+        # First row repeats, then the lag sees X / 4, then * 10.
+        np.testing.assert_allclose(lag_only["Y"].to_numpy(), [30.0, 30.0, 15.0, 45.0])
+
+        other = pd.DataFrame({
+            "geo": ["a", "a", "a"],
+            "week": [0, 1, 2],
+            "X": [6.0, 3.0, 9.0],
+            "Z": [8.0, 4.0, 2.0],
+        })
+        other_scale = Scaling(
+            target={"method": "fixed", "value": 5.0},
+            channel={"method": "fixed", "value": 2.0},
+        )
+        mixed = pathmc.simulate(
+            "Y ~ lag(X) + Z",
+            data=other,
+            params={"beta_Y": [0.0, 1.0, 1.0], "sigma_Y": 0.0},
+            panel=PANEL,
+            scaling=other_scale,
+            random_seed=1,
+        )
+        # lag(X/2) repeats 3 then shifts; Z/2 is contemporaneous; * 5.
+        np.testing.assert_allclose(mixed["Y"].to_numpy(), [35.0, 25.0, 12.5])
+        np.testing.assert_allclose(mixed["X"].to_numpy(), other["X"].to_numpy())
+        np.testing.assert_allclose(mixed["Z"].to_numpy(), other["Z"].to_numpy())
 
     def test_without_scaling_params_stay_in_raw_units(self):
         raw = make_panel()
