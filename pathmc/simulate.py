@@ -1381,6 +1381,27 @@ def _business_exog_value(
     return _exogenous_fill(values)
 
 
+def _panel_unspecified_exog(
+    var: str,
+    ones: xr.DataArray,
+    data: nw.DataFrame | None,
+    scaling_factors: ScalingFactors | None,
+) -> xr.DataArray | None:
+    """Broadcast the business-unit empirical fill used by the structural mean.
+
+    Matches the cross-sectional result: ``(chain, draw)`` of the fitted-column
+    mean after converting each row back to business units. A derived exogenous
+    name with no fitted column (for example ``lag(Y)``) is omitted rather than
+    reported as 0, because that 0 was never the value the scan used.
+    """
+    if data is None or var not in data.columns:
+        return None
+    values = np.asarray(data[var].to_numpy())
+    if values.dtype.kind not in "iuf":
+        return None
+    return ones * _business_exog_value(var, data, None, scaling_factors)
+
+
 _DO_KINDS = ("mean", "predictive")
 
 
@@ -1772,7 +1793,9 @@ def run_do_panel_unified(
             if var in set:
                 data_vars[var] = _spread_over_time(ones, set[var], time_idx)
             elif var in graph_info.exogenous:
-                data_vars[var] = ones * 0.0
+                filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
+                if filled is not None:
+                    data_vars[var] = filled
             elif var in graph_info.endogenous:
                 det_key = var if var in stochastic_latent else f"mu_{var}"
                 raw = _to_business_units(
@@ -1831,7 +1854,9 @@ def run_do_panel_unified(
         if var in set:
             predictive_vars[var] = _spread_over_time(ones, set[var], time_idx)
         elif var in graph_info.exogenous:
-            predictive_vars[var] = ones * 0.0
+            filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
+            if filled is not None:
+                predictive_vars[var] = filled
         elif var in ppc.posterior_predictive:
             raw = _to_business_units(
                 var,

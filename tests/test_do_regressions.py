@@ -150,3 +150,101 @@ def test_panel_do_rejects_unrecognized_kind_before_predictive() -> None:
         )
 
     assert "predictive" in str(exc_info.value)
+
+
+def _panel_exog_frame() -> pd.DataFrame:
+    """X and Z are never zero; W is a real zero so a zero fill can be legitimate."""
+    rows = []
+    for unit, x, z in (("B", 4.0, 1.0), ("A", 8.0, 3.0)):
+        for time in (2, 0, 1):
+            rows.append({
+                "unit": unit,
+                "time": time,
+                "X": x,
+                "Z": z,
+                "W": 0.0,
+                "T": 0.0,
+                "Y": 0.0,
+            })
+    return pd.DataFrame(rows)
+
+
+def _pin_panel_posterior(model: pathmc.PathModel, *, x_coef: float) -> None:
+    pred = "Y_predictors"
+    names = list(model.pymc_model.coords[pred])
+    beta = np.zeros(len(names))
+    beta[names.index("X")] = x_coef
+    n_times = len(model._data["time"].unique())
+    n_units = len(model._data["unit"].unique())
+    model._idata = az.from_dict(
+        {
+            "posterior": {
+                "beta_Y": beta.reshape(1, 1, -1),
+                "sigma_Y": np.array([[1e-8]]),
+                "carry_innovations_Y": np.zeros((1, 1, n_times, n_units)),
+            }
+        },
+        coords={pred: names},
+        dims={"beta_Y": [pred]},
+    )
+
+
+def test_panel_do_reports_unintervened_exogenous_fill() -> None:
+    """Unspecified exogenous columns are the business-unit values the mean used.
+
+    Writing 0 for every non-intervened exogenous column is wrong even when the
+    cited column is not the constant 5 from the report, and even when another
+    covariate's mean is a legitimate 0.
+    """
+    frame = _panel_exog_frame()
+    model = pathmc.model(
+        "Y ~ X + Z + W + T + lag(Y)",
+        data=frame,
+        panel={"unit": "unit", "time": "time"},
+    )
+    _pin_panel_posterior(model, x_coef=3.0)
+
+    result = model.do(set={"T": 1.0}, simulate_over="time", kind="mean")
+    cross = pathmc.model("Y ~ X + Z + W + T", data=frame)
+    pred = "Y_predictors"
+    names = list(cross.pymc_model.coords[pred])
+    beta = np.zeros(len(names))
+    beta[names.index("X")] = 3.0
+    cross._idata = az.from_dict(
+        {
+            "posterior": {
+                "beta_Y": beta.reshape(1, 1, -1),
+                "sigma_Y": np.array([[1e-8]]),
+            }
+        },
+        coords={pred: names},
+        dims={"beta_Y": [pred]},
+    )
+    cross_result = cross.do(set={"T": 1.0}, kind="mean")
+
+    assert result.dataset["Y"].mean() == pytest.approx(18.0)
+    for var, expected in (("X", 6.0), ("Z", 2.0), ("W", 0.0)):
+        assert var in result.dataset
+        assert result.dataset[var].dims == cross_result.dataset[var].dims
+        assert float(result.dataset[var].mean()) == pytest.approx(expected)
+        assert float(cross_result.dataset[var].mean()) == pytest.approx(expected)
+    assert "lag(Y)" not in result.dataset
+
+
+def test_panel_do_exogenous_fill_is_business_units() -> None:
+    """A scaled covariate is reported after converting rows back, not as 0."""
+    frame = _panel_exog_frame()
+    model = pathmc.model(
+        "Y ~ X + Z + W + T + lag(Y)",
+        data=frame,
+        panel={"unit": "unit", "time": "time"},
+        scaling=pathmc.Scaling(channel={"method": "fixed", "value": 10.0}),
+    )
+    _pin_panel_posterior(model, x_coef=3.0)
+
+    result = model.do(set={"T": 1.0}, simulate_over="time", kind="mean")
+
+    assert float(np.asarray(model._data["X"].to_numpy()).mean()) == pytest.approx(0.6)
+    assert float(result.dataset["X"].mean()) == pytest.approx(6.0)
+    assert float(result.dataset["Z"].mean()) == pytest.approx(2.0)
+    assert result.dataset["Y"].mean() == pytest.approx(1.8)
