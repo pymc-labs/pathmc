@@ -70,8 +70,9 @@ class SensitivityResult(ResultReprMixin):
         Mean bias-adjusted ATE at each grid point,
         shape ``(n_gamma, n_delta)``.
     prob_sign_change : np.ndarray
-        Posterior probability that the ATE sign flips at each grid
-        point, shape ``(n_gamma, n_delta)``.
+        Fraction of draws whose bias-adjusted ATE does not have the
+        observed mean's sign, at each grid point. An adjusted value of
+        exactly 0 counts as a change. Shape ``(n_gamma, n_delta)``.
     """
 
     outcome: str
@@ -268,14 +269,19 @@ def compute_sensitivity(
     n_draws = len(sorted_draws)
     flat_bias = bias_grid.ravel()
 
-    if abs(observed_mean) < 1e-15:
-        prob_sign_flat = np.full(flat_bias.shape, 0.5, dtype=float)
-    elif observed_mean > 0:
-        idx = np.searchsorted(sorted_draws, flat_bias).astype(float)
+    # Fraction of draws whose adjusted ATE (draw − bias) does not have
+    # the observed mean's sign. Exactly 0 counts as a change. The mean's
+    # sign is used as-is: a near-zero mean is not replaced by 0.5.
+    if observed_mean > 0.0:
+        # adjusted <= 0 iff draw <= bias
+        idx = np.searchsorted(sorted_draws, flat_bias, side="right")
         prob_sign_flat = idx / n_draws
-    else:
-        idx = np.searchsorted(sorted_draws, flat_bias, side="right").astype(float)
+    elif observed_mean < 0.0:
+        # adjusted >= 0 iff draw >= bias
+        idx = np.searchsorted(sorted_draws, flat_bias, side="left")
         prob_sign_flat = 1.0 - idx / n_draws
+    else:
+        prob_sign_flat = np.ones(flat_bias.shape, dtype=float)
 
     prob_sign = prob_sign_flat.reshape(G.shape)
 
