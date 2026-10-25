@@ -29,7 +29,7 @@ import builtins
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import narwhals.stable.v1 as nw
 import numpy as np
@@ -48,6 +48,7 @@ from pathmc.idata import hdi as compute_hdi
 from pathmc.idata import hdi_label
 from pathmc.idata import posterior
 from pathmc.panel import PanelInfo
+from pathmc.plotting import _reject_unused_coords, _select_draws, plot_density
 from pathmc.reprs import ReprSpec, ResultReprMixin
 from pathmc.scaling import ScaleContext, ScalingFactors
 
@@ -356,6 +357,28 @@ class _DrawStorageMixin:
             )
         return self._draw_by_time(var)
 
+    def _plot_dist_var(
+        self,
+        key: str,
+        *,
+        coords: Mapping[str, Any] | None,
+        aggregate: Literal["time_mean", "unit_pool"] | None,
+        ref: float | None,
+        color: str,
+        ax: matplotlib.axes.Axes | None,
+        time_inspection: str,
+    ) -> matplotlib.figure.Figure:
+        """Plot one stored variable without silently collapsing time or unit."""
+        draws, label, applied = _select_draws(
+            self._ds[key],
+            name=key,
+            coords=coords,
+            aggregate=aggregate,
+            time_inspection=time_inspection,
+        )
+        _reject_unused_coords(coords, applied, [key])
+        return plot_density(draws, label=label, ref=ref, color=color, ax=ax)
+
 
 class DoResult(_DrawStorageMixin, ResultReprMixin):
     """Container for propagated posterior draws under an intervention.
@@ -471,6 +494,89 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             If per-time data is not available (cross-sectional do).
         """
         return self._by_time_draws(var)
+
+    def _select_var(self, var: str | None) -> str:
+        """Resolve the variable to plot, requiring selection when ambiguous."""
+        available = [str(v) for v in self._ds.data_vars]
+        if var is not None:
+            if var not in available:
+                raise KeyError(
+                    f"Unknown variable '{var}'. Available variables: {sorted(available)}"
+                )
+            return var
+        if len(available) == 1:
+            return available[0]
+        raise ValueError(
+            f"Multiple variables stored on this result: {sorted(available)}. "
+            "Pass var= to select one."
+        )
+
+    def plot_dist(
+        self,
+        var: str | None = None,
+        *,
+        coords: Mapping[str, Any] | None = None,
+        aggregate: Literal["time_mean", "unit_pool"] | None = None,
+        ref: float | None = None,
+        color: str = "C0",
+        ax: matplotlib.axes.Axes | None = None,
+    ) -> matplotlib.figure.Figure:
+        """Plot the posterior density of a stored variable.
+
+        A result holding a single variable may omit *var*; a result holding
+        multiple variables requires explicit selection. A ``time`` dimension
+        with more than one point is not averaged, and a ``unit`` dimension
+        with more than one unit is not pooled, unless *aggregate* asks for
+        that collapse. Select one coordinate with *coords* instead when the
+        density at a single time or unit is the target.
+
+        Parameters
+        ----------
+        var : str | None
+            Variable to plot. Required when the result stores more than one
+            variable; defaults to the single stored variable otherwise.
+        coords : Mapping[str, Any] | None
+            Coordinate selection, for example ``{"unit": "A"}``. Keys that are
+            not dimensions of the selected variable are an error.
+        aggregate : {'time_mean', 'unit_pool'} | None
+            Explicit collapse. ``"time_mean"`` plots the density of the
+            average over time and labels it as a time mean. ``"unit_pool"``
+            pools units into one density and labels that pooling. Omit to
+            require a univariate selection.
+        ref : float | None
+            Reference value marked with a dashed vertical line. No line when
+            ``None``.
+        color : str
+            Line and fill color (default ``"C0"``).
+        ax : matplotlib.axes.Axes | None
+            Axes to plot on. Creates a new figure if ``None``.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            The figure containing the density plot. Display is left to the caller.
+
+        Raises
+        ------
+        KeyError
+            If *var* is not stored on this result, or a coord value is missing.
+        ValueError
+            If the result stores multiple variables and *var* is omitted, or
+            if the selected variable still has more than one time point or unit.
+        """
+        key = self._select_var(var)
+        return self._plot_dist_var(
+            key,
+            coords=coords,
+            aggregate=aggregate,
+            ref=ref,
+            color=color,
+            ax=ax,
+            time_inspection=(
+                "Inspect per-time draws with .by_time({name!r}), or plot the "
+                "trajectory with .plot({name!r}). "
+            ),
+        )
 
     def plot(
         self,
@@ -633,7 +739,7 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             title=f"DoResult — {n_samples} draws, {n_vars} variables",
             rows=rows,
             columns=["variable", "mean", hdi_label()],
-            footer="Methods: .draws() .mean() .hdi() .by_time() .plot() .dataset",
+            footer="Methods: .draws() .mean() .hdi() .by_time() .plot() .plot_dist() .dataset",
         )
 
 
@@ -889,6 +995,69 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
         """
         return self._by_time_draws(self._resolve(var))
 
+    def plot_dist(
+        self,
+        var: str | None = None,
+        *,
+        coords: Mapping[str, Any] | None = None,
+        aggregate: Literal["time_mean", "unit_pool"] | None = None,
+        ref: float | None = None,
+        color: str = "C0",
+        ax: matplotlib.axes.Axes | None = None,
+    ) -> matplotlib.figure.Figure:
+        """Plot the posterior density of a contrast variable.
+
+        Defaults to the outcome variable. A ``time`` dimension with more than
+        one point is not averaged unless ``aggregate="time_mean"``. A per-time
+        trajectory is outside this method; use :meth:`by_time` to inspect the
+        time-indexed contrast.
+
+        Parameters
+        ----------
+        var : str | None
+            Variable name. Defaults to the outcome.
+        coords : Mapping[str, Any] | None
+            Coordinate selection. Keys that are not dimensions of the selected
+            variable are an error.
+        aggregate : {'time_mean', 'unit_pool'} | None
+            Explicit collapse. ``"time_mean"`` plots the density of the
+            average over time and labels it as a time mean. ``"unit_pool"``
+            pools units and labels that pooling. Omit to require a univariate
+            selection.
+        ref : float | None
+            Reference value marked with a dashed vertical line (e.g. ``0`` for a
+            null contrast). No line when ``None``.
+        color : str
+            Line and fill color (default ``"C0"``).
+        ax : matplotlib.axes.Axes | None
+            Axes to plot on. Creates a new figure if ``None``.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            The figure containing the density plot. Display is left to the caller.
+
+        Raises
+        ------
+        KeyError
+            If *var* is not stored on this result, or a coord value is missing.
+        ValueError
+            If the selected variable still has more than one time point or unit.
+        """
+        key = self._resolve(var)
+        return self._plot_dist_var(
+            key,
+            coords=coords,
+            aggregate=aggregate,
+            ref=ref,
+            color=color,
+            ax=ax,
+            time_inspection=(
+                "Inspect per-time draws with .by_time({name!r}). "
+                "plot_dist() does not draw a per-time trajectory. "
+            ),
+        )
+
     def __float__(self) -> float:
         """Posterior mean of the estimand (outcome variable)."""
         return self.mean()
@@ -932,7 +1101,7 @@ class EstimandResult(_DrawStorageMixin, ResultReprMixin):
                 ["P(> 0)", f"{p_gt_0:.2f}"],
                 ["Draws", str(n_samples)],
             ],
-            footer="Methods: .hdi() .prob() .summary() .draws() .by_time() .dataset",
+            footer="Methods: .hdi() .prob() .summary() .draws() .by_time() .plot_dist() .dataset",
         )
 
 
