@@ -553,6 +553,9 @@ class TestByVarEffectReadsCompiledEdge:
         result = model.effect("tv -> sales")
         assert result.mean == pytest.approx(7.0)
         assert np.allclose(result.draws, 7.0)
+        assert result.hdi().shape == (2,)
+        assert np.allclose(result.hdi(), 7.0)
+        assert "mean=" in repr(result)
 
     def test_sibling_flat_edge_does_not_resolve_removed_predictor(self):
         rows = [

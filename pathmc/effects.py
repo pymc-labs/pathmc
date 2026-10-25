@@ -200,7 +200,7 @@ class EffectResult(ResultReprMixin):
 
     def hdi(self, prob: float = DEFAULT_HDI_PROB) -> np.ndarray:
         """Highest density interval for the effect."""
-        return hdi(self.draws, prob=prob)
+        return hdi(np.asarray(self.draws).reshape(-1), prob=prob)
 
     def _repr_compact(self) -> str:
         lo, hi = self.hdi()
@@ -212,7 +212,7 @@ class EffectResult(ResultReprMixin):
 
     def _repr_spec(self) -> ReprSpec:
         lo, hi = self.hdi()
-        n = len(self.draws)
+        n = int(np.asarray(self.draws).size)
         label = hdi_label()
         return ReprSpec(
             title=f"EffectResult — {self.name}",
