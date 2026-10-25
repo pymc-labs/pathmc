@@ -150,3 +150,74 @@ def test_panel_do_rejects_unrecognized_kind_before_predictive() -> None:
         )
 
     assert "predictive" in str(exc_info.value)
+
+
+def _scan_discrete_panel(family: str):
+    return pathmc.model(
+        "sales ~ tv + lag(sales)",
+        data=pd.DataFrame([
+            {"unit": unit, "time": time, "tv": float(time), "sales": 1}
+            for unit in ("A", "B")
+            for time in (0, 1, 2)
+        ]),
+        panel={"unit": "unit", "time": "time"},
+        families={"sales": family},
+    )
+
+
+@pytest.mark.parametrize(
+    ("family", "link"),
+    [
+        ("poisson", np.exp),
+        ("bernoulli", lambda mu: 1.0 / (1.0 + np.exp(-mu))),
+        ("negbinomial", np.exp),
+    ],
+)
+def test_scan_discrete_mean_do_returns_response_scale(family: str, link) -> None:
+    """kind='mean' on a scan discrete panel is the response-scale mean.
+
+    A valid ``(n_times,)`` intervention must not be rejected because the
+    mean path substituted a float ``mu`` for the integer outcome.
+    """
+    model = _scan_discrete_panel(family)
+    pred = "sales_predictors"
+    names = list(model.pymc_model.coords[pred])
+    # Intercept 0, tv slope 1, lag coefficient 0: E[sales_t | do(tv)] = link(tv_t).
+    beta = np.zeros((1, 1, len(names)))
+    beta[0, 0, names.index("tv")] = 1.0
+    posterior = {"beta_sales": beta}
+    if family == "negbinomial":
+        posterior["alpha_disp_sales"] = np.array([[1.0]])
+    model._idata = az.from_dict(
+        {"posterior": posterior},
+        coords={pred: names},
+        dims={"beta_sales": [pred]},
+    )
+
+    tv = np.array([0.0, 1.0, 2.0])
+    result = model.do(set={"tv": tv}, simulate_over="time", kind="mean")
+    got = np.asarray(result.by_time("sales")).reshape(3, -1)
+    expected = link(tv)
+    np.testing.assert_allclose(got, expected[:, None], rtol=1e-6, atol=1e-6)
+
+
+def test_scan_poisson_mean_do_propagates_lag_without_noise() -> None:
+    """A non-zero lag coefficient must carry the rate, not a Poisson draw."""
+    model = _scan_discrete_panel("poisson")
+    pred = "sales_predictors"
+    names = list(model.pymc_model.coords[pred])
+    beta = np.zeros((1, 1, len(names)))
+    beta[0, 0, names.index("lag(sales)")] = 0.5
+    model._idata = az.from_dict(
+        {"posterior": {"beta_sales": beta}},
+        coords={pred: names},
+        dims={"beta_sales": [pred]},
+    )
+
+    result = model.do(set={"tv": np.zeros(3)}, simulate_over="time", kind="mean")
+    got = np.asarray(result.by_time("sales")).reshape(3)
+    # Pre-sample carry is the observed first row (1). Each later step lags the rate.
+    rate0 = np.exp(0.5 * 1.0)
+    rate1 = np.exp(0.5 * rate0)
+    rate2 = np.exp(0.5 * rate1)
+    np.testing.assert_allclose(got, [rate0, rate1, rate2], rtol=1e-6, atol=1e-6)
