@@ -1,0 +1,16 @@
+pathmc/effects.py
+  h_63db634213747e 39-100,107-108,114-115,127-128,280-281,387,483,638-640,658
+tests/test_pooling_dims.py
+  h_63db634213747e 608-655
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "14870ea899070eea34d7aa36ac1a818999a7b579",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
