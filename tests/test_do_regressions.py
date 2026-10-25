@@ -248,3 +248,49 @@ def test_panel_do_exogenous_fill_is_business_units() -> None:
     assert float(result.dataset["X"].mean()) == pytest.approx(6.0)
     assert float(result.dataset["Z"].mean()) == pytest.approx(2.0)
     assert result.dataset["Y"].mean() == pytest.approx(1.8)
+
+
+def test_panel_do_fills_bool_and_object_numeric_exogenous() -> None:
+    """Columns the scan consumes as numbers are reported, not dropped or zeroed."""
+    rows = []
+    for unit, b, o in (("B", True, 1.5), ("A", False, 4.5)):
+        for time in (0, 1):
+            rows.append({
+                "unit": unit,
+                "time": time,
+                "B": b,
+                "O": o,
+                "T": 0.0,
+                "Y": 0.0,
+            })
+    frame = pd.DataFrame(rows)
+    frame["B"] = frame["B"].astype(bool)
+    frame["O"] = frame["O"].astype(object)
+    model = pathmc.model(
+        "Y ~ B + O + T + lag(Y)",
+        data=frame,
+        panel={"unit": "unit", "time": "time"},
+    )
+    pred = "Y_predictors"
+    names = list(model.pymc_model.coords[pred])
+    beta = np.zeros(len(names))
+    beta[names.index("B")] = 3.0
+    beta[names.index("O")] = 2.0
+    model._idata = az.from_dict(
+        {
+            "posterior": {
+                "beta_Y": beta.reshape(1, 1, -1),
+                "sigma_Y": np.array([[1e-8]]),
+                "carry_innovations_Y": np.zeros((1, 1, 2, 2)),
+            }
+        },
+        coords={pred: names},
+        dims={"beta_Y": [pred]},
+    )
+
+    result = model.do(set={"T": 1.0}, simulate_over="time", kind="mean")
+
+    assert float(result.dataset["B"].mean()) == pytest.approx(0.5)
+    assert float(result.dataset["O"].mean()) == pytest.approx(3.0)
+    assert result.dataset["B"].dims == ("chain", "draw")
+    assert result.dataset["O"].dims == ("chain", "draw")

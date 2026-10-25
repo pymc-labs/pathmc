@@ -1396,10 +1396,13 @@ def _panel_unspecified_exog(
     """
     if data is None or var not in data.columns:
         return None
-    values = np.asarray(data[var].to_numpy())
-    if values.dtype.kind not in "iuf":
+    try:
+        fill = _business_exog_value(var, data, None, scaling_factors)
+    except (TypeError, ValueError):
+        # String and categorical labels are not a numeric fill. Derived names
+        # with no fitted column are already omitted above.
         return None
-    return ones * _business_exog_value(var, data, None, scaling_factors)
+    return ones * fill
 
 
 _DO_KINDS = ("mean", "predictive")
