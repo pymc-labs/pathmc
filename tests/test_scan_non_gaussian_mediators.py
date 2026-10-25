@@ -27,10 +27,11 @@ Two independent concerns:
 
 2. The ``clip(mu, -20, 20)`` guard on Poisson/NegativeBinomial rates
    inside the scan (``pathmc.compile._SCAN_MU_CLIP_BOUND``) is a
-   numerical-stability guard, not a modeling choice, but it silently
-   truncates genuinely high rates. ``_warn_high_rate_clip_risk`` surfaces
-   that via a ``UserWarning`` at compile time instead of staying silent;
-   these tests check the warning fires/doesn't fire at the right boundary.
+   numerical-stability guard, not a modeling choice, but it truncates
+   genuinely high rates. ``_warn_high_rate_clip_risk`` surfaces that via a
+   ``UserWarning`` at compile time when observed counts already imply a
+   log-rate near the bound; these tests check that boundary. A separate
+   check warns from the linear predictor itself.
 
 All of this is resolved at model-construction time (no MCMC), so these
 tests are intentionally cheap.
@@ -303,7 +304,7 @@ class TestLatentDiscreteFamilyRejected:
 
 
 class TestHighRateClipWarning:
-    """``_warn_high_rate_clip_risk`` should warn only when observed counts
+    """``_warn_high_rate_clip_risk`` should warn when observed counts
     approach the internal ``mu`` clip bound used inside the scan."""
 
     def _panel_with_counts(self, max_count: float) -> pd.DataFrame:
