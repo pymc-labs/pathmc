@@ -36,6 +36,38 @@ from pathmc.scaling import ScaleContext, ScalingFactors
 __all__ = ["EffectResult"]
 
 
+def _flat_posterior(var) -> np.ndarray:
+    """Stack chain and draw, keeping every value of a compiled coefficient."""
+    return np.asarray(var).reshape(-1)
+
+
+def _compiled_edge_draws(
+    idata: xr.DataTree,
+    lhs: str,
+    variable: str,
+) -> np.ndarray:
+    """Posterior draws for one regression edge.
+
+    A ``by_var`` predictor is compiled as its own ``beta_{variable}`` RV and
+    removed from the flat ``beta_{lhs}`` vector. Read that RV. Do not index a
+    ``beta_{lhs}`` entry the compiler dropped.
+    """
+    from pathmc.idata import posterior
+
+    post = posterior(idata)
+    beta_lhs = f"beta_{lhs}"
+    coord_name = f"{lhs}_predictors"
+    beta_var = f"beta_{variable}"
+    kept_in_flat = False
+    if beta_lhs in post:
+        beta = post[beta_lhs]
+        if coord_name in beta.coords:
+            kept_in_flat = variable in np.asarray(beta.coords[coord_name])
+    if not kept_in_flat and beta_var in post:
+        return _flat_posterior(post[beta_var])
+    return beta_draws(idata, beta_lhs, coord_name, variable)
+
+
 def _has_labeled_terms(spec: Spec) -> bool:
     """Check whether any regression term has a user-supplied label."""
     return any(term.label is not None for reg in spec.regressions for term in reg.terms)
@@ -153,16 +185,11 @@ def extract_labeled_draws(
         Mapping from label name to flattened posterior draws.
     """
     labeled_draws: dict[str, np.ndarray] = {}
-
     for reg in spec.regressions:
-        beta_name = f"beta_{reg.lhs}"
-        coord_name = f"{reg.lhs}_predictors"
-
         for term in reg.terms:
             if term.label is not None:
-                draws = beta_draws(idata, beta_name, coord_name, term.variable)
+                draws = _compiled_edge_draws(idata, reg.lhs, term.variable)
                 labeled_draws[term.label] = draws
-
     return labeled_draws
 
 
@@ -550,9 +577,7 @@ def compute_path_effect(
         if matched_term.label is not None and matched_term.label in labeled_draws:
             draws = labeled_draws[matched_term.label]
         else:
-            beta_name = f"beta_{target}"
-            coord_name = f"{target}_predictors"
-            draws = beta_draws(idata, beta_name, coord_name, source)
+            draws = _compiled_edge_draws(idata, target, source)
 
         if scaling_factors is not None and data is not None:
             draws = np.asarray(
