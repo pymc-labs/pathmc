@@ -36,35 +36,96 @@ from pathmc.scaling import ScaleContext, ScalingFactors
 __all__ = ["EffectResult"]
 
 
-def _flat_posterior(var) -> np.ndarray:
-    """Stack chain and draw, keeping every value of a compiled coefficient."""
-    return np.asarray(var).reshape(-1)
+def _stack_samples(var) -> np.ndarray:
+    """Stack chain and draw. Keep later axes (for example ``unit``)."""
+    arr = np.asarray(var)
+    if arr.ndim < 2:
+        return arr.reshape(-1)
+    return arr.reshape(-1, *arr.shape[2:])
+
+
+def _broadcast_samples(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    """Multiply draws that share a leading sample axis, broadcasting the rest."""
+    left = np.asarray(left)
+    right = np.asarray(right)
+    while left.ndim < right.ndim:
+        left = left[..., None]
+    while right.ndim < left.ndim:
+        right = right[..., None]
+    return left * right
+
+
+class _SampleDraws(np.ndarray):
+    """Posterior draws whose arithmetic broadcasts extra axes after samples."""
+
+    def __new__(cls, array):
+        return np.asarray(array).view(cls)
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        if method != "__call__":
+            return NotImplemented
+        arrays = []
+        for item in inputs:
+            if isinstance(item, (np.ndarray, float, int, np.generic)):
+                arrays.append(np.asarray(item))
+            else:
+                return NotImplemented
+        nd = max((arr.ndim for arr in arrays), default=0)
+        aligned = []
+        for arr in arrays:
+            if arr.ndim == 0:
+                aligned.append(arr)
+                continue
+            while arr.ndim < nd:
+                arr = arr[..., None]
+            aligned.append(arr)
+        result = getattr(ufunc, method)(*aligned, **kwargs)
+        if isinstance(result, np.ndarray):
+            return result.view(_SampleDraws)
+        return result
+
+
+def _is_compiled_by_var_edge(post, variable: str, *, fixed: bool) -> bool:
+    """True when ``beta_{variable}`` is the compiler's per-cell replacement.
+
+    A same-named RV from another equation (``beta_M`` on ``M ~ X``) is not
+    that replacement. ``by_var`` emits ``beta_{variable}`` with a ``unit`` dim
+    and only for a free coefficient.
+    """
+    if fixed:
+        return False
+    beta_var = f"beta_{variable}"
+    if beta_var not in post:
+        return False
+    return "unit" in post[beta_var].dims
 
 
 def _compiled_edge_draws(
     idata: xr.DataTree,
     lhs: str,
     variable: str,
+    *,
+    fixed: bool = False,
 ) -> np.ndarray:
     """Posterior draws for one regression edge.
 
     A ``by_var`` predictor is compiled as its own ``beta_{variable}`` RV and
     removed from the flat ``beta_{lhs}`` vector. Read that RV. Do not index a
-    ``beta_{lhs}`` entry the compiler dropped.
+    ``beta_{lhs}`` entry the compiler dropped, and do not treat an unrelated
+    ``beta_{variable}`` as this edge.
     """
     from pathmc.idata import posterior
 
     post = posterior(idata)
     beta_lhs = f"beta_{lhs}"
     coord_name = f"{lhs}_predictors"
-    beta_var = f"beta_{variable}"
     kept_in_flat = False
     if beta_lhs in post:
         beta = post[beta_lhs]
         if coord_name in beta.coords:
             kept_in_flat = variable in np.asarray(beta.coords[coord_name])
-    if not kept_in_flat and beta_var in post:
-        return _flat_posterior(post[beta_var])
+    if not kept_in_flat and _is_compiled_by_var_edge(post, variable, fixed=fixed):
+        return _stack_samples(post[f"beta_{variable}"])
     return beta_draws(idata, beta_lhs, coord_name, variable)
 
 
@@ -213,14 +274,11 @@ def evaluate_defined_params(
     """
     defined_draws: dict[str, np.ndarray] = {}
     affected_labels = _interaction_affected_labels(spec)
-    # Names (labels or previously-computed defined params) known to omit an
-    # interaction contribution; grows as flagged defined params are chained
-    # into later ones (e.g. total := indirect + c).
     affected_names = set(affected_labels)
 
     for dp in spec.defined_params:
-        namespace: dict = {k: v for k, v in labeled_draws.items()}
-        namespace.update(defined_draws)
+        namespace: dict = {k: _SampleDraws(v) for k, v in labeled_draws.items()}
+        namespace.update({k: _SampleDraws(v) for k, v in defined_draws.items()})
         namespace["__builtins__"] = {}
 
         tokens = set(re.findall(r"[A-Za-z_]\w*", dp.expression))
@@ -326,7 +384,7 @@ def build_effects_summary(
 
     rows = []
     for name, draws in all_draws.items():
-        interval = hdi(draws)
+        interval = hdi(np.asarray(draws).reshape(-1))
         rows.append({
             "name": name,
             "mean": float(np.mean(draws)),
@@ -422,7 +480,7 @@ def build_standardized_effects(
 
             raw_draws = labeled_draws[term.label]
             std_draws = raw_draws * sd_x / sd_y
-            interval = hdi(std_draws)
+            interval = hdi(np.asarray(std_draws).reshape(-1))
             rows.append({
                 "name": term.label,
                 "predictor": var,
@@ -577,7 +635,9 @@ def compute_path_effect(
         if matched_term.label is not None and matched_term.label in labeled_draws:
             draws = labeled_draws[matched_term.label]
         else:
-            draws = _compiled_edge_draws(idata, target, source)
+            draws = _compiled_edge_draws(
+                idata, target, source, fixed=matched_term.fixed_value is not None
+            )
 
         if scaling_factors is not None and data is not None:
             draws = np.asarray(
@@ -595,6 +655,6 @@ def compute_path_effect(
 
     result_draws = edge_draws[0]
     for d in edge_draws[1:]:
-        result_draws = result_draws * d
+        result_draws = _broadcast_samples(result_draws, d)
 
     return EffectResult(name=path, draws=result_draws)

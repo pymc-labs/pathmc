@@ -605,3 +605,51 @@ class TestByVarEffectReadsCompiledEdge:
         result = model.effect("ads -> orders")
         assert result.mean == pytest.approx(2.0)
         assert np.allclose(np.sort(result.draws), [1.5, 2.5])
+
+    def test_multi_draw_path_keeps_unit_axis_aligned(self):
+        rows = [
+            {"market": g, "week": t, "display": x, "awareness": 1.0, "sales": 1.0}
+            for g in ["north", "south"]
+            for t, x in enumerate([1.0, 2.0])
+        ]
+        model = pathmc.model(
+            "awareness ~ 0 + a*display\nsales ~ 0 + b*awareness",
+            data=pd.DataFrame(rows),
+            panel={"unit": "market", "time": "week"},
+            pooling={"by_var": {"display": {"coefficient": "market"}}},
+        )
+        unit = list(model.pymc_model.coords["unit"])
+        self._fit_posterior(
+            model,
+            {
+                "beta_display": np.array([[[4.0, 10.0], [5.0, 11.0]]]),
+                "beta_sales": np.array([[[3.0], [6.0]]]),
+            },
+            {"unit": unit, "sales_predictors": ["awareness"]},
+            {
+                "beta_display": ["unit"],
+                "beta_sales": ["sales_predictors"],
+            },
+        )
+        edge = model.effect("display -> awareness")
+        path = model.effect("display -> awareness -> sales")
+        assert edge.draws.shape == (2, 2)
+        assert np.allclose(edge.draws, [[4.0, 10.0], [5.0, 11.0]])
+        assert path.draws.shape == (2, 2)
+        assert np.allclose(path.draws, [[12.0, 30.0], [30.0, 66.0]])
+        assert path.mean == pytest.approx(34.5)
+
+    def test_fixed_loading_does_not_read_other_equation_beta(self):
+        rows = [{"x": x, "m": 0.0, "m_obs": 0.0} for x in (0.0, 1.0, 2.0, 3.0)]
+        model = pathmc.model(
+            "m ~ a*x\nm_obs ~ 0 + 1*m",
+            data=pd.DataFrame(rows),
+        )
+        self._fit_posterior(
+            model,
+            {"beta_m": np.array([[[0.4]]])},
+            {"m_predictors": ["x"]},
+            {"beta_m": ["m_predictors"]},
+        )
+        with pytest.raises(KeyError, match="beta_m_obs"):
+            model.effect("m -> m_obs")
