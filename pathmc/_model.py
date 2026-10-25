@@ -1961,6 +1961,7 @@ class PathModel:
                     self._panel_info,
                     time_idx,
                     list(self._graph_info.topological_order),
+                    scaling_factors=self._scaling_factors,
                 )
                 return run_do_panel_unified(
                     gen_model=self._gen_model,
