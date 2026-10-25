@@ -2987,7 +2987,11 @@ def simulate(
         for reg in spec.regressions:
             for t in reg.terms:
                 term_vars.update(_scan_term_base_vars(t))
-        target_columns = endo_set - latent_set
+        # Latent mediators are generated endogenous columns. They are absent
+        # from the input frame, but a grid target spec still fits their factor
+        # so the inverse scale lands them in business units with the other
+        # generated columns.
+        target_columns = endo_set
         channel_columns = term_vars - endo_set
         scaling, excluded = _exclude_scaled_basis_inputs(
             scaling,
