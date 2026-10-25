@@ -1,0 +1,20 @@
+docs/user_guide/19-panel-data.qmd
+  h_63db634213747e 273
+pathmc/_model.py
+  h_63db634213747e 38,2679-2682,2685,2957
+pathmc/compile.py
+  h_63db634213747e 614-616,638,1787-1788,1882-1918
+tests/test_residual_cov.py
+  h_63db634213747e 257-300
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a25833a882ef24582500655ac02908d42dc2543d",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
