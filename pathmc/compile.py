@@ -38,7 +38,7 @@ panel interventions natively — no separate simulation engine needed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Collection, Literal
 
 import narwhals.stable.v1 as nw
 import networkx as nx
@@ -277,11 +277,12 @@ def get_predictor_columns(
     cols: list[str] = []
     if _effective_has_intercept(reg, pooling, panel_info):
         cols.append("Intercept")
+    coords = _predictor_coordinates(reg)
     for term in reg.terms:
         if term.categorical is not None and term.categorical.columns:
             cols.extend(term.categorical.columns)
         else:
-            cols.append(term.variable)
+            cols.append(coords[id(term)])
     return cols
 
 
@@ -290,22 +291,73 @@ def get_free_predictor_columns(
     *,
     pooling: str | dict | None = None,
     panel_info: PanelInfo | None = None,
+    exclude_variables: Collection[str] | None = None,
 ) -> list[str]:
     """Return predictor column names that have free (estimated) coefficients.
 
-    Fixed-value terms (e.g. ``1*X``) are excluded.
+    Fixed-value terms (e.g. ``1*X``) are excluded. *exclude_variables*
+    drops flat-beta columns replaced by ``by_var`` coefficients, matched
+    on the term's variable (the data column), not the coordinate label.
     """
+    excluded = set(exclude_variables or ())
     cols: list[str] = []
     if _effective_has_intercept(reg, pooling, panel_info):
         cols.append("Intercept")
     # Basis terms carry their own weights (not a scalar beta column), so
     # they are excluded here to keep ``beta`` sized to the plain/free terms.
+    coords = _predictor_coordinates(reg)
     cols.extend(
-        t.variable
+        coords[id(t)]
         for t in reg.terms
-        if t.fixed_value is None and t.basis is None and t.categorical is None
+        if t.fixed_value is None
+        and t.basis is None
+        and t.categorical is None
+        and t.variable not in excluded
     )
     return cols
+
+
+def predictor_coordinate(reg: Regression, term: Term) -> str:
+    """Return the beta coordinate compiled for *term*."""
+    return _predictor_coordinates(reg)[id(term)]
+
+
+def _predictor_coordinates(reg: Regression) -> dict[int, str]:
+    """Map each non-categorical term to a unique predictor coordinate.
+
+    A lone ``adstock(X)`` keeps the coordinate ``X``: that is the column
+    name the rest of the compiler and the tests already select. Two terms
+    that share ``term.variable`` must not share that coordinate, or
+    ``.sel(Y_predictors="X")`` returns both columns and every label
+    reports the mixture. A colliding transform is named from its call
+    (``adstock(X, decay=theta)``); any remaining clash gets a ``#N``
+    suffix.
+    """
+    counts: dict[str, int] = {}
+    for term in reg.terms:
+        if term.categorical is not None:
+            continue
+        counts[term.variable] = counts.get(term.variable, 0) + 1
+    duplicated = {name for name, count in counts.items() if count > 1}
+    taken: set[str] = set()
+    coords: dict[int, str] = {}
+    for term in reg.terms:
+        if term.categorical is not None:
+            continue
+        if term.variable not in duplicated:
+            name = term.variable
+        elif term.transform is not None:
+            name = _render_transform_call(term.transform)
+        else:
+            name = term.variable
+        if name in taken:
+            suffix = 2
+            while f"{name}#{suffix}" in taken:
+                suffix += 1
+            name = f"{name}#{suffix}"
+        taken.add(name)
+        coords[id(term)] = name
+    return coords
 
 
 def get_fixed_coefficients(reg: Regression) -> dict[str, float]:
@@ -475,6 +527,7 @@ def build_design_matrix(
         columns: dict[str, np.ndarray] = {}
         if _effective_has_intercept(reg, pooling, panel_info):
             columns["Intercept"] = np.ones(n)
+        coords = _predictor_coordinates(reg)
         for term in reg.terms:
             v = term.variable
             if term.categorical is not None and v in data.columns:
@@ -491,11 +544,11 @@ def build_design_matrix(
                         product = product * data[part].to_numpy().astype(float)
                     else:
                         product = product * np.nan
-                columns[v] = product
+                columns[coords[id(term)]] = product
             elif v in data.columns:
-                columns[v] = data[v].to_numpy().astype(float)
+                columns[coords[id(term)]] = data[v].to_numpy().astype(float)
             else:
-                columns[v] = np.full(n, np.nan)
+                columns[coords[id(term)]] = np.full(n, np.nan)
         return nw.from_dict(
             {
                 c: columns[c]
@@ -524,12 +577,28 @@ def build_design_matrix(
 
     dm = patsy.dmatrix(formula_str, data=pandas_data, return_type="dataframe")
     columns = {str(col): dm[col].to_numpy() for col in dm.columns}
+    coords = _predictor_coordinates(reg)
     for term in reg.terms:
-        if term.categorical is None:
+        if term.categorical is not None:
+            encoded = encode_categorical(
+                term.categorical, data[term.variable].to_numpy()
+            )
+            for idx, name in enumerate(term.categorical.columns):
+                columns[name] = encoded[:, idx]
             continue
-        encoded = encode_categorical(term.categorical, data[term.variable].to_numpy())
-        for idx, name in enumerate(term.categorical.columns):
-            columns[name] = encoded[:, idx]
+        name = coords[id(term)]
+        if name in columns:
+            continue
+        # Patsy collapses repeated variable names (``X + X``) and does not
+        # know transform calls. The likelihood uses the slot resolver, not
+        # this frame; the extra column keeps design() aligned with coords.
+        if term.interaction_of is not None:
+            product = np.ones(n)
+            for part in term.interaction_of:
+                product = product * pandas_data[part].to_numpy(dtype=float)
+            columns[name] = product
+        else:
+            columns[name] = pandas_data[term.variable].to_numpy(dtype=float)
     return nw.from_dict(
         {
             name: columns[name]
@@ -683,13 +752,12 @@ def compile_to_pymc(
 
     coords: dict[str, Any] = {}
     for reg in spec.regressions:
-        free_cols = [
-            c
-            for c in get_free_predictor_columns(
-                reg, pooling=pooling, panel_info=panel_info
-            )
-            if c not in pooled_by_lhs.get(reg.lhs, ())
-        ]
+        free_cols = get_free_predictor_columns(
+            reg,
+            pooling=pooling,
+            panel_info=panel_info,
+            exclude_variables=pooled_by_lhs.get(reg.lhs, ()),
+        )
         if free_cols:
             coords[f"{reg.lhs}_predictors"] = free_cols
         for term in reg.terms:
@@ -919,13 +987,12 @@ def compile_to_pymc(
 
             reg = reg_by_lhs[var]
             family = families.get(var, "gaussian")
-            free_cols = [
-                c
-                for c in get_free_predictor_columns(
-                    reg, pooling=pooling, panel_info=panel_info
-                )
-                if c not in pooled_by_lhs.get(var, ())
-            ]
+            free_cols = get_free_predictor_columns(
+                reg,
+                pooling=pooling,
+                panel_info=panel_info,
+                exclude_variables=pooled_by_lhs.get(var, ()),
+            )
 
             beta = None
             if free_cols:
@@ -2603,13 +2670,12 @@ def _compile_scan_panel(
     coords: dict[str, Any] = {}
     fixed_coeffs_by_var: dict[str, dict[str, float]] = {}
     for reg in spec.regressions:
-        free_cols = [
-            c
-            for c in get_free_predictor_columns(
-                reg, pooling=pooling, panel_info=panel_info
-            )
-            if c not in pooled_by_lhs.get(reg.lhs, ())
-        ]
+        free_cols = get_free_predictor_columns(
+            reg,
+            pooling=pooling,
+            panel_info=panel_info,
+            exclude_variables=pooled_by_lhs.get(reg.lhs, ()),
+        )
         if free_cols:
             coords[f"{reg.lhs}_predictors"] = free_cols
         fixed_coeffs_by_var[reg.lhs] = get_fixed_coefficients(reg)
@@ -2647,13 +2713,12 @@ def _compile_scan_panel(
         beta_rvs: dict[str, Any] = {}
         sigma_rvs: dict[str, Any] = {}
         for var in endogenous_order:
-            free_cols = [
-                c
-                for c in get_free_predictor_columns(
-                    reg_by_lhs[var], pooling=pooling, panel_info=panel_info
-                )
-                if c not in pooled_by_lhs.get(var, ())
-            ]
+            free_cols = get_free_predictor_columns(
+                reg_by_lhs[var],
+                pooling=pooling,
+                panel_info=panel_info,
+                exclude_variables=pooled_by_lhs.get(var, ()),
+            )
             family = families.get(var, "gaussian")
             if free_cols:
                 beta_prior = _ensure_dims(priors[f"beta_{var}"], f"{var}_predictors")
@@ -2974,13 +3039,14 @@ def _compile_scan_panel(
         for var in endo_keys:
             if beta_rvs[var] is not None:
                 beta_component_names[var] = []
-                n_flat = len([
-                    c
-                    for c in get_free_predictor_columns(
-                        reg_by_lhs[var], pooling=pooling, panel_info=panel_info
+                n_flat = len(
+                    get_free_predictor_columns(
+                        reg_by_lhs[var],
+                        pooling=pooling,
+                        panel_info=panel_info,
+                        exclude_variables=pooled_by_lhs.get(var, ()),
                     )
-                    if c not in pooled_by_lhs.get(var, ())
-                ])
+                )
                 for idx in range(n_flat):
                     component_name = f"beta_{var}__{idx}"
                     non_seq_list.append(beta_rvs[var][idx])
