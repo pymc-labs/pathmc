@@ -1,0 +1,16 @@
+pathmc/compile.py
+  h_63db634213747e 1230-1232,1241-1244,1262-1265,1270,1272-1274,2986,3004,3006
+tests/test_shared_adstock_state.py
+  h_63db634213747e 1-349
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "67470a1cc2745eec1d16fd14d22e2bd4834d9afb",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
