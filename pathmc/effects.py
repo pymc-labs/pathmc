@@ -466,7 +466,9 @@ def compute_path_effect(
 
     Each edge's contribution is the linear (main-effect) regression
     coefficient of the source variable on the target; the path effect is
-    the product of these coefficients (Wright's tracing rule). This is
+    the product of these coefficients (Wright's tracing rule). A fixed
+    coefficient is that term: its known constant enters the product, and
+    no free ``beta`` RV is looked up for it. This is
     exact for linear-Gaussian structural models. If the target's
     regression also contains an interaction term involving the source
     variable (e.g. ``Y ~ b*M + g*M:X``), the interaction's contribution is
@@ -547,7 +549,9 @@ def compute_path_effect(
                 stacklevel=2,
             )
 
-        if matched_term.label is not None and matched_term.label in labeled_draws:
+        if matched_term.fixed_value is not None:
+            draws = np.asarray([float(matched_term.fixed_value)])
+        elif matched_term.label is not None and matched_term.label in labeled_draws:
             draws = labeled_draws[matched_term.label]
         else:
             beta_name = f"beta_{target}"
