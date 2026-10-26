@@ -3380,7 +3380,6 @@ def _compile_scan_panel(
                 "new_endo": {},
                 "carry_mu": {},
                 "use_observed_carry_t": ns_map["_use_observed_carry"],
-                "discrete_rng": ns_map["_discrete_scan_rng"],
             }
 
         def _make_advance(state: dict[str, Any]):
@@ -3400,7 +3399,6 @@ def _compile_scan_panel(
             do_intervene_t = state["do_intervene_t"]
             carry_mu = state["carry_mu"]
             use_observed_carry_t = state["use_observed_carry_t"]
-            discrete_rng = state["discrete_rng"]
 
             def _advance(var: str) -> None:
                 beta_names = beta_component_names.get(var)
