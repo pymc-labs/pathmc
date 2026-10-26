@@ -111,3 +111,129 @@ class TestDoResultPlot:
         contrast = high - low
         fig = contrast.plot("Y")
         assert fig is not None
+
+
+def _line(fig, label: str) -> np.ndarray:
+    matches = [
+        line.get_ydata()
+        for line in fig.axes[0].get_lines()
+        if line.get_label() == label
+    ]
+    assert matches, f"missing {label} line"
+    return np.asarray(matches[0], dtype=float)
+
+
+def _pin_scan_posterior(model, *, beta_y: float, n_times: int, n_units: int) -> None:
+    import arviz as az
+
+    model._idata = az.from_dict(
+        {
+            "posterior": {
+                "beta_Y": np.array([[[beta_y]]]),
+                "beta_W": np.array([[[0.0]]]),
+                "sigma_Y": np.array([[0.0]]),
+                "sigma_W": np.array([[0.0]]),
+                "carry_innovations_W": np.zeros((1, 1, n_times, n_units)),
+            }
+        },
+        coords={"Y_predictors": ["X"], "W_predictors": ["lag(W)"]},
+        dims={
+            "beta_Y": ["Y_predictors"],
+            "beta_W": ["W_predictors"],
+            "carry_innovations_W": ["t", "u"],
+        },
+    )
+
+
+class TestObservedOverlayBusinessUnits:
+    """``plot(vs='observed')`` must not draw the internal column."""
+
+    def test_fixed_target_overlay_matches_business_column(self):
+        import pandas as pd
+
+        import pathmc
+
+        # Not the triage probe (factor 10, Y=[10, 30, 70]): a special case
+        # for those inputs would still fail here.
+        observed = [8.0, 16.0, 28.0]
+        factor = 4.0
+        df = pd.DataFrame([
+            {"unit": "A", "time": t, "Y": y, "X": 2.0, "W": 0.0}
+            for t, y in enumerate(observed)
+        ])
+        model = pathmc.model(
+            "Y ~ 0 + X\nW ~ 0 + lag(W)",
+            data=df,
+            panel={"unit": "unit", "time": "time"},
+            scaling=pathmc.Scaling(target={"method": "fixed", "value": factor}),
+        )
+        _pin_scan_posterior(model, beta_y=3.0, n_times=3, n_units=1)
+        result = model.do(
+            set={"X": np.array([1.0, 2.0, 4.0])},
+            simulate_over="time",
+            kind="mean",
+        )
+        fig = result.plot("Y", vs="observed")
+        np.testing.assert_allclose(_line(fig, "Counterfactual"), [12.0, 24.0, 48.0])
+        np.testing.assert_allclose(_line(fig, "Observed"), observed)
+        assert not np.allclose(_line(fig, "Observed"), np.asarray(observed) / factor)
+
+    def test_heterogeneous_target_uses_row_business_units(self):
+        import pandas as pd
+
+        import pathmc
+
+        # Unit means of the internal column times the mean factor are
+        # [22.5, 26.25], not the business-unit unit means [25, 22.5].
+        rows = [
+            {"unit": "A", "time": 0, "Y": 10.0, "X": 1.0, "W": 0.0},
+            {"unit": "A", "time": 1, "Y": 25.0, "X": 1.0, "W": 0.0},
+            {"unit": "B", "time": 0, "Y": 40.0, "X": 1.0, "W": 0.0},
+            {"unit": "B", "time": 1, "Y": 20.0, "X": 1.0, "W": 0.0},
+        ]
+        model = pathmc.model(
+            "Y ~ 0 + X\nW ~ 0 + lag(W)",
+            data=pd.DataFrame(rows),
+            panel={"unit": "unit", "time": "time"},
+            scaling=pathmc.Scaling(
+                target={
+                    "method": "divide",
+                    "by": {"A": 5.0, "B": 10.0},
+                    "dims": ("unit",),
+                }
+            ),
+        )
+        _pin_scan_posterior(model, beta_y=2.0, n_times=2, n_units=2)
+        result = model.do(
+            set={"X": np.array([1.0, 2.0])},
+            simulate_over="time",
+            kind="mean",
+        )
+        observed = _line(result.plot("Y", vs="observed"), "Observed")
+        np.testing.assert_allclose(observed, [25.0, 22.5])
+
+    def test_channel_scaled_predictor_overlay_stays_business_units(self):
+        import pandas as pd
+
+        import pathmc
+
+        raw_x = [6.0, 12.0, 18.0]
+        df = pd.DataFrame([
+            {"unit": "A", "time": t, "Y": 1.0, "X": x, "W": 0.0}
+            for t, x in enumerate(raw_x)
+        ])
+        model = pathmc.model(
+            "Y ~ 0 + X\nW ~ 0 + lag(W)",
+            data=df,
+            panel={"unit": "unit", "time": "time"},
+            scaling=pathmc.Scaling(channel={"method": "fixed", "value": 3.0}),
+        )
+        _pin_scan_posterior(model, beta_y=1.0, n_times=3, n_units=1)
+        result = model.do(
+            set={"X": np.array([3.0, 6.0, 9.0])},
+            simulate_over="time",
+            kind="mean",
+        )
+        observed = _line(result.plot("X", vs="observed"), "Observed")
+        np.testing.assert_allclose(observed, raw_x)
+        assert not np.allclose(observed, np.asarray(raw_x) / 3.0)
