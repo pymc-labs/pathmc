@@ -788,13 +788,15 @@ def build_priors(
     if spec.residual_covs:
         import networkx as nx
 
+        from pathmc.residuals import residual_sd_description
+
         ug = nx.Graph()
         for rc in spec.residual_covs:
             ug.add_edge(rc.var1, rc.var2)
         for component in nx.connected_components(ug):
             block_name = "_".join(sorted(component))
-            entries[f"chol_{block_name}"] = (
-                "LKJCholeskyCov(eta=2, sd_dist=HalfNormal(1))"
+            entries[f"chol_{block_name}"] = residual_sd_description(
+                sorted(component), prior_config
             )
 
     return PriorTable(entries)
