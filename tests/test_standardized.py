@@ -90,6 +90,140 @@ class TestStandardizedEffects:
             assert row["hdi_3%"] < row["hdi_97%"]
 
 
+class TestBinaryPredictorsSkipped:
+    """0/1 predictors are omitted; their SD depends on the base rate."""
+
+    @pytest.mark.parametrize("base_rate", [0.5, 0.1, 0.8])
+    @pytest.mark.parametrize("dtype", [float, int])
+    def test_label_absent_at_every_base_rate(
+        self, base_rate: float, dtype: type
+    ) -> None:
+        n = 80
+        n_treated = int(n * base_rate)
+        treatment = np.array([1] * n_treated + [0] * (n - n_treated), dtype=dtype)
+        covariate = np.linspace(-2.0, 3.0, n)
+        frame = pd.DataFrame({
+            "T": treatment,
+            "X": covariate,
+            "Y": 0.2 * covariate + 2.0,
+        })
+        model = pathmc.model("Y ~ b*T + c*X", data=frame)
+        order = [str(name) for name in model.pymc_model.coords["Y_predictors"]]
+        injected = [{"T": 4.0, "X": 0.3, "Intercept": 0.0}[name] for name in order]
+        model._idata = az.from_dict(
+            {"posterior": {"beta_Y": np.tile(injected, (1, 4, 1))}},
+            coords={"Y_predictors": order},
+            dims={"beta_Y": ["Y_predictors"]},
+        )
+
+        result = model.standardized()
+
+        assert "b" not in result.index
+        assert "c" in result.index
+        assert np.isfinite(result.loc["c", "mean"])
+
+    def test_scaled_channel_still_omits_binary_label(self) -> None:
+        n = 40
+        treatment = np.array([1.0] * 10 + [0.0] * 30)
+        covariate = np.linspace(5.0, 15.0, n)
+        frame = pd.DataFrame({
+            "T": treatment,
+            "X": covariate,
+            "Y": 2.0 * covariate + 3.0,
+        })
+        model = pathmc.model(
+            "Y ~ b*T + c*X",
+            data=frame,
+            scaling=Scaling(channel={"method": "fixed", "value": 10.0}),
+        )
+        order = [str(name) for name in model.pymc_model.coords["Y_predictors"]]
+        injected = [{"T": 4.0, "X": 0.3, "Intercept": 0.0}[name] for name in order]
+        model._idata = az.from_dict(
+            {"posterior": {"beta_Y": np.tile(injected, (1, 4, 1))}},
+            coords={"Y_predictors": order},
+            dims={"beta_Y": ["Y_predictors"]},
+        )
+
+        result = model.standardized()
+
+        assert "b" not in result.index
+        assert "c" in result.index
+
+    def test_non_inverting_channel_scale_still_omits_binary_label(self) -> None:
+        n = 9
+        treatment = np.array([1.0] * 7 + [0.0] * 2)
+        covariate = np.linspace(-3.0, 4.0, n)
+        frame = pd.DataFrame({
+            "T": treatment,
+            "X": covariate,
+            "Y": covariate + 1.0,
+        })
+        model = pathmc.model(
+            "Y ~ b*T + c*X",
+            data=frame,
+            scaling=Scaling(channel={"method": "mean"}),
+        )
+        order = [str(name) for name in model.pymc_model.coords["Y_predictors"]]
+        injected = [{"T": 4.0, "X": 0.3, "Intercept": 0.0}[name] for name in order]
+        model._idata = az.from_dict(
+            {"posterior": {"beta_Y": np.tile(injected, (1, 4, 1))}},
+            coords={"Y_predictors": order},
+            dims={"beta_Y": ["Y_predictors"]},
+        )
+
+        result = model.standardized()
+
+        assert "b" not in result.index
+        assert "c" in result.index
+
+    def test_scaled_near_zero_continuous_column_is_kept(self) -> None:
+        covariate = np.linspace(1.0, 4.0, 12)
+        outcome = np.linspace(2.0, 5.0, 12)
+        frame = pd.DataFrame({
+            "T": np.linspace(0.0, 5e-9, 12),
+            "X": covariate,
+            "Y": outcome,
+        })
+        model = pathmc.model(
+            "Y ~ b*T + c*X",
+            data=frame,
+            scaling=Scaling(channel={"method": "max"}),
+        )
+        order = [str(name) for name in model.pymc_model.coords["Y_predictors"]]
+        injected = [{"T": 4.0, "X": 0.3, "Intercept": 0.0}[name] for name in order]
+        model._idata = az.from_dict(
+            {"posterior": {"beta_Y": np.tile(injected, (1, 4, 1))}},
+            coords={"Y_predictors": order},
+            dims={"beta_Y": ["Y_predictors"]},
+        )
+
+        result = model.standardized()
+
+        assert "b" in result.index
+        assert "c" in result.index
+
+    def test_scaled_ulp_neighborhood_of_zero_is_kept(self) -> None:
+        frame = pd.DataFrame({
+            "T": np.linspace(0.0, 2e-15, 12),
+            "X": np.linspace(1.0, 4.0, 12),
+            "Y": np.linspace(2.0, 5.0, 12),
+        })
+        model = pathmc.model(
+            "Y ~ b*T + c*X",
+            data=frame,
+            scaling=Scaling(channel={"method": "max"}),
+        )
+        order = [str(name) for name in model.pymc_model.coords["Y_predictors"]]
+        injected = [{"T": 4.0, "X": 0.3, "Intercept": 0.0}[name] for name in order]
+        model._idata = az.from_dict(
+            {"posterior": {"beta_Y": np.tile(injected, (1, 4, 1))}},
+            coords={"Y_predictors": order},
+            dims={"beta_Y": ["Y_predictors"]},
+        )
+
+        assert "b" in model.standardized().index
+
+
 class TestStandardizedBeforeSample:
     def test_raises_before_sample(self):
         df = pd.DataFrame({

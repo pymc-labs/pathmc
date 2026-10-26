@@ -469,6 +469,74 @@ def _observed_sd(
     return float(sd)
 
 
+def _is_binary_01(column: nw.Series) -> bool:
+    """Return whether observed values are only 0 and 1.
+
+    STDYX for a 0/1 column depends on the base rate, not the scale of the
+    effect, so those predictors are skipped. Non-numeric values are not
+    treated as binary here.
+    """
+    values = column.drop_nulls().unique().to_list()
+    if not values:
+        return False
+    observed: set[float] = set()
+    for value in values:
+        if isinstance(value, bool):
+            observed.add(float(value))
+            continue
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            number = float(value)
+        else:
+            return False
+        if not np.isfinite(number):
+            return False
+        observed.add(number)
+    return observed <= {0.0, 1.0}
+
+
+def _values_are_binary_01(values: np.ndarray, *, atol: float = 0.0) -> bool:
+    """Return whether finite observed numbers are only 0 and 1.
+
+    ``atol`` covers a rounding ulp when a channel scale is inverted. It is
+    not used for the stored column, so a near-0/1 continuous column is kept.
+    """
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return False
+    if atol == 0.0:
+        return set(np.unique(finite).tolist()) <= {0.0, 1.0}
+    close_0 = np.isclose(finite, 0.0, rtol=0.0, atol=atol)
+    close_1 = np.isclose(finite, 1.0, rtol=0.0, atol=atol)
+    return bool(np.any(close_0) and np.any(close_1) and np.all(close_0 | close_1))
+
+
+def _predictor_is_binary_01(
+    data: nw.DataFrame,
+    variable: str,
+    scaling_factors: ScalingFactors | None,
+) -> bool:
+    """Return whether the predictor is 0/1 in business units.
+
+    Scaled frames store ``value / factor``. Classify the unscaled column so a
+    0/1 treatment is still skipped after a channel scale.
+    """
+    column = data[variable]
+    if scaling_factors is not None and scaling_factors.has_factor(variable):
+        try:
+            business = np.asarray(
+                scaling_factors.to_business(
+                    np.asarray(column.to_numpy(), dtype=float),
+                    kind="regressor",
+                    dims=ScaleContext(term=variable, data=data),
+                ),
+                dtype=float,
+            )
+        except (TypeError, ValueError):
+            return _is_binary_01(column)
+        return _values_are_binary_01(business, atol=16 * float(np.spacing(1.0)))
+    return _is_binary_01(column)
+
+
 def build_standardized_effects(
     spec: Spec,
     idata: xr.DataTree,
@@ -488,7 +556,9 @@ def build_standardized_effects(
     observed marginal SDs of the data the caller passed, not the SDs of
     internally divided columns. This gives the expected change in Y (in
     SD units) per SD change in X. Edges involving latent variables (no
-    observed SD) or non-Gaussian outcomes are skipped.
+    observed SD), binary 0/1 predictors, or non-Gaussian outcomes are
+    skipped. A 0/1 predictor is skipped because its SD depends on the
+    base rate, not the scale of the effect.
 
     Parameters
     ----------
@@ -503,6 +573,9 @@ def build_standardized_effects(
     families : dict[str, str] | None
         Per-variable distribution families. Non-Gaussian outcomes are
         skipped with a warning.
+    scaling_factors : ScalingFactors | None
+        Fitted scale factors. Used only to recover business-unit 0/1 codings.
+        The stdyx formula still uses the observed SDs of ``data``.
 
     Returns
     -------
@@ -539,6 +612,10 @@ def build_standardized_effects(
 
             var = term.variable
             if var in latent or var not in data.columns:
+                continue
+            # A 0/1 column's SD is the base rate, not a measurement scale.
+            # Classify business units so a channel scale does not hide the coding.
+            if _predictor_is_binary_01(data, var, scaling_factors):
                 continue
             sd_x = _observed_sd(data, var, scaling_factors)
             if sd_x is None:
