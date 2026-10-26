@@ -1,0 +1,36 @@
+docs/examples/04-identification/dag_falsification.qmd
+  h_63db634213747e 192
+docs/examples/04-identification/dag_testing.qmd
+  h_63db634213747e 431
+pathmc/__init__.py
+  h_63db634213747e 39,68
+pathmc/_ci.py
+  h_63db634213747e 42,91-93,96-100,110,114,116-118,122,444,455-461,468-469,472-473,478,527,532
+pathmc/_ci_report.py
+  h_63db634213747e 33-34,36,38,67-68,71,76-87,101-102,118-119,131
+pathmc/_model.py
+  h_63db634213747e 1489-1493
+pathmc/falsify.py
+  h_63db634213747e 51,64,76,98-148,209-212,216-217,234-252,255,257-258,261,267-269,271,273,279-284,290,292,297,299-304,307,309-312,314-317,319-328,330-356,358-371,375-376,383,390-397,399,403-404,411,416-419,427,461-463,471-478,572,575,577-579,582,587,594,597,599-609,612,831,838,846
+pathmc/identify.py
+  h_63db634213747e 32,38,546-549,567-568,570-572,576-577,748-752,803,811,832,847-852
+tests/test_ci_engine.py
+  h_63db634213747e 16-19,31-32,96,106,138,143,365,378-379,401,417,433
+tests/test_ci_rank_collapse.py
+  h_63db634213747e 1-640
+tests/test_falsify.py
+  h_63db634213747e 242,576,586,595,734,741
+tests/test_reprs.py
+  h_63db634213747e 131,440,476
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "842f1fbc01710a2477a1bb4e509a34f18e94e690",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
