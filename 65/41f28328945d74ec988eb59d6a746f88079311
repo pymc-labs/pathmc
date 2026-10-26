@@ -1,0 +1,16 @@
+pathmc/identify.py
+  h_63db634213747e 130-132,134-135
+tests/test_identification.py
+  h_63db634213747e 27,316-331
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6541f28328945d74ec988eb59d6a746f88079311",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
