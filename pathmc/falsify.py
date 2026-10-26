@@ -73,7 +73,7 @@ if TYPE_CHECKING:
     import matplotlib.axes
     import matplotlib.figure
 
-__all__ = ["FalsificationResult", "FalsificationStatus", "falsify_graph"]
+__all__ = ["FalsificationResult", "falsify_graph"]
 
 # Graphs with at most this many nodes have few enough distinct node
 # relabelings (7! = 5040) to enumerate exactly when requested. Larger

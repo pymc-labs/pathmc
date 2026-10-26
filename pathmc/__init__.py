@@ -36,7 +36,7 @@ from pathmc.basis import Basis, register_basis  # noqa: E402
 from pathmc.dag import BuildModelFromDAG, dag_to_spec  # noqa: E402
 from pathmc.discovery import TBFPC, TestResult  # noqa: E402
 from pathmc.effects import EffectResult  # noqa: E402
-from pathmc.falsify import FalsificationResult, FalsificationStatus  # noqa: E402
+from pathmc.falsify import FalsificationResult  # noqa: E402
 from pathmc.identify import ImplicationTestResult  # noqa: E402
 from pathmc.interpret import InterpretResult, datagrid  # noqa: E402
 from pathmc.adjustment import AdjustmentModel  # noqa: E402
@@ -65,7 +65,6 @@ __all__ = [
     "EffectResult",
     "EstimandResult",
     "FalsificationResult",
-    "FalsificationStatus",
     "ImplicationTestResult",
     "InterpretResult",
     "ParamSpec",
