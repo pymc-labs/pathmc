@@ -175,10 +175,12 @@ def _scale_set_for_bounds(
 ) -> Mapping[str, float | np.ndarray]:
     """Convert user-facing (business-unit) interventions to internal units.
 
-    Bounds and extrapolation checks run against already-scaled ``_data``,
-    so the values they see must be in the same units the model compiled.
-    Non-numeric values, including categorical labels, have no scale factor
-    and are left out so a mixed intervention map can be passed through.
+    HSGP boundary checks run against already-scaled ``_data``, so the values
+    they see must be in the same units the model compiled. The extrapolation
+    warning does not: it compares the business-unit query to the business-unit
+    observed column. Non-numeric values, including categorical labels, have no
+    scale factor and are left out so a mixed intervention map can be passed
+    through.
     """
     if factors is None:
         return interventions
@@ -202,6 +204,23 @@ def _scale_set_for_bounds(
             )
         ).ravel()
     return out
+
+
+def _business_observation_frame(
+    data: nw.DataFrame,
+    factors: ScalingFactors | None,
+) -> nw.DataFrame:
+    """Observed columns in the units interventional queries are specified in."""
+    if factors is None or not factors:
+        return data
+    columns = factors.columns_present_in(data.columns)
+    if not columns:
+        return data
+    return factors.to_business(
+        data,
+        kind="regressor",
+        dims=ScaleContext(columns=columns),
+    )
 
 
 def _layout_unscaled_column(
@@ -2007,7 +2026,10 @@ class PathModel:
                 numeric_set, self._scaling_factors, self._data
             )
             _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_set)
-            _warn_extrapolation(self._data, scaled_set)
+            _warn_extrapolation(
+                _business_observation_frame(self._data, self._scaling_factors),
+                numeric_set,
+            )
 
         if simulate_over == "time":
             if self._panel_info is None:
@@ -2127,7 +2149,10 @@ class PathModel:
         # below skip them, so this method does not grow a private pre-filter.
         scaled_do = _scale_set_for_bounds(do, self._scaling_factors, self._data)
         _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_do)
-        _warn_extrapolation(self._data, scaled_do)
+        _warn_extrapolation(
+            _business_observation_frame(self._data, self._scaling_factors),
+            do,
+        )
         if self._scaling_factors is not None:
             do = {
                 var: (
