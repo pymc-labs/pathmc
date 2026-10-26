@@ -37,7 +37,6 @@ from pathmc.compile import (
     _has_temporal_deps,
     _identify_residual_blocks,
     _scan_term_base_vars,
-    _term_base_vars,
     build_design_matrix,
     compile_to_pymc,
     get_predictor_columns,
@@ -2736,7 +2735,7 @@ def model(
         term_vars: set[str] = set()
         for reg in spec.regressions:
             for t in reg.terms:
-                term_vars.update(_term_base_vars(t))
+                term_vars.update(_scan_term_base_vars(t))
         target_columns = endogenous_lhs - latent_set
         channel_columns = term_vars - endogenous_lhs
         scaling, excluded = _exclude_scaled_basis_inputs(
@@ -2987,7 +2986,7 @@ def simulate(
         term_vars: set[str] = set()
         for reg in spec.regressions:
             for t in reg.terms:
-                term_vars.update(_term_base_vars(t))
+                term_vars.update(_scan_term_base_vars(t))
         target_columns = endo_set - latent_set
         channel_columns = term_vars - endo_set
         scaling, excluded = _exclude_scaled_basis_inputs(
