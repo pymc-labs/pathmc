@@ -102,6 +102,7 @@ from pathmc.simulate import (
     _unscale_do_dataset,
     run_counterfactual,
     run_do_panel_unified,
+    run_do_static_panel,
     run_do_pymc,
     _stack_sample,
 )
@@ -2084,7 +2085,29 @@ class PathModel:
                     data=self._data,
                     scaling_factors=self._scaling_factors,
                 )
-            # Non-scan panel models fall through to the cross-sectional path.
+            with self._categorical_intervention(categorical_set):
+                time_idx = np.asarray(
+                    sorted(self._data[self._panel_info.time].unique().to_list())
+                )
+                observed_by_time = observed_means_by_time(
+                    self._data,
+                    self._panel_info,
+                    time_idx,
+                    list(self._graph_info.topological_order),
+                )
+                return run_do_static_panel(
+                    gen_model=self._gen_model,
+                    graph_info=self._graph_info,
+                    idata=idata,
+                    data=self._data,
+                    panel_info=self._panel_info,
+                    set=numeric_set,
+                    kind=kind,
+                    families=self._families,
+                    scaling_factors=self._scaling_factors,
+                    categorical_vars=self._categorical_vars,
+                    observed_by_time=observed_by_time,
+                )
 
         with self._categorical_intervention(categorical_set):
             return self._run_do(numeric_set, kind, average_units=average_units)
