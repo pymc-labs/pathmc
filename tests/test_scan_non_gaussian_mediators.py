@@ -352,3 +352,84 @@ class TestHighRateClipWarning:
             panel={"unit": "region", "time": "week"},
         )
         assert not any("clip bound" in str(w.message) for w in recwarn.list)
+
+
+class TestGaussianChildFollowsDiscreteMediator:
+    """Issue #581: a scan-compiled Gaussian child follows the discrete draw.
+
+    ``Y ~ 0 + M`` with ``sigma_Y = 0`` and a unit coefficient is ``Y = M``
+    on every row. A dummy lag forces the scan compiler. The mediator must
+    vary across time; one broadcast draw is not the structural equation.
+    """
+
+    def test_poisson_identity_is_not_a_broadcast_draw(self):
+        df = pd.DataFrame({"unit": ["A"] * 6, "time": range(6)})
+        saw_variation = False
+        for seed in range(30):
+            sim = pathmc.simulate(
+                "M ~ 0 + 1.0\nY ~ 0 + M\nW ~ 0 + lag(W)",
+                data=df,
+                params={
+                    "beta_M": [1.0],
+                    "beta_Y": [1.0],
+                    "beta_W": [0.0],
+                    "sigma_Y": 0.0,
+                    "sigma_W": 0.0,
+                },
+                panel={"unit": "unit", "time": "time"},
+                families={"M": "poisson"},
+                random_seed=seed,
+            )
+            ordered = sim.sort_values("time")
+            m = ordered.M.to_numpy()
+            y = ordered.Y.to_numpy()
+            assert np.array_equal(y, m)
+            saw_variation = saw_variation or len(set(m.tolist())) > 1
+        assert saw_variation
+
+    def test_bernoulli_identity_uses_the_structural_draw(self):
+        df = pd.DataFrame({"unit": ["A"] * 6, "time": range(6)})
+        uniforms = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7], dtype=float).reshape(6, 1)
+        sim = pathmc.simulate(
+            "M ~ 0 + 1.0\nY ~ 0 + M\nW ~ 0 + lag(W)",
+            data=df,
+            params={
+                "beta_M": [0.0],
+                "beta_Y": [1.0],
+                "beta_W": [0.0],
+                "sigma_Y": 0.0,
+                "sigma_W": 0.0,
+                "discrete_uniforms_M": uniforms,
+            },
+            panel={"unit": "unit", "time": "time"},
+            families={"M": "bernoulli"},
+            random_seed=0,
+        )
+        ordered = sim.sort_values("time")
+        m = ordered.M.to_numpy()
+        y = ordered.Y.to_numpy()
+        assert np.array_equal(m, np.array([1.0, 0.0, 1.0, 0.0, 1.0, 0.0]))
+        assert np.array_equal(y, m)
+
+    def test_scaled_coefficient_and_second_unit(self):
+        df = pd.DataFrame({
+            "unit": ["A", "A", "B", "B", "A", "B"],
+            "time": [0, 1, 0, 1, 2, 2],
+        })
+        sim = pathmc.simulate(
+            "M ~ 0 + 1.0\nY ~ 0 + M\nW ~ 0 + lag(W)",
+            data=df,
+            params={
+                "beta_M": [1.0],
+                "beta_Y": [2.0],
+                "beta_W": [0.0],
+                "sigma_Y": 0.0,
+                "sigma_W": 0.0,
+            },
+            panel={"unit": "unit", "time": "time"},
+            families={"M": "poisson"},
+            random_seed=1,
+        )
+        ordered = sim.sort_values(["unit", "time"])
+        assert np.array_equal(ordered.Y.to_numpy(), 2.0 * ordered.M.to_numpy())
+        assert len(set(ordered.M.to_numpy().tolist())) > 1

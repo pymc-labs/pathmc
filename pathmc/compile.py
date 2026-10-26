@@ -2278,6 +2278,25 @@ def _scan_term_base_vars(term: Term) -> list[str]:
     return _term_base_vars(term)
 
 
+def _discrete_count_ppf(uniform: Any, cdf_at: Any, *, bits: int = 30) -> Any:
+    """Invert a discrete CDF at *uniform* by binary search.
+
+    ``cdf_at(k)`` is P(K <= k). ``bits`` covers counts up to ``2**bits - 1``,
+    which sits above the scan rate clip ``exp(20)``. A per-time uniform keeps
+    each step independent; an in-step RNG would broadcast one draw.
+    """
+    import pytensor.tensor as pt
+
+    lo = pt.zeros_like(uniform)
+    hi = pt.full_like(uniform, float(2**bits - 1))
+    for _ in range(bits):
+        mid = pt.floor((lo + hi) / 2.0)
+        below = cdf_at(mid) < uniform
+        lo = pt.switch(below, mid + 1.0, lo)
+        hi = pt.switch(below, hi, mid)
+    return lo
+
+
 def _scan_discrete_sample_vars(
     spec: Spec,
     families: dict[str, str],
@@ -2720,6 +2739,11 @@ def _compile_scan_panel(
             _scan_discrete_sample_vars(spec, families, latent)
         )
         discrete_sample_set = set(discrete_sample_vars)
+        discrete_count_vars = sorted(
+            v
+            for v in discrete_sample_vars
+            if families.get(v, "gaussian") in ("poisson", "negbinomial")
+        )
         discrete_carry_vars = sorted(
             v for v in discrete_sample_vars if v in endo_lag_bases
         )
@@ -2804,6 +2828,13 @@ def _compile_scan_panel(
                 upper=1.0,
                 shape=(n_times, n_units),
             )
+        for var in discrete_count_vars:
+            discrete_uniform_nodes[var] = pm.Uniform(
+                f"discrete_uniforms_{var}",
+                lower=0.0,
+                upper=1.0,
+                shape=(n_times, n_units),
+            )
 
         # do()-intervention override channel, one per endogenous var (incl.
         # latent), defaulting to all-NaN (no-op).  ``pm.do()`` graph surgery
@@ -2842,6 +2873,7 @@ def _compile_scan_panel(
             + [latent_innovation_nodes[k] for k in stochastic_latent]
             + [carry_innovation_nodes[k] for k in stochastic_carry_vars]
             + [discrete_uniform_nodes[k] for k in discrete_bernoulli_vars]
+            + [discrete_uniform_nodes[k] for k in discrete_count_vars]
             + [do_intervene_nodes[k] for k in endo_keys]
         )
 
@@ -2923,6 +2955,7 @@ def _compile_scan_panel(
         n_latent_innov_seq = len(stochastic_latent)
         n_carry_innov_seq = len(stochastic_carry_vars)
         n_discrete_uniform_seq = len(discrete_bernoulli_vars)
+        n_count_uniform_seq = len(discrete_count_vars)
         n_endo = len(endo_keys)
         n_adstock = len(adstock_keys)
         n_exog_lag = len(exog_lag_bases)
@@ -2955,6 +2988,17 @@ def _compile_scan_panel(
                 ]
                 for i, k in enumerate(discrete_bernoulli_vars)
             }
+            count_uniform_t = {
+                k: seq_args[
+                    n_exog_seq
+                    + n_obs_carry_seq
+                    + n_latent_innov_seq
+                    + n_carry_innov_seq
+                    + n_discrete_uniform_seq
+                    + i
+                ]
+                for i, k in enumerate(discrete_count_vars)
+            }
             do_intervene_t = {
                 k: seq_args[
                     n_exog_seq
@@ -2962,6 +3006,7 @@ def _compile_scan_panel(
                     + n_latent_innov_seq
                     + n_carry_innov_seq
                     + n_discrete_uniform_seq
+                    + n_count_uniform_seq
                     + i
                 ]
                 for i, k in enumerate(endo_keys)
@@ -2979,7 +3024,6 @@ def _compile_scan_panel(
                 name: ns_args[i] for i, name in enumerate(non_seq_names)
             }
             use_observed_carry_t = ns_map["_use_observed_carry"]
-            discrete_rng = ns_map["_discrete_scan_rng"]
 
             new_endo: dict[str, Any] = {}
             new_adstock = dict(prev_adstock_state)
@@ -3041,8 +3085,9 @@ def _compile_scan_panel(
                             pt.clip(mu, -_SCAN_MU_CLIP_BOUND, _SCAN_MU_CLIP_BOUND)
                         )
                         carry_mu[var] = rate
-                        sampled_state = pt.cast(
-                            pt.random.poisson(lam=rate, rng=discrete_rng), "float64"
+                        sampled_state = _discrete_count_ppf(
+                            count_uniform_t[var],
+                            lambda k: pt.gammaincc(k + 1.0, rate),
                         )
                     elif family == "negbinomial":
                         rate = pt.exp(
@@ -3051,11 +3096,9 @@ def _compile_scan_panel(
                         carry_mu[var] = rate
                         alpha_disp = ns_map[f"alpha_disp_{var}"]
                         p_nb = alpha_disp / (alpha_disp + rate)
-                        sampled_state = pt.cast(
-                            pt.random.negative_binomial(
-                                n=alpha_disp, p=p_nb, rng=discrete_rng
-                            ),
-                            "float64",
+                        sampled_state = _discrete_count_ppf(
+                            count_uniform_t[var],
+                            lambda k: pt.betainc(alpha_disp, k + 1.0, p_nb),
                         )
                     else:
                         raise RuntimeError(
@@ -3108,6 +3151,7 @@ def _compile_scan_panel(
             out += [new_adstock[k] for k in adstock_keys]
             out += [exog_t.get(k, pt.zeros(n_units)) for k in exog_lag_bases]
             out += [carry_mu[k] for k in carry_mu_vars]
+
             return out
 
         results = pytensor.scan(
@@ -3141,6 +3185,10 @@ def _compile_scan_panel(
                 continue
 
             pm.Deterministic(f"mu_{var}", mu_all)
+            # Value downstream equations consumed. The observation RV is an
+            # independent likelihood draw.
+            if var in discrete_sample_set:
+                pm.Deterministic(f"_scan_draw_{var}", carry_all)
 
             family = families.get(var, "gaussian")
 
