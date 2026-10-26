@@ -23,7 +23,7 @@ class ParseError(ValueError):
 
 
 class DuplicateEquationError(ParseError):
-    """Raised when a regression or coefficient label is duplicated in the spec."""
+    """Raised when a regression, label, or defined-parameter name is duplicated."""
 
 
 class CycleError(ValueError):

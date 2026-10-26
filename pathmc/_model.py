@@ -913,6 +913,10 @@ class PathModel:
         RuntimeError
             If the model was created without data, or called before
             ``.fit()``.
+        DuplicateEquationError
+            If a defined parameter uses a coefficient label's name. The
+            summary reports each labeled coefficient and each defined
+            parameter, so the defined parameter must not occupy the label.
         """
         idata = self._require_fitted("effects_summary")
         if not _has_labeled_terms(self._spec) and not self._spec.defined_params:
