@@ -134,6 +134,65 @@ class TestComputeSensitivity:
         assert result.adjusted_ate_mean[0, 0] < 0
         assert result.prob_sign_change[0, 0] < 0.01
 
+    def test_prob_sign_change_counts_zero_and_keeps_tiny_mean_sign(self):
+        """Near-zero means keep their sign; an adjusted ATE of 0 is a change."""
+        tiny = compute_sensitivity(
+            np.array([1e-16, 1e-16, 1e-16]),
+            "Y",
+            "T",
+            gamma_range=(0.0, 1.0),
+            delta_range=(0.0, 1.0),
+            n_grid=3,
+        )
+        assert tiny.prob_sign_change[0, 0] == 0.0
+        assert tiny.prob_sign_change[-1, -1] == 1.0
+        assert not np.any(tiny.prob_sign_change == 0.5)
+
+        # Same class on the other side of zero, not only the cited magnitude.
+        tiny_neg = compute_sensitivity(
+            np.array([-1e-16, -1e-16]),
+            "Y",
+            "T",
+            gamma_range=(-1.0, 0.0),
+            delta_range=(0.0, 1.0),
+            n_grid=3,
+        )
+        assert tiny_neg.prob_sign_change[-1, 0] == 0.0  # bias 0
+        assert tiny_neg.prob_sign_change[0, -1] == 1.0  # bias -1
+
+        pos = compute_sensitivity(
+            np.array([2.0]),
+            "Y",
+            "T",
+            gamma_range=(0.0, 2.0),
+            delta_range=(0.0, 2.0),
+            n_grid=3,
+        )
+        # γ=2, δ=1 → bias=2, adjusted=0
+        assert pos.prob_sign_change[2, 1] == 1.0
+
+        neg = compute_sensitivity(
+            np.array([-3.0]),
+            "Y",
+            "T",
+            gamma_range=(-3.0, 0.0),
+            delta_range=(0.0, 1.0),
+            n_grid=2,
+        )
+        # γ=-3, δ=1 → bias=-3, adjusted=0
+        assert neg.prob_sign_change[0, 1] == 1.0
+
+        mixed = compute_sensitivity(
+            np.array([1.0, 2.0, 4.0]),
+            "Y",
+            "T",
+            gamma_range=(0.0, 2.0),
+            delta_range=(0.0, 1.0),
+            n_grid=2,
+        )
+        # bias=2: draws 1 and 2 have changed (2−2=0); draw 4 has not.
+        assert mixed.prob_sign_change[1, 1] == pytest.approx(2.0 / 3.0)
+
 
 class TestSensitivityResult:
     """Test the SensitivityResult dataclass."""
