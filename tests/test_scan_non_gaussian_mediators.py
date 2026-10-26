@@ -434,6 +434,7 @@ class TestGaussianChildFollowsDiscreteMediator:
         assert np.array_equal(ordered.Y.to_numpy(), 2.0 * ordered.M.to_numpy())
         assert len(set(ordered.M.to_numpy().tolist())) > 1
 
+
 class TestObservedNonGaussianParent:
     """Issue #596: a scan child conditions on an observed non-Gaussian parent
     even when nothing lags that parent.
