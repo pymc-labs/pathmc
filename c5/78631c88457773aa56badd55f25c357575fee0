@@ -1,0 +1,26 @@
+pathmc/policy_exec.py
+  s_ad4f6de7f05202::t_59c8f18f1ff826 31-32,39,48-53,181-203,318-319,342,350,467,469-470,479,491-494,497-498,680-686,789,797,801-809,811-814,823,841,850-854,857,860-862,864,869-871,895,910,914-919,954-955,960,962,967,973,982,985,992
+  s_ad4f6de7f05202::t_4c94df0eb2c3dd 328-330,810,865-868,911-913
+  s_ad4f6de7f05202::t_8a3769834a6f42 816-820
+tests/test_policy_result_contract.py
+  s_ad4f6de7f05202::t_8a3769834a6f42 1-121
+  s_ad4f6de7f05202::t_5fc0aab957bafc 122-140
+docs/user_guide/19-panel-data.qmd
+  s_ad4f6de7f05202::t_59c8f18f1ff826 234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c578631c88457773aa56badd55f25c357575fee0",
+  "prompts": {},
+  "sessions": {
+    "s_ad4f6de7f05202": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b42-0a8b-7693-a632-c6b7b37faefa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

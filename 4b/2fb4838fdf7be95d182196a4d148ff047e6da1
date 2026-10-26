@@ -1,0 +1,24 @@
+_freeze/docs/examples/panel-time/history_dependent_policies/execute-results/html.json
+  h_63db634213747e 2,5,10
+docs/examples/05-panel-time/history_dependent_policies.qmd
+  h_63db634213747e 2,5,10-43,48,52-59,63-78,83-85,90,94-95,97,102,104-107,112-118,121-125,128-134,136,138-139,141,143,145,147,150-165,167,169,171,173-185,188-190,193-195,198-208,215-301,304-310
+docs/user_guide/19-panel-data.qmd
+  h_63db634213747e 255
+docs/user_guide/20-panel-interventions.qmd
+  h_63db634213747e 373
+docs/user_guide/21-history-dependent-policies.qmd
+  h_63db634213747e 46-50
+pathmc/policy_exec.py
+  h_63db634213747e 189-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4b2fb4838fdf7be95d182196a4d148ff047e6da1",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

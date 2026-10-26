@@ -1,0 +1,21 @@
+pathmc/simulate.py
+  s_58994c129a763b::t_d4890eaa84da8f 1939-1955
+pathmc/_model.py
+  s_58994c129a763b::t_d249e617f223a7 696-697
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9c655b0bc3fde313aabbf1fe39509f7302fda9eb",
+  "prompts": {},
+  "sessions": {
+    "s_58994c129a763b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13f79-a334-7652-a411-d86353186052",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+docs/user_guide/19-panel-data.qmd
+  h_63db634213747e 210-248
+pathmc/__init__.py
+  h_63db634213747e 54-60,85,87,89,93,99
+pathmc/_model.py
+  h_63db634213747e 2137-2140,2186-2196,2226-2250
+pathmc/compile.py
+  h_63db634213747e 107,634-635,731-736,755-756,2632-2669,2682-2683,2899-2913,2925-2927,2931-2942,2957-2961,2984-2992,2995,2997,2999-3004,3009,3190,3231,3296-3298,3365-3393,3395-3402,3548-3560,3566-3568,3589-3591,3652
+pathmc/policy.py
+  h_63db634213747e 1-700
+pathmc/policy_exec.py
+  h_63db634213747e 1-866
+pathmc/simulate.py
+  h_63db634213747e 469-516,553,563,611-691,835-848
+pathmc/skills/pathmc/SKILL.md
+  h_63db634213747e 101,190-196,224-227
+tests/test_policy.py
+  h_63db634213747e 1-425
+tests/test_public_api.py
+  h_63db634213747e 43,45,47,51,57,75,77-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fd3a5c741a4810d63384a7a20f740e3f21e4c8ba",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

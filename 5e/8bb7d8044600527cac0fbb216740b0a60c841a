@@ -1,0 +1,19 @@
+tests/test_simulate_data.py
+  s_58994c129a763b::t_1bf8712ae964f1 952-954,961,967
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5e8bb7d8044600527cac0fbb216740b0a60c841a",
+  "prompts": {},
+  "sessions": {
+    "s_58994c129a763b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13f79-a334-7652-a411-d86353186052",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
