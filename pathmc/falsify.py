@@ -141,7 +141,7 @@ _HTML_VERDICT = {
     ),
     FalsificationStatus.NOT_REJECTED: (
         '<span style="color: green; font-weight: bold;">Not rejected</span> '
-        "— the DAG is informative and beats the permuted baseline."
+        "— the DAG is informative."
     ),
 }
 
@@ -397,16 +397,6 @@ class FalsificationResult(ResultReprMixin):
             informative = "n/a"
         else:
             informative = "Yes" if self.falsifiable else "No"
-        n_scored = len(self.perm_lmc_violation_fractions)
-        omitted = self.n_permutations - n_scored
-        if n_scored == 0:
-            beats_cell = f"not computed ({omitted} omitted)"
-        else:
-            beats = (1.0 - self.p_value_lmc) * 100.0
-            beats_cell = (
-                f"{beats:.1f}% of {n_scored} scored "
-                f"(p = {self.p_value_lmc:.3f}; {omitted} omitted)"
-            )
         rows = [
             ("Informative (falsifiable)", informative),
             (
@@ -417,7 +407,6 @@ class FalsificationResult(ResultReprMixin):
                 "LMC violations (given DAG)",
                 f"{self.given_lmc_violations} / {self.n_lmc_tests} requested",
             ),
-            ("Beats permuted baseline", beats_cell),
         ]
         body = "".join(
             f"<tr><td>{label}</td><td>{value}</td></tr>" for label, value in rows

@@ -755,6 +755,23 @@ class TestResultDisplay:
         not_rejected = self._make(p_lmc=0.0, p_tpa=0.0, n_in_mec=0)
         assert "Not rejected" in not_rejected._repr_html_()
 
+    def test_informative_tie_html_does_not_claim_a_baseline_win(self):
+        # p_tpa == alpha is informative and not rejected. A high p_lmc
+        # is not a win over the baseline, so the status sentence must
+        # not say the DAG beats it.
+        r = self._make(p_lmc=1.0, p_tpa=0.05, n_in_mec=1)
+        assert r.can_evaluate is True
+        assert r.falsifiable is True
+        assert r.falsified is False
+        assert "not_rejected" in repr(r)
+        html = r._repr_html_()
+        assert "beats" not in html.lower()
+        assert html.count("Permutation fraction:") == 1
+        assert "not computed" not in html
+        text = "\n".join(r._summary_lines())
+        assert "beats" not in text.lower()
+        assert "It is informative" in text
+
     def test_plot_returns_figure(self):
         import matplotlib
 

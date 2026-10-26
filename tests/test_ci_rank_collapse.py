@@ -436,7 +436,7 @@ class TestRankCollapseIsVisible:
         assert "not in that fraction" in text
         assert f"{inflated_p:.3f}" not in text
         html = result._repr_html_()
-        assert f"{omitted} omitted" in html
+        assert f"{omitted} of {result.n_permutations} draws omitted" in html
         assert f"{inflated_p:.3f}" not in html
         fig = result.plot()
         assert fig.axes[0].get_title().startswith("DAG falsification")
@@ -474,6 +474,9 @@ class TestRankCollapseIsVisible:
         assert "Not compared" in html
         assert "LMC comparison was not run" in html
         assert "Not rejected" not in html
+        assert html.count("Permutation fraction:") == 1
+        assert "n/a of 0 scored draws" in html
+        assert "not computed" not in html
         fig = result.plot()
         assert fig.axes[0].get_title().startswith("DAG falsification")
 
