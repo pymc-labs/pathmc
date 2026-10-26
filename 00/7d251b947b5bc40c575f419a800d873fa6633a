@@ -1,0 +1,14 @@
+tests/test_pooling_dims.py
+  h_63db634213747e 657-660
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "007d251b947b5bc40c575f419a800d873fa6633a",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
