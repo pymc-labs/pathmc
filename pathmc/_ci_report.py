@@ -30,18 +30,16 @@ import pandas as pd
 def rank_collapsed_mask(frame: pd.DataFrame) -> pd.Series:
     """Boolean mask of rows that did not test the written conditioning set.
 
-    A missing ``rank_collapsed`` column, or an empty frame, is all False:
-    older frames and skipped-only frames keep their existing totals.
+    An empty frame is all False. A non-empty frame must already carry
+    ``rank_collapsed``; both producers always write that column.
     """
-    if frame.empty or "rank_collapsed" not in frame.columns:
+    if frame.empty:
         return pd.Series(False, index=frame.index)
-    return frame["rank_collapsed"].fillna(False).astype(bool)
+    return frame["rank_collapsed"].astype(bool)
 
 
 def written_rows(frame: pd.DataFrame) -> pd.DataFrame:
     """Rows that actually tested the independence that was written down."""
-    if frame.empty:
-        return frame
     return frame.loc[~rank_collapsed_mask(frame)]
 
 
@@ -66,57 +64,46 @@ def collapse_statement(
 def written_counts(frame: pd.DataFrame, flag: str) -> tuple[int, int]:
     """Return ``(n_written_tests, n_written_violations)`` for *flag*.
 
-    Rank-collapsed rows are in neither count. A missing *flag* column or
-    an empty frame is ``(0, 0)``. A missing ``rank_collapsed`` column
-    keeps every row, so frames built before that field existed still
-    score as they did.
+    Rank-collapsed rows are in neither count. An empty frame, or a frame
+    whose *flag* column is absent, is ``(0, 0)``.
     """
-    if frame.empty or flag not in frame.columns:
-        return 0, 0
     scored = written_rows(frame)
-    if scored.empty:
+    if scored.empty or flag not in scored.columns:
         return 0, 0
     return len(scored), int(scored[flag].astype(bool).sum())
 
 
+def violation_rows(frame: pd.DataFrame, flag: str) -> pd.DataFrame:
+    """Written-test rows where *flag* is true.
+
+    A collapsed row is not in this frame. An empty frame is returned
+    unchanged so its columns stay addressable.
+    """
+    scored = written_rows(frame)
+    if scored.empty:
+        return scored.copy()
+    return scored.loc[scored[flag].astype(bool)].copy()
+
+
 def n_rank_collapsed(frame: pd.DataFrame) -> int:
     """Count executed rows whose conditioning set was rank-deficient."""
-    if frame.empty or "rank_collapsed" not in frame.columns:
-        return 0
     return int(rank_collapsed_mask(frame).sum())
 
 
 def row_is_rank_collapsed(row: pd.Series) -> bool:
     """Whether this displayed row did not test the written conditioning set."""
-    if "rank_collapsed" not in row.index or pd.isna(row["rank_collapsed"]):
-        return False
     return bool(row["rank_collapsed"])
 
 
 def rank_collapse_note(row: pd.Series) -> str:
     """Mark a displayed independence whose conditioning set collapsed.
 
-    Frames without ``rank_collapsed``, and rows whose test was skipped,
-    get no marker. A full-rank row renders exactly as it did before.
+    A skip, which is not rank-collapsed, gets no marker. A full-rank row
+    renders exactly as it did before.
     """
     if not row_is_rank_collapsed(row):
         return ""
     return f" [effective_k={int(row['effective_k'])}]"
-
-
-def _caller_stacklevel() -> int:
-    """Stack level that attributes a warning to the first non-pathmc frame."""
-    import sys
-
-    frame = sys._getframe(1)
-    level = 1
-    while frame.f_back is not None:
-        frame = frame.f_back
-        level += 1
-        module = frame.f_globals.get("__name__", "")
-        if module != "pathmc" and not module.startswith("pathmc."):
-            return level
-    return level
 
 
 def warn_conditioning_rank_collapse(statements: list[str]) -> None:
@@ -128,6 +115,8 @@ def warn_conditioning_rank_collapse(statements: list[str]) -> None:
     """
     if not statements:
         return
+    from pathmc.compile import _user_stacklevel
+
     n_collapsed = len(statements)
     noun = "test" if n_collapsed == 1 else "tests"
     subject = "This test" if n_collapsed == 1 else "These tests"
@@ -139,5 +128,5 @@ def warn_conditioning_rank_collapse(statements: list[str]) -> None:
         f"independence. Drop the constant, duplicated, collinear, or "
         f"single-level categorical conditioner before reading the result.",
         UserWarning,
-        stacklevel=_caller_stacklevel(),
+        stacklevel=_user_stacklevel(),
     )

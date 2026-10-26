@@ -29,12 +29,13 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 
-from pathmc._ci import CIResult, named_column_ci
+from pathmc._ci import named_column_ci
 from pathmc._ci_report import (
     collapse_statement,
     n_rank_collapsed,
     rank_collapse_note,
     row_is_rank_collapsed,
+    violation_rows,
     warn_conditioning_rank_collapse,
     written_counts,
 )
@@ -542,8 +543,10 @@ class ImplicationTestResult(ResultReprMixin):
         test was skipped. ``rank_collapsed`` is true when an executed test
         used fewer conditioning columns than requested, or a named
         conditioner contributed no columns. False on a skip.
-        A collapsed row did not test the independence that was requested,
-        so ``n_violations`` and ``violations`` exclude it.
+        ``significant`` is false on a skip and on a collapsed row: the
+        p-value is still the reduced test, but the column matches
+        ``n_violations``. A collapsed row did not test the independence
+        that was requested.
     alpha : float
         Significance level used for the ``significant`` column.
     """
@@ -561,17 +564,17 @@ class ImplicationTestResult(ResultReprMixin):
         """Significant rows that tested the independence that was written down.
 
         A rank-collapsed row is not a violation of that independence.
+        ``significant`` is false on those rows, so this equals
+        ``results["significant"].sum()`` for frames this module builds.
         """
-        return written_counts(self.results, "significant")[1]
+        if self.results.empty or "significant" not in self.results.columns:
+            return 0
+        return int(self.results["significant"].astype(bool).sum())
 
     @property
     def violations(self) -> pd.DataFrame:
-        """Significant rows that are not rank-collapsed."""
-        frame = self.results
-        mask = frame["significant"].astype(bool)
-        if "rank_collapsed" in frame.columns:
-            mask &= ~frame["rank_collapsed"].fillna(False).astype(bool)
-        return frame.loc[mask].copy()
+        """Significant rows that tested the independence that was written down."""
+        return violation_rows(self.results, "significant")
 
     def to_dataframe(self) -> pd.DataFrame:
         """Return the full results as a DataFrame."""
@@ -742,9 +745,11 @@ def test_implications(
     single column). The reported ``partial_corr`` is then the largest
     canonical correlation, which is non-negative.
 
-    A significant result (p < alpha) indicates a *violation*: the data
-    show an association that the DAG says should not exist, suggesting
-    a missing edge or incorrect structure.
+    A significant result (p < alpha) on a row that is not rank-collapsed
+    indicates a *violation*: the data show an association that the DAG
+    says should not exist, suggesting a missing edge or incorrect
+    structure. A collapsed row keeps the reduced-test p-value and sets
+    ``significant`` false, so it is not that violation.
 
     Parameters
     ----------
@@ -795,7 +800,7 @@ def test_implications(
             )
 
         z_vars = sorted(ci.conditioning_set)
-        result, dropped = named_column_ci(
+        result = named_column_ci(
             data,
             ci.x,
             ci.y,
@@ -803,12 +808,12 @@ def test_implications(
             categorical_vars=categorical_vars,
         )
         conditioning = ", ".join(z_vars)
+        collapsed = result.rank_collapsed
         if result.skip_reason is not None:
             r = np.nan
             p = np.nan
             df_value = np.nan
             effective_k = np.nan
-            collapsed = False
         else:
             assert result.r is not None and result.p is not None
             assert result.df is not None and result.effective_k is not None
@@ -816,7 +821,6 @@ def test_implications(
             p = result.p
             df_value = result.df
             effective_k = result.effective_k
-            collapsed = result.rank_collapsed or bool(dropped)
             if collapsed:
                 collapse_labels.append(
                     collapse_statement(
@@ -825,7 +829,7 @@ def test_implications(
                         conditioning,
                         result.requested_k,
                         int(effective_k),
-                        dropped,
+                        result.dropped_conditioners,
                     )
                 )
 
@@ -840,7 +844,12 @@ def test_implications(
             "partial_corr": r,
             "p_value": p,
             "n_obs": result.n,
-            "significant": (not np.isnan(p)) and p < alpha,
+            "significant": (
+                result.skip_reason is None
+                and result.p is not None
+                and result.p < alpha
+                and not collapsed
+            ),
         })
 
     if rows:
@@ -864,25 +873,6 @@ def test_implications(
     warn_conditioning_rank_collapse(collapse_labels)
 
     return ImplicationTestResult(results=df, alpha=alpha)
-
-
-def _partial_correlation_result(
-    data: nw.DataFrame,
-    x: str,
-    y: str,
-    z_vars: list[str],
-    *,
-    categorical_vars: Iterable[str] | None = None,
-) -> CIResult:
-    """Run the shared CI engine on named columns of *data*.
-
-    Nulls become NaN on conversion, so the engine's ``isnan`` mask
-    handles both pandas NaN and polars null/NaN. Categorical columns
-    (string, pandas categorical, or named in *categorical_vars*) enter
-    as indicator blocks.
-    """
-    result, _dropped = named_column_ci(data, x, y, z_vars, categorical_vars)
-    return result
 
 
 def _blocks_all_backdoor_paths(

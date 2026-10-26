@@ -239,7 +239,7 @@ class TestCannotEvaluate:
         })
         m = pathmc.model("Y ~ X", data=df)
         r = m.falsify(random_seed=0)
-        assert "not_evaluable" in repr(r)
+        assert "saturated" in repr(r)
         assert "\n" not in repr(r)
         assert "Cannot be evaluated" in r._repr_html_()
 
@@ -573,7 +573,7 @@ class TestValidateLmc:
     def test_chain_no_violation(self, chain_data):
         dag = _graph("M ~ X\nY ~ M").contemporaneous_dag
         tester = _PartialCorrelationTester(_to_nw(chain_data), list(chain_data.columns))
-        n_tests, n_viol, local = _validate_lmc(dag, tester, 0.05, True)
+        n_tests, n_viol, local, _labels = _validate_lmc(dag, tester, 0.05, True)
         assert n_tests == 1
         assert n_viol == 0
         assert len(local) == 1
@@ -583,7 +583,7 @@ class TestValidateLmc:
         tester = _PartialCorrelationTester(
             _to_nw(missing_edge_data), list(missing_edge_data.columns)
         )
-        n_tests, n_viol, _ = _validate_lmc(dag, tester, 0.05, True)
+        n_tests, n_viol, _, _labels = _validate_lmc(dag, tester, 0.05, True)
         assert n_tests == 1
         assert n_viol == 1
 
@@ -592,7 +592,7 @@ class TestValidateLmc:
         df = chain_data.drop(columns=["Y"])
         dag = _graph("M ~ X\nY ~ M").contemporaneous_dag
         tester = _PartialCorrelationTester(_to_nw(df), list(dag.nodes))
-        n_tests, n_viol, local = _validate_lmc(dag, tester, 0.05, True)
+        n_tests, n_viol, local, _labels = _validate_lmc(dag, tester, 0.05, True)
         assert n_tests == 0
         assert n_viol == 0
         assert local == []
@@ -731,13 +731,14 @@ class TestResultDisplay:
                 "conditioning_set": ["A"],
                 "p_value": [0.001],
                 "violation": [True],
+                "rank_collapsed": [False],
             }),
         )
 
     def test_repr_rejected(self):
         r = self._make(p_lmc=0.5, p_tpa=0.0, n_in_mec=0)
         text = repr(r)
-        assert "falsified" in text
+        assert "FalsificationResult(rejected" in text
         assert "\n" not in text
 
     def test_repr_not_rejected(self):

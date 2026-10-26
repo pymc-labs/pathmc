@@ -1486,12 +1486,11 @@ class PathModel:
         ``requested_k``, ``effective_k``, ``rank_collapsed``, and ``df``.
         When a conditioner is constant, duplicated, collinear with the
         others, or a single-level categorical that contributed no columns,
-        ``rank_collapsed`` is set and a warning is emitted: the p-value
-        then refers to the columns that entered, not the independence
-        implied by the DAG. ``n_violations``, ``violations``, the compact
-        representation, and the HTML banner exclude that row. The display
-        does not mark it pass or fail. Drop the redundant variable and
-        re-test.
+        ``rank_collapsed`` is set, ``significant`` is false, and a warning
+        is emitted. The p-value still refers to the columns that entered,
+        not the independence implied by the DAG. ``n_violations`` equals
+        ``results["significant"].sum()``. The display does not mark that
+        row pass or fail. Drop the redundant variable and re-test.
 
         Uses the observed data, not the posterior.
 

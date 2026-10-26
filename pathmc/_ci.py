@@ -39,7 +39,7 @@ to the t-test when both are.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -88,11 +88,16 @@ class CIResult:
         Conditioning columns that entered the design (``Z.shape[1]``,
         ``0`` for a marginal test). A single-column conditioner contributes
         one; a categorical conditioner contributes its indicator columns.
-        Always reported, including for skips.
+        A named conditioner that encoded to zero columns is not in this
+        count; it is listed in ``dropped_conditioners``. Always reported,
+        including for skips.
     effective_k : int | None
         ``rank([1, Z]) - 1`` when the test ran. ``None`` when it was
-        skipped. ``rank_collapsed`` is true only when this is smaller than
-        ``requested_k``.
+        skipped.
+    dropped_conditioners : tuple[str, ...]
+        Named conditioners that encoded to a zero-column block. Empty for
+        the column-only engine, which has no names to drop. Always
+        reported, including for skips.
     """
 
     r: float | None
@@ -102,17 +107,19 @@ class CIResult:
     skip_reason: CISkipReason | None
     requested_k: int
     effective_k: int | None
+    dropped_conditioners: tuple[str, ...] = ()
 
     @property
     def rank_collapsed(self) -> bool:
-        """Whether an executed test used a smaller conditioning design.
+        """Whether the written conditioning set was not the one tested.
 
-        False on a skip. The engine does not warn; callers compare
-        ``effective_k`` with ``requested_k``.
+        True when an executed test used a smaller rank than the columns
+        that entered, or a named conditioner contributed no columns.
+        False on a skip. The engine does not warn.
         """
         if self.skip_reason is not None or self.effective_k is None:
             return False
-        return self.effective_k < self.requested_k
+        return self.effective_k < self.requested_k or bool(self.dropped_conditioners)
 
 
 def _skip(reason: CISkipReason, n: int, requested_k: int) -> CIResult:
@@ -433,9 +440,8 @@ def dropped_conditioner_names(
 ) -> tuple[str, ...]:
     """Named conditioners whose block contributed no columns.
 
-    A single-level categorical encodes to a zero-width indicator block.
     ``stack_blocks`` drops that block, so ``requested_k`` stays the columns
-    that entered. Callers mark the written-test row collapsed. The engine
+    that entered. The names are stored on :class:`CIResult`; the engine
     does not warn.
     """
     dropped: list[str] = []
@@ -446,23 +452,30 @@ def dropped_conditioner_names(
     return tuple(dropped)
 
 
+def _with_dropped(result: CIResult, dropped: tuple[str, ...]) -> CIResult:
+    """Attach named conditioners that contributed no columns."""
+    if not dropped:
+        return result
+    return replace(result, dropped_conditioners=dropped)
+
+
 def named_column_ci(
     data: nw.DataFrame,
     x: str,
     y: str,
     z_vars: Iterable[str],
     categorical_vars: Iterable[str] | None = None,
-) -> tuple[CIResult, tuple[str, ...]]:
-    """Run one named-column CI test and report dropped conditioners.
+) -> CIResult:
+    """Run one named-column CI test.
 
     ``requested_k`` is the columns that entered. A named conditioner that
-    encoded to zero columns is returned separately so callers can mark the
-    row collapsed without changing the engine's rank formula.
+    encoded to zero columns is stored on the result, so ``rank_collapsed``
+    is the written-test predicate. The engine does not warn.
     """
     names = tuple(z_vars)
     blocks = variable_blocks(data, [x, y, *names], categorical_vars)
     result = partial_correlation_ci(blocks[x], blocks[y], stack_blocks(blocks, names))
-    return result, dropped_conditioner_names(blocks, names)
+    return _with_dropped(result, dropped_conditioner_names(blocks, names))
 
 
 class _PartialCorrelationTester:
@@ -507,16 +520,13 @@ class _PartialCorrelationTester:
             return None
         return result.p
 
-    def dropped_conditioners(self, names: Iterable[str]) -> tuple[str, ...]:
-        """Named conditioners that encoded to a zero-column block."""
-        return dropped_conditioner_names(self._blocks, names)
-
     def _compute(self, x: str, y: str, z_vars: tuple[str, ...]) -> CIResult | None:
         needed = [x, y, *z_vars]
         if any(v not in self._blocks for v in needed):
             return None
-        return partial_correlation_ci(
+        result = partial_correlation_ci(
             self._blocks[x],
             self._blocks[y],
             stack_blocks(self._blocks, z_vars),
         )
+        return _with_dropped(result, dropped_conditioner_names(self._blocks, z_vars))
