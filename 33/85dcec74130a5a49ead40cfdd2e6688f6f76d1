@@ -1,0 +1,14 @@
+tests/test_scan_non_gaussian_mediators.py
+  h_63db634213747e 437
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3385dcec74130a5a49ead40cfdd2e6688f6f76d1",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
