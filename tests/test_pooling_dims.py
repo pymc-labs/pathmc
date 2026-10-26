@@ -654,5 +654,7 @@ class TestByVarEffectReadsCompiledEdge:
             {"m_predictors": ["x"]},
             {"beta_m": ["m_predictors"]},
         )
-        with pytest.raises(KeyError, match="beta_m_obs"):
-            model.effect("m -> m_obs")
+        result = model.effect("m -> m_obs")
+        # The other equation's beta_m is 0.4. A fixed loading is the constant.
+        assert result.mean == pytest.approx(1.0)
+        assert np.allclose(result.draws, 1.0)
