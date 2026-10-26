@@ -433,3 +433,120 @@ class TestGaussianChildFollowsDiscreteMediator:
         ordered = sim.sort_values(["unit", "time"])
         assert np.array_equal(ordered.Y.to_numpy(), 2.0 * ordered.M.to_numpy())
         assert len(set(ordered.M.to_numpy().tolist())) > 1
+
+
+class TestObservedNonGaussianParent:
+    """Issue #596: a scan child conditions on an observed non-Gaussian parent
+    even when nothing lags that parent.
+
+    The estimation model (``_use_observed_carry`` left at its compiled 1)
+    must put the observed column into the child's mean. An auxiliary
+    Bernoulli uniform, a Poisson draw, and the parent's structural mean
+    must not.
+    """
+
+    def _panel(self, y: np.ndarray, z: float = 0.0) -> pd.DataFrame:
+        n = len(y)
+        n_times = n // 2
+        return pd.DataFrame({
+            "unit": np.repeat(["U0", "U1"], n_times),
+            "time": np.tile(np.arange(n_times), 2),
+            "X": np.ones(n),
+            "Y": y,
+            "Z": np.full(n, z),
+        })
+
+    def _mu_z(self, model, **values) -> np.ndarray:
+        import pymc as pm
+
+        cast = {}
+        for name, val in values.items():
+            rv = model.pymc_model[name]
+            cast[name] = np.broadcast_to(
+                np.asarray(val, dtype=float), tuple(rv.shape.eval())
+            ).copy()
+        graph = pm.do(model.pymc_model, cast)
+        return np.asarray(pm.draw(graph["mu_Z"], draws=1, random_seed=0))
+
+    def test_bernoulli_parent_ignores_auxiliary_uniform(self):
+        y = np.zeros(6, dtype=int)
+        model = pathmc.model(
+            "Y ~ X\nZ ~ Y + lag(Z)",
+            data=self._panel(y),
+            families={"Y": "bernoulli"},
+            panel={"unit": "unit", "time": "time"},
+        )
+        assert "Y" in str(model.equations())
+        assert int(model.pymc_model["_use_observed_carry"].get_value()) == 1
+        common = {
+            "beta_Y": [0.0, 0.0],
+            "beta_Z": [0.0, 10.0, 0.0],
+            "sigma_Z": 1.0,
+        }
+        for uniform in (0.05, 0.95):
+            mu = self._mu_z(model, discrete_uniforms_Y=uniform, **common)
+            np.testing.assert_allclose(mu, 0.0)
+
+    def test_mixed_bernoulli_parent_matches_observed_column(self):
+        # Each unit is 0, 1, 0. A uniform of 0 would draw 1 wherever p > 0,
+        # so a mean that still follows the auxiliary draw cannot match this
+        # column.
+        y = np.array([0, 1, 0, 0, 1, 0], dtype=int)
+        model = pathmc.model(
+            "Y ~ X\nZ ~ Y + lag(Z)",
+            data=self._panel(y),
+            families={"Y": "bernoulli"},
+            panel={"unit": "unit", "time": "time"},
+        )
+        mu = self._mu_z(
+            model,
+            discrete_uniforms_Y=0.0,
+            beta_Y=[0.0, 0.0],
+            beta_Z=[0.0, 4.0, 0.0],
+            sigma_Z=1.0,
+        )
+        expected = y.reshape(2, 3).T * 4.0
+        np.testing.assert_allclose(mu.reshape(3, 2), expected)
+
+    def test_poisson_parent_matches_observed_counts(self):
+        import pymc as pm
+        import pytensor
+
+        y = np.array([0, 2, 1, 0, 2, 1], dtype=int)
+        model = pathmc.model(
+            "Y ~ X\nZ ~ Y + lag(Z)",
+            data=self._panel(y),
+            families={"Y": "poisson"},
+            panel={"unit": "unit", "time": "time"},
+        )
+        graph = pm.do(
+            model.pymc_model,
+            {
+                "beta_Y": np.zeros(2),
+                "beta_Z": np.array([0.0, 3.0, 0.0]),
+                "sigma_Z": np.array(1.0),
+            },
+        )
+        # The unused Poisson draw stays in the switch, and Numba cannot
+        # compile that scan RNG. Python mode still evaluates the mean.
+        mu = pytensor.function([], graph["mu_Z"], mode="FAST_COMPILE")()
+        expected = y.reshape(2, 3).T * 3.0
+        np.testing.assert_allclose(mu.reshape(3, 2), expected)
+
+    def test_studentt_parent_is_not_the_structural_mean(self):
+        y = np.full(6, 5.0)
+        model = pathmc.model(
+            "Y ~ X\nZ ~ Y + lag(Z)",
+            data=self._panel(y),
+            families={"Y": "studentt"},
+            panel={"unit": "unit", "time": "time"},
+        )
+        mu = self._mu_z(
+            model,
+            beta_Y=[0.0, 0.0],
+            beta_Z=[0.0, 2.0, 0.0],
+            sigma_Y=1.0,
+            sigma_Z=1.0,
+            nu_Y=5.0,
+        )
+        np.testing.assert_allclose(mu, 10.0)

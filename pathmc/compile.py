@@ -2346,6 +2346,33 @@ def _scan_discrete_sample_vars(
     return used_as_predictor
 
 
+def _scan_observed_contemporaneous_parents(
+    spec: Spec,
+    families: dict[str, str],
+    latent: set[str],
+) -> set[str]:
+    """Return non-Gaussian endogenous vars read in the same timestep.
+
+    A scan-compiled child must condition on an observed parent even when
+    nothing lags that parent. Lagged parents are already substituted by
+    the carry sequences; this set is the contemporaneous remainder
+    (Bernoulli/Poisson/NegativeBinomial draws, and Student-t structural
+    means) that would otherwise leak into a child's likelihood.
+    """
+    nongauss = {"bernoulli", "poisson", "negbinomial", "studentt"}
+    parents: set[str] = set()
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.lag_of is not None:
+                continue
+            for base_var in _scan_term_base_vars(term):
+                if base_var in latent:
+                    continue
+                if families.get(base_var, "gaussian") in nongauss:
+                    parents.add(base_var)
+    return parents
+
+
 # Bound applied to the linear predictor ``mu`` before exponentiating it into
 # a Poisson/NegativeBinomial rate inside the temporal scan (see
 # ``_compile_scan_panel``'s step function). Unlike the outer, non-scan
@@ -2777,10 +2804,26 @@ def _compile_scan_panel(
             if v not in latent
             and families.get(v, "gaussian") in ("gaussian", "studentt")
         )
-        observed_carry_vars = sorted(
-            set(stochastic_carry_vars) | set(discrete_carry_vars)
+        lagged_observed_vars = set(stochastic_carry_vars) | set(discrete_carry_vars)
+        # Contemporaneous non-Gaussian parents are not in the lag carry.
+        # Estimation still has to read the observed column, not an auxiliary
+        # draw or the parent's structural mean (issue #596).
+        unlagged_observed_parents = sorted(
+            _scan_observed_contemporaneous_parents(spec, families, latent)
+            - lagged_observed_vars
         )
-        carry_mu_vars = sorted(set(stochastic_carry_vars) | set(discrete_sample_vars))
+        unlagged_observed_parent_set = set(unlagged_observed_parents)
+        unlagged_continuous_parents = [
+            v for v in unlagged_observed_parents if v not in discrete_sample_set
+        ]
+        observed_carry_vars = sorted(
+            lagged_observed_vars | unlagged_observed_parent_set
+        )
+        carry_mu_vars = sorted(
+            set(stochastic_carry_vars)
+            | set(discrete_sample_vars)
+            | set(unlagged_continuous_parents)
+        )
 
         observed_carry_nodes: dict[str, Any] = {}
         for var in observed_carry_vars:
@@ -3123,7 +3166,10 @@ def _compile_scan_panel(
                         raise RuntimeError(
                             f"unexpected discrete family {family!r} for {var!r}"
                         )
-                    if var in discrete_carry_vars:
+                    if (
+                        var in discrete_carry_vars
+                        or var in unlagged_observed_parent_set
+                    ):
                         obs_state = obs_carry_t[var]
                         observed_or_sampled = pt.switch(
                             pt.isnan(obs_state), sampled_state, obs_state
@@ -3143,6 +3189,18 @@ def _compile_scan_panel(
                     )
                     new_endo[var] = pt.switch(
                         use_observed_carry_t, observed_or_sampled, sampled_state
+                    )
+                elif var in unlagged_observed_parent_set:
+                    # Continuous non-Gaussian parent (Student-t). The
+                    # likelihood mean stays structural; children read the
+                    # observation when estimation carry is on.
+                    carry_mu[var] = mu
+                    obs_state = obs_carry_t[var]
+                    observed_or_structural = pt.switch(
+                        pt.isnan(obs_state), mu, obs_state
+                    )
+                    new_endo[var] = pt.switch(
+                        use_observed_carry_t, observed_or_structural, mu
                     )
                 elif family == "bernoulli":
                     new_endo[var] = 1.0 / (1.0 + pt.exp(-mu))
