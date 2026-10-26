@@ -295,6 +295,7 @@ def test_panel_do_fills_bool_and_object_numeric_exogenous() -> None:
     assert result.dataset["B"].dims == ("chain", "draw")
     assert result.dataset["O"].dims == ("chain", "draw")
 
+
 def _static_panel_model(frame: pd.DataFrame) -> pathmc.PathModel:
     """Panel ``Y ~ X`` with an injected intercept-1, slope-2 posterior."""
     model = pathmc.model(
