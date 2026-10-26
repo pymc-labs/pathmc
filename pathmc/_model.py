@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import ast
 import sys
 import warnings
 from collections.abc import Iterator, Mapping
@@ -101,6 +102,7 @@ from pathmc.simulate import (
     run_counterfactual,
     run_do_panel_unified,
     run_do_pymc,
+    _stack_sample,
 )
 
 if TYPE_CHECKING:
@@ -385,6 +387,68 @@ def _warn_extrapolation(
                 UserWarning,
                 stacklevel=3,
             )
+
+
+def _expr_names(expr: str) -> set[str]:
+    """Identifiers in a ``prob`` expression, excluding the ``np`` helper."""
+    tree = ast.parse(expr, mode="eval")
+    return {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and node.id != "np"
+    }
+
+
+def _per_unit_intervention(val: float | np.ndarray) -> bool:
+    """True when an intervention is stored on a ``unit`` axis.
+
+    Matches ``_broadcast_intervention``: a constant vector collapses to a
+    scalar and is not a per-unit axis.
+    """
+    try:
+        values = np.asarray(val, dtype=float).ravel()
+    except (TypeError, ValueError):
+        return False
+    return values.size > 1 and int(np.unique(values).size) > 1
+
+
+def _aligned_draw_namespace(result: DoResult, names: set[str]) -> dict[str, np.ndarray]:
+    """Draws for *names* stacked on the same ``(chain, draw[, unit])`` axis.
+
+    A variable with no ``unit`` dim is a constant across units (scalar
+    intervention or exogenous fill). It is repeated onto ``unit`` so the
+    comparison is elementwise. This must not be used to repeat an outcome
+    that was averaged over units; callers request unit-level means first.
+    """
+    arrays: dict[str, xr.DataArray] = {}
+    for name in names:
+        if name not in result.dataset:
+            continue
+        da = result.dataset[name]
+        if "time" in da.dims:
+            da = da.mean(dim="time")
+        arrays[name] = da
+    if not arrays:
+        return {}
+    if not any("unit" in da.dims for da in arrays.values()):
+        return {name: _stack_sample(da) for name, da in arrays.items()}
+
+    ref = next(da for da in arrays.values() if "unit" in da.dims)
+    unit = ref.coords["unit"]
+    expanded: list[xr.DataArray] = []
+    order: list[str] = []
+    for name, da in arrays.items():
+        if "unit" not in da.dims:
+            da = da.expand_dims(unit=unit)
+        expanded.append(da)
+        order.append(name)
+    aligned = xr.align(*expanded, join="exact")
+    out: dict[str, np.ndarray] = {}
+    for name, da in zip(order, aligned, strict=True):
+        stack_dims = [dim for dim in ("chain", "draw", "unit") if dim in da.dims]
+        stacked = da.stack(sample=stack_dims).transpose("sample")
+        out[name] = np.asarray(stacked.values)
+    return out
 
 
 class PathModel:
@@ -1520,6 +1584,7 @@ class PathModel:
         kind: str,
         *,
         subgroup_indices: np.ndarray | None = None,
+        average_units: bool = True,
     ) -> DoResult:
         """Run a cross-sectional do() via graph surgery on instance state.
 
@@ -1541,6 +1606,7 @@ class PathModel:
             subgroup_indices=subgroup_indices,
             scaling_factors=self._scaling_factors,
             categorical_vars=self._categorical_vars,
+            average_units=average_units,
         )
 
     @contextmanager
@@ -1852,6 +1918,8 @@ class PathModel:
         shift: dict[str, float] | None = None,
         kind: str = "mean",
         simulate_over: str | None = None,
+        *,
+        average_units: bool = True,
     ) -> DoResult:
         """Simulate an intervention using the do-operator.
 
@@ -1880,6 +1948,11 @@ class PathModel:
             ``"time"`` to activate time-forward panel simulation. Required
             for models with ``lag()`` or ``adstock()``, which also require
             the model to have been fitted with ``panel=``.
+        average_units : bool
+            When ``True`` (default), ``kind="mean"`` averages response means
+            over observation rows. ``prob`` sets this to ``False`` when the
+            expression names both an endogenous variable and a per-unit
+            intervention, so the comparison uses unit-level means.
 
         Returns
         -------
@@ -1985,7 +2058,7 @@ class PathModel:
             # Non-scan panel models fall through to the cross-sectional path.
 
         with self._categorical_intervention(categorical_set):
-            return self._run_do(numeric_set, kind)
+            return self._run_do(numeric_set, kind, average_units=average_units)
 
     def counterfactual(
         self,
@@ -2424,17 +2497,53 @@ class PathModel:
         Returns
         -------
         float
-            Estimated probability (fraction of draws satisfying *expr*).
+            Fraction of aligned comparisons that satisfy *expr*. For
+            ``kind="mean"``, a per-unit intervention is compared to
+            unit-level means, not to the outcome averaged over units.
         """
         self._require_data("prob")
-        result = self.do(set=set, kind=kind, **do_kwargs)
-        namespace: dict[str, Any] = {
-            str(var): result.draws(str(var)) for var in result.dataset.data_vars
-        }
+        names = _expr_names(expr)
+        unit_level = (
+            kind == "mean"
+            and do_kwargs.get("simulate_over") != "time"
+            and self._mean_expr_needs_unit_means(names, set)
+        )
+        result = self.do(
+            set=set,
+            kind=kind,
+            average_units=not unit_level,
+            **do_kwargs,
+        )
+        if unit_level:
+            namespace: dict[str, Any] = _aligned_draw_namespace(result, names)
+        else:
+            namespace = {
+                str(var): result.draws(str(var)) for var in result.dataset.data_vars
+            }
         namespace["np"] = np
         namespace["__builtins__"] = {}
         mask = eval(expr, namespace)  # noqa: S307
         return float(np.mean(mask))
+
+    def _mean_expr_needs_unit_means(
+        self,
+        names: set[str],
+        set: dict[str, float | np.ndarray] | None,
+    ) -> bool:
+        """Whether ``kind="mean"`` must keep unit-level outcome means.
+
+        Averaging the outcome and then comparing it to a per-unit
+        intervention broadcasts that average. The probability is the
+        fraction of aligned unit-level comparisons instead.
+        """
+        unit_vars = {
+            var
+            for var, val in (set or {}).items()
+            if _per_unit_intervention(val) and var in names
+        }
+        if not unit_vars:
+            return False
+        return bool(names & self._graph_info.endogenous)
 
     def predictions(
         self,
