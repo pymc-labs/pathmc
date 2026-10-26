@@ -1,0 +1,18 @@
+pathmc/compile.py
+  h_63db634213747e 1847-1850,1882-1897,1914-1915,1928-1942
+pathmc/simulate.py
+  h_63db634213747e 1657-1662
+tests/test_residual_cov.py
+  h_63db634213747e 323-374
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c96a5e82cfae5fdc215844c9dcca650ec5cb4cd9",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
