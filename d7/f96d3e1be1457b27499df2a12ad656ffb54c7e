@@ -1,0 +1,90 @@
+.github/dependabot.yml
+  h_63db634213747e 9-12
+.github/workflows/nightly.yml
+  h_63db634213747e 23
+.github/workflows/zizmor.yml
+  h_63db634213747e 34
+docs/assets/contributors.json
+  h_63db634213747e 9
+docs/assets/contributors.svg
+  h_63db634213747e 2,6,11,15-19,21,30-34,36-41,45-46
+docs/user_guide/11-model-specification.qmd
+  h_63db634213747e 176-177
+pathmc/_model.py
+  h_63db634213747e 18,40,105,107,179-184,210-226,413-474,919-922,946-950,980,1008-1011,1668,1693,2005-2006,2037-2041,2054-2055,2095-2098,2133,2148-2170,2173,2240-2243,2615-2617,2620-2637,2643-2662,2667,2676-2678,2700,2718-2720,2747,2762-2764,2972,3223-3228,3288,3300,3304-3313,3390-3393,3604-3609,3616-3617,3621
+pathmc/adjustment.py
+  h_63db634213747e 150-170,455,457-458,461,525
+pathmc/compile.py
+  h_63db634213747e 46,285,290,299,303-305,307,313,315,317-320,325-367,535,552,554,556,585,587-592,594-606,761-766,985-990,1259-1260,1287-1289,1298-1302,1320-1327,1331,1333-1335,2115-2123,2125-2130,2135,2373-2391,2422-2448,2679-2684,2722-2727,2859-2863,2878-2889,2891-2896,2964-2970,3009,3048-3053,3055,3092,3125-3135,3143,3164,3182,3184,3222-3224,3233-3235,3241-3244,3265-3276,3303,3337-3340
+pathmc/effects.py
+  h_63db634213747e 22-23,33,35,42-140,155-183,241,253,290-296,324-325,409-414,416,438,457-552,559,567-574,589-591,615-616,629-634,638-645,647,718-720,748-752,779,802-820,822-828,836,846
+pathmc/exceptions.py
+  h_63db634213747e 26
+pathmc/identify.py
+  h_63db634213747e 150-151
+pathmc/interpret.py
+  h_63db634213747e 20,313-317,320,327-329,391,401-422,559,595,603,605-606,641,649,652-653
+pathmc/introspect.py
+  h_63db634213747e 701,791-792,798-799
+pathmc/panel.py
+  h_63db634213747e 20,363-385,391,395-400,404-405,412-413,418-419,421,425,429-430
+pathmc/parse.py
+  h_63db634213747e 219-221,279,284-349
+pathmc/priors.py
+  h_63db634213747e 108-113
+pathmc/residuals.py
+  h_63db634213747e 87-248,252-256,274,279
+pathmc/sensitivity.py
+  h_63db634213747e 73-75,116-123,135,225-240,294-299,301-303,305-306
+pathmc/simulate.py
+  h_63db634213747e 263-371,1545-1577,1641,1910,1997-1999,2016,2058-2060
+pathmc/skills/pathmc/SKILL.md
+  h_63db634213747e 94,100,103,130-132,295
+tests/test_adjustment_scaling.py
+  h_63db634213747e 1-129
+tests/test_causal_queries.py
+  h_63db634213747e 16,125-164
+tests/test_defined_param_label_collision.py
+  h_63db634213747e 1-149
+tests/test_distinct_column_transforms.py
+  h_63db634213747e 1-144
+tests/test_do_plot.py
+  h_63db634213747e 114-239
+tests/test_do_regressions.py
+  h_63db634213747e 19,22,114-384
+tests/test_duplicate_predictor_coords.py
+  h_63db634213747e 1-76
+tests/test_fixed_coefficient_effect.py
+  h_63db634213747e 1-86
+tests/test_interactions.py
+  h_63db634213747e 20-22,327-422
+tests/test_interpret.py
+  h_63db634213747e 388-491
+tests/test_pooling_dims.py
+  h_63db634213747e 521-660
+tests/test_residual_cov.py
+  h_63db634213747e 556-645
+tests/test_scaling.py
+  h_63db634213747e 401-423,481-531,589-670
+tests/test_scaling_contract.py
+  h_63db634213747e 606-609
+tests/test_scan_non_gaussian_mediators.py
+  h_63db634213747e 355-552
+tests/test_sensitivity.py
+  h_63db634213747e 137-195,232-268
+tests/test_shared_adstock_state.py
+  h_63db634213747e 1-349
+tests/test_standardized.py
+  h_63db634213747e 16,22,93-226,236-315
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d7f96d3e1be1457b27499df2a12ad656ffb54c7e",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
