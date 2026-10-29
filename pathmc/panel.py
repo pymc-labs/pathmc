@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from typing import Any
 
 import narwhals.stable.v1 as nw
 import numpy as np
@@ -359,39 +360,74 @@ def _composite_unit_column(
     return keys
 
 
+def _business_observed_frame(
+    data: nw.DataFrame, scaling_factors: Any | None
+) -> nw.DataFrame:
+    """Return *data* with fitted columns restored to business units.
+
+    ``do()`` stores the estimation frame in internal units. The observed
+    overlay has to be aggregated after that conversion: averaging first and
+    then multiplying by one factor drops per-unit divisors.
+    """
+    if scaling_factors is None or not getattr(scaling_factors, "factors", None):
+        return data
+    columns = scaling_factors.columns_present_in(data.columns)
+    if not columns:
+        return data
+    from pathmc.scaling import ScaleContext
+
+    return scaling_factors.to_business(
+        data,
+        kind="outcome",
+        dims=ScaleContext(columns=tuple(columns)),
+    )
+
+
 def observed_means_by_time(
     data: nw.DataFrame,
     panel_info: PanelInfo,
     time_index: np.ndarray,
     variables: list[str],
+    scaling_factors: Any | None = None,
 ) -> dict[str, np.ndarray]:
     """Unit-mean observed series per time step, aligned to *time_index*.
+
+    When *scaling_factors* is given, each fitted column is converted from the
+    model's internal scale back to business units before the unit mean. A
+    plot that overlays this series on a ``do()`` trajectory then compares
+    like with like: both are business units, including when divisors differ
+    by unit.
 
     Parameters
     ----------
     data : nw.DataFrame
-        Panel data used to fit the model.
+        Panel data used to fit the model. Scaled models store this frame in
+        internal units.
     panel_info : PanelInfo
         Panel column metadata.
     time_index : np.ndarray
         Time labels in the order used by panel ``do(simulate_over="time")``.
     variables : list[str]
         Variables to aggregate (ignored when absent from *data*).
+    scaling_factors : ScalingFactors | None
+        Fitted scale factors. ``None`` leaves *data* unchanged.
 
     Returns
     -------
     dict[str, np.ndarray]
-        Mapping from variable name to a length-``n_times`` mean array.
+        Mapping from variable name to a length-``n_times`` mean array, in
+        business units when *scaling_factors* is given.
     """
+    source = _business_observed_frame(data, scaling_factors)
     time_col = panel_info.time
     result: dict[str, np.ndarray] = {}
     for var in variables:
-        if var not in data.columns:
+        if var not in source.columns:
             continue
         means: list[float] = []
         for t in time_index:
-            mask = data[time_col] == t
-            col = data.filter(mask)[var].to_numpy()
+            mask = source[time_col] == t
+            col = source.filter(mask)[var].to_numpy()
             arr = np.asarray(col, dtype=float)
             means.append(float(np.nanmean(arr)) if arr.size else float("nan"))
         result[var] = np.asarray(means, dtype=float)

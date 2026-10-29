@@ -163,6 +163,27 @@ def _default_formula(
     return f"{outcome} ~ " + " + ".join(predictors)
 
 
+def _business_frame(frame: nw.DataFrame, factors: Any) -> nw.DataFrame:
+    """Return *frame* with fitted columns in business units.
+
+    ``PathModel._data`` is already divided by the fitted factors. Rebuilding
+    the reduced model must start from business units so ``scaling=`` applies
+    those factors once, instead of dividing an already-scaled frame again.
+    """
+    if factors is None or not factors:
+        return frame
+    from pathmc.scaling import ScaleContext
+
+    columns = factors.columns_present_in(frame.columns)
+    if not columns:
+        return frame
+    return factors.to_business(
+        frame,
+        kind="regressor",
+        dims=ScaleContext(columns=columns),
+    )
+
+
 def _validate_reduced_spec(
     spec: Spec,
     outcome: str,
@@ -447,10 +468,13 @@ class AdjustmentModel:
             adjustment_set,
         )
 
+        parent_factors = getattr(parent, "fitted_scaling", None)
         if data is not None:
+            # Caller-supplied frames use the same business-unit contract as
+            # pathmc.model(data=, scaling=).
             nw_data = nw.from_native(data, eager_only=True)
         elif parent._data is not None:
-            nw_data = parent._data
+            nw_data = _business_frame(parent._data, parent_factors)
         else:
             raise ValueError(
                 "data= is required when the structural model has no data. "
@@ -514,6 +538,7 @@ class AdjustmentModel:
             data=nw_data.to_native(),
             families=outcome_families or None,
             priors=merged_priors,
+            scaling=parent_factors,
         )
 
         return cls(

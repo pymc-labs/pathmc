@@ -191,8 +191,8 @@ def adjustment_sets(
     -------
     list[set[str]]
         All valid minimal adjustment sets, sorted by size then
-        alphabetically. The empty set is included when no adjustment is
-        needed. Empty list only when no valid set exists.
+        alphabetically. ``[set()]`` means no covariates are required.
+        ``[]`` means the effect is not identifiable.
     """
     _require_nodes(graph_info.contemporaneous_dag, treatment=treatment, outcome=outcome)
 

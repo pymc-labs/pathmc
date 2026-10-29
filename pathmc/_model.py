@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import ast
 import sys
 import warnings
 from collections.abc import Iterator, Mapping
@@ -36,8 +37,8 @@ from pathmc.compile import (
     _build_lag_map,
     _has_temporal_deps,
     _identify_residual_blocks,
+    _scan_discrete_sample_vars,
     _scan_term_base_vars,
-    _term_base_vars,
     build_design_matrix,
     compile_to_pymc,
     get_predictor_columns,
@@ -101,7 +102,9 @@ from pathmc.simulate import (
     _unscale_do_dataset,
     run_counterfactual,
     run_do_panel_unified,
+    run_do_static_panel,
     run_do_pymc,
+    _stack_sample,
 )
 
 if TYPE_CHECKING:
@@ -173,10 +176,12 @@ def _scale_set_for_bounds(
 ) -> Mapping[str, float | np.ndarray]:
     """Convert user-facing (business-unit) interventions to internal units.
 
-    Bounds and extrapolation checks run against already-scaled ``_data``,
-    so the values they see must be in the same units the model compiled.
-    Non-numeric values, including categorical labels, have no scale factor
-    and are left out so a mixed intervention map can be passed through.
+    HSGP boundary checks run against already-scaled ``_data``, so the values
+    they see must be in the same units the model compiled. The extrapolation
+    warning does not: it compares the business-unit query to the business-unit
+    observed column. Non-numeric values, including categorical labels, have no
+    scale factor and are left out so a mixed intervention map can be passed
+    through.
     """
     if factors is None:
         return interventions
@@ -200,6 +205,23 @@ def _scale_set_for_bounds(
             )
         ).ravel()
     return out
+
+
+def _business_observation_frame(
+    data: nw.DataFrame,
+    factors: ScalingFactors | None,
+) -> nw.DataFrame:
+    """Observed columns in the units interventional queries are specified in."""
+    if factors is None or not factors:
+        return data
+    columns = factors.columns_present_in(data.columns)
+    if not columns:
+        return data
+    return factors.to_business(
+        data,
+        kind="regressor",
+        dims=ScaleContext(columns=columns),
+    )
 
 
 def _layout_unscaled_column(
@@ -386,6 +408,68 @@ def _warn_extrapolation(
                 UserWarning,
                 stacklevel=3,
             )
+
+
+def _expr_names(expr: str) -> set[str]:
+    """Identifiers in a ``prob`` expression, excluding the ``np`` helper."""
+    tree = ast.parse(expr, mode="eval")
+    return {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and node.id != "np"
+    }
+
+
+def _per_unit_intervention(val: float | np.ndarray) -> bool:
+    """True when an intervention is stored on a ``unit`` axis.
+
+    Matches ``_broadcast_intervention``: a constant vector collapses to a
+    scalar and is not a per-unit axis.
+    """
+    try:
+        values = np.asarray(val, dtype=float).ravel()
+    except (TypeError, ValueError):
+        return False
+    return values.size > 1 and int(np.unique(values).size) > 1
+
+
+def _aligned_draw_namespace(result: DoResult, names: set[str]) -> dict[str, np.ndarray]:
+    """Draws for *names* stacked on the same ``(chain, draw[, unit])`` axis.
+
+    A variable with no ``unit`` dim is a constant across units (scalar
+    intervention or exogenous fill). It is repeated onto ``unit`` so the
+    comparison is elementwise. This must not be used to repeat an outcome
+    that was averaged over units; callers request unit-level means first.
+    """
+    arrays: dict[str, xr.DataArray] = {}
+    for name in names:
+        if name not in result.dataset:
+            continue
+        da = result.dataset[name]
+        if "time" in da.dims:
+            da = da.mean(dim="time")
+        arrays[name] = da
+    if not arrays:
+        return {}
+    if not any("unit" in da.dims for da in arrays.values()):
+        return {name: _stack_sample(da) for name, da in arrays.items()}
+
+    ref = next(da for da in arrays.values() if "unit" in da.dims)
+    unit = ref.coords["unit"]
+    expanded: list[xr.DataArray] = []
+    order: list[str] = []
+    for name, da in arrays.items():
+        if "unit" not in da.dims:
+            da = da.expand_dims(unit=unit)
+        expanded.append(da)
+        order.append(name)
+    aligned = xr.align(*expanded, join="exact")
+    out: dict[str, np.ndarray] = {}
+    for name, da in zip(order, aligned, strict=True):
+        stack_dims = [dim for dim in ("chain", "draw", "unit") if dim in da.dims]
+        stacked = da.stack(sample=stack_dims).transpose("sample")
+        out[name] = np.asarray(stacked.values)
+    return out
 
 
 class PathModel:
@@ -830,6 +914,10 @@ class PathModel:
         RuntimeError
             If the model was created without data, or called before
             ``.fit()``.
+        DuplicateEquationError
+            If a defined parameter uses a coefficient label's name. The
+            summary reports each labeled coefficient and each defined
+            parameter, so the defined parameter must not occupy the label.
         """
         idata = self._require_fitted("effects_summary")
         if not _has_labeled_terms(self._spec) and not self._spec.defined_params:
@@ -853,6 +941,11 @@ class PathModel:
 
         Each coefficient is standardized as ``coef * sd(X) / sd(Y)``,
         giving the expected change in Y (in SD units) per SD change in X.
+        ``coef`` is the business-unit coefficient reported by
+        ``effects_summary()``. ``sd(X)`` and ``sd(Y)`` are the observed
+        marginal SDs of the data passed to ``model()``, including on a
+        scaled model whose internal columns were divided by per-unit factors.
+        Binary 0/1 predictors are omitted: their SD depends on the base rate.
 
         Returns
         -------
@@ -882,6 +975,7 @@ class PathModel:
             self._data,
             latent=self._latent,
             families=self._families,
+            scaling_factors=self._scaling_factors,
         )
 
     def effect(self, path: str) -> EffectResult:
@@ -909,7 +1003,10 @@ class PathModel:
             If the model was created without data, or called before
             ``.fit()``.
         ValueError
-            If a node is not endogenous or an edge does not exist.
+            If a node is not endogenous, an edge does not exist, or a drawn
+            edge exists only as an interaction constituent. In that last case
+            the error names the interaction term (for example ``X:Z``)
+            instead of claiming the edge is absent.
         NotImplementedError
             If a multi-edge path includes a non-Gaussian edge target
             whose coefficient would be multiplied across link scales.
@@ -1513,6 +1610,7 @@ class PathModel:
         kind: str,
         *,
         subgroup_indices: np.ndarray | None = None,
+        average_units: bool = True,
     ) -> DoResult:
         """Run a cross-sectional do() via graph surgery on instance state.
 
@@ -1534,6 +1632,7 @@ class PathModel:
             subgroup_indices=subgroup_indices,
             scaling_factors=self._scaling_factors,
             categorical_vars=self._categorical_vars,
+            average_units=average_units,
         )
 
     @contextmanager
@@ -1845,6 +1944,8 @@ class PathModel:
         shift: dict[str, float] | None = None,
         kind: str = "mean",
         simulate_over: str | None = None,
+        *,
+        average_units: bool = True,
     ) -> DoResult:
         """Simulate an intervention using the do-operator.
 
@@ -1873,6 +1974,11 @@ class PathModel:
             ``"time"`` to activate time-forward panel simulation. Required
             for models with ``lag()`` or ``adstock()``, which also require
             the model to have been fitted with ``panel=``.
+        average_units : bool
+            When ``True`` (default), ``kind="mean"`` averages response means
+            over observation rows. ``prob`` sets this to ``False`` when the
+            expression names both an endogenous variable and a per-unit
+            intervention, so the comparison uses unit-level means.
 
         Returns
         -------
@@ -1885,7 +1991,8 @@ class PathModel:
         RuntimeError
             If called before ``.fit()``.
         ValueError
-            If ``simulate_over="time"`` without panel, or if an intervention
+            If ``kind`` is not ``"mean"`` or ``"predictive"``. Also if
+            ``simulate_over="time"`` without panel, or if an intervention
             on an ``hsgp()`` input falls outside the basis boundary
             ``[mid - L, mid + L]`` frozen from the fitted data (beyond it
             the basis aliases instead of extrapolating), or if a temporal
@@ -1925,7 +2032,10 @@ class PathModel:
                 numeric_set, self._scaling_factors, self._data
             )
             _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_set)
-            _warn_extrapolation(self._data, scaled_set)
+            _warn_extrapolation(
+                _business_observation_frame(self._data, self._scaling_factors),
+                numeric_set,
+            )
 
         if simulate_over == "time":
             if self._panel_info is None:
@@ -1960,6 +2070,7 @@ class PathModel:
                     self._panel_info,
                     time_idx,
                     list(self._graph_info.topological_order),
+                    scaling_factors=self._scaling_factors,
                 )
                 return run_do_panel_unified(
                     gen_model=self._gen_model,
@@ -1974,10 +2085,32 @@ class PathModel:
                     data=self._data,
                     scaling_factors=self._scaling_factors,
                 )
-            # Non-scan panel models fall through to the cross-sectional path.
+            with self._categorical_intervention(categorical_set):
+                time_idx = np.asarray(
+                    sorted(self._data[self._panel_info.time].unique().to_list())
+                )
+                observed_by_time = observed_means_by_time(
+                    self._data,
+                    self._panel_info,
+                    time_idx,
+                    list(self._graph_info.topological_order),
+                )
+                return run_do_static_panel(
+                    gen_model=self._gen_model,
+                    graph_info=self._graph_info,
+                    idata=idata,
+                    data=self._data,
+                    panel_info=self._panel_info,
+                    set=numeric_set,
+                    kind=kind,
+                    families=self._families,
+                    scaling_factors=self._scaling_factors,
+                    categorical_vars=self._categorical_vars,
+                    observed_by_time=observed_by_time,
+                )
 
         with self._categorical_intervention(categorical_set):
-            return self._run_do(numeric_set, kind)
+            return self._run_do(numeric_set, kind, average_units=average_units)
 
     def counterfactual(
         self,
@@ -2044,7 +2177,10 @@ class PathModel:
         # below skip them, so this method does not grow a private pre-filter.
         scaled_do = _scale_set_for_bounds(do, self._scaling_factors, self._data)
         _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_do)
-        _warn_extrapolation(self._data, scaled_do)
+        _warn_extrapolation(
+            _business_observation_frame(self._data, self._scaling_factors),
+            do,
+        )
         if self._scaling_factors is not None:
             do = {
                 var: (
@@ -2416,23 +2552,59 @@ class PathModel:
         Returns
         -------
         float
-            Estimated probability (fraction of draws satisfying *expr*).
+            Fraction of aligned comparisons that satisfy *expr*. For
+            ``kind="mean"``, a per-unit intervention is compared to
+            unit-level means, not to the outcome averaged over units.
         """
         self._require_data("prob")
-        result = self.do(set=set, kind=kind, **do_kwargs)
-        namespace: dict[str, Any] = {
-            str(var): result.draws(str(var)) for var in result.dataset.data_vars
-        }
+        names = _expr_names(expr)
+        unit_level = (
+            kind == "mean"
+            and do_kwargs.get("simulate_over") != "time"
+            and self._mean_expr_needs_unit_means(names, set)
+        )
+        result = self.do(
+            set=set,
+            kind=kind,
+            average_units=not unit_level,
+            **do_kwargs,
+        )
+        if unit_level:
+            namespace: dict[str, Any] = _aligned_draw_namespace(result, names)
+        else:
+            namespace = {
+                str(var): result.draws(str(var)) for var in result.dataset.data_vars
+            }
         namespace["np"] = np
         namespace["__builtins__"] = {}
         mask = eval(expr, namespace)  # noqa: S307
         return float(np.mean(mask))
 
+    def _mean_expr_needs_unit_means(
+        self,
+        names: set[str],
+        set: dict[str, float | np.ndarray] | None,
+    ) -> bool:
+        """Whether ``kind="mean"`` must keep unit-level outcome means.
+
+        Averaging the outcome and then comparing it to a per-unit
+        intervention broadcasts that average. The probability is the
+        fraction of aligned unit-level comparisons instead.
+        """
+        unit_vars = {
+            var
+            for var, val in (set or {}).items()
+            if _per_unit_intervention(val) and var in names
+        }
+        if not unit_vars:
+            return False
+        return bool(names & self._graph_info.endogenous)
+
     def predictions(
         self,
         outcome: str,
         *,
-        set: dict[str, float | np.ndarray] | None = None,
+        set: dict[str, float | np.ndarray | str] | None = None,
         newdata: IntoFrame | None = None,
     ) -> InterpretResult:
         """Interventional or associational response-mean predictions.
@@ -2441,9 +2613,9 @@ class PathModel:
         ----------
         outcome : str
             Outcome variable name.
-        set : dict[str, float] or None
-            Intervention values. When omitted, predictions are
-            associational (no graph surgery).
+        set : dict[str, float | str] or None
+            Intervention values. A categorical predictor takes a fitted
+            level label. When omitted, predictions are associational.
         newdata : IntoFrame or None
             Covariate grid or frame to predict on, in *business* units.
             Defaults to the fitted data. On a scaled model the grid is
@@ -2465,7 +2637,7 @@ class PathModel:
         *,
         contrast: tuple[float, float] = (0.0, 1.0),
         comparison: Literal["diff", "ratio", "lift"] = "diff",
-        conditional: dict[str, float] | None = None,
+        conditional: dict[str, float | str] | None = None,
         average_by: Literal["all"] | None = "all",
     ) -> EstimandResult | InterpretResult:
         """Interventional contrasts between two values of a variable.
@@ -2483,8 +2655,9 @@ class PathModel:
             ``(lo, hi)`` intervention values.
         comparison : str
             ``"diff"``, ``"ratio"``, or ``"lift"``.
-        conditional : dict[str, float] or None
-            Additional variables held fixed at scalar values.
+        conditional : dict[str, float | str] or None
+            Additional variables held fixed at scalar values. A categorical
+            predictor takes a fitted level label.
         average_by : str or None
             ``"all"`` collapses to :class:`EstimandResult`; ``None`` keeps
             unit-level :class:`InterpretResult` draws.
@@ -2511,7 +2684,7 @@ class PathModel:
         *,
         slope: Literal["dydx", "eyex", "eydx", "dyex"] = "dydx",
         eps: float = 1e-4,
-        conditional: dict[str, float] | None = None,
+        conditional: dict[str, float | str] | None = None,
         average_by: Literal["all"] | None = "all",
     ) -> EstimandResult | InterpretResult:
         """Finite-difference interventional slopes.
@@ -2526,8 +2699,9 @@ class PathModel:
             Slope type: ``"dydx"``, ``"eyex"``, ``"eydx"``, or ``"dyex"``.
         eps : float
             Finite-difference step size.
-        conditional : dict[str, float] or None
-            Additional variables held fixed at scalar values.
+        conditional : dict[str, float | str] or None
+            Additional variables held fixed at scalar values. A categorical
+            predictor takes a fitted level label.
         average_by : str or None
             ``"all"`` collapses to :class:`EstimandResult`; ``None`` keeps
             unit-level draws.
@@ -2735,7 +2909,7 @@ def model(
         term_vars: set[str] = set()
         for reg in spec.regressions:
             for t in reg.terms:
-                term_vars.update(_term_base_vars(t))
+                term_vars.update(_scan_term_base_vars(t))
         target_columns = endogenous_lhs - latent_set
         channel_columns = term_vars - endogenous_lhs
         scaling, excluded = _exclude_scaled_basis_inputs(
@@ -2986,8 +3160,12 @@ def simulate(
         term_vars: set[str] = set()
         for reg in spec.regressions:
             for t in reg.terms:
-                term_vars.update(_term_base_vars(t))
-        target_columns = endo_set - latent_set
+                term_vars.update(_scan_term_base_vars(t))
+        # Latent mediators are generated endogenous columns. They are absent
+        # from the input frame, but a grid target spec still fits their factor
+        # so the inverse scale lands them in business units with the other
+        # generated columns.
+        target_columns = endo_set
         channel_columns = term_vars - endo_set
         scaling, excluded = _exclude_scaled_basis_inputs(
             scaling,
@@ -3047,6 +3225,7 @@ def simulate(
         v for v in latent_set if families_eff.get(v, "gaussian") == "latent_normal"
     }
     stochastic_carry_vars: set[str] = set()
+    discrete_draw_vars: set[str] = set()
     innovation_rv_names: set[str] = set()
     if scan_info is not None:
         endo_lag_bases = {
@@ -3058,9 +3237,20 @@ def simulate(
             if v not in latent_set
             and families_eff.get(v, "gaussian") in ("gaussian", "studentt")
         }
+        discrete_draw_vars = _scan_discrete_sample_vars(spec, families_eff, latent_set)
         innovation_rv_names = {f"innovations_{v}" for v in stochastic_latent_vars} | {
             f"carry_innovations_{v}" for v in stochastic_carry_vars
         }
+        # Per-time uniforms drive Poisson/NegativeBinomial structural draws.
+        # They are simulation noise, like carry innovations, unless the caller
+        # pins them. Bernoulli uniforms stay required parameters.
+        count_uniform_names = {
+            f"discrete_uniforms_{v}"
+            for v in discrete_draw_vars
+            if families_eff.get(v, "gaussian") in ("poisson", "negbinomial")
+        }
+        supplied_count_uniforms = count_uniform_names & set(params)
+        innovation_rv_names |= count_uniform_names - supplied_count_uniforms
 
     # Innovation sequences drive the scan recursion itself; they are
     # simulation noise, not user-supplied parameters.
@@ -3137,6 +3327,10 @@ def simulate(
                         fixed_model[f"carry_innovations_{var}"],
                     ],
                 ))
+            elif var in discrete_draw_vars:
+                # Observation RVs are a second draw. Children already
+                # consumed ``_scan_draw_{var}`` inside the scan.
+                entries.append(("state", var, [fixed_model[f"_scan_draw_{var}"]]))
             else:
                 entries.append(("obs", var, [fixed_model[var]]))
 
@@ -3347,15 +3541,24 @@ def simulate_params_template(
     block_joint_rvs: set[str] = getattr(gen_model, "_pathmc_block_joint_rvs", set())
 
     template: dict[str, Any] = {}
+    families_eff = families or {}
+    count_uniform_names = {
+        f"discrete_uniforms_{v}"
+        for v in _scan_discrete_sample_vars(spec, families_eff, latent_set)
+        if families_eff.get(v, "gaussian") in ("poisson", "negbinomial")
+    }
     for rv in gen_model.free_RVs:
         # Stochastic endogenous RVs (observed outcomes / stochastic
         # latents) are simulation outputs, not params entries. The
         # ``innovations_*`` / ``carry_innovations_*`` sequences drive the
         # scan recursion itself: simulate() draws them internally.
         # Residual-block joint RVs are realized noise, not user params.
+        # Poisson/NegativeBinomial per-time uniforms are the same kind of
+        # noise. Bernoulli uniforms stay required parameters.
         if (
             rv.name in endo_set
             or rv.name in block_joint_rvs
+            or rv.name in count_uniform_names
             or rv.name.startswith((
                 "innovations_",
                 "carry_innovations_",

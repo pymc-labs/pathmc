@@ -38,7 +38,7 @@ panel interventions natively — no separate simulation engine needed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Collection, Literal
 
 import narwhals.stable.v1 as nw
 import networkx as nx
@@ -277,11 +277,12 @@ def get_predictor_columns(
     cols: list[str] = []
     if _effective_has_intercept(reg, pooling, panel_info):
         cols.append("Intercept")
+    coords = _predictor_coordinates(reg)
     for term in reg.terms:
         if term.categorical is not None and term.categorical.columns:
             cols.extend(term.categorical.columns)
         else:
-            cols.append(term.variable)
+            cols.append(coords[id(term)])
     return cols
 
 
@@ -290,22 +291,73 @@ def get_free_predictor_columns(
     *,
     pooling: str | dict | None = None,
     panel_info: PanelInfo | None = None,
+    exclude_variables: Collection[str] | None = None,
 ) -> list[str]:
     """Return predictor column names that have free (estimated) coefficients.
 
-    Fixed-value terms (e.g. ``1*X``) are excluded.
+    Fixed-value terms (e.g. ``1*X``) are excluded. *exclude_variables*
+    drops flat-beta columns replaced by ``by_var`` coefficients, matched
+    on the term's variable (the data column), not the coordinate label.
     """
+    excluded = set(exclude_variables or ())
     cols: list[str] = []
     if _effective_has_intercept(reg, pooling, panel_info):
         cols.append("Intercept")
     # Basis terms carry their own weights (not a scalar beta column), so
     # they are excluded here to keep ``beta`` sized to the plain/free terms.
+    coords = _predictor_coordinates(reg)
     cols.extend(
-        t.variable
+        coords[id(t)]
         for t in reg.terms
-        if t.fixed_value is None and t.basis is None and t.categorical is None
+        if t.fixed_value is None
+        and t.basis is None
+        and t.categorical is None
+        and t.variable not in excluded
     )
     return cols
+
+
+def predictor_coordinate(reg: Regression, term: Term) -> str:
+    """Return the beta coordinate compiled for *term*."""
+    return _predictor_coordinates(reg)[id(term)]
+
+
+def _predictor_coordinates(reg: Regression) -> dict[int, str]:
+    """Map each non-categorical term to a unique predictor coordinate.
+
+    A lone ``adstock(X)`` keeps the coordinate ``X``: that is the column
+    name the rest of the compiler and the tests already select. Two terms
+    that share ``term.variable`` must not share that coordinate, or
+    ``.sel(Y_predictors="X")`` returns both columns and every label
+    reports the mixture. A colliding transform is named from its call
+    (``adstock(X, decay=theta)``); any remaining clash gets a ``#N``
+    suffix.
+    """
+    counts: dict[str, int] = {}
+    for term in reg.terms:
+        if term.categorical is not None:
+            continue
+        counts[term.variable] = counts.get(term.variable, 0) + 1
+    duplicated = {name for name, count in counts.items() if count > 1}
+    taken: set[str] = set()
+    coords: dict[int, str] = {}
+    for term in reg.terms:
+        if term.categorical is not None:
+            continue
+        if term.variable not in duplicated:
+            name = term.variable
+        elif term.transform is not None:
+            name = _render_transform_call(term.transform)
+        else:
+            name = term.variable
+        if name in taken:
+            suffix = 2
+            while f"{name}#{suffix}" in taken:
+                suffix += 1
+            name = f"{name}#{suffix}"
+        taken.add(name)
+        coords[id(term)] = name
+    return coords
 
 
 def get_fixed_coefficients(reg: Regression) -> dict[str, float]:
@@ -475,6 +527,7 @@ def build_design_matrix(
         columns: dict[str, np.ndarray] = {}
         if _effective_has_intercept(reg, pooling, panel_info):
             columns["Intercept"] = np.ones(n)
+        coords = _predictor_coordinates(reg)
         for term in reg.terms:
             v = term.variable
             if term.categorical is not None and v in data.columns:
@@ -491,11 +544,11 @@ def build_design_matrix(
                         product = product * data[part].to_numpy().astype(float)
                     else:
                         product = product * np.nan
-                columns[v] = product
+                columns[coords[id(term)]] = product
             elif v in data.columns:
-                columns[v] = data[v].to_numpy().astype(float)
+                columns[coords[id(term)]] = data[v].to_numpy().astype(float)
             else:
-                columns[v] = np.full(n, np.nan)
+                columns[coords[id(term)]] = np.full(n, np.nan)
         return nw.from_dict(
             {
                 c: columns[c]
@@ -524,12 +577,28 @@ def build_design_matrix(
 
     dm = patsy.dmatrix(formula_str, data=pandas_data, return_type="dataframe")
     columns = {str(col): dm[col].to_numpy() for col in dm.columns}
+    coords = _predictor_coordinates(reg)
     for term in reg.terms:
-        if term.categorical is None:
+        if term.categorical is not None:
+            encoded = encode_categorical(
+                term.categorical, data[term.variable].to_numpy()
+            )
+            for idx, name in enumerate(term.categorical.columns):
+                columns[name] = encoded[:, idx]
             continue
-        encoded = encode_categorical(term.categorical, data[term.variable].to_numpy())
-        for idx, name in enumerate(term.categorical.columns):
-            columns[name] = encoded[:, idx]
+        name = coords[id(term)]
+        if name in columns:
+            continue
+        # Patsy collapses repeated variable names (``X + X``) and does not
+        # know transform calls. The likelihood uses the slot resolver, not
+        # this frame; the extra column keeps design() aligned with coords.
+        if term.interaction_of is not None:
+            product = np.ones(n)
+            for part in term.interaction_of:
+                product = product * pandas_data[part].to_numpy(dtype=float)
+            columns[name] = product
+        else:
+            columns[name] = pandas_data[term.variable].to_numpy(dtype=float)
     return nw.from_dict(
         {
             name: columns[name]
@@ -683,13 +752,12 @@ def compile_to_pymc(
 
     coords: dict[str, Any] = {}
     for reg in spec.regressions:
-        free_cols = [
-            c
-            for c in get_free_predictor_columns(
-                reg, pooling=pooling, panel_info=panel_info
-            )
-            if c not in pooled_by_lhs.get(reg.lhs, ())
-        ]
+        free_cols = get_free_predictor_columns(
+            reg,
+            pooling=pooling,
+            panel_info=panel_info,
+            exclude_variables=pooled_by_lhs.get(reg.lhs, ()),
+        )
         if free_cols:
             coords[f"{reg.lhs}_predictors"] = free_cols
         for term in reg.terms:
@@ -919,13 +987,12 @@ def compile_to_pymc(
 
             reg = reg_by_lhs[var]
             family = families.get(var, "gaussian")
-            free_cols = [
-                c
-                for c in get_free_predictor_columns(
-                    reg, pooling=pooling, panel_info=panel_info
-                )
-                if c not in pooled_by_lhs.get(var, ())
-            ]
+            free_cols = get_free_predictor_columns(
+                reg,
+                pooling=pooling,
+                panel_info=panel_info,
+                exclude_variables=pooled_by_lhs.get(var, ()),
+            )
 
             beta = None
             if free_cols:
@@ -1200,7 +1267,8 @@ def _make_cross_sectional_resolver(
                 state=(basis_states or {}).get(key),
             )
         if slot.kind == "transform":
-            tc = transform_map[slot.name]
+            assert slot.transform is not None
+            tc = transform_map[_transform_map_key(slot.transform)]
             return _apply_transform_chain(
                 tc,
                 data,
@@ -1227,7 +1295,9 @@ def _make_scan_resolver(
     prev_exog: dict[str, Any],
     transform_map: dict[str, TransformCall],
     ns_map: dict[str, Any],
-    adstock_state: dict[str, Any],
+    prev_adstock: dict[str, Any],
+    next_adstock: dict[str, Any],
+    current_transform: dict[str, Any],
     n_units: int,
 ) -> Callable[[PredictorSlot], Any]:
     """Create a resolver for scan-panel mu construction.
@@ -1236,7 +1306,11 @@ def _make_scan_resolver(
     exogenous slices, already-computed endogenous values, and
     previous-step carry state for lags.
 
-    Side effect: transform slots update *adstock_state* in-place.
+    Stateful transforms read *prev_adstock* and write the next carry
+    into *next_adstock*. *current_transform* caches this timestep's
+    value, keyed by the transform call, so the same call shared by
+    several equations advances once and every equation sees that value.
+    Distinct calls on the same source column keep separate state.
     """
     import pytensor.tensor as pt
 
@@ -1254,13 +1328,22 @@ def _make_scan_resolver(
                 "Use a cross-sectional model or remove the basis term."
             )
         if slot.kind == "transform":
-            tc = transform_map[slot.name]
+            # A later equation must not step state already advanced by
+            # an earlier equation in this same timestep. Distinct calls
+            # on the same column are not that shared state.
+            assert slot.transform is not None
+            key = _transform_map_key(slot.transform)
+            if key in current_transform:
+                return current_transform[key]
+            tc = transform_map[key]
             inp_name = _get_adstock_input(tc)
             raw = _resolve_var(inp_name)
             transformed, updated = _apply_step_transform(
-                tc, raw, adstock_state, ns_map, slot.name
+                tc, raw, prev_adstock, ns_map, key
             )
-            adstock_state.update(updated)
+            if _has_adstock(tc):
+                next_adstock[key] = updated[key]
+            current_transform[key] = transformed
             return transformed
         if slot.kind == "interaction":
             assert slot.interaction_parts is not None
@@ -2023,13 +2106,27 @@ def _create_prior_var(priors: dict[str, Any] | None, name: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _transform_map_key(tc: TransformCall) -> str:
+    """Identity of a transform call, including parameters and nesting.
+
+    Not the source column alone: two calls on the same variable must not
+    collapse to whichever was registered last.
+    """
+    return _render_transform_call(tc)
+
+
 def _build_transform_map(spec: Spec) -> dict[str, TransformCall]:
-    """Map variable names to their TransformCall for all transform terms."""
+    """Map each distinct transform call to its ``TransformCall``.
+
+    Keyed by :func:`_transform_map_key`, not the source variable, so a
+    later call on the same column does not replace an earlier one.
+    Identical calls share one entry and therefore one scan carry.
+    """
     tmap: dict[str, TransformCall] = {}
     for reg in spec.regressions:
         for term in reg.terms:
             if term.transform is not None:
-                tmap[term.variable] = term.transform
+                tmap[_transform_map_key(term.transform)] = term.transform
     return tmap
 
 
@@ -2267,6 +2364,25 @@ def _scan_term_base_vars(term: Term) -> list[str]:
     return _term_base_vars(term)
 
 
+def _discrete_count_ppf(uniform: Any, cdf_at: Any, *, bits: int = 30) -> Any:
+    """Invert a discrete CDF at *uniform* by binary search.
+
+    ``cdf_at(k)`` is P(K <= k). ``bits`` covers counts up to ``2**bits - 1``,
+    which sits above the scan rate clip ``exp(20)``. A per-time uniform keeps
+    each step independent; an in-step RNG would broadcast one draw.
+    """
+    import pytensor.tensor as pt
+
+    lo = pt.zeros_like(uniform)
+    hi = pt.full_like(uniform, float(2**bits - 1))
+    for _ in range(bits):
+        mid = pt.floor((lo + hi) / 2.0)
+        below = cdf_at(mid) < uniform
+        lo = pt.switch(below, mid + 1.0, lo)
+        hi = pt.switch(below, hi, mid)
+    return lo
+
+
 def _scan_discrete_sample_vars(
     spec: Spec,
     families: dict[str, str],
@@ -2295,6 +2411,33 @@ def _scan_discrete_sample_vars(
                 if base_var in non_gaussian:
                     used_as_predictor.add(base_var)
     return used_as_predictor
+
+
+def _scan_observed_contemporaneous_parents(
+    spec: Spec,
+    families: dict[str, str],
+    latent: set[str],
+) -> set[str]:
+    """Return non-Gaussian endogenous vars read in the same timestep.
+
+    A scan-compiled child must condition on an observed parent even when
+    nothing lags that parent. Lagged parents are already substituted by
+    the carry sequences; this set is the contemporaneous remainder
+    (Bernoulli/Poisson/NegativeBinomial draws, and Student-t structural
+    means) that would otherwise leak into a child's likelihood.
+    """
+    nongauss = {"bernoulli", "poisson", "negbinomial", "studentt"}
+    parents: set[str] = set()
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.lag_of is not None:
+                continue
+            for base_var in _scan_term_base_vars(term):
+                if base_var in latent:
+                    continue
+                if families.get(base_var, "gaussian") in nongauss:
+                    parents.add(base_var)
+    return parents
 
 
 # Bound applied to the linear predictor ``mu`` before exponentiating it into
@@ -2527,13 +2670,12 @@ def _compile_scan_panel(
     coords: dict[str, Any] = {}
     fixed_coeffs_by_var: dict[str, dict[str, float]] = {}
     for reg in spec.regressions:
-        free_cols = [
-            c
-            for c in get_free_predictor_columns(
-                reg, pooling=pooling, panel_info=panel_info
-            )
-            if c not in pooled_by_lhs.get(reg.lhs, ())
-        ]
+        free_cols = get_free_predictor_columns(
+            reg,
+            pooling=pooling,
+            panel_info=panel_info,
+            exclude_variables=pooled_by_lhs.get(reg.lhs, ()),
+        )
         if free_cols:
             coords[f"{reg.lhs}_predictors"] = free_cols
         fixed_coeffs_by_var[reg.lhs] = get_fixed_coefficients(reg)
@@ -2571,13 +2713,12 @@ def _compile_scan_panel(
         beta_rvs: dict[str, Any] = {}
         sigma_rvs: dict[str, Any] = {}
         for var in endogenous_order:
-            free_cols = [
-                c
-                for c in get_free_predictor_columns(
-                    reg_by_lhs[var], pooling=pooling, panel_info=panel_info
-                )
-                if c not in pooled_by_lhs.get(var, ())
-            ]
+            free_cols = get_free_predictor_columns(
+                reg_by_lhs[var],
+                pooling=pooling,
+                panel_info=panel_info,
+                exclude_variables=pooled_by_lhs.get(var, ()),
+            )
             family = families.get(var, "gaussian")
             if free_cols:
                 beta_prior = _ensure_dims(priors[f"beta_{var}"], f"{var}_predictors")
@@ -2709,6 +2850,11 @@ def _compile_scan_panel(
             _scan_discrete_sample_vars(spec, families, latent)
         )
         discrete_sample_set = set(discrete_sample_vars)
+        discrete_count_vars = sorted(
+            v
+            for v in discrete_sample_vars
+            if families.get(v, "gaussian") in ("poisson", "negbinomial")
+        )
         discrete_carry_vars = sorted(
             v for v in discrete_sample_vars if v in endo_lag_bases
         )
@@ -2723,10 +2869,26 @@ def _compile_scan_panel(
             if v not in latent
             and families.get(v, "gaussian") in ("gaussian", "studentt")
         )
-        observed_carry_vars = sorted(
-            set(stochastic_carry_vars) | set(discrete_carry_vars)
+        lagged_observed_vars = set(stochastic_carry_vars) | set(discrete_carry_vars)
+        # Contemporaneous non-Gaussian parents are not in the lag carry.
+        # Estimation still has to read the observed column, not an auxiliary
+        # draw or the parent's structural mean (issue #596).
+        unlagged_observed_parents = sorted(
+            _scan_observed_contemporaneous_parents(spec, families, latent)
+            - lagged_observed_vars
         )
-        carry_mu_vars = sorted(set(stochastic_carry_vars) | set(discrete_sample_vars))
+        unlagged_observed_parent_set = set(unlagged_observed_parents)
+        unlagged_continuous_parents = [
+            v for v in unlagged_observed_parents if v not in discrete_sample_set
+        ]
+        observed_carry_vars = sorted(
+            lagged_observed_vars | unlagged_observed_parent_set
+        )
+        carry_mu_vars = sorted(
+            set(stochastic_carry_vars)
+            | set(discrete_sample_vars)
+            | set(unlagged_continuous_parents)
+        )
 
         observed_carry_nodes: dict[str, Any] = {}
         for var in observed_carry_vars:
@@ -2793,6 +2955,13 @@ def _compile_scan_panel(
                 upper=1.0,
                 shape=(n_times, n_units),
             )
+        for var in discrete_count_vars:
+            discrete_uniform_nodes[var] = pm.Uniform(
+                f"discrete_uniforms_{var}",
+                lower=0.0,
+                upper=1.0,
+                shape=(n_times, n_units),
+            )
 
         # do()-intervention override channel, one per endogenous var (incl.
         # latent), defaulting to all-NaN (no-op).  ``pm.do()`` graph surgery
@@ -2831,6 +3000,7 @@ def _compile_scan_panel(
             + [latent_innovation_nodes[k] for k in stochastic_latent]
             + [carry_innovation_nodes[k] for k in stochastic_carry_vars]
             + [discrete_uniform_nodes[k] for k in discrete_bernoulli_vars]
+            + [discrete_uniform_nodes[k] for k in discrete_count_vars]
             + [do_intervene_nodes[k] for k in endo_keys]
         )
 
@@ -2869,13 +3039,14 @@ def _compile_scan_panel(
         for var in endo_keys:
             if beta_rvs[var] is not None:
                 beta_component_names[var] = []
-                n_flat = len([
-                    c
-                    for c in get_free_predictor_columns(
-                        reg_by_lhs[var], pooling=pooling, panel_info=panel_info
+                n_flat = len(
+                    get_free_predictor_columns(
+                        reg_by_lhs[var],
+                        pooling=pooling,
+                        panel_info=panel_info,
+                        exclude_variables=pooled_by_lhs.get(var, ()),
                     )
-                    if c not in pooled_by_lhs.get(var, ())
-                ])
+                )
                 for idx in range(n_flat):
                     component_name = f"beta_{var}__{idx}"
                     non_seq_list.append(beta_rvs[var][idx])
@@ -2912,6 +3083,7 @@ def _compile_scan_panel(
         n_latent_innov_seq = len(stochastic_latent)
         n_carry_innov_seq = len(stochastic_carry_vars)
         n_discrete_uniform_seq = len(discrete_bernoulli_vars)
+        n_count_uniform_seq = len(discrete_count_vars)
         n_endo = len(endo_keys)
         n_adstock = len(adstock_keys)
         n_exog_lag = len(exog_lag_bases)
@@ -2944,6 +3116,17 @@ def _compile_scan_panel(
                 ]
                 for i, k in enumerate(discrete_bernoulli_vars)
             }
+            count_uniform_t = {
+                k: seq_args[
+                    n_exog_seq
+                    + n_obs_carry_seq
+                    + n_latent_innov_seq
+                    + n_carry_innov_seq
+                    + n_discrete_uniform_seq
+                    + i
+                ]
+                for i, k in enumerate(discrete_count_vars)
+            }
             do_intervene_t = {
                 k: seq_args[
                     n_exog_seq
@@ -2951,6 +3134,7 @@ def _compile_scan_panel(
                     + n_latent_innov_seq
                     + n_carry_innov_seq
                     + n_discrete_uniform_seq
+                    + n_count_uniform_seq
                     + i
                 ]
                 for i, k in enumerate(endo_keys)
@@ -2968,10 +3152,10 @@ def _compile_scan_panel(
                 name: ns_args[i] for i, name in enumerate(non_seq_names)
             }
             use_observed_carry_t = ns_map["_use_observed_carry"]
-            discrete_rng = ns_map["_discrete_scan_rng"]
 
             new_endo: dict[str, Any] = {}
             new_adstock = dict(prev_adstock_state)
+            current_transform: dict[str, Any] = {}
             carry_mu: dict[str, Any] = {}
 
             for var in endo_keys:
@@ -2989,7 +3173,9 @@ def _compile_scan_panel(
                     prev_exog,
                     transform_map,
                     ns_map,
+                    prev_adstock_state,
                     new_adstock,
+                    current_transform,
                     n_units,
                 )
                 mu = build_mu(mu_specs[var], resolver, beta, pt.zeros(n_units))
@@ -3027,8 +3213,9 @@ def _compile_scan_panel(
                             pt.clip(mu, -_SCAN_MU_CLIP_BOUND, _SCAN_MU_CLIP_BOUND)
                         )
                         carry_mu[var] = rate
-                        sampled_state = pt.cast(
-                            pt.random.poisson(lam=rate, rng=discrete_rng), "float64"
+                        sampled_state = _discrete_count_ppf(
+                            count_uniform_t[var],
+                            lambda k: pt.gammaincc(k + 1.0, rate),
                         )
                     elif family == "negbinomial":
                         rate = pt.exp(
@@ -3037,17 +3224,18 @@ def _compile_scan_panel(
                         carry_mu[var] = rate
                         alpha_disp = ns_map[f"alpha_disp_{var}"]
                         p_nb = alpha_disp / (alpha_disp + rate)
-                        sampled_state = pt.cast(
-                            pt.random.negative_binomial(
-                                n=alpha_disp, p=p_nb, rng=discrete_rng
-                            ),
-                            "float64",
+                        sampled_state = _discrete_count_ppf(
+                            count_uniform_t[var],
+                            lambda k: pt.betainc(alpha_disp, k + 1.0, p_nb),
                         )
                     else:
                         raise RuntimeError(
                             f"unexpected discrete family {family!r} for {var!r}"
                         )
-                    if var in discrete_carry_vars:
+                    if (
+                        var in discrete_carry_vars
+                        or var in unlagged_observed_parent_set
+                    ):
                         obs_state = obs_carry_t[var]
                         observed_or_sampled = pt.switch(
                             pt.isnan(obs_state), sampled_state, obs_state
@@ -3067,6 +3255,18 @@ def _compile_scan_panel(
                     )
                     new_endo[var] = pt.switch(
                         use_observed_carry_t, observed_or_sampled, sampled_state
+                    )
+                elif var in unlagged_observed_parent_set:
+                    # Continuous non-Gaussian parent (Student-t). The
+                    # likelihood mean stays structural; children read the
+                    # observation when estimation carry is on.
+                    carry_mu[var] = mu
+                    obs_state = obs_carry_t[var]
+                    observed_or_structural = pt.switch(
+                        pt.isnan(obs_state), mu, obs_state
+                    )
+                    new_endo[var] = pt.switch(
+                        use_observed_carry_t, observed_or_structural, mu
                     )
                 elif family == "bernoulli":
                     new_endo[var] = 1.0 / (1.0 + pt.exp(-mu))
@@ -3094,6 +3294,7 @@ def _compile_scan_panel(
             out += [new_adstock[k] for k in adstock_keys]
             out += [exog_t.get(k, pt.zeros(n_units)) for k in exog_lag_bases]
             out += [carry_mu[k] for k in carry_mu_vars]
+
             return out
 
         results = pytensor.scan(
@@ -3127,6 +3328,10 @@ def _compile_scan_panel(
                 continue
 
             pm.Deterministic(f"mu_{var}", mu_all)
+            # Value downstream equations consumed. The observation RV is an
+            # independent likelihood draw.
+            if var in discrete_sample_set:
+                pm.Deterministic(f"_scan_draw_{var}", carry_all)
 
             family = families.get(var, "gaussian")
 

@@ -518,3 +518,143 @@ class TestRaggedRankNWarning:
                 panel={"unit": ["geo", "brand"], "time": "week"},
                 pooling={"by_var": {"tv": {"coefficient": ("geo", "brand")}}},
             )
+
+
+class TestByVarEffectReadsCompiledEdge:
+    """effect() returns the compiled beta_{var} edge, not a removed beta_{lhs} slot."""
+
+    def _fit_posterior(self, model, posterior, coords, dims):
+        import arviz as az
+
+        model._idata = az.from_dict({"posterior": posterior}, coords=coords, dims=dims)
+
+    def test_pooled_coefficient_returns_beta_var_draws(self):
+        rows = [
+            {"geo": g, "time": t, "tv": x, "sales": 2.0 + 7.0 * x}
+            for g in ["north", "south"]
+            for t, x in enumerate([1.0, 3.0])
+        ]
+        model = pathmc.model(
+            "sales ~ 0 + b*tv",
+            data=pd.DataFrame(rows),
+            panel={"unit": "geo", "time": "time"},
+            pooling={"by_var": {"tv": {"coefficient": "geo"}}},
+        )
+        named = {rv.name for rv in model.pymc_model.free_RVs}
+        assert "beta_tv" in named
+        assert "beta_sales" not in named
+        unit = list(model.pymc_model.coords["unit"])
+        self._fit_posterior(
+            model,
+            {"beta_tv": np.array([[[7.0, 7.0]]])},
+            {"unit": unit},
+            {"beta_tv": ["unit"]},
+        )
+        result = model.effect("tv -> sales")
+        assert result.mean == pytest.approx(7.0)
+        assert np.allclose(result.draws, 7.0)
+        assert result.hdi().shape == (2,)
+        assert np.allclose(result.hdi(), 7.0)
+        assert "mean=" in repr(result)
+
+    def test_sibling_flat_edge_does_not_resolve_removed_predictor(self):
+        rows = [
+            {"region": g, "week": t, "spend": x, "radio": 1.0, "revenue": 1.0}
+            for g in ["east", "west"]
+            for t, x in enumerate([1.0, 2.0])
+        ]
+        model = pathmc.model(
+            "revenue ~ 0 + b*spend + c*radio",
+            data=pd.DataFrame(rows),
+            panel={"unit": "region", "time": "week"},
+            pooling={"by_var": {"spend": {"coefficient": "region"}}},
+        )
+        unit = list(model.pymc_model.coords["unit"])
+        self._fit_posterior(
+            model,
+            {
+                "beta_spend": np.array([[[4.0, 9.0]]]),
+                "beta_revenue": np.array([[[3.0]]]),
+            },
+            {"unit": unit, "revenue_predictors": ["radio"]},
+            {"beta_spend": ["unit"], "beta_revenue": ["revenue_predictors"]},
+        )
+        pooled = model.effect("spend -> revenue")
+        flat = model.effect("radio -> revenue")
+        assert pooled.mean == pytest.approx(6.5)
+        assert np.allclose(np.sort(pooled.draws), [4.0, 9.0])
+        assert flat.mean == pytest.approx(3.0)
+
+    def test_unpooled_by_var_none_reads_beta_var(self):
+        rows = [
+            {"shop": g, "day": t, "ads": x, "orders": 0.0}
+            for g in ["a", "b"]
+            for t, x in enumerate([0.5, 1.5])
+        ]
+        model = pathmc.model(
+            "orders ~ 0 + ads",
+            data=pd.DataFrame(rows),
+            panel={"unit": "shop", "time": "day"},
+            pooling={"by_var": {"ads": "none"}},
+        )
+        assert "beta_orders" not in model.pymc_model.named_vars
+        unit = list(model.pymc_model.coords["unit"])
+        self._fit_posterior(
+            model,
+            {"beta_ads": np.array([[[1.5, 2.5]]])},
+            {"unit": unit},
+            {"beta_ads": ["unit"]},
+        )
+        result = model.effect("ads -> orders")
+        assert result.mean == pytest.approx(2.0)
+        assert np.allclose(np.sort(result.draws), [1.5, 2.5])
+
+    def test_multi_draw_path_keeps_unit_axis_aligned(self):
+        rows = [
+            {"market": g, "week": t, "display": x, "awareness": 1.0, "sales": 1.0}
+            for g in ["north", "south"]
+            for t, x in enumerate([1.0, 2.0])
+        ]
+        model = pathmc.model(
+            "awareness ~ 0 + a*display\nsales ~ 0 + b*awareness",
+            data=pd.DataFrame(rows),
+            panel={"unit": "market", "time": "week"},
+            pooling={"by_var": {"display": {"coefficient": "market"}}},
+        )
+        unit = list(model.pymc_model.coords["unit"])
+        self._fit_posterior(
+            model,
+            {
+                "beta_display": np.array([[[4.0, 10.0], [5.0, 11.0]]]),
+                "beta_sales": np.array([[[3.0], [6.0]]]),
+            },
+            {"unit": unit, "sales_predictors": ["awareness"]},
+            {
+                "beta_display": ["unit"],
+                "beta_sales": ["sales_predictors"],
+            },
+        )
+        edge = model.effect("display -> awareness")
+        path = model.effect("display -> awareness -> sales")
+        assert edge.draws.shape == (2, 2)
+        assert np.allclose(edge.draws, [[4.0, 10.0], [5.0, 11.0]])
+        assert path.draws.shape == (2, 2)
+        assert np.allclose(path.draws, [[12.0, 30.0], [30.0, 66.0]])
+        assert path.mean == pytest.approx(34.5)
+
+    def test_fixed_loading_does_not_read_other_equation_beta(self):
+        rows = [{"x": x, "m": 0.0, "m_obs": 0.0} for x in (0.0, 1.0, 2.0, 3.0)]
+        model = pathmc.model(
+            "m ~ a*x\nm_obs ~ 0 + 1*m",
+            data=pd.DataFrame(rows),
+        )
+        self._fit_posterior(
+            model,
+            {"beta_m": np.array([[[0.4]]])},
+            {"m_predictors": ["x"]},
+            {"beta_m": ["m_predictors"]},
+        )
+        result = model.effect("m -> m_obs")
+        # The other equation's beta_m is 0.4. A fixed loading is the constant.
+        assert result.mean == pytest.approx(1.0)
+        assert np.allclose(result.draws, 1.0)
