@@ -91,16 +91,16 @@ The DSL is lavaan-inspired:
 | Inspect adjustment set / formula before fit     | `adj.adjustment_set`, `adj.formula` (before `adj.fit()`) |
 | Interventional / associational predictions      | `m.predictions(outcome, set={...})`                    |
 | Interventional contrasts (structural model)     | `m.comparisons(outcome, variable, contrast=(0, 1))`    |
-| Marginal slopes under intervention              | `m.slopes(outcome, variable)`                          |
+| Marginal slopes under intervention              | `m.slopes(outcome, wrt=...)`                           |
 | Same interpret API on adjustment model          | `adj.comparisons(...)`, `adj.slopes(...)`, etc.         |
 | Probability under intervention                    | `m.prob("Y > 0", set={"X": 1})`                        |
 | Manual intervention                               | `m.do(set={"X": 1})`                                   |
 | Intervene on a categorical level                  | `m.do(set={"region": "south"})`, `m.ate("Y", "region", values=("north", "south"))` |
 | Declare an integer-coded column as labels         | `Y ~ C(store_type)`                                    |
-| Counterfactual / time-forward (panel)             | `m.do(set={...}, kind="time-forward")`                 |
+| Counterfactual / time-forward (panel)             | `m.do(set={...}, simulate_over="time")`                |
 | Adjustment sets for identification                | `m.adjustment_sets(treatment, outcome)`                |
 | Yes/no identification check                       | `m.is_identifiable(treatment, outcome)`                |
-| Front-door identification                         | `m.frontdoor_identifiable(treatment, outcome)`         |
+| Front-door identification                         | `m.frontdoor_identifiable(treatment, mediator, outcome)` |
 | Flag colliders on any path (heuristic; validity is `is_valid_adjustment_set`) | `m.collider_warnings(adjust, treatment, outcome)` |
 | Enumerate implied conditional independences       | `m.implied_independences()`                            |
 | Test DAG implications against data                | `m.test_implications()`                                |
@@ -127,7 +127,9 @@ The DSL is lavaan-inspired:
    shows a tidy summary. `m.do(...)` returns a `DoResult` describing the whole
    system, where accessors still take a variable name (`r.mean("Y")`).
 4. **The DSL is lavaan-*inspired*, not a 1:1 reimplementation.**
-   `~`, `~~`, `:=`, and labeled coefficients all work. Latent-variable
+   `~`, `~~`, `:=`, and labeled coefficients all work. A `:=` name must
+   not match a coefficient label (`a := a * 2` is rejected; use a
+   distinct name such as `twice := a * 2`). Latent-variable
    measurement models (`=~`) are out of scope in v0.1 — see the user
    guide for the full operator list.
 5. **`Prior` is re-exported from `pymc_extras` for convenience.**
@@ -290,7 +292,7 @@ m = pathmc.model(
     pooling="partial",
 )
 m.fit()
-m.do(set={"price": 1.5}, kind="time-forward")
+m.do(set={"price": 1.5}, simulate_over="time")
 ```
 
 ### Custom priors
