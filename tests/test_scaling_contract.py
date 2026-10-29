@@ -603,7 +603,10 @@ def _effects_summary(model: PathModel) -> np.ndarray:
 
 
 def _standardized(model: PathModel) -> np.ndarray:
-    return model.standardized().loc[["b", "c"], ["mean", "sd"]].to_numpy()
+    result = model.standardized()
+    # 0/1 predictors are omitted from STDYX. Compare the continuous label.
+    assert "b" not in result.index
+    return result.loc[["c"], ["mean", "sd"]].to_numpy()
 
 
 def _effect(model: PathModel) -> np.ndarray:
