@@ -1521,6 +1521,26 @@ def _observed_endogenous_binding(
     return {key: observed for key in _float_descendants_of(model_var, mu_source_exprs)}
 
 
+def _endogenous_ancestors(graph_info: GraphInfo, outcome: str) -> set[str]:
+    """Strict endogenous ancestors of *outcome*, excluding latents.
+
+    Associational predictions hold these mediators at observed values.
+    The outcome itself is predicted, not required as a column. Off-path
+    endogenous variables must not abort the query. Latents stay structural.
+    """
+    if outcome not in graph_info._dag:
+        return set()
+    seen: set[str] = set()
+    stack = list(graph_info._dag.predecessors(outcome))
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        stack.extend(graph_info._dag.predecessors(node))
+    return (seen & graph_info.endogenous) - graph_info.latent
+
+
 def _name_in_graph(name: str, exprs: list[Any]) -> bool:
     """Whether *name* is a node in any of *exprs*."""
     for expr in exprs:
@@ -1577,6 +1597,7 @@ def run_do_pymc(
     categorical_vars: set[str] | None = None,
     *,
     observed_endogenous: bool = False,
+    observed_outcome: str | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -1625,6 +1646,11 @@ def run_do_pymc(
         variables' structural means. Associational ``predictions()`` sets
         this so an omitted ``set`` does no graph surgery. ``do()`` leaves
         it false and still propagates structural means.
+    observed_outcome : str | None
+        Outcome whose strict endogenous ancestors must be fully observed
+        when ``observed_endogenous`` is set. Residual-block members are
+        bound through ``mu_{var}`` because they are not named RVs.
+        ``None`` keeps the older any-successor guard.
 
     Returns
     -------
@@ -1675,6 +1701,11 @@ def run_do_pymc(
             and var not in set
             and f"mu_{var}" in do_model.named_vars
         ]
+        required_observed = (
+            _endogenous_ancestors(graph_info, observed_outcome)
+            if observed_endogenous and not set and observed_outcome is not None
+            else None
+        )
         with do_model:
             for var in graph_info.topological_order:
                 if var in graph_info.endogenous and var not in set:
@@ -1686,18 +1717,29 @@ def run_do_pymc(
 
                     response_expr = _apply_inverse_link(mu_expr, families.get(var, ""))
                     binding: dict[Any, Any] = {}
-                    if observed_endogenous and not set and var in do_model.named_vars:
-                        binding = _observed_endogenous_binding(
-                            data, var, do_model[var], mu_source_exprs
-                        )
-                        used_downstream = _name_in_graph(var, mu_source_exprs) or any(
-                            graph_info._dag.successors(var)
-                        )
-                        if (
-                            not binding
-                            and used_downstream
-                            and var not in graph_info.latent
-                        ):
+                    if observed_endogenous and not set and var not in graph_info.latent:
+                        if required_observed is not None:
+                            must_bind = var in required_observed
+                        else:
+                            must_bind = var in do_model.named_vars and (
+                                _name_in_graph(var, mu_source_exprs)
+                                or any(graph_info._dag.successors(var))
+                            )
+                        # Residual-block members are not named RVs. Descendants
+                        # read mu_{var}, so bind that node instead of falling
+                        # through to the structural mean.
+                        if must_bind or var in do_model.named_vars:
+                            if var in do_model.named_vars:
+                                target = do_model[var]
+                            elif mu_name in do_model.named_vars:
+                                target = do_model[mu_name]
+                            else:
+                                target = None
+                            if target is not None:
+                                binding = _observed_endogenous_binding(
+                                    data, var, target, mu_source_exprs
+                                )
+                        if must_bind and not binding:
                             raise ValueError(
                                 f"predictions() without set= needs a fully observed "
                                 f"numeric column '{var}' in the query frame. The "

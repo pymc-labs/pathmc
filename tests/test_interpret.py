@@ -320,6 +320,110 @@ class TestPredictions:
                 }),
             )
 
+    def test_omitted_set_uses_observed_residual_block_mediator(self):
+        """A ~~ member is not a named RV; descendants must still see it."""
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        m_obs = np.array([0.0, 1.0, 100.0, 3.0])
+        df = pd.DataFrame({"X": x, "M": m_obs, "Y": np.zeros(4), "Z": np.zeros(4)})
+        model = pathmc.model("M ~ X\nY ~ X\nM ~~ Y\nZ ~ M", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": np.array([[[0.0, 0.0]]]),
+                    "beta_Y": np.array([[[0.0, 0.0]]]),
+                    "beta_Z": np.array([[[0.0, 2.0]]]),
+                    "sigma_Z": np.array([[1.0]]),
+                    "chol_M_Y": np.array([[[1.0, 0.0, 1.0]]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "X"],
+                "Z_predictors": ["Intercept", "M"],
+            },
+            dims={
+                "beta_M": ["M_predictors"],
+                "beta_Y": ["Y_predictors"],
+                "beta_Z": ["Z_predictors"],
+            },
+        )
+        pred = model.predictions("Z")
+        np.testing.assert_allclose(
+            np.asarray(pred.dataset["Z"]).reshape(-1), 2.0 * m_obs
+        )
+
+    def test_omitted_set_ignores_off_path_missing_endogenous(self):
+        """A missing column aborts only when the requested outcome depends on it."""
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        df = pd.DataFrame({"X": x, "W": x, "Y": np.zeros(4), "Z": np.zeros(4)})
+        model = pathmc.model("W ~ X\nY ~ X\nZ ~ W", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_W": np.array([[[0.0, 1.0]]]),
+                    "sigma_W": np.array([[1.0]]),
+                    "beta_Y": np.array([[[1.0, 3.0]]]),
+                    "sigma_Y": np.array([[1.0]]),
+                    "beta_Z": np.array([[[0.0, 4.0]]]),
+                    "sigma_Z": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "W_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "X"],
+                "Z_predictors": ["Intercept", "W"],
+            },
+            dims={
+                "beta_W": ["W_predictors"],
+                "beta_Y": ["Y_predictors"],
+                "beta_Z": ["Z_predictors"],
+            },
+        )
+        pred = model.predictions(
+            "Y",
+            newdata=pd.DataFrame({
+                "X": x,
+                "Y": np.zeros(4),
+                "Z": np.zeros(4),
+                "W": [np.nan, 1.0, 2.0, 3.0],
+            }),
+        )
+        np.testing.assert_allclose(
+            np.asarray(pred.dataset["Y"]).reshape(-1), 1.0 + 3.0 * x
+        )
+        with pytest.raises(ValueError, match="column 'W'"):
+            model.predictions(
+                "Z",
+                newdata=pd.DataFrame({
+                    "X": x,
+                    "Y": np.zeros(4),
+                    "Z": np.zeros(4),
+                    "W": [np.nan, 1.0, 2.0, 3.0],
+                }),
+            )
+
+    def test_omitted_set_does_not_require_the_outcome_column(self):
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        df = pd.DataFrame({"X": x, "M": [0.0, 1.0, 100.0, 3.0], "Y": np.zeros(4)})
+        model = pathmc.model("M ~ X\nY ~ M", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": np.array([[[0.0, 5.0]]]),
+                    "sigma_M": np.array([[1.0]]),
+                    "beta_Y": np.array([[[0.0, 2.0]]]),
+                    "sigma_Y": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "M"],
+            },
+            dims={"beta_M": ["M_predictors"], "beta_Y": ["Y_predictors"]},
+        )
+        pred = model.predictions("M", newdata=pd.DataFrame({"X": x, "Y": np.zeros(4)}))
+        np.testing.assert_allclose(np.asarray(pred.dataset["M"]).reshape(-1), 5.0 * x)
+
 
 class TestRatioLift:
     def test_ratio_and_lift_finite(self, fork_model):
