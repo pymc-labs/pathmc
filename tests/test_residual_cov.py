@@ -553,3 +553,93 @@ class TestScanPanelResidualCovRejection:
         model = pathmc.model("Y1 ~ X\nY2 ~ X\nY1 ~~ Y2", data=df, panel=PANEL)
         free_rv_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert "chol_Y1_Y2" in free_rv_names
+
+
+def _compiled_sd_logp(
+    model: pathmc.PathModel, chol_name: str, value: np.ndarray
+) -> float:
+    """Log-density of the scale distribution cloned into an LKJ residual."""
+    packed = model.pymc_model[chol_name]
+    sd_dist = packed.owner.inputs[3]
+    logp = pm.logp(sd_dist, np.asarray(value, dtype=float))
+    return float(np.sum(logp.eval()))
+
+
+def _reference_sd_logp(priors: list, value: np.ndarray) -> float:
+    total = 0.0
+    for prior, point in zip(priors, value, strict=True):
+        params = {
+            name: param
+            for name, param in prior.parameters.items()
+            if not hasattr(param, "create_variable")
+        }
+        dist = prior.pymc_distribution.dist(**params)
+        total += float(pm.logp(dist, point).eval())
+    return total
+
+
+class TestResidualScalePriorIsCompiled:
+    """A residual-scale prior the table shows is the scale LKJ compiles."""
+
+    def test_issue_590_custom_halfnormal_is_compiled_scale(self):
+        data = pd.DataFrame({
+            "X": [0.0, 1.0, 2.0, 3.0],
+            "M1": [0.1, 0.2, -0.1, 0.4],
+            "M2": [0.2, -0.3, 0.1, 0.0],
+        })
+        model = pathmc.model(
+            "M1 ~ X\nM2 ~ X\nM1 ~~ M2",
+            data=data,
+            priors={
+                "sigma_M1": pathmc.Prior("HalfNormal", sigma=1e-6),
+                "sigma_M2": pathmc.Prior("HalfNormal", sigma=1e-6),
+            },
+        )
+        assert [rv.name for rv in model.pymc_model.free_RVs] == [
+            "beta_M1",
+            "beta_M2",
+            "chol_M1_M2",
+        ]
+        packed = model.pymc_model["chol_M1_M2"]
+        sd = packed.owner.inputs[3]
+        scale = np.asarray(pm.compile([], sd.owner.inputs[3])())
+        np.testing.assert_allclose(np.ravel(scale), 1e-6)
+        prior_str = str(model.priors())
+        assert "sigma_M1: HalfNormal(sigma=1e-06)" in prior_str
+        assert "sd_dist=HalfNormal(1)" not in prior_str
+        with pytest.raises(ValueError, match="Unknown prior key"):
+            model.set_priors({"chol_M1_M2": pathmc.Prior("HalfNormal", sigma=1e-6)})
+
+    def test_unequal_and_reset_scales_are_compiled(self):
+        data = pd.DataFrame({
+            "X": [0.0, 1.0, 2.0, 3.0],
+            "M1": [0.1, 0.2, -0.1, 0.4],
+            "M2": [0.2, -0.3, 0.1, 0.0],
+            "M3": [0.0, 0.1, 0.2, -0.2],
+        })
+        model = pathmc.model(
+            "M1 ~ X\nM2 ~ X\nM3 ~ X\nM1 ~~ M2\nM2 ~~ M3",
+            data=data,
+            priors={
+                "sigma_M1": pathmc.Prior("HalfNormal", sigma=1e-6),
+                "sigma_M2": pathmc.Prior("Exponential", lam=4.0),
+                "sigma_M3": pathmc.Prior("HalfNormal", sigma=0.25),
+            },
+        )
+        value = np.array([0.2, 0.4, 0.5])
+        observed = _compiled_sd_logp(model, "chol_M1_M2_M3", value)
+        expected = _reference_sd_logp(
+            [
+                pathmc.Prior("HalfNormal", sigma=1e-6),
+                pathmc.Prior("Exponential", lam=4.0),
+                pathmc.Prior("HalfNormal", sigma=0.25),
+            ],
+            value,
+        )
+        assert observed == pytest.approx(expected)
+        assert "sd_dist=HalfNormal(1)" not in str(model.priors())
+
+        model.set_priors({"sigma_M2": pathmc.Prior("HalfNormal", sigma=0.5)})
+        packed = model.pymc_model["chol_M1_M2_M3"]
+        scale = np.asarray(packed.owner.inputs[3].owner.inputs[3].eval())
+        np.testing.assert_allclose(scale, [1e-6, 0.5, 0.25])

@@ -385,3 +385,107 @@ class TestPublicAPI:
             if name.endswith("Result") and obj.__module__ == interpret_mod.__name__
         ]
         assert result_classes == ["InterpretResult"]
+
+
+def _inject_categorical_posterior(
+    model, outcome: str, predictor: str, intercept: float, contrast: float
+):
+    import arviz as az
+
+    model._idata = az.from_dict(
+        {
+            "posterior": {
+                f"beta_{outcome}": np.array([[[intercept]]]),
+                f"beta_{outcome}_{predictor}": np.array([[[contrast]]]),
+                f"sigma_{outcome}": np.array([[0.1]]),
+            }
+        },
+        coords={
+            f"{outcome}_predictors": ["Intercept"],
+            f"{outcome}_{predictor}_levels": ["contrast"],
+        },
+        dims={
+            f"beta_{outcome}": [f"{outcome}_predictors"],
+            f"beta_{outcome}_{predictor}": [f"{outcome}_{predictor}_levels"],
+        },
+    )
+
+
+class TestStringCategoricalPredictions:
+    """Unit-level means for a string categorical predictor (issue #583)."""
+
+    def test_predictions_return_unit_means_not_label_cast(self):
+        region = np.array(["north", "south", "north", "south"])
+        df = pd.DataFrame({
+            "region": region,
+            "Y": np.where(region == "north", 1.0, 4.0),
+        })
+        model = pathmc.model("Y ~ region", data=df)
+        _inject_categorical_posterior(model, "Y", "region", intercept=1.0, contrast=3.0)
+
+        pred = model.predictions("Y")
+        means = pred.dataset["Y"].mean(("chain", "draw")).values
+        np.testing.assert_allclose(means, [1.0, 4.0, 1.0, 4.0])
+
+        south = model.predictions("Y", set={"region": "south"})
+        south_means = south.dataset["Y"].mean(("chain", "draw")).values
+        np.testing.assert_allclose(south_means, [4.0, 4.0, 4.0, 4.0])
+
+    def test_invalid_level_names_column_and_level(self):
+        market = np.array(["east", "west", "east"])
+        df = pd.DataFrame({"market": market, "sales": [2.0, 7.0, 2.0]})
+        model = pathmc.model("sales ~ market", data=df)
+        _inject_categorical_posterior(
+            model, "sales", "market", intercept=2.0, contrast=5.0
+        )
+
+        means = (
+            model.predictions("sales").dataset["sales"].mean(("chain", "draw")).values
+        )
+        np.testing.assert_allclose(means, [2.0, 7.0, 2.0])
+
+        with pytest.raises(ValueError, match="market") as exc_info:
+            model.predictions("sales", set={"market": "central"})
+        message = str(exc_info.value)
+        assert "central" in message
+        assert "market" in message
+
+    def test_conditional_label_reaches_encoder(self):
+        import arviz as az
+
+        df = pd.DataFrame({
+            "region": ["north", "south", "north"],
+            "x": [0.0, 1.0, 2.0],
+            "Y": [1.0, 4.5, 2.0],
+        })
+        model = pathmc.model("Y ~ x + region", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_Y": np.array([[[1.0, 0.5]]]),
+                    "beta_Y_region": np.array([[[3.0]]]),
+                    "sigma_Y": np.array([[0.1]]),
+                }
+            },
+            coords={
+                "Y_predictors": ["Intercept", "x"],
+                "Y_region_levels": ["south"],
+            },
+            dims={
+                "beta_Y": ["Y_predictors"],
+                "beta_Y_region": ["Y_region_levels"],
+            },
+        )
+
+        held = model.slopes("Y", "x", conditional={"region": "south"})
+        assert float(held.dataset["Y"].mean()) == pytest.approx(0.5)
+        contrast = model.comparisons(
+            "Y", "x", contrast=(0.0, 1.0), conditional={"region": "south"}
+        )
+        assert float(contrast.dataset["Y"].mean()) == pytest.approx(0.5)
+
+        with pytest.raises(ValueError, match="region") as exc_info:
+            model.comparisons("Y", "x", conditional={"region": "delta"})
+        message = str(exc_info.value)
+        assert "region" in message
+        assert "delta" in message

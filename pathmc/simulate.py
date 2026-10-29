@@ -260,6 +260,115 @@ def _panel_unit_mean(da: xr.DataArray, time_index: np.ndarray) -> xr.DataArray:
     )
 
 
+def _static_panel_time_index(data: nw.DataFrame, time_col: str) -> np.ndarray:
+    """Sorted unique time labels, matching scan compilation order."""
+    return np.asarray(sorted(data[time_col].unique().to_list()))
+
+
+def _align_static_panel_intervention(
+    var: str,
+    val: float | np.ndarray,
+    row_times: np.ndarray,
+    time_index: np.ndarray,
+) -> float | np.ndarray:
+    """Map a scalar or length-``n_times`` intervention onto frame rows.
+
+    A length-``n_times`` vector is in time order, not row order. Each row
+    receives the value for its own time label.
+    """
+    arr = np.asarray(val)
+    if arr.ndim == 0:
+        return float(arr)
+    flat = np.asarray(arr, dtype=float).reshape(-1)
+    n_times = len(time_index)
+    if arr.ndim != 1 or flat.size != n_times:
+        raise ValueError(
+            f"Intervention array for '{var}' has length {flat.size}, expected "
+            f"{n_times} (one per time step)."
+        )
+    aligned = np.full(len(row_times), np.nan, dtype=float)
+    for value, label in zip(flat, time_index, strict=True):
+        aligned[row_times == label] = value
+    if np.isnan(aligned).any():
+        raise ValueError(
+            f"Intervention for '{var}' could not be aligned to every panel row."
+        )
+    return aligned
+
+
+def _fold_rows_to_time(
+    da: xr.DataArray,
+    row_times: np.ndarray,
+    time_index: np.ndarray,
+) -> xr.DataArray:
+    """Average row-ordered draws within each time label.
+
+    Cross-sectional propagation stores one value per frame row on ``unit``.
+    Panel ``simulate_over="time"`` reports the unit mean at each time, in
+    time order, so a shuffled frame cannot be mistaken for the trajectory.
+    """
+    if "unit" not in da.dims:
+        folded = da.expand_dims(time=np.asarray(time_index))
+    else:
+        pieces = []
+        for label in time_index:
+            rows = np.flatnonzero(row_times == label)
+            pieces.append(da.isel(unit=rows).mean("unit"))
+        folded = xr.concat(pieces, dim="time")
+    return folded.transpose("time", "chain", "draw").assign_coords(
+        time=np.asarray(time_index)
+    )
+
+
+def run_do_static_panel(
+    gen_model: pm.Model,
+    graph_info: GraphInfo,
+    idata: xr.DataTree,
+    data: nw.DataFrame,
+    panel_info: PanelInfo,
+    set: dict[str, float | np.ndarray] | None = None,
+    kind: str = "mean",
+    families: dict[str, str] | None = None,
+    scaling_factors: ScalingFactors | None = None,
+    categorical_vars: set[str] | None = None,
+    observed_by_time: Mapping[str, np.ndarray] | None = None,
+) -> DoResult:
+    """Time-aligned ``do`` for a panel model that was not scan-compiled.
+
+    Models without ``lag()`` or ``adstock()`` still have a time axis. A
+    length-``n_times`` intervention is applied to the matching time of every
+    unit, then averaged within time. The result carries a ``time`` dim so
+    :meth:`DoResult.by_time` works. It is not the row-order average from
+    cross-sectional ``do``.
+    """
+    if set is None:
+        set = {}
+    time_col = panel_info.time
+    row_times = np.asarray(data[time_col].to_numpy())
+    time_index = _static_panel_time_index(data, time_col)
+    aligned = {
+        var: _align_static_panel_intervention(var, val, row_times, time_index)
+        for var, val in set.items()
+    }
+    result = run_do_pymc(
+        gen_model=gen_model,
+        graph_info=graph_info,
+        idata=idata,
+        data=data,
+        set=aligned,
+        kind=kind,
+        families=families,
+        average_units=False,
+        scaling_factors=scaling_factors,
+        categorical_vars=categorical_vars,
+    )
+    folded = {
+        name: _fold_rows_to_time(da, row_times, time_index)
+        for name, da in result.dataset.data_vars.items()
+    }
+    return DoResult(ds=xr.Dataset(folded), observed_by_time=observed_by_time)
+
+
 def _fill_missing_posterior_rvs(
     posterior_ds: xr.Dataset,
     do_model: pm.Model,
@@ -1433,6 +1542,39 @@ def _residual_predictive_sample_kwargs(
     return kwargs
 
 
+def _panel_unspecified_exog(
+    var: str,
+    ones: xr.DataArray,
+    data: nw.DataFrame | None,
+    scaling_factors: ScalingFactors | None,
+) -> xr.DataArray | None:
+    """Broadcast the business-unit empirical fill used by the structural mean.
+
+    Matches the cross-sectional result: ``(chain, draw)`` of the fitted-column
+    mean after converting each row back to business units. A derived exogenous
+    name with no fitted column (for example ``lag(Y)``) is omitted rather than
+    reported as 0, because that 0 was never the value the scan used.
+    """
+    if data is None or var not in data.columns:
+        return None
+    try:
+        fill = _business_exog_value(var, data, None, scaling_factors)
+    except (TypeError, ValueError):
+        # String and categorical labels are not a numeric fill. Derived names
+        # with no fitted column are already omitted above.
+        return None
+    return ones * fill
+
+
+_DO_KINDS = ("mean", "predictive")
+
+
+def _require_do_kind(kind: str) -> None:
+    """Reject a ``kind`` that would otherwise sample posterior predictive."""
+    if kind not in _DO_KINDS:
+        raise ValueError(f"kind must be 'mean' or 'predictive', got {kind!r}.")
+
+
 def run_do_pymc(
     gen_model: pm.Model,
     graph_info: GraphInfo,
@@ -1496,6 +1638,7 @@ def run_do_pymc(
         Propagated posterior draws for every endogenous variable.
     """
 
+    _require_do_kind(kind)
     if set is None:
         set = {}
     if families is None:
@@ -1764,6 +1907,7 @@ def run_do_panel_unified(
         columns are treated as business units and divided by the
         scan-aligned factor before graph surgery.
     """
+    _require_do_kind(kind)
     if set is None:
         set = {}
     if families is None:
@@ -1850,7 +1994,9 @@ def run_do_panel_unified(
             if var in set:
                 data_vars[var] = _spread_over_time(ones, set[var], time_idx)
             elif var in graph_info.exogenous:
-                data_vars[var] = ones * 0.0
+                filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
+                if filled is not None:
+                    data_vars[var] = filled
             elif var in graph_info.endogenous:
                 det_key = var if var in stochastic_latent else f"mu_{var}"
                 raw = _to_business_units(
@@ -1867,7 +2013,7 @@ def run_do_panel_unified(
             observed_by_time=observed_by_time,
         )
 
-    # kind == "predictive"
+    # kind == "predictive" (other values already raised)
     latent_det_names = []
     for var in graph_info.topological_order:
         if var in latent and var not in set:
@@ -1909,7 +2055,9 @@ def run_do_panel_unified(
         if var in set:
             predictive_vars[var] = _spread_over_time(ones, set[var], time_idx)
         elif var in graph_info.exogenous:
-            predictive_vars[var] = ones * 0.0
+            filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
+            if filled is not None:
+                predictive_vars[var] = filled
         elif var in ppc.posterior_predictive:
             raw = _to_business_units(
                 var,

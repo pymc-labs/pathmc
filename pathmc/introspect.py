@@ -698,7 +698,7 @@ def build_priors(
     entries: dict[str, str] = {}
     seen_transform_params: set[str] = set()
     for reg in spec.regressions:
-        free_cols = [c for c in get_free_predictor_columns(reg) if c not in coef_names]
+        free_cols = get_free_predictor_columns(reg, exclude_variables=coef_names)
         if free_cols:
             entries[f"beta_{reg.lhs}"] = _entry(f"beta_{reg.lhs}", "Normal(0, 10)")
 
@@ -788,13 +788,15 @@ def build_priors(
     if spec.residual_covs:
         import networkx as nx
 
+        from pathmc.residuals import residual_sd_description
+
         ug = nx.Graph()
         for rc in spec.residual_covs:
             ug.add_edge(rc.var1, rc.var2)
         for component in nx.connected_components(ug):
             block_name = "_".join(sorted(component))
-            entries[f"chol_{block_name}"] = (
-                "LKJCholeskyCov(eta=2, sd_dist=HalfNormal(1))"
+            entries[f"chol_{block_name}"] = residual_sd_description(
+                sorted(component), prior_config
             )
 
     return PriorTable(entries)
