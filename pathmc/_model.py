@@ -20,7 +20,7 @@ import sys
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING, overload
 
 import arviz as az
 import graphviz
@@ -42,6 +42,8 @@ from pathmc.compile import (
     build_design_matrix,
     compile_to_pymc,
     get_predictor_columns,
+    lag_base_kinds,
+    required_initial_keys,
     validate_panel_scan_shape,
     _warn_scan_rate_clip_at_fixed_coefficients,
 )
@@ -80,10 +82,13 @@ from pathmc.interpret import (
     slopes as _interpret_slopes,
 )
 from pathmc.panel import (
+    InitialBaseline,
     PanelInfo,
     attach_composite_unit,
     build_panel_info,
     drop_composite_unit,
+    freeze_baseline,
+    normalize_initial_states,
     observed_means_by_time,
 )
 from pathmc.parse import Spec, parse_spec
@@ -99,6 +104,7 @@ from pathmc.scaling import (
 from pathmc.simulate import (
     DoResult,
     EstimandResult,
+    _forced_generative_carry,
     _to_business_units,
     _unscale_do_dataset,
     run_counterfactual,
@@ -110,6 +116,8 @@ from pathmc.simulate import (
 
 if TYPE_CHECKING:
     from pathmc.adjustment import AdjustmentModel
+    from pathmc.policy import TreatmentPolicy
+    from pathmc.policy_result import PolicyRun
 
 __all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
 
@@ -520,6 +528,9 @@ class PathModel:
         latent: set[str] | None = None,
         priors: dict[str, Any] | None = None,
         scaling_factors: ScalingFactors | None = None,
+        *,
+        initial_internal: Mapping[str, np.ndarray] | None = None,
+        initial_explicit: bool = False,
     ) -> None:
         from pathmc.priors import default_priors, merge_priors
 
@@ -540,6 +551,16 @@ class PathModel:
         # re-fit on perturbed data. Set by model(); None for direct
         # construction (in which case refute_placebo raises).
         self._scaling_factors = scaling_factors
+        self._initial_internal = (
+            None
+            if initial_internal is None
+            else {
+                name: np.asarray(values, dtype=float)
+                for name, values in initial_internal.items()
+            }
+        )
+        self._initial_explicit = initial_explicit
+        self._initial_baseline: InitialBaseline | None = None
         self._construction: dict[str, Any] | None = None
 
         defaults = default_priors(
@@ -620,6 +641,7 @@ class PathModel:
             latent=self._latent,
             graph_info=self._graph_info,
             priors=self._priors,
+            initial=self._initial_internal,
         )
 
         block_vars = (
@@ -673,7 +695,56 @@ class PathModel:
         if _OBSERVED_CARRY_FLAG in self._pymc_model.named_vars:
             with self._pymc_model:
                 pm.set_data({_OBSERVED_CARRY_FLAG: np.array(1, dtype="int8")})
+        if (
+            scan_info is not None
+            and not self._latent
+            and all(
+                self._families.get(r.lhs, "gaussian") == "gaussian"
+                for r in self._spec.regressions
+            )
+        ):
+            legacy_model = self._gen_model
+            self._gen_model = compile_to_pymc(
+                self._spec,
+                self._data,
+                self._design_matrices,
+                families=self._families,
+                panel_info=self._panel_info,
+                pooling=self._pooling,
+                latent=self._latent,
+                graph_info=self._graph_info,
+                priors=self._priors,
+                generative=True,
+                initial=self._initial_internal,
+            )
+            self._gen_model._pathmc_legacy_model = legacy_model
+            if not observations:
+                # Preserve the legacy flag-restoration contract for sparse
+                # outcomes; coherent states do not read this compatibility flag.
+                self._gen_model[_OBSERVED_CARRY_FLAG].set_value(
+                    np.array(1, dtype="int8")
+                )
         self._idata = None
+        self._record_initial_baseline()
+
+    def _record_initial_baseline(self) -> None:
+        """Store the pre-sample states the scan actually compiled."""
+        assert self._gen_model is not None
+        scan = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        if scan is None or not scan.initial_values:
+            self._initial_baseline = None
+            return
+        values = {
+            name: xr.DataArray(
+                np.array(arr, dtype=float, copy=True),
+                dims=("unit",),
+                coords={"unit": list(scan.unit_labels)},
+            )
+            for name, arr in scan.initial_values.items()
+        }
+        self._initial_baseline = freeze_baseline(
+            explicit=self._initial_explicit, values=values
+        )
 
     @property
     def fitted_scaling(self) -> ScalingFactors | None:
@@ -683,6 +754,26 @@ class PathModel:
         to reuse the exact estimation-time scales.
         """
         return self._scaling_factors
+
+    @property
+    def initial_baseline(self) -> InitialBaseline | None:
+        """Pre-sample lag states in model units, or None without a lag scan.
+
+        The first fitted time uses these values as the ``lag()`` input.
+        They are not an extra period in ``do()`` or ``predict()``
+        summaries. ``explicit`` is False when the values were inferred.
+        An endogenous base then uses that unit's first observed value.
+        An exogenous base uses a matching ``<variable>_lag1`` column when
+        present, otherwise the first observed row, otherwise zeros.
+        A ``do(initial=)`` override does not change this record. The returned
+        arrays are a snapshot; editing them does not alter model execution.
+        """
+        if self._initial_baseline is None:
+            return None
+        return freeze_baseline(
+            explicit=self._initial_baseline.explicit,
+            values=self._initial_baseline.values,
+        )
 
     @property
     def pymc_model(self) -> pm.Model:
@@ -1132,7 +1223,37 @@ class PathModel:
             validate_panel_scan_shape(self._pymc_model, scan_info)
         with self._prediction_data(data) as prediction_data:
             with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
-                pp = pm.sample_posterior_predictive(idata, **kwargs)
+                if (
+                    scan_info is not None
+                    and scan_info.gaussian_states
+                    and not one_step_ahead
+                ):
+                    assert self._gen_model is not None
+                    if kwargs.get("var_names") is None:
+                        kwargs["var_names"] = list(scan_info.gaussian_states)
+                    requested = kwargs.pop("sample_vars", []) or []
+                    if isinstance(requested, str):
+                        requested = [requested]
+                    kwargs["sample_vars"] = sorted(
+                        set(requested)
+                        | {
+                            f"carry_innovations_{var}"
+                            for var in scan_info.gaussian_states
+                        }
+                    )
+                    with _forced_generative_carry(self._gen_model):
+                        prediction_model = pm.do(
+                            self._gen_model,
+                            {
+                                name: self._pymc_model[name].get_value()
+                                for name in scan_info.exogenous
+                            },
+                        )
+                        pp = pm.sample_posterior_predictive(
+                            idata, model=prediction_model, **kwargs
+                        )
+                else:
+                    pp = pm.sample_posterior_predictive(idata, **kwargs)
         result = pp if not kwargs["extend_inferencedata"] else idata
         if self._scaling_factors is not None and prediction_data is not None:
             assert self._data is not None
@@ -1668,6 +1789,7 @@ class PathModel:
         *,
         subgroup_indices: np.ndarray | None = None,
         average_units: bool = True,
+        random_seed: int | None = None,
     ) -> DoResult:
         """Run a cross-sectional do() via graph surgery on instance state.
 
@@ -1693,6 +1815,7 @@ class PathModel:
             scaling_factors=self._scaling_factors,
             categorical_vars=self._categorical_vars,
             average_units=average_units,
+            random_seed=random_seed,
         )
 
     @contextmanager
@@ -1905,6 +2028,11 @@ class PathModel:
             # columns, so the refit happens in the same internal units as
             # the original fit; re-fitting factors from permuted data
             # would change the scale mid-refutation.
+            # Explicit initials are already in model units. Inferred
+            # initials are re-read from the clone's (already scaled) frame.
+            _initial_internal=(
+                self._initial_internal if self._initial_explicit else None
+            ),
         )
         # The per-fold seed is owned here so every fold is independent and the
         # whole refutation is reproducible; a random_seed in sample_kwargs would
@@ -1998,15 +2126,120 @@ class PathModel:
             random_seed=random_seed,
         )
 
+    def _normalize_query_initial(
+        self,
+        initial: Mapping[str, Any] | None,
+        simulate_over: str | None,
+    ) -> dict[str, xr.DataArray] | None:
+        """Validate a query override before any execution model is built."""
+        if initial is None:
+            return None
+        if self._data is None or self._panel_info is None:
+            raise ValueError(
+                "initial= cannot be aligned without data and a panel. "
+                "Pass data= and panel= to model() so each unit label and "
+                "scale can be resolved."
+            )
+        if simulate_over != "time":
+            raise ValueError(
+                "initial= is only used by time-forward panel simulation. "
+                "Pass simulate_over='time', or omit initial=."
+            )
+        bases = required_initial_keys(self._spec, None, latent=set(self._latent))
+        if not bases:
+            raise ValueError(
+                "initial= applies to observed lag() bases, and this model "
+                "has none. Omit initial=. Adstock carry is not set through "
+                "initial=."
+            )
+        return normalize_initial_states(
+            initial,
+            required=bases,
+            unit_labels=self._panel_info.unit_labels,
+            data=self._data,
+            panel_info=self._panel_info,
+            scaling_factors=self._scaling_factors,
+            kinds=lag_base_kinds(self._spec, bases),
+            latent=tuple(sorted(self._latent)),
+        )
+
+    def _compile_initial_override(
+        self, normalized: Mapping[str, xr.DataArray]
+    ) -> pm.Model:
+        """Compile a throwaway scan model with overridden pre-sample states.
+
+        The stored model and posterior are left untouched. Gaussian
+        predictive queries do not use this path; they replace the coherent
+        model's initial nodes through the execution seam.
+        """
+        assert self._data is not None
+        arrays = {
+            name: np.asarray(value.values, dtype=float)
+            for name, value in normalized.items()
+        }
+        return compile_to_pymc(
+            self._spec,
+            self._data,
+            self._design_matrices,
+            families=self._families,
+            panel_info=self._panel_info,
+            pooling=self._pooling,
+            latent=self._latent,
+            graph_info=self._graph_info,
+            priors=self._priors,
+            generative=False,
+            initial=arrays,
+        )
+
+    @overload
     def do(
         self,
         set: dict[str, Any] | None = None,
         shift: dict[str, float] | None = None,
         kind: str = "mean",
         simulate_over: str | None = None,
+        random_seed: int | None = None,
         *,
         average_units: bool = True,
-    ) -> DoResult:
+        initial: Mapping[str, Any] | None = None,
+        policy: None = None,
+        horizon: None = None,
+        n_simulations: None = None,
+        keep_trajectories: None = None,
+    ) -> DoResult: ...
+
+    @overload
+    def do(
+        self,
+        set: dict[str, Any] | None = None,
+        shift: dict[str, float] | None = None,
+        kind: str = "mean",
+        simulate_over: str | None = None,
+        random_seed: int | None = None,
+        *,
+        average_units: bool = True,
+        initial: Mapping[str, Any] | None = None,
+        policy: TreatmentPolicy,
+        horizon: int | None = None,
+        n_simulations: int | None = None,
+        keep_trajectories: bool | None = None,
+    ) -> PolicyRun: ...
+
+    def do(
+        self,
+        set: dict[str, Any] | None = None,
+        shift: dict[str, float] | None = None,
+        kind: str = "mean",
+        simulate_over: str | None = None,
+        random_seed: int | None = None,
+        *,
+        average_units: bool = True,
+        initial: Mapping[str, Any] | None = None,
+        policy: Any | None = None,
+        horizon: int | None = None,
+        n_simulations: int | None = None,
+        keep_trajectories: bool | None = None,
+    ) -> Any:
         """Simulate an intervention using the do-operator.
 
         Uses PyMC-native graph surgery: ``pm.do()`` on the generative model
@@ -2042,11 +2275,36 @@ class PathModel:
             expression names both an endogenous variable and a per-unit
             intervention, so the comparison uses unit-level means.
 
+        random_seed : int | None
+            Seed for reproducible predictive process noise. Does not change
+            stored posterior draws. Ignored for deterministic mean queries.
+        initial : Mapping[str, Any] | None
+            Pre-sample state for every observed ``lag()`` base, in business
+            units. A scalar broadcasts to every fitted unit; a mapping must
+            contain exactly the fitted unit labels. ``None`` reuses
+            :attr:`initial_baseline`. An override is local to this call: it
+            governs both mean and predictive recursion and does not refit
+            the model or change the stored baseline. The values are the
+            state before the first fitted time, not an extra outcome period.
+        policy : TreatmentPolicy | None
+            History-dependent treatment assigned inside the panel scan.
+            Requires an explicit pre-sample baseline, ``simulate_over='time'``,
+            and a Gaussian lag model. ``kind='predictive'`` is rejected:
+            the policy path always integrates process noise.
+        horizon : int | None
+            Required. Must equal the fitted time count. Do not omit it.
+        n_simulations : int | None
+            Stochastic histories per posterior draw. Default 256. Minimum 2.
+        keep_trajectories : bool | None
+            Retain unit-level paths. Default False for a policy query.
+
+
         Returns
         -------
-        DoResult
-            Container with ``.mean(var)``, ``.hdi(var)``, and
-            contrast arithmetic via ``__sub__``.
+        DoResult | PolicyRun
+            A ``set=`` or ``shift=`` query returns a ``DoResult``. A
+            ``policy=`` query returns a ``PolicyRun``. The two are not one
+            type and cannot be subtracted.
 
         Raises
         ------
@@ -2069,8 +2327,34 @@ class PathModel:
                 "do(shift=...) is not yet implemented. Use do(set=...) for hard "
                 "interventions."
             )
+        if (
+            policy is not None
+            or horizon is not None
+            or n_simulations is not None
+            or keep_trajectories is not None
+        ):
+            if policy is None:
+                raise ValueError(
+                    "horizon=, n_simulations=, and keep_trajectories= require "
+                    "policy=. Pass a TreatmentPolicy, or omit those arguments."
+                )
+            from pathmc.policy_exec import run_policy_evaluation
+
+            return run_policy_evaluation(
+                self,
+                policy,
+                set_values=set,
+                initial=initial,
+                horizon=horizon,
+                n_simulations=n_simulations,
+                keep_trajectories=keep_trajectories,
+                random_seed=random_seed,
+                kind=kind,
+                simulate_over=simulate_over,
+            )
 
         scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        normalized_initial = self._normalize_query_initial(initial, simulate_over)
         if scan_info is not None and simulate_over != "time":
             raise ValueError(
                 "This model has temporal dependencies (lag() or adstock()), so "
@@ -2134,18 +2418,29 @@ class PathModel:
                     list(self._graph_info.topological_order),
                     scaling_factors=self._scaling_factors,
                 )
+                exec_model = self._gen_model
+                exec_scan = scan_info
+                seam_initial = None
+                if normalized_initial is not None:
+                    if scan_info.gaussian_states and kind == "predictive":
+                        seam_initial = normalized_initial
+                    else:
+                        exec_model = self._compile_initial_override(normalized_initial)
+                        exec_scan = exec_model._pathmc_panel_scan
                 return run_do_panel_unified(
-                    gen_model=self._gen_model,
+                    gen_model=exec_model,
                     graph_info=self._graph_info,
                     idata=idata,
                     panel_info=self._panel_info,
-                    scan_info=scan_info,
+                    scan_info=exec_scan,
                     set=numeric_set,
                     kind=kind,
                     families=self._families,
+                    random_seed=random_seed,
                     observed_by_time=observed_by_time,
                     data=self._data,
                     scaling_factors=self._scaling_factors,
+                    initial=seam_initial,
                 )
             with self._categorical_intervention(categorical_set):
                 time_idx = np.asarray(
@@ -2169,10 +2464,16 @@ class PathModel:
                     scaling_factors=self._scaling_factors,
                     categorical_vars=self._categorical_vars,
                     observed_by_time=observed_by_time,
+                    random_seed=random_seed,
                 )
 
         with self._categorical_intervention(categorical_set):
-            return self._run_do(numeric_set, kind, average_units=average_units)
+            return self._run_do(
+                numeric_set,
+                kind,
+                average_units=average_units,
+                random_seed=random_seed,
+            )
 
     def counterfactual(
         self,
@@ -2831,6 +3132,9 @@ def model(
     latent: list[str] | None = None,
     priors: dict[str, Any] | None = None,
     scaling: Scaling | ScalingFactors | None = None,
+    *,
+    initial: Mapping[str, Any] | None = None,
+    _initial_internal: Mapping[str, np.ndarray] | None = None,
     **kwargs: Any,
 ) -> PathModel:
     """Parse a specification and compile a Bayesian path model.
@@ -2901,6 +3205,26 @@ def model(
            columns; ``model.fitted_scaling`` exposes the divisors for
            :func:`simulate` and manual transforms.
 
+    initial : Mapping[str, Any] | None
+        Pre-sample state for every observed ``lag()`` base, in business
+        units. A key is the base variable named by ``lag()``, not a
+        generated column. A value is a finite number broadcast to every
+        fitted unit, or a mapping of exactly the fitted unit labels.
+        These values are the state immediately before the first fitted
+        time — not the first observed row, and not an extra outcome
+        period. ``None`` keeps the legacy fill: an endogenous base uses
+        that unit's first observed value; an exogenous base uses a
+        ``<variable>_lag1`` column when present, otherwise the first
+        observed row, otherwise zeros. Explicit values replace that fill
+        for fitting and for ``do()``. Latent lag bases stay on their
+        ``init_{variable}`` prior. The normalized model-unit record is
+        :attr:`PathModel.initial_baseline`.
+
+    _initial_internal
+        Private. Refit passes already-normalized model-unit arrays when
+        the working frame is already scaled. Do not combine with
+        ``initial=``.
+
     Returns
     -------
     PathModel
@@ -2913,6 +3237,19 @@ def model(
         If a latent variable is not endogenous, or an observed endogenous
         variable is missing from data.
     """
+    if initial is not None and _initial_internal is not None:
+        raise ValueError("Pass initial= or already-normalized refit arrays, not both.")
+    if initial is not None and data is None:
+        raise ValueError(
+            "initial= cannot be aligned without data. Pass data= to model() "
+            "so each unit's scale and label can be resolved."
+        )
+    if initial is not None and panel is None:
+        raise ValueError(
+            "initial= requires a panel model with lag() terms. Pass "
+            "panel={'unit': ..., 'time': ...} and include lag() in the "
+            "formula, or omit initial=."
+        )
     spec = parse_spec(spec_string)
     latent_set = set(latent) if latent is not None else set()
 
@@ -2992,6 +3329,31 @@ def model(
         )
         nw_data = scaling_factors.transform(nw_data)
 
+    compiled_initial: Mapping[str, np.ndarray] | None = _initial_internal
+    if initial is not None:
+        assert nw_data is not None and panel_info is not None
+        bases = required_initial_keys(spec, None, latent=latent_set)
+        if not bases:
+            raise ValueError(
+                "initial= applies to observed lag() bases, and this model "
+                "has none. Omit initial=. Adstock carry is not set through "
+                "initial=."
+            )
+        normalized = normalize_initial_states(
+            initial,
+            required=bases,
+            unit_labels=panel_info.unit_labels,
+            data=nw_data,
+            panel_info=panel_info,
+            scaling_factors=scaling_factors,
+            kinds=lag_base_kinds(spec, bases),
+            latent=tuple(sorted(latent_set)),
+        )
+        compiled_initial = {
+            name: np.asarray(value.values, dtype=float)
+            for name, value in normalized.items()
+        }
+
     path_model = PathModel(
         spec=spec,
         graph_info=graph_info,
@@ -3002,6 +3364,8 @@ def model(
         latent=latent_set,
         priors=priors,
         scaling_factors=scaling_factors,
+        initial_internal=compiled_initial,
+        initial_explicit=initial is not None or _initial_internal is not None,
     )
     path_model._construction = {
         "spec_string": spec_string,
@@ -3010,6 +3374,7 @@ def model(
         "pooling": pooling,
         "latent": latent,
         "scaling": scaling,
+        "initial": initial,
         # Recorded for completeness only. _refit_permuted intentionally
         # rebuilds with the current merged self._priors (not this original
         # arg) so priors changed via set_priors() are honored on refit.
@@ -3354,6 +3719,8 @@ def simulate(
             and families_eff.get(v, "gaussian") in ("gaussian", "studentt")
         }
         discrete_draw_vars = _scan_discrete_sample_vars(spec, families_eff, latent_set)
+        if scan_info.gaussian_states:
+            stochastic_carry_vars = set(scan_info.gaussian_states)
         innovation_rv_names = {f"innovations_{v}" for v in stochastic_latent_vars} | {
             f"carry_innovations_{v}" for v in stochastic_carry_vars
         }
@@ -3458,6 +3825,8 @@ def simulate(
                     entries.append(("latent", var, [fixed_model[var]]))
                 else:
                     entries.append(("mu", var, [fixed_model[f"mu_{var}"]]))
+            elif scan_info.gaussian_states:
+                entries.append(("state", var, [fixed_model[var]]))
             elif var in stochastic_carry_vars:
                 # The realized state that fed downstream equations is
                 # mu + sigma * carry_innovations; reconstruct it from the

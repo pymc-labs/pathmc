@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from hashlib import blake2b
 import operator
-from typing import TYPE_CHECKING, Any, Literal, Mapping, cast
+from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence, cast
 
 import narwhals.stable.v1 as nw
 import numpy as np
@@ -379,6 +379,39 @@ class ScalingFactors:
             dims, _table = self.factors[column]
             required.update(dims)
         return tuple(sorted(required))
+
+    def unit_divisors(
+        self,
+        column: str,
+        unit_labels: Sequence[Any],
+        unit_col: str,
+    ) -> np.ndarray:
+        """Return one divisor per panel unit, in ``unit_labels`` order.
+
+        A global factor is repeated. A factor keyed by anything other than
+        ``unit_col`` cannot be aligned to the panel scan, so it is rejected
+        rather than reduced. Callers must not read ``factors`` themselves.
+        """
+        dims, table = self.factors[column]
+        labels = [str(label) for label in unit_labels]
+        if not dims:
+            value = float(next(iter(table.values())))
+            return np.full(len(labels), value)
+        if dims != (unit_col,):
+            raise ValueError(
+                f"Scaling factor for column {column!r} is keyed by {dims}, not "
+                f"the panel unit {unit_col!r}."
+            )
+        values = []
+        for label in labels:
+            key = (label,)
+            if key not in table:
+                raise ValueError(
+                    f"Scaling factor for column {column!r} has no entry for unit "
+                    f"{label!r}."
+                )
+            values.append(float(table[key]))
+        return np.asarray(values, dtype=float)
 
     def _per_row(self, df: nw.DataFrame, column: str) -> np.ndarray:
         """Expand unit-keyed divisors to one value per row of *df*."""

@@ -453,3 +453,41 @@ def test_static_panel_time_do_rejects_row_length_vector() -> None:
     model = _static_panel_model(pd.DataFrame(rows))
     with pytest.raises(ValueError, match="expected 2"):
         model.do(set={"X": [0.0, 1.0, 2.0, 3.0]}, simulate_over="time", kind="mean")
+
+
+@pytest.mark.parametrize("scaled", [False, True])
+def test_gaussian_predictive_panel_reports_business_exogenous_inputs(scaled) -> None:
+    """The coherent adapter keeps empirical fills and omits derived lag names."""
+    frame = _panel_exog_frame()
+    scaling = (
+        pathmc.Scaling(
+            channel={
+                "method": "fixed",
+                "dims": ("unit",),
+                "value": {"A": 5.0, "B": 10.0},
+            }
+        )
+        if scaled
+        else None
+    )
+    model = pathmc.model(
+        "Y ~ X + Z + W + T + lag(Y)",
+        data=frame,
+        panel={"unit": "unit", "time": "time"},
+        scaling=scaling,
+    )
+    _pin_panel_posterior(model, x_coef=3.0)
+    result = model.do(
+        set={"T": np.array([0.0, 1.0, 2.0])},
+        simulate_over="time",
+        kind="predictive",
+        random_seed=23,
+    )
+    for var in ("X", "Z", "W"):
+        assert result.dataset[var].dims == ("chain", "draw")
+        assert float(result.dataset[var].mean()) == pytest.approx(frame[var].mean())
+    assert "lag(Y)" not in result.dataset
+    np.testing.assert_allclose(result.by_time("T")[:, 0], [0.0, 1.0, 2.0])
+    divisors = frame.unit.map({"A": 5.0, "B": 10.0}) if scaled else 1.0
+    expected = 3.0 * (frame.X / divisors).mean()
+    np.testing.assert_allclose(result.by_time("Y"), expected, atol=1e-6)
