@@ -274,18 +274,22 @@ def _brace_interior_from(cleaned: str, start: int) -> str | None:
 def _tokenize(text: str) -> list[str | tuple[str, str]]:
     """Tokenize a DOT body.
 
-    Whitespace is not a token: DOT makes ``;`` optional, so ``X -> Y Z -> Y``
-    is two statements. ``,`` and ``;`` are explicit separators. Quoted strings
-    and HTML labels are single tokens, so a ``}`` inside either is not a
-    subgraph boundary. ``->`` and ``--`` are operators. A bare id may include
-    ``:`` so a compass port stays part of the id, matching the previous reader.
+    Only ASCII space, tab, CR, and LF separate tokens. Other ``str.isspace()``
+    characters, including U+00A0 and U+2003, stay inside an unquoted id.
+    Graphviz and the previous reader keep those as one id; splitting them
+    invents nodes and reports a false Markov mismatch. Whitespace is not a
+    token: DOT makes ``;`` optional, so ``X -> Y Z -> Y`` is two statements.
+    ``,`` and ``;`` are explicit separators. Quoted strings and HTML labels
+    are single tokens, so a ``}`` inside either is not a subgraph boundary.
+    ``->`` and ``--`` are operators. A bare id may include ``:`` so a compass
+    port stays part of the id, matching the previous reader.
     """
     tokens: list[str | tuple[str, str]] = []
     i = 0
     n = len(text)
     while i < n:
         ch = text[i]
-        if ch.isspace():
+        if ch in " \t\r\n":
             i += 1
             continue
         if ch == '"':
@@ -338,7 +342,7 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             i += 1
             continue
         end = i + 1
-        while end < n and not text[end].isspace() and text[end] not in '{}[]=,;+"<()\\':
+        while end < n and text[end] not in ' \t\r\n{}[]=,;+"<()\\':
             if text[end : end + 2] in {"->", "--"} or text[end] == "-":
                 break
             end += 1

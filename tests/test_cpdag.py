@@ -686,6 +686,32 @@ def test_html_comment_markers_numerals_and_comma_lists_keep_edges():
         _parse_dot("digraph { A -> Node-2 }")
 
 
+def test_unquoted_unicode_space_stays_one_id():
+    """NBSP and em space are part of an unquoted id, including in a subgraph.
+
+    ASCII space, tab, CR, and LF still separate tokens. Splitting every
+    ``str.isspace()`` character invents nodes and reports a false mismatch
+    against the quoted form of the same id.
+    """
+    for gap in ("\u00a0", "\u2003"):
+        node = f"A{gap}B"
+        flat = f"digraph {{ {node} -> Y; Z -> Y; }}"
+        wrapped = f"digraph {{ subgraph cluster {{ {node} -> Y; Z -> Y; }} }}"
+        quoted = f'digraph {{ "{node}" -> Y; Z -> Y; }}'
+        assert _parse_dot(flat)[0] == {node, "Y", "Z"}
+        assert _parse_dot(wrapped)[0] == {node, "Y", "Z"}
+        assert _parse_dot(flat)[1] == {(node, "Y"), ("Z", "Y")}
+        assert same_markov_equivalence_class(flat, quoted) is True
+        assert same_markov_equivalence_class(wrapped, flat) is True
+
+    for sep in (" ", "\t", "\r", "\n"):
+        split = f"digraph {{ A{sep}B -> Y; }}"
+        nodes, directed, _ = _parse_dot(split)
+        assert "A" in nodes and "B" in nodes
+        assert f"A{sep}B" not in nodes
+        assert directed == {("B", "Y")}
+
+
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""
     g = nx.DiGraph()
