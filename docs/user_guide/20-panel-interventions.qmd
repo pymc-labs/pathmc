@@ -100,11 +100,11 @@ Now consider a marketing model with an adstock transform:
 sales ~ b * logistic_saturation(adstock(digital, decay=θ))
 ```
 
-The adstock function is **recursive** — its output at time *t* depends on its output at time *t* − 1:
+The adstock function is a finite geometric convolution. With the default `l_max=12`, inputs before time 0 are zero:
 
-$$\text{adstock}_t = \text{digital}_t + \theta \cdot \text{adstock}_{t-1}$$
+$$\text{adstock}_t = \sum_{i=0}^{11} \theta^{i} \cdot \text{digital}_{t-i}$$
 
-This means the effective marketing input at any given week is not just that week's spend — it's the accumulated stock of all past spend, geometrically decayed.
+Each week's effective input depends on that week's spend and the previous 11 weeks, geometrically decayed. It is not the unbounded recursion $\text{adstock}_t = \text{digital}_t + \theta \cdot \text{adstock}_{t-1}$, which would keep every past week and level off at $\text{spend} / (1 - \theta)$.
 
 ```{dot}
 //| label: fig-adstock-cascade
@@ -155,35 +155,38 @@ Under an intervention, the spending changes — so the adstock trajectory must b
 ## What goes wrong with naive replacement
 
 Suppose the model was estimated on data where digital spend averaged 15 per week, and the fitted adstock decay is θ = 0.7.
-After many weeks, the adstock reaches a steady state of approximately 15 / (1 − 0.7) = 50.
+After at least 12 weeks of that spend, adstock levels off at $15 \times (1 - 0.7^{12}) / 0.3 \approx 49.3$.
 
 Now you want to simulate a counterfactual: "what if digital spend had been 20 every week?"
 The naive approach: replace the `digital` node with 20 and forward-sample sales.
 
 The problem: the model's observed adstock values are still baked into the computation.
 The adstock at each time step was computed from the *observed* spending history (averaging 15), not from the *counterfactual* spending (20).
-The saturation function sees adstock ≈ 50 (from observed history) instead of adstock ≈ 67 (from the counterfactual steady state of 20 / 0.3).
+The saturation function sees adstock ≈ 49.3 (from observed history) instead of adstock ≈ 65.7 (from the counterfactual level of $20 \times (1 - 0.7^{12}) / 0.3$).
 
 ```{python}
 # | label: fig-naive-vs-correct
-# | fig-cap: "Adstock trajectories under a counterfactual spend of 20/week. Naive replacement (orange) uses the observed adstock values — which reflect historic spend of ~15 — producing the wrong effective input. Correct time-forward simulation (blue) re-computes the adstock recursion from scratch, reaching the true steady state."
+# | fig-cap: "Adstock trajectories under a counterfactual spend of 20/week. Naive replacement (orange) uses the observed adstock values — which reflect historic spend of ~15 — producing the wrong effective input. Correct time-forward simulation (blue) re-computes the l_max=12 convolution from scratch."
 # | code-fold: true
 
 theta = 0.7
 observed_spend = np.full(25, 15.0)
 counterfactual_spend = np.full(25, 20.0)
 
-# Observed adstock (from fitting period)
-adstock_obs = np.zeros(25)
-adstock_obs[0] = observed_spend[0]
-for t in range(1, 25):
-    adstock_obs[t] = observed_spend[t] + theta * adstock_obs[t - 1]
 
-# Correct counterfactual adstock (re-computed)
-adstock_correct = np.zeros(25)
-adstock_correct[0] = counterfactual_spend[0]
-for t in range(1, 25):
-    adstock_correct[t] = counterfactual_spend[t] + theta * adstock_correct[t - 1]
+# Observed adstock (from fitting period), l_max=12, zeros before t=0
+def geometric(spend, theta, l_max=12):
+    out = np.zeros(len(spend))
+    for t in range(len(spend)):
+        total = 0.0
+        for i in range(min(l_max, t + 1)):
+            total += theta**i * spend[t - i]
+        out[t] = total
+    return out
+
+
+adstock_obs = geometric(observed_spend, theta)
+adstock_correct = geometric(counterfactual_spend, theta)
 
 # Naive: uses observed adstock but with counterfactual spend at the "current" step
 # This incorrectly carries the observed history
@@ -243,9 +246,9 @@ This difference flows through the saturation function into sales, producing an u
 
 Time-forward simulation walks through each time step in order, computing the intervention's effects and carrying them forward:
 
-1. **Week 1**: Set digital = 20. Compute adstock₁ = 20 (no prior state). Compute sales₁.
-2. **Week 2**: Set digital = 20. Compute adstock₂ = 20 + θ × adstock₁. Compute sales₂.
-3. **Week 3**: Set digital = 20. Compute adstock₃ = 20 + θ × adstock₂. Compute sales₃.
+1. **Week 1**: Set digital = 20. Compute adstock₁ = 20 (no prior inputs). Compute sales₁.
+2. **Week 2**: Set digital = 20. Compute adstock₂ = 20 + θ × 20. Compute sales₂.
+3. **Week 12 and later**: the window is full, so the input from 12 weeks ago drops out instead of being kept forever.
 4. **...and so on** until the trajectory converges to steady state.
 
 Each step uses the *simulated* adstock from the previous step, not the *observed* one.
@@ -272,10 +275,13 @@ true_b = 30.0
 
 rows = []
 for region in regions:
-    adstocked = 0.0
+    history = []
     for week in range(1, n_weeks + 1):
         x = rng.uniform(5, 25)
-        adstocked = x + true_decay * adstocked
+        history.append(x)
+        adstocked = sum(
+            true_decay**i * history[-1 - i] for i in range(min(12, len(history)))
+        )
         sat = 1 - np.exp(-true_lam * adstocked)
         y = 50 + true_b * sat + rng.normal(scale=1.5)
         rows.append({"region": region, "week": week, "x": x, "y": y})
@@ -364,7 +370,7 @@ If your model has adstock or lagged variables, use `do(simulate_over="time")` so
 
 - **Cross-sectional `do()`** replaces a variable and forward-propagates in one step. This is correct when each observation is independent.
 - **Panel data does not automatically require time-forward simulation.** Random intercepts, trend terms, and other non-temporal features don't create dependencies between time steps.
-- **Adstock and lagged variables create temporal state.** The adstock at time *t* depends on the adstock at *t* − 1. A lagged endogenous variable at *t* depends on the outcome at *t* − 1. Both create chains of dependency across time.
+- **Adstock and lagged variables create temporal state.** Default adstock at time *t* depends on the current input and the previous 11 inputs. A lagged endogenous variable at *t* depends on the outcome at *t* − 1. Both create chains of dependency across time.
 - **Naive single-step replacement produces wrong counterfactuals** because it uses the observed temporal state (from the pre-intervention history) instead of re-computing it under the intervention.
 - **`simulate_over="time"` fixes this** by walking through time in order, carrying simulated state forward from each step to the next.
 

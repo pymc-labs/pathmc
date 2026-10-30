@@ -55,7 +55,7 @@ COLOR_INDIRECT = "#756bb1"
 
 Two empirical regularities shape how advertising affects sales:
 
-1. **Adstock**: effects carry over across time periods — a TV ad this week still influences next week's sales. Geometric carry-over: $y_t = x_t + \text{decay} \cdot y_{t-1}$.
+1. **Adstock**: effects carry over across time periods — a TV ad this week still influences next week's sales. Geometric carry-over with default `l_max=12`: $y_t = \sum_{i=0}^{11} \text{decay}^{i} x_{t-i}$ (inputs before $t = 0$ are zero).
 2. **Logistic saturation**: each additional unit of spend produces less incremental effect. $y = (1 - \exp(-\lambda \cdot x)) / (1 + \exp(-\lambda \cdot x))$, which is $\tanh(\lambda x / 2)$.
 
 This model captures both transforms in a panel of 4 regions over 30 weeks.
@@ -91,13 +91,19 @@ true_b_dig = 6.0
 
 rows = []
 for region in regions:
-    adstocked_tv = 0.0
-    adstocked_dig = 0.0
+    tv_hist = []
+    dig_hist = []
     for week in range(1, n_weeks + 1):
         tv = rng.uniform(10, 50)
         digital = rng.uniform(5, 30)
-        adstocked_tv = tv + true_decay_tv * adstocked_tv
-        adstocked_dig = digital + true_decay_dig * adstocked_dig
+        tv_hist.append(tv)
+        dig_hist.append(digital)
+        adstocked_tv = sum(
+            true_decay_tv**i * tv_hist[-1 - i] for i in range(min(12, len(tv_hist)))
+        )
+        adstocked_dig = sum(
+            true_decay_dig**i * dig_hist[-1 - i] for i in range(min(12, len(dig_hist)))
+        )
         sat_tv = (1 - np.exp(-true_lam_tv * adstocked_tv)) / (
             1 + np.exp(-true_lam_tv * adstocked_tv)
         )

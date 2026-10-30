@@ -706,7 +706,7 @@ The **half-life** — how many periods to reach half the long-run effect — is 
 In marketing analytics, carry-over is typically modeled with **adstock transforms** rather than raw lag terms.
 Adstock combines geometric decay with **saturation curves**, capturing two phenomena at once: the carry-over of past spend into future effects, and diminishing returns at high spend levels.
 
-pathmc compiles these transforms using `pytensor.scan`, encoding the full temporal recurrence in the generative model.
+pathmc compiles these transforms with a finite geometric window (`l_max=12` by default), using `pytensor.scan` on panel models. Inputs before `t = 0` are zero.
 When you call `do(simulate_over="time")`, the scan propagates the intervention forward through time — no separate simulation engine needed.
 
 ### Simulate a multi-channel panel
@@ -726,13 +726,19 @@ true_b_dig = 30.0
 
 rows_mmm = []
 for region in regions:
-    adstocked_tv = 0.0
-    adstocked_dig = 0.0
+    tv_hist = []
+    dig_hist = []
     for week in range(1, n_weeks_mmm + 1):
         tv = rng.uniform(10, 50)
         digital = rng.uniform(5, 30)
-        adstocked_tv = tv + true_decay_tv * adstocked_tv
-        adstocked_dig = digital + true_decay_dig * adstocked_dig
+        tv_hist.append(tv)
+        dig_hist.append(digital)
+        adstocked_tv = sum(
+            true_decay_tv**i * tv_hist[-1 - i] for i in range(min(12, len(tv_hist)))
+        )
+        adstocked_dig = sum(
+            true_decay_dig**i * dig_hist[-1 - i] for i in range(min(12, len(dig_hist)))
+        )
         sat_tv = 1 - np.exp(-true_lam_tv * adstocked_tv)
         sat_dig = 1 - np.exp(-true_lam_dig * adstocked_dig)
         sales = (
