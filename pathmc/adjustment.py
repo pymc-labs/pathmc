@@ -27,7 +27,11 @@ from narwhals.stable.v1.typing import IntoFrame
 
 from pathmc.compile import _collect_transform_param_names, _term_base_vars
 from pathmc.graph import GraphInfo
-from pathmc.identify import adjustment_sets, is_valid_adjustment_set
+from pathmc.identify import (
+    adjustment_sets,
+    is_identifiable,
+    is_valid_adjustment_set,
+)
 from pathmc.interpret import InterpretResult
 from pathmc.introspect import build_dag_viz
 from pathmc.parse import Spec, parse_spec
@@ -103,40 +107,52 @@ def _resolve_treatment_outcome(
     return treatment, outcome
 
 
+def _unidentifiable_via_backdoor(treatment: str, outcome: str) -> ValueError:
+    """Error when no backdoor set exists for the query."""
+    return ValueError(
+        f"No valid backdoor adjustment set for the effect of "
+        f"'{treatment}' on '{outcome}'. The effect is not identifiable "
+        f"via the backdoor criterion. Call adjustment_sets() or "
+        f"is_identifiable() on the structural model, or revise the "
+        f"DAG. Do not fit an associational model when identification "
+        f"fails."
+    )
+
+
 def _select_adjustment_set(
     graph_info: GraphInfo,
     treatment: str,
     outcome: str,
     adjustment_set: set[str] | None,
 ) -> frozenset[str]:
-    """Resolve and validate the backdoor adjustment set."""
+    """Resolve and validate the backdoor adjustment set.
+
+    An explicit ``adjustment_set`` is validated directly. Listing every
+    minimal set is exponential in the output size, so it runs only when
+    pathmc must choose or report the alternatives.
+    """
+    if adjustment_set is not None:
+        if not is_identifiable(graph_info, treatment, outcome):
+            raise _unidentifiable_via_backdoor(treatment, outcome)
+        z = set(adjustment_set)
+        is_valid_adjustment_set(graph_info, treatment, outcome, z)
+        return frozenset(z)
+
     sets = adjustment_sets(graph_info, treatment, outcome)
     if not sets:
-        raise ValueError(
-            f"No valid backdoor adjustment set for the effect of "
-            f"'{treatment}' on '{outcome}'. The effect is not identifiable "
-            f"via the backdoor criterion. Call adjustment_sets() or "
-            f"is_identifiable() on the structural model, or revise the "
-            f"DAG. Do not fit an associational model when identification "
-            f"fails."
+        raise _unidentifiable_via_backdoor(treatment, outcome)
+
+    if len(sets) > 1:
+        formatted = ", ".join(
+            f"{{{', '.join(sorted(s))}}}" if s else "{}" for s in sets
         )
-
-    if adjustment_set is None:
-        if len(sets) > 1:
-            formatted = ", ".join(
-                f"{{{', '.join(sorted(s))}}}" if s else "{}" for s in sets
-            )
-            raise ValueError(
-                f"Several minimal backdoor adjustment sets exist for "
-                f"'{treatment}' -> '{outcome}': {formatted}. Pass "
-                f"adjustment_set= explicitly — pathmc does not choose among "
-                f"valid sets automatically."
-            )
-        return frozenset(sets[0])
-
-    z = set(adjustment_set)
-    is_valid_adjustment_set(graph_info, treatment, outcome, z)
-    return frozenset(z)
+        raise ValueError(
+            f"Several minimal backdoor adjustment sets exist for "
+            f"'{treatment}' -> '{outcome}': {formatted}. Pass "
+            f"adjustment_set= explicitly — pathmc does not choose among "
+            f"valid sets automatically."
+        )
+    return frozenset(sets[0])
 
 
 def _default_formula(
