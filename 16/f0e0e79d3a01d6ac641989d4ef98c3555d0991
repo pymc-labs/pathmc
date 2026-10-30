@@ -1,0 +1,78 @@
+docs/user_guide/20-panel-interventions.qmd
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 264
+tests/test_transforms_compile.py
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 182-183
+_freeze/docs/examples/applied-models/dynamic_pricing/figure-html/cell-7-output-1.svg
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 4,8-10,28,35,48,61
+_freeze/docs/examples/applied-models/dynamic_pricing/execute-results/html.json
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 2,5,15
+pathmc/_model.py
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 632-633,1732-1784,1803-1805,1807,2265-2267,3418-3469,3516-3519,3744-3745,3748-3751,3753,3755,3762-3763,3773-3789,3802,4056-4057,4065-4081,4090-4091,4096,4103-4105
+tests/test_noncentered_pooling.py
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 1-148
+docs/user_guide/11-model-specification.qmd
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 277
+_freeze/docs/examples/panel-time/panel_data/figure-html/cell-4-output-1.svg
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 4,46
+_freeze/docs/examples/applied-models/dynamic_pricing/figure-html/fig-pymc-graph-output-1.svg
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 4,7-10,18-19,23-24,35,43,49,51-54,57,59-60,63,65-68,71,73-102,113,118-124,126-160,163,165-168,171,173-176,179,181-182,185,187-190,193,195-196,199,201-204,207,209-210,212-218,220-224,227,229-230,232-240,242-247,249-250,253,255-258,261,263-264
+tests/test_residual_cov.py
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 203-501
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-24-output-1.svg
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 7-8,10,13-14,18-19,23-24,29-32,37-40,43,45-46,49,51-54,57,59-60,63,65-68,73-74,79-82,87-88,91,93-96,101-128,133-136,139,141-142,147-150,155-156,161-164,169-170,175-178,183-184
+docs/examples/06-applied-models/mmm.qmd
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 1059,1083-1089,1144
+docs/examples/06-applied-models/dynamic_pricing.qmd
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 287,303-304,329,689
+_freeze/docs/examples/panel-time/panel_data/figure-html/cell-9-output-1.svg
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 4,7-10,46,53
+_freeze/docs/examples/panel-time/panel_data/execute-results/html.json
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 2,5,15
+pathmc/compile.py
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 27-34,200,682-686,813,961-964,971-975,981,983-1009,1097-1104,1786-1812,1819-1829,1850-1854,1856-1859,1871-1872,1878-1879,1882-1886,1888-1900,1907-1918,1920-1933,1935,1939,1948,1950-1952,1954-1971,2094-2111,2989-2998,3006-3010,3012-3015
+_freeze/docs/examples/applied-models/mmm/execute-results/html.json
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 2,5,15
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-7-output-1.svg
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 4,7-10,13-14,18-19,23-24,26,28-32,34,36-40,43,45-46,49,51-54,57,59-74,77,79-82,85,87-88,90-104,106-113,115-118,123-126,129,131-146,149,151-154,157,159-160,162-168,170-174,177,179-182,185,187-188,191,193-196,199,201-202,204,206-216,219,221-222,224,226-239,241-244,247,249-250
+tests/test_panel_by_time.py
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 76-78
+docs/examples/05-panel-time/panel_data.qmd
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 268
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-5-output-1.svg
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 4,8-10,28
+docs/user_guide/19-panel-data.qmd
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 89,104
+  s_e1088c9cf620e9::t_297c1281ad10d2 105
+tests/test_panel_do.py
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 70-74,91-92
+tests/test_random_slopes.py
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 49-50,62-63,75-76,102-103,105
+tests/test_panel.py
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 67-68,175-178
+_freeze/user-guide/panel-interventions/execute-results/html.json
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 2,5,15
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-7-output-2.svg
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 7-10,13-14,18-19,23-24,27,29-32,35,37-40,43,45-46,49,51-54,57,59-74,77,79-82,85,87-88,90-96,98-102,104-110,113,115-118,120-124,127,129-132,135,137-152,155,157-160,163,165-174,179-182,185,187-188,190,192-196,198-202,204,206-230,233,235-236,239,241-244,249-250
+pathmc/simulate.py
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 1548-1599,1710-1713,1782,1785-1799,1803-1805,1820-1834,1944-1945
+  s_e1088c9cf620e9::t_86dab464a17018 1949
+  s_e1088c9cf620e9::t_174eb7f922e616 1946
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-47-output-1.svg
+  s_e1088c9cf620e9::t_c984d6b2e7fa95 7-10,13-14,18-19,23-24,26,28-32,37-40,42-48,51,53-60,63,65-68,71,73-80,85-88,93-94,96-102,104-108,110-116,118-122,124,126-130,132-138,140-146,148-152,154-160,162-166,168-172,174-178,180-184,186-190,192-202,205,207-210,213,215-216,219,221-224,227,229-230,232-238,240-244,246-252,254-258,260-282,284-286,288-296,298-300,303,305-308,311,313-320
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "16f0e0e79d3a01d6ac641989d4ef98c3555d0991",
+  "prompts": {},
+  "sessions": {
+    "s_e1088c9cf620e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18beb-31d6-7012-b41b-6d1f2d5335fc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
