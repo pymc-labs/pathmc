@@ -375,11 +375,19 @@ class Adstock(_ConvAdstockBase):
         decay = params["decay"]
         # state[i] is x_{t-1-i}, shape (l_max - 1, *x_t.shape). A scalar
         # recursive carry cannot drop the lag that falls outside l_max.
+        # decay is a scalar or a per-unit tensor aligned with x_t
+        # (pooling by_var "none").
         exponents = pt.arange(1, self.l_max)
-        weights = pt.power(decay, exponents)
-        extra = state.ndim - 1
-        weighted = weights.dimshuffle((0,) + ("x",) * extra) * state
-        adstock_t = x_t + pt.sum(weighted, axis=0)
+        if decay.ndim == 0:
+            weights = pt.power(decay, exponents)
+            extra = state.ndim - 1
+            weights = weights.dimshuffle((0,) + ("x",) * extra)
+        else:
+            weights = pt.power(
+                decay.dimshuffle("x", *range(decay.ndim)),
+                exponents.dimshuffle(0, *(["x"] * decay.ndim)),
+            )
+        adstock_t = x_t + pt.sum(weights * state, axis=0)
         newest = x_t.dimshuffle("x", *range(x_t.ndim))
         new_state = pt.concatenate([newest, state[:-1]], axis=0)
         return adstock_t, new_state

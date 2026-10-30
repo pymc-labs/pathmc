@@ -295,3 +295,30 @@ class TestScanMatchesTruncatedKernel:
         ones = _reference_geometric_adstock(np.ones(n), decay, l_max=12)
         np.testing.assert_allclose(by_unit["a"], expected, rtol=1e-10, atol=1e-10)
         np.testing.assert_allclose(by_unit["b"], ones, rtol=1e-10, atol=1e-10)
+
+    def test_per_unit_decay_matches_convolution(self):
+        n = 40
+        rng = np.random.default_rng(1)
+        x = rng.uniform(0, 2, size=n)
+        decays = np.array([0.2, 0.8])
+        df = pd.DataFrame({
+            "X": np.concatenate([x, x]),
+            "t": np.tile(np.arange(n), 2),
+            "u": ["a"] * n + ["b"] * n,
+        })
+        out = pathmc.simulate(
+            "Y ~ 0 + adstock(X, decay=theta)",
+            df,
+            {
+                "beta_Y": np.array([1.0]),
+                "theta": decays,
+                "sigma_Y": 0.0,
+            },
+            panel={"unit": "u", "time": "t"},
+            pooling={"by_var": {"theta": "none"}},
+            random_seed=0,
+        )
+        by_unit = out.groupby("u")["Y"].apply(lambda s: np.asarray(s, dtype=float))
+        for unit, decay in zip(("a", "b"), decays, strict=True):
+            expected = _reference_geometric_adstock(x, float(decay), l_max=12)
+            np.testing.assert_allclose(by_unit[unit], expected, rtol=1e-10, atol=1e-10)
