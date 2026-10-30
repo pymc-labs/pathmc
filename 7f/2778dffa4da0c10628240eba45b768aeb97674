@@ -1,0 +1,23 @@
+pathmc/introspect.py
+  s_65c4a274db92d3::t_796fa35a727f0f 34-41,594-595
+  s_65c4a274db92d3::t_f2a46e712b8abe 330-331,333-336,407-414,443-465,467-473,496-505
+  s_65c4a274db92d3::t_3fa4b62943a266 506-507
+pathmc/simulate.py
+  s_65c4a274db92d3::t_2b369d9cf6af9a 2386-2393,2414-2419,2482,2522-2532
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7f2778dffa4da0c10628240eba45b768aeb97674",
+  "prompts": {},
+  "sessions": {
+    "s_65c4a274db92d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "658deae0-6881-422b-96de-0d74be59b9e3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
