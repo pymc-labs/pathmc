@@ -448,6 +448,27 @@ def test_subgraph_wrapper_matches_flat_collider():
     assert same_markov_equivalence_class(_DummySource(wrapped), flat) is True
 
 
+def test_block_comment_does_not_glue_subgraph_keyword():
+    """A ``/* */`` between ids is a separator, not a deletion.
+
+    ``subgraph/*c*/cluster`` must stay the keyword plus a cluster id. Deleting
+    the comment invents node ``subgraphcluster`` and reports the collider as
+    inequivalent.
+    """
+    flat = "digraph { X -> Y; Z -> Y; }"
+    commented = "digraph { subgraph/*c*/cluster { X -> Y; Z -> Y } }"
+    nodes, directed, _ = _parse_dot(commented)
+    assert "subgraphcluster" not in nodes
+    assert nodes == {"X", "Y", "Z"}
+    assert directed == {("X", "Y"), ("Z", "Y")}
+    assert same_markov_equivalence_class(commented, flat) is True
+    split = _parse_dot("digraph { A/*c*/B -> Y }")
+    assert split[0] == {"A", "B", "Y"}
+    assert split[1] == {("B", "Y")}
+    with pytest.raises(ValueError):
+        _parse_dot("digraph { sub/*c*/graph cluster { X -> Y } }")
+
+
 def test_subgraph_layout_variants_do_not_invent_nodes():
     """Nearby subgraph forms keep the same nodes and edges as the flat graph."""
     flat = "digraph { X -> Y; Z -> Y; }"

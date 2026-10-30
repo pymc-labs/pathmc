@@ -190,6 +190,9 @@ def _strip_comments(text: str) -> str:
             end = text.find("*/", i + 2)
             if end == -1:
                 break
+            # Graphviz ends the token at the comment. Deleting it would glue
+            # ``subgraph/*c*/cluster`` into one invented id.
+            out.append(" ")
             i = end + 2
             continue
         out.append(ch)
