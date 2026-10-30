@@ -1,0 +1,21 @@
+pathmc/compile.py
+  s_65c4a274db92d3::t_b0d5274d4eb593 3648-3650
+tests/test_dynamic_systems.py
+  s_65c4a274db92d3::t_b0d5274d4eb593 97-100,133-138,145-147,155-160,201-203,321
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d2a7243ba40faab3b16290246cf7d89102e96183",
+  "prompts": {},
+  "sessions": {
+    "s_65c4a274db92d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "658deae0-6881-422b-96de-0d74be59b9e3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
