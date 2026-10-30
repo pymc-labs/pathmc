@@ -11,10 +11,12 @@ Transforms are applied to predictor columns before entering the regression, with
 
 | Transform | Syntax | Behaviour |
 |-----------|--------|-----------|
-| `adstock` | `adstock(x, decay=theta)` | Geometric carry-over: `y_t = x_t + decay * y_{t-1}` |
+| `adstock` | `adstock(x, decay=theta)` | Geometric carry-over: `y_t = sum_{i=0}^{l_max-1} decay**i * x_{t-i}` |
 | `logistic_saturation` | `logistic_saturation(x, lam=lam)` | Diminishing returns: `y = (1 - exp(-lam * x)) / (1 + exp(-lam * x))` |
 
 Transform parameters get appropriate priors automatically: `decay` receives a `Beta(2, 2)` prior (constrained to (0, 1)), and `lam` receives a `HalfNormal(1)` prior (positive support).
+
+Geometric adstock uses that finite convolution on every compiler, with default `l_max=12` and `normalize=False`. Inputs before `t = 0` are zero. It is not the unbounded recursion `y_t = x_t + decay * y_{t-1}`: after `l_max` steps the oldest input drops out, so a long constant series levels off at `sum_{i=0}^{l_max-1} decay**i` rather than `1 / (1 - decay)`. Cross-sectional row convolution and panel scan compilation evaluate the same kernel. `normalize=True` divides by the sum of those lag weights; non-default `l_max` or `normalize` is available on the vectorized path and is rejected on scan-compiled panel models instead of silently using a different formula.
 
 ### Composability
 

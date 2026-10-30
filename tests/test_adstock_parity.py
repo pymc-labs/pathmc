@@ -245,3 +245,53 @@ class TestAdstockScanRejectsNonDefaultConfig:
             pooling="partial",
         )
         assert model.pymc_model is not None
+
+
+class TestScanMatchesTruncatedKernel:
+    """Panel scan and cross-section convolution share the l_max=12 kernel.
+
+    A scalar recursion ``y_t = x_t + decay * y_{t-1}`` keeps every past
+    input. After more than ``l_max`` steps that series must not be what
+    ``simulate(..., panel=)`` returns.
+    """
+
+    def test_panel_simulate_matches_cross_section_convolution(self):
+        n = 40
+        decay = 0.8
+        rng = np.random.default_rng(0)
+        x = rng.uniform(0, 2, size=n)
+        df = pd.DataFrame({"X": x, "t": np.arange(n), "u": ["a"] * n})
+        spec = "Y ~ 0 + adstock(X, decay=theta)"
+        params = {"beta_Y": np.array([1.0]), "theta": decay, "sigma_Y": 0.0}
+        cross = pathmc.simulate(spec, df[["X"]], params, random_seed=0)
+        panel = pathmc.simulate(
+            spec, df, params, panel={"unit": "u", "time": "t"}, random_seed=0
+        )
+        expected = _reference_geometric_adstock(x, decay, l_max=12, normalize=False)
+        unbounded = np.zeros(n)
+        carry = 0.0
+        for t in range(n):
+            carry = x[t] + decay * carry
+            unbounded[t] = carry
+        np.testing.assert_allclose(
+            np.asarray(cross["Y"]), expected, rtol=1e-10, atol=1e-10
+        )
+        np.testing.assert_allclose(
+            np.asarray(panel["Y"]), expected, rtol=1e-10, atol=1e-10
+        )
+        assert not np.allclose(expected[-1], unbounded[-1])
+
+        two = pd.DataFrame({
+            "X": np.concatenate([x, np.ones(n)]),
+            "t": np.tile(np.arange(n), 2),
+            "u": ["a"] * n + ["b"] * n,
+        })
+        panel_two = pathmc.simulate(
+            spec, two, params, panel={"unit": "u", "time": "t"}, random_seed=0
+        )
+        by_unit = panel_two.groupby("u")["Y"].apply(
+            lambda s: np.asarray(s, dtype=float)
+        )
+        ones = _reference_geometric_adstock(np.ones(n), decay, l_max=12)
+        np.testing.assert_allclose(by_unit["a"], expected, rtol=1e-10, atol=1e-10)
+        np.testing.assert_allclose(by_unit["b"], ones, rtol=1e-10, atol=1e-10)

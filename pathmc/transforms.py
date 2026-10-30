@@ -311,11 +311,13 @@ class Adstock(_ConvAdstockBase):
     ``register_transform(Adstock(l_max=8, normalize=True))``.
 
     Panel models with temporal dependencies are compiled with
-    ``pytensor.scan`` and go through :meth:`step`, which only implements the
-    *unbounded, unnormalized* recursion ``y_t = x_t + decay * y_{t-1}``.
-    Non-default ``l_max`` / ``normalize`` raise ``NotImplementedError`` on
-    scan-compiled models rather than silently disagreeing with the vectorized
-    kernel.
+    ``pytensor.scan`` and go through :meth:`step`. The default
+    configuration (``l_max=12``, ``normalize=False``) carries the last
+    ``l_max - 1`` inputs and evaluates the same truncated sum as
+    :meth:`apply_pymc`, not the unbounded recursion
+    ``y_t = x_t + decay * y_{t-1}``. Non-default ``l_max`` /
+    ``normalize`` still raise ``NotImplementedError`` on scan-compiled
+    models rather than silently disagreeing with the vectorized kernel.
     """
 
     name = "adstock"
@@ -342,14 +344,25 @@ class Adstock(_ConvAdstockBase):
     def _kernel(self, x: Any, **kwargs: Any) -> Any:
         return _geometric_adstock(x, **kwargs)
 
+    def scan_input_history(self) -> int:
+        """Number of past inputs :meth:`step` carries for the default kernel.
+
+        Zero when this instance rejects scan compilation, so the compiler
+        keeps a scalar placeholder the step never reads.
+        """
+        if self.l_max != self.DEFAULT_L_MAX or self.normalize != self.DEFAULT_NORMALIZE:
+            return 0
+        return self.l_max - 1
+
     def step(self, x_t: Any, state: Any, params: dict[str, Any]) -> tuple[Any, Any]:
         if self.l_max != self.DEFAULT_L_MAX or self.normalize != self.DEFAULT_NORMALIZE:
             raise NotImplementedError(
                 f"Adstock(l_max={self.l_max}, normalize={self.normalize}) is "
                 f"not supported on scan-compiled panel models (models with "
                 f"temporal dependencies: adstock()/lag() combined with panel "
-                f"data). Adstock.step() only implements the unbounded, "
-                f"unnormalized recursion y_t = x_t + decay * y_{{t-1}}. "
+                f"data). Adstock.step() implements "
+                f"y_t = sum_{{i=0}}^{{l_max-1}} decay**i * x_{{t-i}} only for "
+                f"l_max={self.DEFAULT_L_MAX} and normalize={self.DEFAULT_NORMALIZE}. "
                 f"Use the default Adstock() for these models."
             )
         if "decay" not in params:
@@ -357,9 +370,19 @@ class Adstock(_ConvAdstockBase):
                 "adstock() requires a decay parameter. Pass decay=<name> in the "
                 "formula, e.g. adstock(tv, decay=theta_tv)."
             )
+        import pytensor.tensor as pt
+
         decay = params["decay"]
-        adstock_t = x_t + decay * state
-        return adstock_t, adstock_t
+        # state[i] is x_{t-1-i}, shape (l_max - 1, *x_t.shape). A scalar
+        # recursive carry cannot drop the lag that falls outside l_max.
+        exponents = pt.arange(1, self.l_max)
+        weights = pt.power(decay, exponents)
+        extra = state.ndim - 1
+        weighted = weights.dimshuffle((0,) + ("x",) * extra) * state
+        adstock_t = x_t + pt.sum(weighted, axis=0)
+        newest = x_t.dimshuffle("x", *range(x_t.ndim))
+        new_state = pt.concatenate([newest, state[:-1]], axis=0)
+        return adstock_t, new_state
 
 
 class DelayedAdstock(_ConvAdstockBase):

@@ -2697,8 +2697,14 @@ def _apply_step_transform(
     state = prev_adstock.get(col_name) if transform.has_state else None
     import pytensor.tensor as pt
 
+    history = getattr(transform, "scan_input_history", lambda: 0)()
     if state is None:
-        state = pt.zeros_like(x_t)
+        if history:
+            state = pt.alloc(
+                pt.as_tensor_variable(0.0, dtype=x_t.dtype), history, *x_t.shape
+            )
+        else:
+            state = pt.zeros_like(x_t)
 
     out, new_state = transform.step(x_t, state, params)
 
@@ -3110,9 +3116,17 @@ def _compile_scan_panel(
             else:
                 init_exog_lag[base] = np.zeros(n_units, dtype="float64")
 
-        init_adstock: dict[str, np.ndarray] = {
-            col: np.zeros(n_units, dtype="float64") for col in adstock_keys
-        }
+        adstock_transform = get_transform("adstock")
+        adstock_history = getattr(adstock_transform, "scan_input_history", lambda: 0)()
+        if adstock_history:
+            init_adstock = {
+                col: np.zeros((adstock_history, n_units), dtype="float64")
+                for col in adstock_keys
+            }
+        else:
+            init_adstock = {
+                col: np.zeros(n_units, dtype="float64") for col in adstock_keys
+            }
 
         # Flag toggled by caller: 0 for generative recursion, 1 for observed carry.
         use_observed_carry = pm.Data("_use_observed_carry", np.array(0, dtype="int8"))
@@ -3407,7 +3421,13 @@ def _compile_scan_panel(
                     return initial_tensors[name]
                 return _init_carry(init_endo[name])
             if group == "adstock":
-                return _init_carry(init_adstock[name])
+                arr = init_adstock[name]
+                if arr.ndim > 1:
+                    # as_tensor_variable marks a static size-1 unit axis
+                    # broadcastable and breaks the gradient scan. shared()
+                    # leaves every axis resizable.
+                    return pytensor.shared(arr)
+                return _init_carry(arr)
             if name in initial_tensors:
                 return initial_tensors[name]
             return _init_carry(init_exog_lag[name])
