@@ -1,0 +1,19 @@
+tests/test_dynamic_systems.py
+  s_65c4a274db92d3::t_2a9f229d40b18c 1-313
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6a50395c4be37a9464260edf8ca24e269e4758f6",
+  "prompts": {},
+  "sessions": {
+    "s_65c4a274db92d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "658deae0-6881-422b-96de-0d74be59b9e3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
