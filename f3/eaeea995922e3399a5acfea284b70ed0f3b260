@@ -1,0 +1,32 @@
+pathmc/graph.py
+  s_65c4a274db92d3::t_503b1b2630d2c8 27
+  s_65c4a274db92d3::t_6453c33a513095 126-129
+pathmc/parse.py
+  s_65c4a274db92d3::t_fd80d67fb32d07 148-156,161-166,169,171-191
+  s_65c4a274db92d3::t_422ef9326264ed 167-168,170,527-541,543-549
+  s_65c4a274db92d3::t_456a32fea8872e 324,328-367
+  s_65c4a274db92d3::t_1b16241905932f 644-650
+  s_65c4a274db92d3::t_ff6798466c5d2c 814,817-820,824-825
+  s_65c4a274db92d3::t_1275ab544aaa59 472-491
+  s_65c4a274db92d3::t_2340b1bebcd3ae 368-369
+pathmc/compile.py
+  s_65c4a274db92d3::t_ace9d9cc373fe2 2369-2372,2748-2752,2846-2876,2911-2913,3600-3602,3604-3613,3616-3617,3621-3623,3626-3686
+  s_65c4a274db92d3::t_3638b019a778b9 2529,2531
+  s_65c4a274db92d3::t_1029cafa915adb 58-66,1348-1353,2365-2368,2384-2385,2387,2455-2457
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "f3eaeea995922e3399a5acfea284b70ed0f3b260",
+  "prompts": {},
+  "sessions": {
+    "s_65c4a274db92d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "658deae0-6881-422b-96de-0d74be59b9e3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
