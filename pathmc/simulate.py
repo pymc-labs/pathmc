@@ -63,6 +63,9 @@ __all__ = ["DoResult", "EstimandResult"]
 #: (rather than importing from ``pathmc._model``) to avoid a circular import,
 #: since ``_model.py`` imports this module.
 _OBSERVED_CARRY_FLAG = "_use_observed_carry"
+#: Set only while ``kind="mean"`` so a discrete scan predictor carries its
+#: response-scale mean instead of a sampled integer. See ``compile.py``.
+_MEAN_CARRY_FLAG = "_use_mean_carry"
 
 
 @contextmanager
@@ -129,6 +132,28 @@ def _forced_generative_carry(model: pm.Model) -> Iterator[None]:
     flag = model[_OBSERVED_CARRY_FLAG]
     previous = flag.get_value()
     flag.set_value(np.array(0, dtype="int8"))
+    try:
+        yield
+    finally:
+        flag.set_value(previous)
+
+
+@contextmanager
+def _forced_mean_carry(model: pm.Model) -> Iterator[None]:
+    """Carry discrete scan predictors at their response-scale mean.
+
+    ``kind="mean"`` is noise-free propagation. A Bernoulli, Poisson, or
+    NegativeBinomial node used as a lag or contemporaneous predictor otherwise
+    feeds a sampled integer into the next step. The flag is a no-op on models
+    that do not have one (Gaussian scan panels, cross-sectional models).
+    """
+    if _MEAN_CARRY_FLAG not in model.named_vars:
+        yield
+        return
+
+    flag = model[_MEAN_CARRY_FLAG]
+    previous = flag.get_value()
+    flag.set_value(np.array(1, dtype="int8"))
     try:
         yield
     finally:
@@ -1984,6 +2009,15 @@ def run_do_panel_unified(
     if kind == "mean":
         for var in graph_info.topological_order:
             if var in graph_info.endogenous and var not in set and var not in latent:
+                # Scan ``mu_{var}`` for a discrete outcome is already the
+                # response-scale mean (rate or probability). ``pm.do`` cannot
+                # substitute that float for the integer outcome RV; the mean
+                # trajectory is the ``mu_{var}`` deterministic computed below.
+                # Float outcomes still replace the observation RV so
+                # propagation stays noise-free.
+                outcome = gen_model[var]
+                if not str(outcome.dtype).startswith("float"):
+                    continue
                 replacements[var] = gen_model[f"mu_{var}"] * 1
 
         det_names = []
@@ -1996,14 +2030,27 @@ def run_do_panel_unified(
 
         with (
             _forced_generative_carry(gen_model),
+            _forced_mean_carry(gen_model),
             _scan_do_intervention(gen_model, scan_intervene_updates),
         ):
             do_model = pm.do(gen_model, replacements)
+            posterior_ds = _fill_missing_posterior_rvs(
+                posterior(idata), do_model, n_times * n_units
+            )
+            # Poisson/NegativeBinomial scan carries draw inside the step.
+            # That random op is still in the scan graph (the mean flag only
+            # switches away from it). Numba cannot compile it; the C backend
+            # can. Bernoulli carries use a Uniform free RV and do not need this.
+            discrete_rate = any(
+                families.get(var, "gaussian") in ("poisson", "negbinomial")
+                for var in graph_info.endogenous
+            )
             det = pm.compute_deterministics(
-                posterior(idata),
+                posterior_ds,
                 model=do_model,
                 var_names=det_names,
                 progressbar=False,
+                backend="c" if discrete_rate else None,
             )
 
         ones = _chain_draw_ones(posterior(idata))

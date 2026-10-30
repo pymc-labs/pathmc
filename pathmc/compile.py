@@ -2858,6 +2858,14 @@ def _compile_scan_panel(
         discrete_carry_vars = sorted(
             v for v in discrete_sample_vars if v in endo_lag_bases
         )
+        # kind="mean" sets this so a discrete predictor carries its response-scale
+        # mean (rate or probability) instead of a sampled integer. Absent unless
+        # a discrete outcome is actually used as a predictor.
+        use_mean_carry = (
+            pm.Data("_use_mean_carry", np.array(0, dtype="int8"))
+            if discrete_sample_vars
+            else None
+        )
         discrete_bernoulli_vars = sorted(
             v
             for v in discrete_sample_vars
@@ -3034,6 +3042,9 @@ def _compile_scan_panel(
         beta_component_names: dict[str, list[str]] = {}
         non_seq_list.append(use_observed_carry)
         non_seq_names.append("_use_observed_carry")
+        if use_mean_carry is not None:
+            non_seq_list.append(use_mean_carry)
+            non_seq_names.append("_use_mean_carry")
         non_seq_list.append(discrete_scan_rng)
         non_seq_names.append("_discrete_scan_rng")
         for var in endo_keys:
@@ -3240,11 +3251,16 @@ def _compile_scan_panel(
                         observed_or_sampled = pt.switch(
                             pt.isnan(obs_state), sampled_state, obs_state
                         )
-                        new_endo[var] = pt.switch(
+                        propagated = pt.switch(
                             use_observed_carry_t, observed_or_sampled, sampled_state
                         )
                     else:
-                        new_endo[var] = sampled_state
+                        propagated = sampled_state
+                    if "_use_mean_carry" in ns_map:
+                        propagated = pt.switch(
+                            ns_map["_use_mean_carry"], carry_mu[var], propagated
+                        )
+                    new_endo[var] = propagated
                 elif var in stochastic_carry_vars:
                     carry_mu[var] = mu
                     sigma_val = ns_map[f"sigma_{var}"]
