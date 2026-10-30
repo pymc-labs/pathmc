@@ -3531,7 +3531,10 @@ def simulate(
         scale. For StudentT, ``sigma_{var}`` is the scale, not the
         residual standard deviation. ``simulate()`` leaves that supplied
         value unchanged so a posterior round-trip is not converted twice.
-        For residual covariances
+        Cross-sectional draws use that scale with ``nu_{var}``. Scan
+        lag-carry reconstructs the state as ``mu + sigma_{var}`` times a
+        normal innovation, so that returned column's spread equals
+        ``sigma_{var}`` and does not use ``nu``. For residual covariances
         (``~~``), supply ``"chol_{block_name}"`` as the packed
         lower-triangular Cholesky vector of length ``k(k+1)/2``
         (PyMC ``LKJCholeskyCov`` packing); block members' simulated

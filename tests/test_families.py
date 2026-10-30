@@ -248,3 +248,36 @@ def test_studentt_simulate_keeps_sigma_as_scale():
     assert abs(sample_sd - scale_sd) < abs(sample_sd - sigma)
     assert abs(sample_sd - scale_sd) < 0.08
     assert abs(sample_sd - sigma) > 0.15
+
+
+def test_studentt_lag_carry_spread_equals_sigma_not_scale_sd():
+    """Scan lag-carry uses sigma as a normal sd and ignores nu."""
+    n_units, n_times = 40, 20
+    data = pd.DataFrame({
+        "unit": np.repeat([f"u{i}" for i in range(n_units)], n_times),
+        "time": np.tile(np.arange(n_times), n_units),
+        "X": np.zeros(n_units * n_times),
+    })
+    sigma = 1.5
+    nu = 8.0
+    student = pathmc.simulate(
+        "Y ~ lag(Y) + X",
+        data=data,
+        params={"beta_Y": [0.0, 0.0, 0.0], "sigma_Y": sigma, "nu_Y": nu},
+        families={"Y": "studentt"},
+        panel={"unit": "unit", "time": "time"},
+        random_seed=1,
+    )
+    gaussian = pathmc.simulate(
+        "Y ~ lag(Y) + X",
+        data=data,
+        params={"beta_Y": [0.0, 0.0, 0.0], "sigma_Y": sigma},
+        families={"Y": "gaussian"},
+        panel={"unit": "unit", "time": "time"},
+        random_seed=1,
+    )
+    y = student["Y"].to_numpy()
+    assert np.array_equal(y, gaussian["Y"].to_numpy())
+    scale_sd = sigma * np.sqrt(nu / (nu - 2.0))
+    sample_sd = float(np.std(y, ddof=1))
+    assert abs(sample_sd - sigma) < abs(sample_sd - scale_sd)
