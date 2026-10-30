@@ -2383,6 +2383,14 @@ def run_do_panel_unified(
 
     replacements: dict[str, Any] = {}
     scan_intervene_updates: dict[str, np.ndarray] = {}
+    # An endogenous intervention padded with NaN is released on those steps:
+    # the scan runs the structural equation there. Report that path instead
+    # of the NaN padding (issue #639).
+    released = {
+        var
+        for var, val in set.items()
+        if var in graph_info.endogenous and np.isnan(np.asarray(val, dtype=float)).any()
+    }
     for var, val in set.items():
         if isinstance(val, np.ndarray):
             mat = np.broadcast_to(val[:, None], (n_times, n_units)).copy()
@@ -2403,8 +2411,12 @@ def run_do_panel_unified(
             key = f"mu_{var}"
         else:
             key = var
-        target_dtype = gen_model[key].dtype
-        replacements[key] = mat.astype(target_dtype)
+        if not (var in latent and var in released):
+            # A latent state is a Deterministic of the scan output, so the
+            # in-scan override alone severs it and its output keeps the
+            # released steps.
+            target_dtype = gen_model[key].dtype
+            replacements[key] = mat.astype(target_dtype)
         if var in graph_info.endogenous:
             # Endogenous vars (incl. latent) *also* participate in the
             # scan's own temporal recursion: lag()/contemporaneous
@@ -2467,7 +2479,7 @@ def run_do_panel_unified(
 
         det_names = []
         for var in graph_info.topological_order:
-            if var in graph_info.endogenous and var not in set:
+            if var in graph_info.endogenous and (var not in set or var in released):
                 if var in stochastic_latent:
                     det_names.append(var)
                 else:
@@ -2507,7 +2519,17 @@ def run_do_panel_unified(
         data_vars: dict[str, xr.DataArray] = {}
 
         for var in graph_info.topological_order:
-            if var in set:
+            if var in released:
+                det_key = var if var in stochastic_latent else f"mu_{var}"
+                structural = _panel_unit_mean(
+                    _to_business_units(
+                        var, det[det_key], data, scaling_factors, scan_info
+                    ),
+                    time_idx,
+                )
+                held = _spread_over_time(ones, set[var], time_idx)
+                data_vars[var] = xr.where(held.isnull(), structural, held)
+            elif var in set:
                 data_vars[var] = _spread_over_time(ones, set[var], time_idx)
             elif var in graph_info.exogenous:
                 filled = _panel_unspecified_exog(var, ones, data, scaling_factors)

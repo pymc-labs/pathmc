@@ -31,7 +31,14 @@ from pathmc.categorical import (
 )
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
-from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
+from pathmc.parse import (
+    CategoricalCall,
+    Regression,
+    Spec,
+    Term,
+    TransformCall,
+    lag_part_base,
+)
 
 __all__: list[str] = []
 
@@ -320,8 +327,13 @@ def build_dag_viz(
         for term in reg.terms:
             if term.interaction_of is not None:
                 for var in term.interaction_of:
+                    base = lag_part_base(var)
+                    source = base if base is not None else var
                     if (var, reg.lhs) not in drawn_edges:
-                        dot.edge(var, reg.lhs)
+                        if base is not None:
+                            dot.edge(source, reg.lhs, label="t\u22121", style="dashed")
+                        else:
+                            dot.edge(source, reg.lhs)
                         drawn_edges.add((var, reg.lhs))
                 continue
             if term.fixed_value is not None:
@@ -392,6 +404,14 @@ def build_equations(
             terms.append(_format_term(t, reg))
             latex_terms.append(_format_term_latex(t, reg))
 
+        if reg.rate:
+            lines.extend(_rate_equation_lines(reg, terms, latent, families))
+            latex_lines.append(
+                rf"\frac{{d\,{_latex_symbol(reg.lhs)}}}{{dt}} &= "
+                + " + ".join(latex_terms)
+            )
+            continue
+
         is_stochastic_latent = (
             reg.lhs in latent and families.get(reg.lhs) == "latent_normal"
         )
@@ -420,8 +440,37 @@ def build_equations(
     return EquationList(lines, latex_lines)
 
 
+def _rate_equation_lines(
+    reg: Regression,
+    terms: list[str],
+    latent: set[str],
+    families: dict[str, str],
+) -> list[str]:
+    """Render a ``d(x)`` equation and how its integrated state is scored."""
+    lhs = reg.lhs
+    lines = [
+        f"d({lhs})/dt = {' + '.join(terms)}  "
+        f"[RK4, {reg.substeps} substeps per time step]"
+    ]
+    integrated = f"{lhs}[t-1] + integral of d({lhs})/dt over the step"
+    if lhs in latent and families.get(lhs) != "latent_normal":
+        lines.append(f"{lhs}[t] = {integrated} [deterministic]")
+    elif lhs in latent:
+        lines.append(f"{lhs}[t] ~ Normal({integrated}, sigma_{lhs}) [stochastic]")
+    else:
+        lines.append(f"mu_{lhs} = {integrated}")
+        lines.append(_likelihood_text(lhs, families.get(lhs, "gaussian")))
+    return lines
+
+
 def _format_term(t: Term, reg: Regression) -> str:
-    """Format a term for equation display, including transform expressions."""
+    """Format a term for equation display, including transform expressions.
+
+    In a rate equation, the stored ``lag(x)`` references are shown as the
+    state name ``x``, matching what the user wrote inside ``d(...)``.
+    """
+    if reg.rate:
+        t = _unlag_term_for_display(t)
     prefix = ""
     if t.fixed_value is not None:
         fv = (
@@ -442,6 +491,18 @@ def _format_term(t: Term, reg: Regression) -> str:
     if t.interaction_of is not None:
         return f"{prefix}{' × '.join(t.interaction_of)}"
     return f"{prefix}{t.variable}" if prefix else t.variable
+
+
+def _unlag_term_for_display(t: Term) -> Term:
+    """Return a copy of a rate-equation term with ``lag(x)`` shown as ``x``."""
+    from dataclasses import replace
+
+    if t.lag_of is not None:
+        return replace(t, variable=t.lag_of, lag_of=None)
+    if t.interaction_of is not None:
+        parts = tuple(lag_part_base(p) or p for p in t.interaction_of)
+        return replace(t, variable=":".join(parts), interaction_of=parts)
+    return t
 
 
 _MULTILINE_THRESHOLD = 4
@@ -530,6 +591,8 @@ def _build_equation_latex(
 
 def _format_term_latex(t: Term, reg: Regression) -> str:
     """Format a term as LaTeX, including transform expressions."""
+    if reg.rate:
+        t = _unlag_term_for_display(t)
     if t.fixed_value is not None:
         fv = (
             int(t.fixed_value) if t.fixed_value == int(t.fixed_value) else t.fixed_value
