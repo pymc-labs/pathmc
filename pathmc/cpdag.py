@@ -573,7 +573,7 @@ class _DotBodyParser:
         if isinstance(token, tuple) and token[0] == "html":
             self.pop()
             # Graphviz node name is the HTML interior, not the angle brackets.
-            name = token[1][1:-1]
+            name = self._concat_literal(token[1][1:-1])
             if self.peek() == ":":
                 self._skip_port_chain()
             self.add_node(name)
@@ -595,16 +595,13 @@ class _DotBodyParser:
         self.pop()
         while self.peek() == "+":
             nxt = self.peek(1)
-            if not (literal and isinstance(nxt, tuple) and nxt[0] == "qid"):
+            if not (literal and self._is_literal_piece(nxt)):
                 raise _dot_parse_error(
                     "unsupported DOT syntax near '+'. Only quoted strings can "
                     'be concatenated. Quote each piece, for example \'"A"+"B"\'.'
                 )
             self.pop()
-            extra = _id_text(self.pop())
-            if extra is None:
-                raise _dot_parse_error("unsupported '+' in a DOT id.")
-            name += extra
+            name += self._literal_text(self.pop())
         if self.peek() == ":":
             self._skip_port_chain()
         if not literal and name.lower() in _RESERVED:
@@ -625,17 +622,51 @@ class _DotBodyParser:
         """Drop at most two ``:id`` pieces. A colon inside an id is not a port.
 
         ``A:n`` is node ``A`` because the tokenizer splits on ``:``. ``"A:"``
-        already includes the colon, so ``"A:":n`` stays node ``A:``.
+        already includes the colon, so ``"A:":n`` stays node ``A:``. An HTML
+        piece is a port, not a node. An unquoted keyword is not a port.
         """
         for _ in range(2):
             if self.peek() != ":":
                 return
             self.pop()
-            if not _is_id(self.peek()):
+            piece = self.peek()
+            if isinstance(piece, tuple) and piece[0] == "html":
+                self.pop()
+                continue
+            if not _is_id(piece):
+                raise _dot_parse_error(f"unsupported compass port before {piece!r}.")
+            if not (isinstance(piece, tuple) and piece[0] == "qid"):
+                port_name = _id_text(piece)
+                if port_name is not None and port_name.lower() in _RESERVED:
+                    raise _dot_parse_error(
+                        f"unsupported DOT syntax: {port_name!r} is a keyword, "
+                        "not a node id. Quote it if it is a node, for example "
+                        "'\"node\" -> Y'."
+                    )
+            self.pop()
+
+    def _is_literal_piece(self, token: str | tuple[str, str] | None) -> bool:
+        return isinstance(token, tuple) and token[0] in {"qid", "html"}
+
+    def _literal_text(self, token: str | tuple[str, str]) -> str:
+        if isinstance(token, tuple) and token[0] == "html":
+            return token[1][1:-1]
+        text = _id_text(token)
+        if text is None:
+            raise _dot_parse_error("unsupported '+' in a DOT id.")
+        return text
+
+    def _concat_literal(self, name: str) -> str:
+        while self.peek() == "+":
+            nxt = self.peek(1)
+            if not self._is_literal_piece(nxt):
                 raise _dot_parse_error(
-                    f"unsupported compass port before {self.peek()!r}."
+                    "unsupported DOT syntax near '+'. Only quoted strings can "
+                    'be concatenated. Quote each piece, for example \'"A"+"B"\'.'
                 )
             self.pop()
+            name += self._literal_text(self.pop())
+        return name
 
     def parse_subgraph(self) -> set[str]:
         if _is_keyword(self.peek(), "subgraph"):
@@ -676,11 +707,17 @@ class _DotBodyParser:
                 "unsupported subgraph syntax. A subgraph id must be a DOT id. "
                 f"Offending token: {token!r}."
             )
-        literal = isinstance(token, tuple) and token[0] == "qid"
+        if not (isinstance(token, tuple) and token[0] == "qid"):
+            name = _id_text(token)
+            if name is not None and name.lower() in _RESERVED:
+                raise _dot_parse_error(
+                    f"unsupported DOT syntax: {name!r} is a keyword, not a node id. "
+                    "Quote it if it is a node, for example '\"node\" -> Y'."
+                )
         self.pop()
         while self.peek() == "+":
             nxt = self.peek(1)
-            if not (literal and isinstance(nxt, tuple) and nxt[0] == "qid"):
+            if not self._is_literal_piece(nxt):
                 raise _dot_parse_error(
                     "unsupported DOT syntax near '+'. Only quoted strings can "
                     "be concatenated in a subgraph id."
@@ -709,8 +746,12 @@ class _DotBodyParser:
                 attr = _id_text(prev)
                 if token == "=" and attr is not None and attr.lower() == "dir":
                     self._dir_was_set = True
-                    value = _id_text(self.peek())
-                    dir_none = value is not None and value.lower() == "none"
+                    value_token = self.peek()
+                    if isinstance(value_token, tuple) and value_token[0] == "html":
+                        dir_none = value_token[1][1:-1] == "none"
+                    else:
+                        value = _id_text(value_token)
+                        dir_none = value is not None and value.lower() == "none"
             prev = token
         return dir_none
 

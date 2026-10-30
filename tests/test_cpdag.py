@@ -817,6 +817,19 @@ def test_glued_compass_port_is_not_a_node():
     assert nodes == {"A", "B", "C"}
     assert directed == {("B", "C")}
     assert _parse_dot("digraph { <A>:n -> Y }")[0] == {"A", "Y"}
+    assert _parse_dot("digraph { A:<n> -> B }")[0] == {"A", "B"}
+    assert _parse_dot('digraph { "A"+<B> -> Y }')[0] == {"AB", "Y"}
+    assert _parse_dot("digraph { <A>+<B> -> Y }")[0] == {"AB", "Y"}
+    html_dir = "digraph { subgraph cluster { X -> Y [dir=<none>]; Z -> Y } }"
+    _, directed, undirected = _parse_dot(html_dir)
+    assert ("X", "Y") not in directed
+    assert frozenset(("X", "Y")) in undirected
+    assert ("Z", "Y") in directed
+    with pytest.raises(ValueError, match="keyword"):
+        _parse_dot("digraph { A:node -> B }")
+    with pytest.raises(ValueError, match="keyword"):
+        _parse_dot("digraph { subgraph node { X -> Y; Z -> Y } }")
+    assert _parse_dot('digraph { subgraph "node" { X -> Y } }')[0] == {"X", "Y"}
 
 
 def test_keyword_endpoint_and_unquoted_plus_do_not_rewrite_the_graph():
