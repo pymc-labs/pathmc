@@ -3645,7 +3645,9 @@ def _compile_scan_panel(
                 )
                 out: dict[str, Any] = {}
                 for v in rate_vars:
-                    dz = build_mu(mu_specs[v], resolver, _beta_for(v), pt.zeros(n_units))
+                    dz = build_mu(
+                        mu_specs[v], resolver, _beta_for(v), pt.zeros(n_units)
+                    )
                     if f"alpha_{v}" in ns_map:
                         dz = dz + ns_map[f"alpha_{v}"]
                     # A clamped state does not move inside the step.

@@ -94,7 +94,10 @@ class TestParse:
         assert prey.lhs == "prey"
         assert prey.rate
         assert prey.substeps == 3
-        assert [t.variable for t in prey.terms] == ["lag(prey)", "lag(prey):lag(predator)"]
+        assert [t.variable for t in prey.terms] == [
+            "lag(prey)",
+            "lag(prey):lag(predator)",
+        ]
         assert prey.terms[0].lag_of == "prey"
         hare = spec.regressions[2]
         assert not hare.rate
@@ -127,14 +130,21 @@ class TestGraph:
             "predator ~ 0 + lag(predator) + lag(prey):lag(predator)"
         )
         info = build_graph(spec)
-        assert set(info._dag.nodes) == {"prey", "predator", "lag(prey)", "lag(predator)"}
+        assert set(info._dag.nodes) == {
+            "prey",
+            "predator",
+            "lag(prey)",
+            "lag(predator)",
+        }
         assert set(info.temporal_edges) == {
             ("prey", "lag(prey)"),
             ("predator", "lag(predator)"),
         }
 
     def test_rate_states_do_not_form_a_contemporaneous_cycle(self) -> None:
-        info = build_graph(parse_spec(LV_RATES.format(k=2)), latent={"prey", "predator"})
+        info = build_graph(
+            parse_spec(LV_RATES.format(k=2)), latent={"prey", "predator"}
+        )
         order = info.topological_order
         assert order.index("prey") < order.index("hare")
         assert order.index("predator") < order.index("lynx")
@@ -142,7 +152,12 @@ class TestGraph:
     def test_rate_equation_rejects_same_step_outcome(self) -> None:
         df = _frame(4).assign(y=1.0, m=0.0, u=0.0)
         with pytest.raises(NotImplementedError, match="exogenous inputs only"):
-            pathmc.model("d(x) ~ 0 + x + m\nm ~ u\ny ~ 0 + 1*x", data=df, panel=PANEL, latent=["x"])
+            pathmc.model(
+                "d(x) ~ 0 + x + m\nm ~ u\ny ~ 0 + 1*x",
+                data=df,
+                panel=PANEL,
+                latent=["x"],
+            )
 
 
 def test_state_read_only_inside_a_product_gets_an_init_prior() -> None:
@@ -183,7 +198,9 @@ class TestSimulateOracle:
         for _ in range(n_times):
             x, y = 1.1 * x - 0.02 * x * y, 0.9 * y + 0.004 * x * y
             expected.append((x, y))
-        np.testing.assert_allclose(sim[["prey", "predator"]].to_numpy(), expected, rtol=1e-9)
+        np.testing.assert_allclose(
+            sim[["prey", "predator"]].to_numpy(), expected, rtol=1e-9
+        )
         np.testing.assert_allclose(sim.loc[0, ["prey", "predator"]], [18.8, 7.84])
 
     @pytest.mark.parametrize(("substeps", "rtol"), [(1, 3e-2), (2, 2e-3), (4, 1e-4)])
@@ -301,7 +318,7 @@ class TestDo:
 
         # Oracle: integrate to t=4, hold the predator at 2 over (4, 9], release.
         states = _lv_ode(X0, Y0, 5)
-        x, y = states[-1]
+        x = states[-1][0]
         held = solve_ivp(
             lambda _t, z: [ALPHA * z[0] - BETA * z[0] * 2.0],
             (4, 9),
