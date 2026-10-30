@@ -1,0 +1,14 @@
+docs/user_guide/20-panel-interventions.qmd
+  h_63db634213747e 148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ccec70dbbe52d4c7ee644a9e47374c1c5f2562ce",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
