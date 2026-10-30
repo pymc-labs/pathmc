@@ -689,7 +689,7 @@ def compile_to_pymc(
         latent = set()
 
     if priors is None:
-        priors = default_priors(spec, families, pooling, latent, panel_info)
+        priors = default_priors(spec, families, pooling, latent, panel_info, data=data)
 
     if graph_info is None:
         from pathmc.graph import build_graph
@@ -2475,21 +2475,90 @@ def _scan_observed_contemporaneous_parents(
 # Bound applied to the linear predictor ``mu`` before exponentiating it into
 # a Poisson/NegativeBinomial rate inside the temporal scan (see
 # ``_compile_scan_panel``'s step function). Unlike the outer, non-scan
-# compiler -- where each timestep's rate is a single ``pm.Deterministic``
-# evaluated once -- the scan recomputes ``exp(mu)`` at every timestep and
-# feeds the result back into the recursion (adstock carries, lagged
-# endogenous predictors, ...). A transient blow-up in one step can compound
-# through later steps and produce ``inf``/``nan`` that poisons the whole
-# scan's logp, so the clip is a numerical-stability guard, not a modeling
-# choice. ``exp(20) ~= 4.85e8`` and ``exp(-20) ~= 2.06e-9``: for realistic
-# count/rate data (school enrollments, ad impressions, clicks, ...) this
-# range comfortably contains the true rate, so the guard is inert. It only
-# bites -- and silently truncates the true rate, biasing downstream effects
-# toward zero -- when a variable's rate genuinely approaches or exceeds
-# ~4.85e8 per period, or when unstable dynamics push ``mu`` there
-# spuriously. ``_warn_high_rate_clip_risk`` below checks observed data
-# against this bound at compile time and warns rather than staying silent.
+# compiler -- where each timestep's rate is a single ``pm.math.exp(mu)`` --
+# the scan recomputes ``exp(mu)`` at every timestep and feeds the result back
+# into the recursion (adstock carries, lagged endogenous predictors, ...). A
+# transient blow-up in one step can compound through later steps and produce
+# ``inf``/``nan`` that poisons the whole scan's logp, so the clip is a
+# numerical-stability guard, not a modeling choice. ``exp(20) ~= 4.85e8`` and
+# ``exp(-20) ~= 2.06e-9``: for realistic count/rate data this range contains
+# the true rate, so the guard is inert. It truncates the rate when ``mu``
+# approaches or exceeds the bound. Observed counts are checked at compile
+# time. Once coefficients are numeric, including ``simulate()`` with no
+# outcome column, the linear predictor itself is checked, so a silent
+# ``exp(20)`` is not the result.
 _SCAN_MU_CLIP_BOUND = 20.0
+# Warn once within e^2 (~7x) of the clip bound. Shared by the observed-count
+# check and the linear-predictor check so the two policies stay one policy.
+_SCAN_MU_CLIP_MARGIN = 2.0
+_SCAN_RATE_FAMILIES = frozenset({"poisson", "negbinomial"})
+
+
+def _log_rate_past_clip(values: np.ndarray) -> float | None:
+    """Return the max finite log-rate if it is inside the warning margin."""
+    arr = np.asarray(values, dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return None
+    max_mu = float(np.max(arr))
+    if max_mu > _SCAN_MU_CLIP_BOUND - _SCAN_MU_CLIP_MARGIN:
+        return max_mu
+    return None
+
+
+def _warn_linear_predictor_clip(var: str, max_mu: float) -> None:
+    """Warn that a known scan linear predictor will be clipped."""
+    import warnings
+
+    warnings.warn(
+        f"Linear predictor for '{var}' reaches {max_mu:.1f}, close to (or past) "
+        f"the internal clip bound of {_SCAN_MU_CLIP_BOUND:g} applied before "
+        f"exponentiating a Poisson/NegativeBinomial rate inside the temporal "
+        f"scan. Rates beyond exp({_SCAN_MU_CLIP_BOUND:g}) ~= "
+        f"{np.exp(_SCAN_MU_CLIP_BOUND):.3g} are truncated, which biases "
+        f"predictions and effects for '{var}' downward. The check uses the "
+        f"linear predictor, including simulate() with no outcome column and a "
+        f"large intercept with small observed counts. Consider rescaling this "
+        f"outcome if the log-rate is genuinely large.",
+        UserWarning,
+        stacklevel=_user_stacklevel(),
+    )
+
+
+def _warn_scan_rate_clip_at_fixed_coefficients(
+    source_model: pm.Model,
+    values: dict[str, np.ndarray],
+) -> None:
+    """Warn from the scan linear predictor once coefficients are numeric.
+
+    The unclipped log-rate is a scan output, not a public deterministic.
+    Evaluating it through a Python Op would force the discrete-mediator
+    scan off the C linker. ``graph_replace`` keeps that scan on the C
+    linker and only then checks the numeric log-rate. A private seed keeps
+    the caller's observation draw unchanged.
+    """
+    tracked = getattr(source_model, "_pathmc_unclipped_log_rate", None)
+    if not tracked or not values:
+        return
+    import pytensor.tensor as pt
+    from pytensor.graph.replace import graph_replace
+
+    replacements = {}
+    for name, value in values.items():
+        if name not in source_model.named_vars:
+            continue
+        rv = source_model[name]
+        replacements[rv] = pt.as_tensor_variable(value, dtype=rv.dtype)
+    if not replacements:
+        return
+    cloned = graph_replace(list(tracked.values()), replacements, strict=False)
+    drawn = pm.draw(cloned, random_seed=0, backend="c")
+    if not isinstance(drawn, list):
+        drawn = [drawn]
+    for var, value in zip(tracked, drawn, strict=True):
+        max_mu = _log_rate_past_clip(np.asarray(value))
+        if max_mu is not None:
+            _warn_linear_predictor_clip(var, max_mu)
 
 
 def _warn_high_rate_clip_risk(
@@ -2502,17 +2571,14 @@ def _warn_high_rate_clip_risk(
     The scan step function clips ``mu`` to
     ``[-_SCAN_MU_CLIP_BOUND, _SCAN_MU_CLIP_BOUND]`` before exponentiating it
     into a Poisson/NegativeBinomial rate (see the constant's docstring
-    above). That clip is invisible from the outside -- the model still
-    samples and the posterior still looks plausible -- so this check flags
-    the one observable symptom: an observed count already implying a
-    log-rate near the bound.
+    above). Observed counts are one symptom. A large intercept with small
+    counts, or ``simulate()`` with no outcome column, is caught by
+    ``_warn_scan_rate_clip_at_fixed_coefficients`` once coefficients are numeric.
     """
     import warnings
 
-    discrete_rate_families = {"poisson", "negbinomial"}
-    margin = 2.0  # warn once within e^2 (~7x) of the clip bound
     for var in endogenous_order:
-        if families.get(var, "gaussian") not in discrete_rate_families:
+        if families.get(var, "gaussian") not in _SCAN_RATE_FAMILIES:
             continue
         if var not in data.columns:
             continue
@@ -2523,8 +2589,8 @@ def _warn_high_rate_clip_risk(
         max_val = float(np.max(col))
         if max_val <= 0:
             continue
-        implied_mu = np.log(max_val)
-        if implied_mu > _SCAN_MU_CLIP_BOUND - margin:
+        implied_mu = float(np.log(max_val))
+        if implied_mu > _SCAN_MU_CLIP_BOUND - _SCAN_MU_CLIP_MARGIN:
             warnings.warn(
                 f"Observed values of '{var}' include {max_val:g}, implying a "
                 f"log-rate of ~{implied_mu:.1f} -- close to (or past) the "
@@ -2630,7 +2696,7 @@ def _compile_scan_panel(
     from pathmc.priors import _ensure_dims, default_priors
 
     if priors is None:
-        priors = default_priors(spec, families, pooling, latent, panel_info)
+        priors = default_priors(spec, families, pooling, latent, panel_info, data=data)
 
     reg_by_lhs = {r.lhs: r for r in spec.regressions}
     transform_map = _build_transform_map(spec)
@@ -2893,6 +2959,14 @@ def _compile_scan_panel(
         discrete_carry_vars = sorted(
             v for v in discrete_sample_vars if v in endo_lag_bases
         )
+        # kind="mean" sets this so a discrete predictor carries its response-scale
+        # mean (rate or probability) instead of a sampled integer. Absent unless
+        # a discrete outcome is actually used as a predictor.
+        use_mean_carry = (
+            pm.Data("_use_mean_carry", np.array(0, dtype="int8"))
+            if discrete_sample_vars
+            else None
+        )
         discrete_bernoulli_vars = sorted(
             v
             for v in discrete_sample_vars
@@ -2924,7 +2998,14 @@ def _compile_scan_panel(
             | set(discrete_sample_vars)
             | set(unlagged_continuous_parents)
         )
-
+        # Non-latent Poisson/NegBinomial log-rates. Latent nodes are not
+        # exponentiated, so they are not clipped and must not warn.
+        rate_clip_vars = sorted(
+            v
+            for v in endo_keys
+            if v not in latent and families.get(v, "gaussian") in _SCAN_RATE_FAMILIES
+        )
+        rate_clip_set = set(rate_clip_vars)
         observed_carry_nodes: dict[str, Any] = {}
         for var in observed_carry_vars:
             if var in data_sorted.columns:
@@ -3061,6 +3142,7 @@ def _compile_scan_panel(
             + [_init_carry(init_adstock[k]) for k in adstock_keys]
             + [_init_carry(init_exog_lag[k]) for k in exog_lag_bases]
             + [None for _ in carry_mu_vars]
+            + [None for _ in rate_clip_vars]
         )
 
         # Non-sequences: all parameters
@@ -3069,6 +3151,9 @@ def _compile_scan_panel(
         beta_component_names: dict[str, list[str]] = {}
         non_seq_list.append(use_observed_carry)
         non_seq_names.append("_use_observed_carry")
+        if use_mean_carry is not None:
+            non_seq_list.append(use_mean_carry)
+            non_seq_names.append("_use_mean_carry")
         non_seq_list.append(discrete_scan_rng)
         non_seq_names.append("_discrete_scan_rng")
         for var in endo_keys:
@@ -3192,7 +3277,7 @@ def _compile_scan_panel(
             new_adstock = dict(prev_adstock_state)
             current_transform: dict[str, Any] = {}
             carry_mu: dict[str, Any] = {}
-
+            unclipped_log_rate: dict[str, Any] = {}
             for var in endo_keys:
                 beta_names = beta_component_names.get(var)
                 beta = (
@@ -3231,6 +3316,11 @@ def _compile_scan_panel(
                         )
                         mu = mu + ns_map[bkey] * x_val
 
+                if var in rate_clip_set:
+                    # Structural log-rate, before the do() switch and before
+                    # the numerical clip. The reported deterministic warns
+                    # from this tensor; the likelihood still uses the clip.
+                    unclipped_log_rate[var] = pt.as_tensor_variable(mu)
                 family = families.get(var, "gaussian")
                 if var in latent:
                     if var in stochastic_latent_set:
@@ -3275,11 +3365,16 @@ def _compile_scan_panel(
                         observed_or_sampled = pt.switch(
                             pt.isnan(obs_state), sampled_state, obs_state
                         )
-                        new_endo[var] = pt.switch(
+                        propagated = pt.switch(
                             use_observed_carry_t, observed_or_sampled, sampled_state
                         )
                     else:
-                        new_endo[var] = sampled_state
+                        propagated = sampled_state
+                    if "_use_mean_carry" in ns_map:
+                        propagated = pt.switch(
+                            ns_map["_use_mean_carry"], carry_mu[var], propagated
+                        )
+                    new_endo[var] = propagated
                 elif var in stochastic_carry_vars:
                     carry_mu[var] = mu
                     sigma_val = ns_map[f"sigma_{var}"]
@@ -3329,7 +3424,7 @@ def _compile_scan_panel(
             out += [new_adstock[k] for k in adstock_keys]
             out += [exog_t.get(k, pt.zeros(n_units)) for k in exog_lag_bases]
             out += [carry_mu[k] for k in carry_mu_vars]
-
+            out += [unclipped_log_rate[k] for k in rate_clip_vars]
             return out
 
         results = pytensor.scan(
@@ -3349,12 +3444,15 @@ def _compile_scan_panel(
         carry_mu_results: dict[str, Any] = {
             var: results[carry_mu_start + i] for i, var in enumerate(carry_mu_vars)
         }
-
+        unclipped_start = n_carry + len(carry_mu_vars)
+        unclipped_log_rate = {
+            var: results[unclipped_start + i] for i, var in enumerate(rate_clip_vars)
+        }
+        scan_model._pathmc_unclipped_log_rate = unclipped_log_rate
         # --- emit deterministics and free RVs ---
         for i, var in enumerate(endo_keys):
             carry_all = results[i]  # (n_times, n_units)
             mu_all = carry_mu_results.get(var, carry_all)
-
             if var in latent:
                 if var in stochastic_latent_set:
                     pm.Deterministic(var, mu_all)

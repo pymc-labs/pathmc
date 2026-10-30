@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
@@ -137,6 +138,291 @@ class TestPredictions:
         pred = fork_model.predictions("Y", newdata=grid)
         assert isinstance(pred, InterpretResult)
         assert pred.dataset["Y"].sizes["unit"] == len(grid)
+
+    @pytest.mark.parametrize(
+        ("m_obs", "beta_m", "beta_y"),
+        [
+            ([0.0, 1.0, 100.0, 3.0], [0.0, 5.0], [0.0, 2.0, 3.0]),
+            ([4.0, -2.0, 0.5, 8.0], [1.0, -3.0], [0.5, 4.0, -1.0]),
+        ],
+    )
+    def test_omitted_set_uses_observed_mediator(self, m_obs, beta_m, beta_y):
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        m_obs = np.asarray(m_obs, dtype=float)
+        beta_m = np.asarray(beta_m, dtype=float)
+        beta_y = np.asarray(beta_y, dtype=float)
+        df = pd.DataFrame({"X": x, "M": m_obs, "Y": np.zeros(4)})
+        model = pathmc.model("M ~ X\nY ~ M + X", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": beta_m.reshape(1, 1, -1),
+                    "sigma_M": np.array([[1.0]]),
+                    "beta_Y": beta_y.reshape(1, 1, -1),
+                    "sigma_Y": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "M", "X"],
+            },
+            dims={"beta_M": ["M_predictors"], "beta_Y": ["Y_predictors"]},
+        )
+        pred = model.predictions("Y")
+        expected = beta_y[0] + beta_y[1] * m_obs + beta_y[2] * x
+        np.testing.assert_allclose(np.asarray(pred.dataset["Y"]).reshape(-1), expected)
+        assert pred.interventional is False
+        assert pred.causal is False
+
+        mediator = model.predictions("M")
+        np.testing.assert_allclose(
+            np.asarray(mediator.dataset["M"]).reshape(-1),
+            beta_m[0] + beta_m[1] * x,
+        )
+
+        reduced = beta_y[0] + beta_y[1] * (beta_m[0] + beta_m[1] * x) + beta_y[2] * x
+        intervened = model.predictions("Y", set={"X": x})
+        np.testing.assert_allclose(
+            np.asarray(intervened.dataset["Y"]).reshape(-1), reduced
+        )
+        assert intervened.interventional is True
+
+    def test_omitted_set_uses_observed_mediator_through_a_chain(self):
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        m_obs = np.array([0.0, 1.0, 100.0, 3.0])
+        y_obs = np.array([1.0, 0.0, 7.0, 2.0])
+        df = pd.DataFrame({"X": x, "M": m_obs, "Y": y_obs, "Z": np.zeros(4)})
+        model = pathmc.model("M ~ X\nY ~ M\nZ ~ Y", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": np.array([[[0.0, 5.0]]]),
+                    "sigma_M": np.array([[1.0]]),
+                    "beta_Y": np.array([[[0.0, 2.0]]]),
+                    "sigma_Y": np.array([[1.0]]),
+                    "beta_Z": np.array([[[0.0, 4.0]]]),
+                    "sigma_Z": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "M"],
+                "Z_predictors": ["Intercept", "Y"],
+            },
+            dims={
+                "beta_M": ["M_predictors"],
+                "beta_Y": ["Y_predictors"],
+                "beta_Z": ["Z_predictors"],
+            },
+        )
+        pred = model.predictions("Z")
+        np.testing.assert_allclose(
+            np.asarray(pred.dataset["Z"]).reshape(-1), 4.0 * y_obs
+        )
+        assert pred.interventional is False
+        assert pred.causal is False
+        mid = model.predictions("Y")
+        np.testing.assert_allclose(
+            np.asarray(mid.dataset["Y"]).reshape(-1), 2.0 * m_obs
+        )
+
+    def test_omitted_set_rejects_query_frame_missing_mediator(self):
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        df = pd.DataFrame({"X": x, "M": [0.0, 1.0, 100.0, 3.0], "Y": np.zeros(4)})
+        model = pathmc.model("M ~ X\nY ~ M + X", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": np.array([[[0.0, 5.0]]]),
+                    "sigma_M": np.array([[1.0]]),
+                    "beta_Y": np.array([[[0.0, 2.0, 3.0]]]),
+                    "sigma_Y": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "M", "X"],
+            },
+            dims={"beta_M": ["M_predictors"], "beta_Y": ["Y_predictors"]},
+        )
+        with pytest.raises(ValueError, match="column 'M'"):
+            model.predictions(
+                "Y", newdata=pd.DataFrame({"X": [1.0, 2.0], "Y": [0.0, 0.0]})
+            )
+        chain = pathmc.model(
+            "M ~ X\nY ~ M\nZ ~ Y",
+            data=pd.DataFrame({
+                "X": x,
+                "M": [0.0, 1.0, 100.0, 3.0],
+                "Y": [1.0, 0.0, 7.0, 2.0],
+                "Z": np.zeros(4),
+            }),
+        )
+        chain._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": np.array([[[0.0, 5.0]]]),
+                    "sigma_M": np.array([[1.0]]),
+                    "beta_Y": np.array([[[0.0, 2.0]]]),
+                    "sigma_Y": np.array([[1.0]]),
+                    "beta_Z": np.array([[[0.0, 4.0]]]),
+                    "sigma_Z": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "M"],
+                "Z_predictors": ["Intercept", "Y"],
+            },
+            dims={
+                "beta_M": ["M_predictors"],
+                "beta_Y": ["Y_predictors"],
+                "beta_Z": ["Z_predictors"],
+            },
+        )
+        with pytest.raises(ValueError, match="column 'Y'"):
+            chain.predictions("Z", newdata=pd.DataFrame({"X": x, "M": x, "Z": x}))
+
+    def test_omitted_set_rejects_partially_observed_mediator(self):
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        m_obs = np.array([0.0, np.nan, 100.0, np.nan])
+        df = pd.DataFrame({"X": x, "M": m_obs, "Y": np.zeros(4)})
+        model = pathmc.model("M ~ X\nY ~ M + X", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": np.array([[[0.0, 5.0]]]),
+                    "sigma_M": np.array([[1.0]]),
+                    "beta_Y": np.array([[[0.0, 2.0, 3.0]]]),
+                    "sigma_Y": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "M", "X"],
+            },
+            dims={"beta_M": ["M_predictors"], "beta_Y": ["Y_predictors"]},
+        )
+        with pytest.raises(ValueError, match="column 'M'"):
+            model.predictions("Y")
+        complete = pathmc.model(
+            "M ~ X\nY ~ M + X",
+            data=pd.DataFrame({"X": x, "M": [0.0, 1.0, 100.0, 3.0], "Y": np.zeros(4)}),
+        )
+        complete._idata = model._idata
+        with pytest.raises(ValueError, match="column 'M'"):
+            complete.predictions(
+                "Y",
+                newdata=pd.DataFrame({
+                    "X": x,
+                    "M": [0.0, 1.0, np.nan, 3.0],
+                    "Y": np.zeros(4),
+                }),
+            )
+
+    def test_omitted_set_uses_observed_residual_block_mediator(self):
+        """A ~~ member is not a named RV; descendants must still see it."""
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        m_obs = np.array([0.0, 1.0, 100.0, 3.0])
+        df = pd.DataFrame({"X": x, "M": m_obs, "Y": np.zeros(4), "Z": np.zeros(4)})
+        model = pathmc.model("M ~ X\nY ~ X\nM ~~ Y\nZ ~ M", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": np.array([[[0.0, 0.0]]]),
+                    "beta_Y": np.array([[[0.0, 0.0]]]),
+                    "beta_Z": np.array([[[0.0, 2.0]]]),
+                    "sigma_Z": np.array([[1.0]]),
+                    "chol_M_Y": np.array([[[1.0, 0.0, 1.0]]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "X"],
+                "Z_predictors": ["Intercept", "M"],
+            },
+            dims={
+                "beta_M": ["M_predictors"],
+                "beta_Y": ["Y_predictors"],
+                "beta_Z": ["Z_predictors"],
+            },
+        )
+        pred = model.predictions("Z")
+        np.testing.assert_allclose(
+            np.asarray(pred.dataset["Z"]).reshape(-1), 2.0 * m_obs
+        )
+
+    def test_omitted_set_ignores_off_path_missing_endogenous(self):
+        """A missing column aborts only when the requested outcome depends on it."""
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        df = pd.DataFrame({"X": x, "W": x, "Y": np.zeros(4), "Z": np.zeros(4)})
+        model = pathmc.model("W ~ X\nY ~ X\nZ ~ W", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_W": np.array([[[0.0, 1.0]]]),
+                    "sigma_W": np.array([[1.0]]),
+                    "beta_Y": np.array([[[1.0, 3.0]]]),
+                    "sigma_Y": np.array([[1.0]]),
+                    "beta_Z": np.array([[[0.0, 4.0]]]),
+                    "sigma_Z": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "W_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "X"],
+                "Z_predictors": ["Intercept", "W"],
+            },
+            dims={
+                "beta_W": ["W_predictors"],
+                "beta_Y": ["Y_predictors"],
+                "beta_Z": ["Z_predictors"],
+            },
+        )
+        pred = model.predictions(
+            "Y",
+            newdata=pd.DataFrame({
+                "X": x,
+                "Y": np.zeros(4),
+                "Z": np.zeros(4),
+                "W": [np.nan, 1.0, 2.0, 3.0],
+            }),
+        )
+        np.testing.assert_allclose(
+            np.asarray(pred.dataset["Y"]).reshape(-1), 1.0 + 3.0 * x
+        )
+        with pytest.raises(ValueError, match="column 'W'"):
+            model.predictions(
+                "Z",
+                newdata=pd.DataFrame({
+                    "X": x,
+                    "Y": np.zeros(4),
+                    "Z": np.zeros(4),
+                    "W": [np.nan, 1.0, 2.0, 3.0],
+                }),
+            )
+
+    def test_omitted_set_does_not_require_the_outcome_column(self):
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        df = pd.DataFrame({"X": x, "M": [0.0, 1.0, 100.0, 3.0], "Y": np.zeros(4)})
+        model = pathmc.model("M ~ X\nY ~ M", data=df)
+        model._idata = az.from_dict(
+            {
+                "posterior": {
+                    "beta_M": np.array([[[0.0, 5.0]]]),
+                    "sigma_M": np.array([[1.0]]),
+                    "beta_Y": np.array([[[0.0, 2.0]]]),
+                    "sigma_Y": np.array([[1.0]]),
+                }
+            },
+            coords={
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "M"],
+            },
+            dims={"beta_M": ["M_predictors"], "beta_Y": ["Y_predictors"]},
+        )
+        pred = model.predictions("M", newdata=pd.DataFrame({"X": x, "Y": np.zeros(4)}))
+        np.testing.assert_allclose(np.asarray(pred.dataset["M"]).reshape(-1), 5.0 * x)
 
 
 class TestRatioLift:
