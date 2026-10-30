@@ -145,6 +145,7 @@ digraph {
   d1 -> a2 [label="× θ", style=dashed, color="#e6550d", fontcolor="#e6550d"]
   d1 -> a3 [label="× θ²", style=dashed, color="#e6550d", fontcolor="#e6550d"]
   d2 -> a3 [label="× θ", style=dashed, color="#e6550d", fontcolor="#e6550d"]
+}
 ```
 
 The dashed orange arrows are the lagged inputs inside the convolution window.
