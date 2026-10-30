@@ -1,0 +1,16 @@
+pathmc/transforms.py
+  h_63db634213747e 378-379,381-390
+tests/test_adstock_parity.py
+  h_63db634213747e 298-324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e6386dee733f76e56f7bce289bb780563cea63f2",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
