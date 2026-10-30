@@ -167,6 +167,7 @@ This aligns source inputs, tool versions, and lint/test commands. Local platform
 - Update documentation, examples, or README content when behavior or setup instructions change.
 - Run relevant targeted tests while iterating, then `make check-pr PR=<number>` for an existing PR or `make check-merge BASE=main` for a new one. Repeat if the candidate or target branch changes. Pull requests run the same per-commit test scope, including slow MCMC and excluding nightly Tier 5.
 - Label the pull request before merge so GitHub's generated release notes place it in the correct category; use labels such as `bug`, `documentation`, or `enhancement` when they apply.
+- Use `agents` for changes to agent skills, workflows, or repository agent guidance, not merely because an agent wrote the pull request. A more specific label such as `bug` or `documentation` still takes the earlier release-note category.
 - Mark work-in-progress pull requests as drafts until the implementation and test plan are ready for review.
 
 ## Building the documentation locally
