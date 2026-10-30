@@ -45,6 +45,7 @@ import numpy as np
 from narwhals.stable.v1.typing import IntoFrame
 
 from pathmc.panel import _SEPARATOR
+from pathmc.parse import lag_part_base
 
 if TYPE_CHECKING:
     from pathmc.parse import Term
@@ -478,7 +479,8 @@ class ScalingFactors:
         if interaction is not None:
             factor = outcome_factor
             for part in interaction:
-                factor /= self._scalar_factor(part, mean_context)
+                base = lag_part_base(part) or part
+                factor /= self._scalar_factor(base, mean_context)
             return factor
         transform = getattr(term, "transform", None)
         if transform is not None:

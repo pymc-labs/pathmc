@@ -140,9 +140,20 @@ class TestGraph:
         assert order.index("predator") < order.index("lynx")
 
     def test_rate_equation_rejects_same_step_outcome(self) -> None:
-        df = _frame(4).assign(y=1.0, u=0.0)
+        df = _frame(4).assign(y=1.0, m=0.0, u=0.0)
         with pytest.raises(NotImplementedError, match="exogenous inputs only"):
             pathmc.model("d(x) ~ 0 + x + m\nm ~ u\ny ~ 0 + 1*x", data=df, panel=PANEL, latent=["x"])
+
+
+def test_state_read_only_inside_a_product_gets_an_init_prior() -> None:
+    template = pathmc.simulate_params_template(
+        "prey ~ 0 + r*lag(prey) + a*lag(prey):lag(predator)\n"
+        "predator ~ 0 + c*lag(prey):lag(predator)",
+        _frame(5),
+        panel=PANEL,
+        latent=["prey", "predator"],
+    )
+    assert template["init_predator"]["shape"] == (1,)
 
 
 class TestSimulateOracle:

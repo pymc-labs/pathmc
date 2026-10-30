@@ -2736,6 +2736,26 @@ def _apply_step_transform(
     return out, prev_adstock
 
 
+def lag_bases(spec: Spec) -> set[str]:
+    """Every variable read at the previous step, latent or observed.
+
+    Covers plain ``lag(x)`` terms, ``lag(x)`` parts of products, and the
+    states of ``d(x)`` rate equations, which always start from ``x[t-1]``.
+    """
+    bases: set[str] = set()
+    for reg in spec.regressions:
+        if reg.rate:
+            bases.add(reg.lhs)
+        for term in reg.terms:
+            bases.update(term_lag_bases(term))
+    return bases
+
+
+def has_lag_terms(spec: Spec) -> bool:
+    """Return True when any equation reads a previous-step value."""
+    return bool(lag_bases(spec))
+
+
 def observed_lag_bases(spec: Spec, latent: set[str] | None = None) -> tuple[str, ...]:
     """Observed variables read by ``lag()``, excluding latent bases.
 
