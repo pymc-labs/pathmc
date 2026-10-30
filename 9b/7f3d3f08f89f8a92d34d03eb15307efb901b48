@@ -1,0 +1,19 @@
+AGENTS.md
+  s_0fb2b7388a6b67::t_39e38a8dc01d87 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9b7f3d3f08f89f8a92d34d03eb15307efb901b48",
+  "prompts": {},
+  "sessions": {
+    "s_0fb2b7388a6b67": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18c3c-bc73-7221-a4a4-260b8af11955",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
