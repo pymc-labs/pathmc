@@ -6,7 +6,7 @@ Remember, when running into bugs or complex issues, it is not impossible we are 
 
 ## Workflow
 
-1. Make your changes. Do not modify test files — if a test seems wrong, flag it for human review. Exceptions are for adding new tests or removing obsolete ones, but never for changing the expected behavior of existing tests.
+1. Add regression tests and maintain fixtures/setup for the agreed behavior. Existing fixtures may be corrected without separate approval when independent evidence shows they no longer construct the intended inputs; preserve assertions and expected results, and have an independent reviewer verify that the correction preserves the behavioral check. Changes to existing expected behavior still require human review. Never weaken assertions, narrow coverage, or skip a failing case to conceal a defect; remove obsolete tests only with evidence that their contract no longer applies.
 2. Run the relevant gate tests, e.g. `uv run pytest tests/test_<module>.py -x -v`. `make test-fast` skips slow MCMC tests and nightly Tier 5. `make test` runs the per-commit suite, including slow MCMC, and excludes nightly Tier 5.
 3. Run `make lint` before considering work done or committing. It runs `prek run --all-files` (ruff, ruff-format, mypy, YAML/TOML, license checks).
 
