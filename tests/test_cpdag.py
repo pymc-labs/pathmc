@@ -712,6 +712,57 @@ def test_unquoted_unicode_space_stays_one_id():
         assert directed == {("B", "Y")}
 
 
+def test_quoted_string_may_end_in_a_backslash():
+    """A doubled backslash ends a quoted string; it is not an escaped quote.
+
+    Graphviz accepts this inside a subgraph. Treating ``\\\\"`` as ``\\"``
+    consumes the closer and raises instead of comparing the edge.
+    """
+    labeled = 'digraph { A [label="foo\\\\"]; A -> B }'
+    nodes, directed, _ = _parse_dot(labeled)
+    assert nodes == {"A", "B"}
+    assert directed == {("A", "B")}
+    wrapped = 'digraph { subgraph cluster { "C:\\\\" -> Y; Z -> Y } }'
+    nodes, directed, _ = _parse_dot(wrapped)
+    assert nodes == {"C:\\", "Y", "Z"}
+    assert directed == {("C:\\", "Y"), ("Z", "Y")}
+    assert _parse_dot('digraph { "foo\\bar" -> Y }')[0] == {"foo\\bar", "Y"}
+
+
+def test_spaced_unquoted_compass_port_is_not_an_endpoint():
+    """Whitespace around ``:`` is a compass port, including inside a subgraph.
+
+    ``A:n`` with no space stays one id, matching the previous reader.
+    """
+    wrapped = "digraph { subgraph cluster { A : n -> B } }"
+    nodes, directed, _ = _parse_dot(wrapped)
+    assert nodes == {"A", "B"}
+    assert directed == {("A", "B")}
+    assert _parse_dot("digraph { A:n -> B }")[0] == {"A:n", "B"}
+
+
+def test_keyword_endpoint_and_unquoted_plus_do_not_rewrite_the_graph():
+    """Invalid spellings raise instead of comparing equal to a different graph."""
+    for bad in (
+        "digraph { node -> Y }",
+        "digraph { subgraph cluster { node -> Y } }",
+        "digraph { edge -> Y }",
+        "digraph { graph -> Y }",
+    ):
+        with pytest.raises(ValueError, match="keyword"):
+            same_markov_equivalence_class(bad, "digraph { Y }")
+    with pytest.raises(ValueError, match=r"\+"):
+        same_markov_equivalence_class("digraph { A+B -> Y }", "digraph { AB -> Y }")
+    assert _parse_dot('digraph { "A"+"B" -> Y }')[1] == {("AB", "Y")}
+    with pytest.raises(ValueError, match="dir=none"):
+        _parse_dot("digraph { D -> C; A -> C [dir=none] -> B }")
+    split = "digraph { A -> C [dir=none]; C -> B }"
+    _, directed, undirected = _parse_dot(split)
+    assert ("A", "C") not in directed
+    assert frozenset(("A", "C")) in undirected
+    assert ("C", "B") in directed
+
+
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""
     g = nx.DiGraph()

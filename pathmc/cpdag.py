@@ -296,9 +296,18 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             buf: list[str] = []
             i += 1
             while i < n:
-                if text[i] == "\\" and i + 1 < n and text[i + 1] == '"':
-                    buf.append('"')
-                    i += 2
+                if text[i] == "\\" and i + 1 < n:
+                    nxt = text[i + 1]
+                    if nxt == "\\":
+                        buf.append("\\")
+                        i += 2
+                        continue
+                    if nxt == '"':
+                        buf.append('"')
+                        i += 2
+                        continue
+                    buf.append("\\")
+                    i += 1
                     continue
                 if text[i] == '"':
                     break
@@ -514,9 +523,16 @@ class _DotBodyParser:
         """
         saved = self.i
         consumed = False
+        saw_dir_none = False
         while self.peek() == "[":
-            self.take_attr_list()
+            saw_dir_none = self.take_attr_list() or saw_dir_none
             consumed = True
+        if saw_dir_none and self.peek() in {"->", "--"}:
+            raise _dot_parse_error(
+                "unsupported DOT syntax: dir=none on a node cannot be followed "
+                "by an edge operator. Put dir=none on the edge, for example "
+                "'A -> C [dir=none]'."
+            )
         if self.peek() in {"->", "--"} or (self.peek() == "," and not on_edge):
             return
         if on_edge and consumed and self.peek() == ",":
@@ -545,7 +561,11 @@ class _DotBodyParser:
         literal = isinstance(token, tuple) and token[0] == "qid"
         self.pop()
         while self.peek() == "+":
-            literal = True
+            if not literal:
+                raise _dot_parse_error(
+                    "unsupported DOT syntax near '+'. Only quoted strings can "
+                    'be concatenated. Quote each piece, for example \'"A"+"B"\'.'
+                )
             self.pop()
             extra = _id_text(self.peek())
             if extra is None:
@@ -554,7 +574,7 @@ class _DotBodyParser:
                 )
             self.pop()
             name += extra
-        if literal:
+        if self.peek() == ":":
             self._skip_quoted_ports()
         if not literal and name.lower() in _RESERVED:
             nxt = _id_text(self.peek())
@@ -563,7 +583,10 @@ class _DotBodyParser:
                     "unsupported DOT syntax near '-'. A hyphen is not part of a node id."
                 )
         if not literal and name in _RESERVED:
-            return set()
+            raise _dot_parse_error(
+                f"unsupported DOT syntax: {name!r} is a keyword, not a node id. "
+                "Quote it if it is a node, for example '\"node\" -> Y'."
+            )
         self.add_node(name)
         return {name}
 
