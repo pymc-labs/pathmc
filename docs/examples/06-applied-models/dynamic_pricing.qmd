@@ -284,7 +284,7 @@ pm.model_to_graphviz(model.pymc_model)
 
 ## Sample
 
-This fit pins `nuts_sampler="nutpie"` and a shorter run, which is the sampler that produced the published sample. PyMC's own NUTS (`nuts_sampler="pymc"`) hits the maximum tree depth on every chain. The geometry is tracked in [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
+This fit pins `nuts_sampler="nutpie"` and a shorter run, which is the sampler that produced the published sample. Unit intercepts and slopes are sampled as a unit-normal offset, so the summary below leads with the free `*_offset` rows. Those offset rows are not the centered slopes; the centered slopes are Deterministics and this truncation omits them.
 
 ```{python}
 idata = model.fit(
@@ -299,6 +299,8 @@ idata = model.fit(
 ## Results
 
 ### Population-level coefficients
+
+The table below leads with the free `slope_demand_price_offset` rows. Those are not the centered slopes.
 
 ```{python}
 model.summary()
@@ -324,7 +326,7 @@ mu_slope_price_sd = float(price_hier.loc["mu_slope_demand_price", "sd"])
 mu_slope_price_rhat = float(price_hier.loc["mu_slope_demand_price", "r_hat"])
 ```
 
-The fixed coefficient on `price` has posterior mean `{python} f"{beta_price_mean:+.2f}"`, not −1.2. The lag (`{python} f"{beta_lag_mean:+.2f}"` versus −0.4) and the competitor effect (`{python} f"{beta_comp_mean:+.2f}"` versus −0.3) land close to the planted values. The hierarchical mean `mu_slope_demand_price` is `{python} f"{mu_slope_price_mean:.2f}"` with a standard deviation of `{python} f"{mu_slope_price_sd:.1f}"` and an r-hat of `{python} f"{mu_slope_price_rhat:.2f}"`, so the price elasticity is not identified tightly enough to use. That geometry is tracked in [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
+The fixed coefficient on `price` has posterior mean `{python} f"{beta_price_mean:+.2f}"`, not −1.2. The lag (`{python} f"{beta_lag_mean:+.2f}"` versus −0.4) and the competitor effect (`{python} f"{beta_comp_mean:+.2f}"` versus −0.3) land close to the planted values. The hierarchical mean `mu_slope_demand_price` is `{python} f"{mu_slope_price_mean:.2f}"` with a standard deviation of `{python} f"{mu_slope_price_sd:.1f}"` and an r-hat of `{python} f"{mu_slope_price_rhat:.2f}"`, so the price elasticity is not identified tightly enough to use in this sample.
 
 ### Recovery of key parameters
 
@@ -684,7 +686,7 @@ The standardized coefficients put all predictors on the same scale (SD units), m
 
 ## Summary
 
-- **The confounded slope is attenuated here.** Naive regression gives `{python} f"{ols_slope:.2f}"` rather than −1.2. The hierarchical price slope does not recover the planted elasticity either; see [issue #538](https://github.com/pymc-labs/pathmc/issues/538). The lag and competitor coefficients do.
+- **The confounded slope is attenuated here.** Naive regression gives `{python} f"{ols_slope:.2f}"` rather than −1.2. The hierarchical price slope does not recover the planted elasticity either. The lag and competitor coefficients do.
 - **The lag landed; the cumulative effect did not.** Immediate mean `{python} f"{beta_price_mean:+.2f}"`, lag `{python} f"{beta_lag_mean:+.2f}"` (planted −0.4), cumulative `{python} f"{cumulative_mean:.2f}"` (planted −1.60). This sample's cumulative mean is not a larger recovered effect.
 - **Regional point estimates are not a price list.** Posterior means range from `{python} f"{region_mean_min:+.2f}"` to `{python} f"{region_mean_max:+.2f}"`. The 94% intervals `{python} cross_zero_note`, and the between-region SD is `{python} f"{sigma_price_mean:.3f}"` against a planted 0.3.
 - **Partial pooling is not shrinkage to −1.2 here.** Metro and Coastal posterior means are `{python} f"{region_post_means['Metro']:+.2f}"` and `{python} f"{region_post_means['Coastal']:+.2f}"`. `{python} closest_recovery` lies nearest the perfect-recovery line.

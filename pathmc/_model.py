@@ -3050,6 +3050,58 @@ def _prepare_simulation_frame(
     return data_sim
 
 
+def _noncentered_mapping(gen_model: pm.Model) -> dict[str, tuple[str, str, str]]:
+    return getattr(gen_model, "_pathmc_noncentered", {})
+
+
+def _public_param_name(gen_model: pm.Model, name: str) -> str:
+    for centered, (offset_name, _, _) in _noncentered_mapping(gen_model).items():
+        if name == offset_name:
+            return centered
+    return name
+
+
+def _realize_noncentered_params(
+    gen_model: pm.Model, params: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Turn centered unit effects into the unit-normal offsets ``pm.do`` sets.
+
+    Hierarchical intercepts and slopes are sampled as
+    ``name_offset ~ N(0, 1)`` with ``name = mu + sigma * offset``. Callers
+    still pass the centered vector. A scale at or below 1e-12 cannot
+    represent a centered vector that differs from ``mu`` through that
+    product, so those values are applied to the centered Deterministic
+    itself. The offset is still fixed, at 0, so the free RV has a value.
+    """
+    mapping = _noncentered_mapping(gen_model)
+    if not mapping:
+        return params, {}
+    params = dict(params)
+    singular_values: dict[str, Any] = {}
+    for centered, (offset_name, mu_name, sigma_name) in mapping.items():
+        if centered not in params:
+            continue
+        if offset_name in params:
+            raise ValueError(
+                f"Pass '{centered}' or '{offset_name}', not both. "
+                f"simulate() takes the centered '{centered}' unit vector."
+            )
+        if mu_name not in params or sigma_name not in params:
+            raise ValueError(
+                f"'{centered}' needs '{mu_name}' and '{sigma_name}' so "
+                "simulate() can recover the unit-normal offset. Pass all three."
+            )
+        mu = np.asarray(params[mu_name], dtype=float)
+        sigma = np.asarray(params[sigma_name], dtype=float)
+        value = np.asarray(params.pop(centered), dtype=float)
+        safe = np.where(np.abs(sigma) > 1e-12, sigma, 1.0)
+        offset = (value - mu) / safe
+        params[offset_name] = np.where(np.abs(sigma) > 1e-12, offset, 0.0)
+        if np.any(np.abs(sigma) <= 1e-12):
+            singular_values[centered] = value
+    return params, singular_values
+
+
 def simulate(
     spec_string: str,
     data: IntoFrameT,
@@ -3096,8 +3148,10 @@ def simulate(
         columns share the correlated residuals. Descendants of block
         members receive the realized noisy draws. Within-block directed
         edges (one member regressing on another) still raise
-        ``NotImplementedError``.
-        For ``hsgp()``
+        ``NotImplementedError``. Hierarchical unit effects
+        (``alpha_{var}``, ``slope_{lhs}_{var}``) are passed as the
+        centered unit vectors, not the ``*_offset`` free parameters
+        the sampler uses. For ``hsgp()``
         terms, supply ``"ell_{lhs}_{var}"``, ``"eta_{lhs}_{var}"``, and
         ``"beta_hsgp_{lhs}_{var}"`` (length ``m``). Transform
         parameters are keyed by their user-chosen DSL names, e.g.
@@ -3320,19 +3374,26 @@ def simulate(
         all_rv_names - endo_rv_names - innovation_rv_names - block_joint_rvs
     )
 
+    params, singular_values = _realize_noncentered_params(gen_model, params)
+
     missing = param_rv_names - set(params.keys())
     if missing:
+        public_missing = sorted(_public_param_name(gen_model, n) for n in missing)
+        public_expected = sorted(
+            _public_param_name(gen_model, n) for n in param_rv_names
+        )
         raise ValueError(
-            f"Missing parameter values for: {sorted(missing)}. "
+            f"Missing parameter values for: {public_missing}. "
             f"All model parameters must be provided. "
-            f"Expected: {sorted(param_rv_names)}"
+            f"Expected: {public_expected}"
         )
 
     extra = set(params.keys()) - param_rv_names
     if extra:
         warnings.warn(
             f"Ignoring unknown parameter names: {sorted(extra)}. "
-            f"Expected parameter names: {sorted(param_rv_names)}",
+            f"Expected parameter names: "
+            f"{sorted(_public_param_name(gen_model, n) for n in param_rv_names)}",
             UserWarning,
             stacklevel=2,
         )
@@ -3346,6 +3407,23 @@ def simulate(
             if arr.ndim == 0:
                 arr = np.full(shape, arr)
             else:
+                public = _public_param_name(gen_model, name)
+                raise ValueError(
+                    f"Parameter '{public}' has shape {arr.shape}, but the model "
+                    f"requires {shape}. Scalar values are broadcast to the "
+                    "required shape; arrays must match it exactly. Use "
+                    "pathmc.simulate_params_template() to discover names and "
+                    "shapes."
+                )
+        do_dict[name] = arr.astype(rv.dtype)
+    for name, value in singular_values.items():
+        rv = gen_model[name]
+        arr = np.asarray(value)
+        shape = tuple(int(d) for d in rv.shape.eval())
+        if arr.shape != shape:
+            if arr.ndim == 0:
+                arr = np.full(shape, arr)
+            else:
                 raise ValueError(
                     f"Parameter '{name}' has shape {arr.shape}, but the model "
                     f"requires {shape}. Scalar values are broadcast to the "
@@ -3354,6 +3432,7 @@ def simulate(
                     "shapes."
                 )
         do_dict[name] = arr.astype(rv.dtype)
+
     fixed_model = pm.do(gen_model, do_dict)
     # Coefficients are numeric only after they are bound. Evaluate the scan
     # linear predictor here so a large intercept warns even when the outcome
@@ -3605,6 +3684,8 @@ def simulate_params_template(
 
     block_joint_rvs: set[str] = getattr(gen_model, "_pathmc_block_joint_rvs", set())
 
+    mapping = _noncentered_mapping(gen_model)
+    offset_names = {offset for offset, _, _ in mapping.values()}
     template: dict[str, Any] = {}
     families_eff = families or {}
     count_uniform_names = {
@@ -3612,24 +3693,8 @@ def simulate_params_template(
         for v in _scan_discrete_sample_vars(spec, families_eff, latent_set)
         if families_eff.get(v, "gaussian") in ("poisson", "negbinomial")
     }
-    for rv in gen_model.free_RVs:
-        # Stochastic endogenous RVs (observed outcomes / stochastic
-        # latents) are simulation outputs, not params entries. The
-        # ``innovations_*`` / ``carry_innovations_*`` sequences drive the
-        # scan recursion itself: simulate() draws them internally.
-        # Residual-block joint RVs are realized noise, not user params.
-        # Poisson/NegativeBinomial per-time uniforms are the same kind of
-        # noise. Bernoulli uniforms stay required parameters.
-        if (
-            rv.name in endo_set
-            or rv.name in block_joint_rvs
-            or rv.name in count_uniform_names
-            or rv.name.startswith((
-                "innovations_",
-                "carry_innovations_",
-            ))
-        ):
-            continue
+
+    def _record(name: str, rv: Any) -> None:
         shape = tuple(int(d) for d in rv.shape.eval())
         if len(shape) == 0:
             kind = "scalar"
@@ -3639,9 +3704,34 @@ def simulate_params_template(
             kind = "matrix"
         else:
             kind = f"{len(shape)}-d array"
-        template[rv.name] = {
+        template[name] = {
             "kind": kind,
             "shape": shape,
             "dtype": str(rv.dtype),
         }
+
+    for rv in gen_model.free_RVs:
+        # Stochastic endogenous RVs (observed outcomes / stochastic
+        # latents) are simulation outputs, not params entries. The
+        # ``innovations_*`` / ``carry_innovations_*`` sequences drive the
+        # scan recursion itself: simulate() draws them internally.
+        # Residual-block joint RVs are realized noise, not user params.
+        # Poisson/NegativeBinomial per-time uniforms are the same kind of
+        # noise. Bernoulli uniforms stay required parameters.
+        # Hierarchical offsets are an internal sampler detail; the template
+        # lists the centered unit effect instead.
+        if (
+            rv.name in endo_set
+            or rv.name in block_joint_rvs
+            or rv.name in count_uniform_names
+            or rv.name in offset_names
+            or rv.name.startswith((
+                "innovations_",
+                "carry_innovations_",
+            ))
+        ):
+            continue
+        _record(rv.name, rv)
+    for centered in mapping:
+        _record(centered, gen_model[centered])
     return template

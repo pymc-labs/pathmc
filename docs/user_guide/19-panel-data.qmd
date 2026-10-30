@@ -68,7 +68,7 @@ model = pathmc.model(
 )
 ```
 
-Each region gets its own intercept, drawn from a shared distribution: `alpha_region ~ Normal(mu_alpha, sigma_alpha)`.
+Each region gets its own intercept, drawn from a shared distribution: `alpha_{outcome} ~ Normal(mu_alpha, sigma_alpha)`. Sampling uses a unit-normal offset, `alpha_{outcome}_offset`, so the sampler does not walk the centered funnel. Posterior tables still report the centered `alpha_{outcome}`. `simulate()` takes that centered vector, not the offset.
 
 ## Random slopes
 
@@ -82,6 +82,8 @@ model = pathmc.model(
     pooling={"intercept": True, "slopes": ["spend"]},
 )
 ```
+
+Random slopes use the same non-centered form: `slope_{outcome}_{var}` is the centered effect, and `slope_{outcome}_{var}_offset` is the unit-normal free parameter.
 
 ## Multi-dimensional units
 
