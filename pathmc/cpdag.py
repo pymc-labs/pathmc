@@ -574,6 +574,8 @@ class _DotBodyParser:
             self.pop()
             # Graphviz node name is the HTML interior, not the angle brackets.
             name = token[1][1:-1]
+            if self.peek() == ":":
+                self._skip_port_chain()
             self.add_node(name)
             return {name}
         if not _is_id(token):
@@ -603,11 +605,7 @@ class _DotBodyParser:
             if extra is None:
                 raise _dot_parse_error("unsupported '+' in a DOT id.")
             name += extra
-        if self.peek() == ":" or (
-            not literal and name.endswith(":") and _is_id(self.peek())
-        ):
-            if name.endswith(":"):
-                name = name[:-1]
+        if self.peek() == ":":
             self._skip_port_chain()
         if not literal and name.lower() in _RESERVED:
             nxt = _id_text(self.peek())
@@ -624,25 +622,20 @@ class _DotBodyParser:
         return {name}
 
     def _skip_port_chain(self) -> None:
-        """Drop every compass piece after a real port colon.
+        """Drop at most two ``:id`` pieces. A colon inside an id is not a port.
 
-        ``A:n`` has no separate colon and stays one id. ``A: n: ne`` must not
-        leave ``ne`` as a node.
+        ``A:n`` is node ``A`` because the tokenizer splits on ``:``. ``"A:"``
+        already includes the colon, so ``"A:":n`` stays node ``A:``.
         """
-        expect_piece = self.peek() != ":"
-        while True:
-            if self.peek() == ":":
-                self.pop()
-                expect_piece = True
-                continue
-            if not expect_piece:
+        for _ in range(2):
+            if self.peek() != ":":
                 return
+            self.pop()
             if not _is_id(self.peek()):
                 raise _dot_parse_error(
                     f"unsupported compass port before {self.peek()!r}."
                 )
-            piece = _id_text(self.pop())
-            expect_piece = piece is not None and piece.endswith(":")
+            self.pop()
 
     def parse_subgraph(self) -> set[str]:
         if _is_keyword(self.peek(), "subgraph"):

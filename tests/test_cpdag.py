@@ -812,6 +812,11 @@ def test_glued_compass_port_is_not_a_node():
     assert _parse_dot(wrapped)[0] == {"A", "Y", "Z"}
     assert same_markov_equivalence_class(wrapped, "digraph { A -> Y; Z -> Y }") is True
     assert _parse_dot("digraph { A:n -> B }")[0] == {"A", "B"}
+    assert _parse_dot('digraph { "A:":n -> B }')[0] == {"A:", "B"}
+    nodes, directed, _ = _parse_dot('digraph { "A":"n:" B -> C }')
+    assert nodes == {"A", "B", "C"}
+    assert directed == {("B", "C")}
+    assert _parse_dot("digraph { <A>:n -> Y }")[0] == {"A", "Y"}
 
 
 def test_keyword_endpoint_and_unquoted_plus_do_not_rewrite_the_graph():
