@@ -128,6 +128,7 @@ def implication_result() -> ImplicationTestResult:
         "partial_corr": [0.01, 0.02],
         "p_value": [0.8, 0.7],
         "significant": [False, False],
+        "rank_collapsed": [False, False],
     })
     return ImplicationTestResult(results=df, alpha=0.05)
 
@@ -436,7 +437,7 @@ class TestFalsificationResultRepr:
             ),
         )
         r = repr(result)
-        assert "not_evaluable" in r
+        assert "saturated" in r
         assert "\n" not in r
 
 
@@ -472,6 +473,7 @@ class TestImplicationTestResultRepr:
             "partial_corr": [0.55],
             "p_value": [0.001],
             "significant": [True],
+            "rank_collapsed": [False],
         })
         result = ImplicationTestResult(results=df, alpha=0.05)
         r = repr(result)

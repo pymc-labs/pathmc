@@ -19,7 +19,11 @@ testing) and :func:`pathmc.falsify.falsify_graph` (whole-graph
 falsification). Degrees of freedom follow the *effective rank* of the
 conditioning design, so constant, duplicated, or collinear conditioners
 behave as if they were absent, and every degenerate input maps to a
-named skip instead of a NaN or a runtime warning.
+named skip instead of a NaN or a runtime warning. The engine stays
+silent: ``requested_k`` and ``effective_k`` record the collapse, and
+callers decide whether a collapsed row counts. A named conditioner that
+encodes to zero columns is not a smaller rank of the columns that entered;
+``dropped_conditioner_names`` reports it, and callers mark that row.
 
 Every variable enters as a *block* of one or more numeric columns. A
 continuous variable is one column; a categorical variable is its ``k - 1``
@@ -35,7 +39,7 @@ to the t-test when both are.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -80,6 +84,20 @@ class CIResult:
         when the test was skipped.
     skip_reason : CISkipReason | None
         Why the test could not be run, or ``None`` if it ran.
+    requested_k : int
+        Conditioning columns that entered the design (``Z.shape[1]``,
+        ``0`` for a marginal test). A single-column conditioner contributes
+        one; a categorical conditioner contributes its indicator columns.
+        A named conditioner that encoded to zero columns is not in this
+        count; it is listed in ``dropped_conditioners``. Always reported,
+        including for skips.
+    effective_k : int | None
+        ``rank([1, Z]) - 1`` when the test ran. ``None`` when it was
+        skipped.
+    dropped_conditioners : tuple[str, ...]
+        Named conditioners that encoded to a zero-column block. Empty for
+        the column-only engine, which has no names to drop. Always
+        reported, including for skips.
     """
 
     r: float | None
@@ -87,10 +105,53 @@ class CIResult:
     n: int
     df: int | float | None
     skip_reason: CISkipReason | None
+    requested_k: int
+    effective_k: int | None
+    dropped_conditioners: tuple[str, ...] = ()
+
+    @property
+    def rank_collapsed(self) -> bool:
+        """Whether the written conditioning set was not the one tested.
+
+        True when an executed test used a smaller rank than the columns
+        that entered, or a named conditioner contributed no columns.
+        False on a skip. The engine does not warn.
+        """
+        if self.skip_reason is not None or self.effective_k is None:
+            return False
+        return self.effective_k < self.requested_k or bool(self.dropped_conditioners)
 
 
-def _skip(reason: CISkipReason, n: int) -> CIResult:
-    return CIResult(r=None, p=None, n=n, df=None, skip_reason=reason)
+def _skip(reason: CISkipReason, n: int, requested_k: int) -> CIResult:
+    return CIResult(
+        r=None,
+        p=None,
+        n=n,
+        df=None,
+        skip_reason=reason,
+        requested_k=requested_k,
+        effective_k=None,
+    )
+
+
+def _ran(
+    *,
+    r: float,
+    p: float,
+    n: int,
+    df: int | float,
+    requested_k: int,
+    effective_k: int,
+) -> CIResult:
+    return CIResult(
+        r=r,
+        p=p,
+        n=n,
+        df=df,
+        skip_reason=None,
+        requested_k=requested_k,
+        effective_k=effective_k,
+    )
 
 
 def _as_block(values: np.ndarray) -> np.ndarray:
@@ -143,7 +204,7 @@ def partial_correlation_ci(
     arr = arr[~np.isnan(arr).any(axis=1)]
     n = arr.shape[0]
     if n < 3:
-        return _skip("insufficient_observations", n)
+        return _skip("insufficient_observations", n, z_block.shape[1])
 
     x_vals = arr[:, :p]
     y_vals = arr[:, p : p + q]
@@ -157,11 +218,19 @@ def _scalar_test(
     x_vals: np.ndarray, y_vals: np.ndarray, z_vals: np.ndarray, n: int
 ) -> CIResult:
     """Classic partial-correlation t-test for two single-column variables."""
-    if z_vals.shape[1] == 0:
+    requested_k = z_vals.shape[1]
+    if requested_k == 0:
         if np.std(x_vals) == 0.0 or np.std(y_vals) == 0.0:
-            return _skip("zero_variance", n)
+            return _skip("zero_variance", n, requested_k)
         r, p = stats.pearsonr(x_vals, y_vals)
-        return CIResult(r=float(r), p=float(p), n=n, df=n - 2, skip_reason=None)
+        return _ran(
+            r=float(r),
+            p=float(p),
+            n=n,
+            df=n - 2,
+            requested_k=0,
+            effective_k=0,
+        )
 
     z_with_intercept = np.column_stack([np.ones(n), z_vals])
     # Effective rank handles constant or collinear conditioning columns:
@@ -169,9 +238,10 @@ def _scalar_test(
     # reduces to the marginal one and the degrees of freedom must reflect
     # the true number of independent predictors, not the column count.
     rank = _effective_rank(z_with_intercept)
+    effective_k = rank - 1
     df = n - rank - 1
     if df <= 0:
-        return _skip("nonpositive_df", n)
+        return _skip("nonpositive_df", n, requested_k)
 
     beta_x, _, _, _ = np.linalg.lstsq(z_with_intercept, x_vals, rcond=None)
     resid_x = x_vals - z_with_intercept @ beta_x
@@ -179,17 +249,31 @@ def _scalar_test(
     resid_y = y_vals - z_with_intercept @ beta_y
 
     if np.std(resid_x) == 0.0 or np.std(resid_y) == 0.0:
-        return _skip("zero_residual_variance", n)
+        return _skip("zero_residual_variance", n, requested_k)
 
     r = float(np.corrcoef(resid_x, resid_y)[0, 1])
     if np.isnan(r):
-        return _skip("nan_correlation", n)
+        return _skip("nan_correlation", n, requested_k)
     if r * r >= 1.0:
-        return CIResult(r=r, p=0.0, n=n, df=df, skip_reason=None)
+        return _ran(
+            r=r,
+            p=0.0,
+            n=n,
+            df=df,
+            requested_k=requested_k,
+            effective_k=effective_k,
+        )
 
     t_stat = r * np.sqrt(df) / np.sqrt(1.0 - r * r)
     p = float(2.0 * stats.t.sf(np.abs(t_stat), df))
-    return CIResult(r=r, p=p, n=n, df=df, skip_reason=None)
+    return _ran(
+        r=r,
+        p=p,
+        n=n,
+        df=df,
+        requested_k=requested_k,
+        effective_k=effective_k,
+    )
 
 
 def _orthonormal_residual_basis(
@@ -220,19 +304,21 @@ def _block_test(
     x_vals: np.ndarray, y_vals: np.ndarray, z_vals: np.ndarray, n: int
 ) -> CIResult:
     """Wilks' lambda test between two residualised blocks (Rao's F)."""
+    requested_k = z_vals.shape[1]
     if (
         _effective_rank(x_vals - x_vals.mean(axis=0)) == 0
         or _effective_rank(y_vals - y_vals.mean(axis=0)) == 0
     ):
-        return _skip("zero_variance", n)
+        return _skip("zero_variance", n, requested_k)
 
     z_with_intercept = np.column_stack([np.ones(n), z_vals])
     rank_z = _effective_rank(z_with_intercept)
+    effective_k = rank_z - 1
     ux = _orthonormal_residual_basis(x_vals, z_with_intercept)
     uy = _orthonormal_residual_basis(y_vals, z_with_intercept)
     p_eff, q_eff = ux.shape[1], uy.shape[1]
     if p_eff == 0 or q_eff == 0:
-        return _skip("zero_residual_variance", n)
+        return _skip("zero_residual_variance", n, requested_k)
 
     # Rao's F approximation to Wilks' lambda (Rencher, Methods of
     # Multivariate Analysis, §6.1.3), with hypothesis df p_eff, q_eff
@@ -245,18 +331,32 @@ def _block_test(
     w = n - rank_z - (p_eff + q_eff + 1) / 2.0
     df2 = w * t - (df1 - 2) / 2.0
     if df2 <= 0:
-        return _skip("nonpositive_df", n)
+        return _skip("nonpositive_df", n, requested_k)
 
     rho = np.clip(np.linalg.svd(ux.T @ uy, compute_uv=False), 0.0, 1.0)
     r = float(rho.max())
     wilks = float(np.prod(1.0 - rho**2))
     if wilks <= 0.0:
-        return CIResult(r=r, p=0.0, n=n, df=float(df2), skip_reason=None)
+        return _ran(
+            r=r,
+            p=0.0,
+            n=n,
+            df=float(df2),
+            requested_k=requested_k,
+            effective_k=effective_k,
+        )
 
     wilks_t = wilks ** (1.0 / t)
     f_stat = (1.0 - wilks_t) / wilks_t * df2 / df1
     p = float(stats.f.sf(f_stat, df1, df2))
-    return CIResult(r=r, p=p, n=n, df=float(df2), skip_reason=None)
+    return _ran(
+        r=r,
+        p=p,
+        n=n,
+        df=float(df2),
+        requested_k=requested_k,
+        effective_k=effective_k,
+    )
 
 
 def _is_numeric_array(values: np.ndarray) -> bool:
@@ -334,11 +434,55 @@ def stack_blocks(blocks: Mapping[str, np.ndarray], names: Iterable[str]) -> np.n
     return np.column_stack(selected)
 
 
+def dropped_conditioner_names(
+    blocks: Mapping[str, np.ndarray],
+    names: Iterable[str],
+) -> tuple[str, ...]:
+    """Named conditioners whose block contributed no columns.
+
+    ``stack_blocks`` drops that block, so ``requested_k`` stays the columns
+    that entered. The names are stored on :class:`CIResult`; the engine
+    does not warn.
+    """
+    dropped: list[str] = []
+    for name in names:
+        block = blocks.get(name)
+        if block is not None and block.ndim == 2 and block.shape[1] == 0:
+            dropped.append(name)
+    return tuple(dropped)
+
+
+def _with_dropped(result: CIResult, dropped: tuple[str, ...]) -> CIResult:
+    """Attach named conditioners that contributed no columns."""
+    if not dropped:
+        return result
+    return replace(result, dropped_conditioners=dropped)
+
+
+def named_column_ci(
+    data: nw.DataFrame,
+    x: str,
+    y: str,
+    z_vars: Iterable[str],
+    categorical_vars: Iterable[str] | None = None,
+) -> CIResult:
+    """Run one named-column CI test.
+
+    ``requested_k`` is the columns that entered. A named conditioner that
+    encoded to zero columns is stored on the result, so ``rank_collapsed``
+    is the written-test predicate. The engine does not warn.
+    """
+    names = tuple(z_vars)
+    blocks = variable_blocks(data, [x, y, *names], categorical_vars)
+    result = partial_correlation_ci(blocks[x], blocks[y], stack_blocks(blocks, names))
+    return _with_dropped(result, dropped_conditioner_names(blocks, names))
+
+
 class _PartialCorrelationTester:
     """Memoized partial-correlation conditional independence tester.
 
     Holds one numeric block per variable, extracted once from the data,
-    and caches each ``X ⊥⊥ Y | Z`` p-value. Independence is symmetric in
+    and caches each ``X ⊥⊥ Y | Z`` result. Independence is symmetric in
     ``X`` and ``Y``, so the cache key normalizes their order, mirroring
     dowhy's ``_PValuesMemory`` and avoiding recomputation across the many
     permuted graphs that re-test the same triples.
@@ -351,7 +495,18 @@ class _PartialCorrelationTester:
         categorical_vars: Iterable[str] | None = None,
     ) -> None:
         self._blocks = variable_blocks(data, variables, categorical_vars)
-        self._cache: dict[tuple[frozenset[str], frozenset[str]], float | None] = {}
+        self._cache: dict[tuple[frozenset[str], frozenset[str]], CIResult | None] = {}
+
+    def ci_result(self, x: str, y: str, z_vars: tuple[str, ...]) -> CIResult | None:
+        """Return the cached CI result, or ``None`` if a variable is missing.
+
+        A skipped test is a :class:`CIResult` with ``skip_reason`` set, not
+        ``None``. ``None`` means a required variable has no data column.
+        """
+        key = (frozenset((x, y)), frozenset(z_vars))
+        if key not in self._cache:
+            self._cache[key] = self._compute(x, y, z_vars)
+        return self._cache[key]
 
     def p_value(self, x: str, y: str, z_vars: tuple[str, ...]) -> float | None:
         """Return the CI test p-value, or ``None`` if it cannot be run.
@@ -360,14 +515,12 @@ class _PartialCorrelationTester:
         column, there are too few complete observations, or the test is
         otherwise degenerate (see :class:`CIResult`).
         """
-        key = (frozenset((x, y)), frozenset(z_vars))
-        if key in self._cache:
-            return self._cache[key]
-        result = self._compute(x, y, z_vars)
-        self._cache[key] = result
-        return result
+        result = self.ci_result(x, y, z_vars)
+        if result is None or result.skip_reason is not None or result.p is None:
+            return None
+        return result.p
 
-    def _compute(self, x: str, y: str, z_vars: tuple[str, ...]) -> float | None:
+    def _compute(self, x: str, y: str, z_vars: tuple[str, ...]) -> CIResult | None:
         needed = [x, y, *z_vars]
         if any(v not in self._blocks for v in needed):
             return None
@@ -376,6 +529,4 @@ class _PartialCorrelationTester:
             self._blocks[y],
             stack_blocks(self._blocks, z_vars),
         )
-        if result.skip_reason is not None:
-            return None
-        return result.p
+        return _with_dropped(result, dropped_conditioner_names(self._blocks, z_vars))

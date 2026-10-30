@@ -239,7 +239,7 @@ class TestCannotEvaluate:
         })
         m = pathmc.model("Y ~ X", data=df)
         r = m.falsify(random_seed=0)
-        assert "not_evaluable" in repr(r)
+        assert "saturated" in repr(r)
         assert "\n" not in repr(r)
         assert "Cannot be evaluated" in r._repr_html_()
 
@@ -573,7 +573,7 @@ class TestValidateLmc:
     def test_chain_no_violation(self, chain_data):
         dag = _graph("M ~ X\nY ~ M").contemporaneous_dag
         tester = _PartialCorrelationTester(_to_nw(chain_data), list(chain_data.columns))
-        n_tests, n_viol, local = _validate_lmc(dag, tester, 0.05, True)
+        n_tests, n_viol, local, _labels = _validate_lmc(dag, tester, 0.05, True)
         assert n_tests == 1
         assert n_viol == 0
         assert len(local) == 1
@@ -583,7 +583,7 @@ class TestValidateLmc:
         tester = _PartialCorrelationTester(
             _to_nw(missing_edge_data), list(missing_edge_data.columns)
         )
-        n_tests, n_viol, _ = _validate_lmc(dag, tester, 0.05, True)
+        n_tests, n_viol, _, _labels = _validate_lmc(dag, tester, 0.05, True)
         assert n_tests == 1
         assert n_viol == 1
 
@@ -592,7 +592,7 @@ class TestValidateLmc:
         df = chain_data.drop(columns=["Y"])
         dag = _graph("M ~ X\nY ~ M").contemporaneous_dag
         tester = _PartialCorrelationTester(_to_nw(df), list(dag.nodes))
-        n_tests, n_viol, local = _validate_lmc(dag, tester, 0.05, True)
+        n_tests, n_viol, local, _labels = _validate_lmc(dag, tester, 0.05, True)
         assert n_tests == 0
         assert n_viol == 0
         assert local == []
@@ -731,13 +731,14 @@ class TestResultDisplay:
                 "conditioning_set": ["A"],
                 "p_value": [0.001],
                 "violation": [True],
+                "rank_collapsed": [False],
             }),
         )
 
     def test_repr_rejected(self):
         r = self._make(p_lmc=0.5, p_tpa=0.0, n_in_mec=0)
         text = repr(r)
-        assert "falsified" in text
+        assert "FalsificationResult(rejected" in text
         assert "\n" not in text
 
     def test_repr_not_rejected(self):
@@ -753,6 +754,23 @@ class TestResultDisplay:
         assert "Not informative" in not_informative._repr_html_()
         not_rejected = self._make(p_lmc=0.0, p_tpa=0.0, n_in_mec=0)
         assert "Not rejected" in not_rejected._repr_html_()
+
+    def test_informative_tie_html_does_not_claim_a_baseline_win(self):
+        # p_tpa == alpha is informative and not rejected. A high p_lmc
+        # is not a win over the baseline, so the status sentence must
+        # not say the DAG beats it.
+        r = self._make(p_lmc=1.0, p_tpa=0.05, n_in_mec=1)
+        assert r.can_evaluate is True
+        assert r.falsifiable is True
+        assert r.falsified is False
+        assert "not_rejected" in repr(r)
+        html = r._repr_html_()
+        assert "beats" not in html.lower()
+        assert html.count("Permutation fraction:") == 1
+        assert "not computed" not in html
+        text = "\n".join(r._summary_lines())
+        assert "beats" not in text.lower()
+        assert "It is informative" in text
 
     def test_plot_returns_figure(self):
         import matplotlib
