@@ -1,0 +1,16 @@
+pathmc/effects.py
+  h_63db634213747e 61-110,767-776,885-891
+tests/test_fixed_coefficient_effect.py
+  h_63db634213747e 16-17,89-269
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "97f86f0f1bcdf92eaee7fab4cffb4d9fd22cbbc5",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
