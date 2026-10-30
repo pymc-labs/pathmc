@@ -729,6 +729,7 @@ def test_quoted_string_keeps_every_backslash():
     assert directed == {("C:\\\\", "Y"), ("Z", "Y")}
     assert _parse_dot('digraph { "foo\\bar" -> Y }')[0] == {"foo\\bar", "Y"}
     assert _parse_dot('digraph { "foo\\\\bar" -> Y }')[0] == {"foo\\\\bar", "Y"}
+    assert _parse_dot('digraph { "foo\\"bar" -> Y }')[0] == {'foo"bar', "Y"}
     assert (
         same_markov_equivalence_class(
             'digraph { "foo\\bar" -> Y; Z -> Y }',
@@ -741,14 +742,19 @@ def test_quoted_string_keeps_every_backslash():
 def test_subgraph_keeps_empty_html_and_glued_port_ids():
     """Valid subgraph spellings keep Graphviz node identity.
 
-    ``A: n`` is a port on ``A``. ``A:n`` stays one id. ``""`` is a node.
+    ``A: n`` and ``A:n`` are both a port on ``A``. ``""`` is a node.
     An HTML statement is a node, not an error. Mixed ``"A"+B`` raises.
     """
     glued = "digraph { subgraph cluster { A: n -> Y; Z -> Y } }"
     nodes, directed, _ = _parse_dot(glued)
     assert nodes == {"A", "Y", "Z"}
     assert directed == {("A", "Y"), ("Z", "Y")}
-    assert _parse_dot("digraph { A:n -> B }")[0] == {"A:n", "B"}
+    assert _parse_dot("digraph { A:n -> B }")[0] == {"A", "B"}
+    assert _parse_dot("digraph { subgraph cluster { A:n -> Y; Z -> Y } }")[0] == {
+        "A",
+        "Y",
+        "Z",
+    }
     assert _parse_dot('digraph { subgraph cluster { "" } }')[0] == {""}
     assert (
         same_markov_equivalence_class(
@@ -782,7 +788,7 @@ def test_subgraph_ports_ids_and_edge_dir_default():
     assert same_markov_equivalence_class(ports, "digraph { A -> B }") is True
     assert same_markov_equivalence_class(ports, "digraph { A; ne -> B }") is False
     assert _parse_dot("digraph { A: n : ne -> B }")[0] == {"A", "B"}
-    assert _parse_dot("digraph { A:n -> B }")[0] == {"A:n", "B"}
+    assert _parse_dot("digraph { A:n -> B }")[0] == {"A", "B"}
     assert _parse_dot('digraph { "A": n: ne -> B }')[0] == {"A", "B"}
 
     concat = 'digraph { subgraph "A"+"B" { X -> Y; Z -> Y } }'
@@ -800,16 +806,12 @@ def test_subgraph_ports_ids_and_edge_dir_default():
     assert same_markov_equivalence_class(default, "digraph { X -> Y; Z -> Y }") is False
 
 
-def test_spaced_unquoted_compass_port_is_not_an_endpoint():
-    """Whitespace around ``:`` is a compass port, including inside a subgraph.
-
-    ``A:n`` with no space stays one id, matching the previous reader.
-    """
-    wrapped = "digraph { subgraph cluster { A : n -> B } }"
-    nodes, directed, _ = _parse_dot(wrapped)
-    assert nodes == {"A", "B"}
-    assert directed == {("A", "B")}
-    assert _parse_dot("digraph { A:n -> B }")[0] == {"A:n", "B"}
+def test_glued_compass_port_is_not_a_node():
+    """Graphviz emits ``A:n -> B`` for node ``A``. That is not node ``A:n``."""
+    wrapped = "digraph { subgraph cluster { A:n -> Y; Z -> Y } }"
+    assert _parse_dot(wrapped)[0] == {"A", "Y", "Z"}
+    assert same_markov_equivalence_class(wrapped, "digraph { A -> Y; Z -> Y }") is True
+    assert _parse_dot("digraph { A:n -> B }")[0] == {"A", "B"}
 
 
 def test_keyword_endpoint_and_unquoted_plus_do_not_rewrite_the_graph():
@@ -817,8 +819,11 @@ def test_keyword_endpoint_and_unquoted_plus_do_not_rewrite_the_graph():
     for bad in (
         "digraph { node -> Y }",
         "digraph { subgraph cluster { node -> Y } }",
+        "digraph { Node -> Y }",
+        "digraph { subgraph cluster { EDGE -> Y } }",
         "digraph { edge -> Y }",
         "digraph { graph -> Y }",
+        "digraph { Graph -> Y }",
     ):
         with pytest.raises(ValueError, match="keyword"):
             same_markov_equivalence_class(bad, "digraph { Y }")
@@ -832,6 +837,11 @@ def test_keyword_endpoint_and_unquoted_plus_do_not_rewrite_the_graph():
     assert ("A", "C") not in directed
     assert frozenset(("A", "C")) in undirected
     assert ("C", "B") in directed
+    with pytest.raises(ValueError, match=","):
+        _parse_dot("digraph { A -> { B C }, D }")
+    with pytest.raises(ValueError, match=","):
+        _parse_dot("digraph { { A B }, C -> D }")
+    assert _parse_dot("digraph { A -> B, C }")[1] == {("A", "B"), ("A", "C")}
 
 
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():

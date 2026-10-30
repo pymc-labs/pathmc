@@ -297,21 +297,20 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             i += 1
             while i < n:
                 if text[i] == "\\":
-                    buf.append("\\")
-                    i += 1
-                    continue
-                if text[i] == '"':
-                    # An odd run of backslashes escapes this quote. Graphviz
-                    # keeps every backslash in the id; it does not collapse \\.
-                    escapes = 0
-                    j = len(buf) - 1
-                    while j >= 0 and buf[j] == "\\":
-                        escapes += 1
-                        j -= 1
-                    if escapes % 2 == 1:
+                    start = i
+                    while i < n and text[i] == "\\":
+                        i += 1
+                    count = i - start
+                    if i < n and text[i] == '"' and count % 2 == 1:
+                        # The last backslash escapes the quote. Keep the rest.
+                        if count > 1:
+                            buf.append("\\" * (count - 1))
                         buf.append('"')
                         i += 1
                         continue
+                    buf.append("\\" * count)
+                    continue
+                if text[i] == '"':
                     break
                 buf.append(text[i])
                 i += 1
@@ -353,7 +352,7 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             i += 1
             continue
         end = i + 1
-        while end < n and text[end] not in ' \t\r\n{}[]=,;+"<()\\':
+        while end < n and text[end] not in ' \t\r\n{}[]=,;+"<()\\:':
             if text[end : end + 2] in {"->", "--"} or text[end] == "-":
                 break
             end += 1
@@ -391,6 +390,7 @@ class _DotBodyParser:
         self.scopes: list[set[str]] = [set()]
         self.edge_dir_none: list[bool] = [False]
         self._dir_was_set = False
+        self._endpoint_was_subgraph = False
 
     def peek(self, offset: int = 0) -> str | tuple[str, str] | None:
         index = self.i + offset
@@ -518,10 +518,16 @@ class _DotBodyParser:
                 self.directed.add((u, v))
 
     def parse_node_list(self, *, on_edge: bool) -> set[str]:
-        """Parse a comma-separated endpoint list (``B, C`` or ``{B C}, D``)."""
+        """Parse a comma-separated endpoint list (``B, C`` or ``{B C}``)."""
         names = self.parse_endpoint()
         self.skip_attrs_belonging_to_node(on_edge=on_edge)
         while self.peek() == ",":
+            if self._endpoint_was_subgraph:
+                raise _dot_parse_error(
+                    "unsupported DOT syntax: ',' after a subgraph. A comma "
+                    "separates node ids, for example 'A -> B, C', not "
+                    "'A -> { B C }, D'."
+                )
             self.pop()
             names |= self.parse_endpoint()
             self.skip_attrs_belonging_to_node(on_edge=on_edge)
@@ -559,8 +565,11 @@ class _DotBodyParser:
 
     def parse_endpoint(self) -> set[str]:
         token = self.peek()
+        self._endpoint_was_subgraph = False
         if token == "{" or _is_keyword(token, "subgraph"):
-            return self.parse_subgraph()
+            nodes = self.parse_subgraph()
+            self._endpoint_was_subgraph = True
+            return nodes
         if isinstance(token, tuple) and token[0] == "html":
             self.pop()
             # Graphviz node name is the HTML interior, not the angle brackets.
@@ -606,7 +615,7 @@ class _DotBodyParser:
                 raise _dot_parse_error(
                     "unsupported DOT syntax near '-'. A hyphen is not part of a node id."
                 )
-        if not literal and name in _RESERVED:
+        if not literal and name.lower() in _RESERVED:
             raise _dot_parse_error(
                 f"unsupported DOT syntax: {name!r} is a keyword, not a node id. "
                 "Quote it if it is a node, for example '\"node\" -> Y'."
