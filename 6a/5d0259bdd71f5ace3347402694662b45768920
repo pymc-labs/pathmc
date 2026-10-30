@@ -1,0 +1,19 @@
+tests/test_gaussian_panel_trajectories.py
+  s_e1088c9cf620e9::t_94970dc7b930d6 415-417
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6a5d0259bdd71f5ace3347402694662b45768920",
+  "prompts": {},
+  "sessions": {
+    "s_e1088c9cf620e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18beb-31d6-7012-b41b-6d1f2d5335fc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
