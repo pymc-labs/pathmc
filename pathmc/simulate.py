@@ -2464,6 +2464,17 @@ def run_do_panel_unified(
                 if not str(outcome.dtype).startswith("float"):
                     continue
                 replacements[var] = gen_model[f"mu_{var}"] * 1
+        # A lagged Gaussian or Student-t outcome carries ``mu + sigma *
+        # carry_innovations`` into the next step. Wherever the outcome was
+        # observed, fitting read the observed lag instead, so the posterior of
+        # those innovations is just their N(0, 1) prior. Binding them from the
+        # trace would feed sampled noise into the mean path.
+        for var in graph_info.endogenous:
+            name = f"carry_innovations_{var}"
+            if name in gen_model.named_vars:
+                replacements[name] = np.zeros(
+                    (n_times, n_units), dtype=gen_model[name].dtype
+                )
 
         det_names = []
         for var in graph_info.topological_order:
