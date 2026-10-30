@@ -145,11 +145,50 @@ class Term:
 
 @dataclass
 class Regression:
-    """A parsed regression equation: lhs ~ terms."""
+    """A parsed regression equation: lhs ~ terms.
+
+    A rate equation, written ``d(x) ~ ...``, sets ``rate=True``. Its terms
+    give the time derivative of ``x``; the scan compiler integrates every
+    rate equation jointly over each step with ``substeps`` fixed RK4 steps.
+    After parsing, references to rate states on the right-hand side are
+    stored as ``lag()`` terms because the derivative over the step starts
+    from the previous state.
+    """
 
     lhs: str
     terms: list[Term]
     has_intercept: bool = True
+    rate: bool = False
+    substeps: int = 1
+
+
+_LAG_PART_RE = re.compile(r"^lag\(\s*([A-Za-z_]\w*)\s*\)$")
+
+#: RK4 steps per time step when ``d(x)`` does not set ``substeps``.
+_DEFAULT_RATE_SUBSTEPS = 10
+
+
+def lag_part_base(name: str) -> str | None:
+    """Return ``x`` for an interaction part named ``lag(x)``, else ``None``."""
+    match = _LAG_PART_RE.match(name)
+    return match.group(1) if match else None
+
+
+def term_lag_bases(term: Term) -> list[str]:
+    """Return every variable a term reads at the previous step.
+
+    A plain ``lag(x)`` term reads ``x``. A lagged product such as
+    ``lag(x):lag(y)`` reads both.
+    """
+    if term.lag_of is not None:
+        return [term.lag_of]
+    if term.interaction_of is not None:
+        return [
+            base
+            for part in term.interaction_of
+            if (base := lag_part_base(part)) is not None
+        ]
+    return []
 
 
 @dataclass
@@ -282,7 +321,50 @@ def parse_spec(spec_string: str) -> Spec:
         defined_params=defined_params,
     )
     _reject_defined_param_label_collisions(spec, seen_labels)
+    _lower_rate_equations(spec)
     return spec
+
+
+def _lower_rate_equations(spec: Spec) -> None:
+    """Store rate-state references in ``d(x)`` equations as ``lag()`` terms.
+
+    The derivative over step ``t`` starts from the state at ``t - 1``, so a
+    rate state named on the right-hand side of a rate equation is a lag edge
+    in the graph, not a contemporaneous one. Other names (exogenous inputs,
+    non-rate outcomes) stay contemporaneous and are held constant over the
+    step. The rewrite happens after every equation is parsed because a state
+    can be referenced before its own ``d()`` line.
+    """
+    rate_regs = [reg for reg in spec.regressions if reg.rate]
+    if not rate_regs:
+        return
+    substeps = {reg.substeps for reg in rate_regs}
+    if len(substeps) > 1:
+        raise ParseError(
+            f"Rate equations use different substeps {sorted(substeps)}. The "
+            "states are integrated jointly, so every d(...) must use the same "
+            "substeps. Set it once on each, e.g. 'd(x, substeps=10)'."
+        )
+    states = {reg.lhs for reg in rate_regs}
+    for reg in rate_regs:
+        lowered: list[Term] = []
+        for term in reg.terms:
+            if term.interaction_of is not None:
+                parts = tuple(
+                    f"lag({part})" if part in states else part
+                    for part in term.interaction_of
+                )
+                term.interaction_of = parts
+                term.variable = ":".join(parts)
+            elif term.variable in states:
+                term = Term(
+                    variable=f"lag({term.variable})",
+                    label=term.label,
+                    lag_of=term.variable,
+                    fixed_value=term.fixed_value,
+                )
+            lowered.append(term)
+        reg.terms = lowered
 
 
 def _format_transform_call(tc: TransformCall) -> str:
@@ -387,6 +469,26 @@ def _parse_regression(stmt: str) -> Regression:
             "Provide at least one predictor variable after '~'."
         )
 
+    rate = False
+    substeps = 1
+    rate_match = re.match(
+        r"^d\(\s*([A-Za-z_]\w*)\s*(?:,\s*substeps\s*=\s*(\d+)\s*)?\)$", lhs
+    )
+    if rate_match:
+        rate = True
+        lhs = rate_match.group(1)
+        substeps = int(rate_match.group(2) or _DEFAULT_RATE_SUBSTEPS)
+        if substeps < 1:
+            raise ParseError(
+                f"substeps must be at least 1 in '{stmt}'. Use e.g. "
+                f"'d({lhs}, substeps=10) ~ ...'."
+            )
+    elif lhs.startswith("d("):
+        raise ParseError(
+            f"Malformed rate equation left-hand side '{lhs}' in '{stmt}'. "
+            "Use 'd(x) ~ ...' or 'd(x, substeps=10) ~ ...'."
+        )
+
     if not re.match(r"^[A-Za-z_]\w*$", lhs):
         raise ParseError(
             f"Invalid variable name '{lhs}' on left-hand side of '{stmt}'."
@@ -422,9 +524,29 @@ def _parse_regression(stmt: str) -> Regression:
             "equation (multiple smooths of one variable are a follow-up)."
         )
 
-    regression = Regression(lhs=lhs, terms=terms, has_intercept=has_intercept)
+    if rate:
+        for term in terms:
+            if term.lag_of is not None or term_lag_bases(term):
+                raise ParseError(
+                    f"lag() is not allowed in the rate equation '{stmt}'. "
+                    "A rate equation already reads every state at the start "
+                    "of the step; write the state name, e.g. "
+                    f"'d({lhs}) ~ 0 + r*{lhs}'."
+                )
+            if term.transform is not None or term.basis is not None:
+                raise ParseError(
+                    f"Transforms and basis terms are not supported in the rate "
+                    f"equation '{stmt}' yet. Use plain variables and ':' "
+                    "products of them."
+                )
 
-    return regression
+    return Regression(
+        lhs=lhs,
+        terms=terms,
+        has_intercept=has_intercept,
+        rate=rate,
+        substeps=substeps,
+    )
 
 
 #: A float mantissa immediately followed by its exponent marker, anchored so
@@ -518,6 +640,13 @@ def _parse_term(raw: str) -> Term:
             f"Categorical interaction '{raw}' is not supported. Use C(...) as "
             "a standalone term and model category-specific effects separately."
         )
+
+    if _find_top_level_colon(raw) is not None and all(
+        lag_part_base(p.strip()) is not None or "(" not in p for p in raw.split(":")
+    ):
+        term = _parse_interaction_term(raw, label)
+        term.fixed_value = fixed_value
+        return term
 
     if "(" in raw:
         func_name = raw[: raw.index("(")].strip()
@@ -682,13 +811,18 @@ def _parse_interaction_term(raw: str, label: str | None) -> Term:
             f"Malformed interaction term: '{raw}'. "
             "Use 'X:Z' syntax for two-way interactions."
         )
-    for p in parts:
+    for i, p in enumerate(parts):
         if not p:
             raise ParseError(f"Empty variable name in interaction term: '{raw}'.")
+        base = lag_part_base(p)
+        if base is not None:
+            parts[i] = f"lag({base})"
+            continue
         if not re.match(r"^[A-Za-z_]\w*$", p):
             raise ParseError(
                 f"Invalid variable name '{p}' in interaction term '{raw}'. "
-                "Interaction terms only support plain variable names (no transforms)."
+                "Interaction parts must be plain variable names or lag(name), "
+                "e.g. 'x:z' or 'lag(x):lag(z)'."
             )
     variable = ":".join(parts)
     return Term(variable=variable, label=label, interaction_of=tuple(parts))

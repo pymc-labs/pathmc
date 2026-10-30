@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 import networkx as nx
 
 from pathmc.exceptions import CycleError
-from pathmc.parse import Spec
+from pathmc.parse import Spec, lag_part_base
 
 __all__: list[str] = []
 
@@ -123,6 +123,10 @@ def build_graph(spec: Spec, latent: set[str] | None = None) -> GraphInfo:
         for term in reg.terms:
             if term.lag_of is not None:
                 dag.add_edge(term.lag_of, term.variable, temporal=True)
+            for part in term.interaction_of or ():
+                base = lag_part_base(part)
+                if base is not None:
+                    dag.add_edge(base, part, temporal=True)
 
     contemp_dag = nx.DiGraph()
     contemp_dag.add_nodes_from(dag.nodes)
