@@ -43,6 +43,7 @@ from pathmc.compile import (
     compile_to_pymc,
     get_predictor_columns,
     validate_panel_scan_shape,
+    _warn_scan_rate_clip_at_fixed_coefficients,
 )
 from pathmc.effects import (
     EffectResult,
@@ -3294,7 +3295,10 @@ def simulate(
                 )
         do_dict[name] = arr.astype(rv.dtype)
     fixed_model = pm.do(gen_model, do_dict)
-
+    # Coefficients are numeric only after they are bound. Evaluate the scan
+    # linear predictor here so a large intercept warns even when the outcome
+    # column is absent and observed counts cannot.
+    _warn_scan_rate_clip_at_fixed_coefficients(gen_model, do_dict)
     if scan_info is not None:
         # Scan-compiled panel model: draw the temporal recursion in one pass.
         # The recursion consumes its own ``carry_innovations`` sequences, so
