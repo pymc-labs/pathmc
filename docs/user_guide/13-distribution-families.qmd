@@ -11,7 +11,7 @@ The default outcome is Gaussian. Pass `families=` when an outcome is a probabili
 | Bernoulli | `families={"Y": "bernoulli"}` | logit | — |
 | Poisson | `families={"Y": "poisson"}` | log | — |
 | NegBinomial | `families={"Y": "negbinomial"}` | log | dispersion α |
-| StudentT | `families={"Y": "studentt"}` | identity | degrees of freedom ν |
+| StudentT | `families={"Y": "studentt"}` | identity | scale σ, degrees of freedom ν |
 
 ```python
 model = pathmc.model(
@@ -25,6 +25,8 @@ model.fit(random_seed=42)
 ```
 
 The structural equation is still on the link scale. A Bernoulli coefficient is a change in log-odds, not a change in probability. Read probability-scale effects from `ate()`, `comparisons()`, or `slopes()` after fitting, not from the coefficient itself.
+
+StudentT uses the same identity link as Gaussian. `sigma_{var}` (for example `sigma_Y`) is the StudentT scale passed through to PyMC, not the residual standard deviation. When `nu > 2`, that residual standard deviation is `sigma_{var} * sqrt(nu / (nu - 2))`. `simulate()` accepts the scale unchanged and does not convert a supplied residual standard deviation into the scale. A Gaussian `sigma_{var}` is still the residual standard deviation, which equals its scale.
 
 Scan-compiled panel models (`lag()` or adstock) keep that log link, then clip the Poisson or NegBinomial linear predictor to [-20, 20] before exponentiating. The clip is a numerical guard so one timestep cannot poison the recursion. pathmc warns when that linear predictor approaches the bound, including `simulate()` and a large intercept with small observed counts, not only when an observed count is already near `exp(20)`.
 

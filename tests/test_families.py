@@ -17,6 +17,9 @@ Tests verify that new likelihood families compile, sample, and interact
 correctly with do(), residual covariance guards, and introspection.
 """
 
+import inspect
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -203,3 +206,45 @@ class TestPredictiveNewFamilies:
     def test_studentt_predictive(self, fitted_studentt):
         result = fitted_studentt.do(set={"X": 1.0}, kind="predictive")
         assert np.isfinite(result.mean("Y"))
+
+
+def test_studentt_sigma_is_documented_as_scale_not_residual_std():
+    """Public text must not call StudentT sigma_Y a residual std."""
+    doc = inspect.getdoc(pathmc.simulate)
+    assert doc is not None
+    page = (
+        Path(__file__).resolve().parents[1]
+        / "docs/user_guide/13-distribution-families.qmd"
+    ).read_text(encoding="utf-8")
+    claims = (
+        "is the scale, not the residual standard deviation",
+        "is the StudentT scale passed through to PyMC, not the residual standard deviation",
+    )
+    for name, text in {"simulate": doc, "families": page}.items():
+        flat = " ".join(text.split())
+        assert any(claim in flat for claim in claims), name
+        assert '"sigma_{var}" (residual std)' not in flat, name
+        assert "does not convert a supplied residual" in flat or (
+            "leaves that supplied value unchanged" in flat
+            and "not converted twice" in flat
+        ), name
+
+
+def test_studentt_simulate_keeps_sigma_as_scale():
+    """sigma_Y is the scale: sample sd tracks scale * sqrt(nu/(nu-2))."""
+    n = 8000
+    sigma = 1.5
+    nu = 8.0
+    data = pd.DataFrame({"X": np.zeros(n)})
+    out = pathmc.simulate(
+        "Y ~ X",
+        data=data,
+        params={"beta_Y": [0.0, 0.0], "sigma_Y": sigma, "nu_Y": nu},
+        families={"Y": "studentt"},
+        random_seed=1,
+    )
+    sample_sd = float(out["Y"].std(ddof=1))
+    scale_sd = sigma * np.sqrt(nu / (nu - 2.0))
+    assert abs(sample_sd - scale_sd) < abs(sample_sd - sigma)
+    assert abs(sample_sd - scale_sd) < 0.08
+    assert abs(sample_sd - sigma) > 0.15
