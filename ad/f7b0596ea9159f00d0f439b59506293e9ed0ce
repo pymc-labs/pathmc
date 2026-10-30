@@ -1,0 +1,18 @@
+docs/examples/05-panel-time/panel_data.qmd
+  h_63db634213747e 709,729-730,734-741
+docs/examples/06-applied-models/mmm.qmd
+  h_63db634213747e 58,94-95,99-106
+docs/user_guide/20-panel-interventions.qmd
+  h_63db634213747e 103,105,107,158,165,169,177-189,249-251,278,281-284,373
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "adf7b0596ea9159f00d0f439b59506293e9ed0ce",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
