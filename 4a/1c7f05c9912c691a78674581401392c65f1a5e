@@ -1,0 +1,18 @@
+docs/user_guide/13-distribution-families.qmd
+  h_63db634213747e 14,29-30
+pathmc/_model.py
+  h_63db634213747e 3529-3534
+tests/test_families.py
+  h_63db634213747e 20-22,209-250
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4a1c7f05c9912c691a78674581401392c65f1a5e",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+.github/workflows/nightly.yml
+  h_63db634213747e 6-8,27
+AGENTS.md
+  h_63db634213747e 10
+CONTRIBUTING.md
+  h_63db634213747e 123,168
+Makefile
+  h_63db634213747e 57
+pyproject.toml
+  h_63db634213747e 57,103
+tests/fuzz/__init__.py
+  h_63db634213747e 1-14
+tests/fuzz/strategies.py
+  h_63db634213747e 1-619
+tests/test_fuzz_consistency.py
+  h_63db634213747e 1-466
+uv.lock
+  h_63db634213747e 959-1039,2385,2421,3434-3442
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "acb867f7971fdf69908a99e9b41052affafe5f28",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

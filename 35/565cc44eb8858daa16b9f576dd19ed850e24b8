@@ -1,0 +1,14 @@
+uv.lock
+  h_63db634213747e 2780,2794,2796,2835,2844-2862
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "35565cc44eb8858daa16b9f576dd19ed850e24b8",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
