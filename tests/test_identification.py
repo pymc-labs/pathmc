@@ -20,11 +20,13 @@ import pytest
 import pathmc
 from pathmc.graph import build_graph
 from pathmc.identify import (
+    ConditionalIndependence,
     adjustment_sets,
     collider_warnings,
     implied_independences,
     is_identifiable,
     is_valid_adjustment_set,
+    test_implications as score_implications,
 )
 from pathmc.parse import parse_spec
 
@@ -329,3 +331,59 @@ def test_equal_treatment_and_outcome_is_not_a_backdoor_query():
     model = pathmc.model("Y ~ X\nX ~ Z")
     assert model.is_identifiable("Y", "Y") is False
     assert model.adjustment_sets("Y", "Y") == []
+
+
+def _issue_594_frame(n: int = 200) -> pd.DataFrame:
+    """Issue #594 draw: omitted A -> Y, so A is not independent of Y given X."""
+    rng = np.random.default_rng(3)
+    a = rng.normal(size=n)
+    w = rng.normal(size=n)
+    zz = 0.7 * w + rng.normal(scale=0.3, size=n)
+    x = 0.4 * a + 0.9 * zz + rng.normal(scale=0.3, size=n)
+    y = 0.6 * x + 1.5 * a + rng.normal(scale=0.3, size=n)
+    return pd.DataFrame({"A": a, "W": w, "X": x, "Y": y})
+
+
+def test_issue_594_latent_statement_does_not_drop_observable_violation():
+    """A latent or absent member must not abort before observable rows return.
+
+    ``implied_independences()`` may still list statements that name ``ZZ``.
+    ``test_implications()`` skips those and still reports the violated
+    observable claim ``A ⊥⊥ Y | {X}``.
+    """
+    frame = _issue_594_frame()
+    model = pathmc.model(
+        "ZZ ~ W\nX ~ A + ZZ\nY ~ X",
+        data=frame,
+        latent=["ZZ"],
+    )
+    listed = {str(ci) for ci in model.implied_independences()}
+    assert "A ⊥⊥ Y | {X}" in listed
+    assert any("ZZ" in text for text in listed)
+
+    result = model.test_implications()
+    table = result.to_dataframe()
+    members = set(table["x"]) | set(table["y"])
+    for conditioning in table["conditioning_set"]:
+        members.update(part.strip() for part in str(conditioning).split(",") if part)
+    assert "ZZ" not in members
+
+    row = table[(table["x"] == "A") & (table["y"] == "Y")].iloc[0]
+    assert row["conditioning_set"] == "X"
+    assert row["significant"]
+    assert row["partial_corr"] == pytest.approx(0.976, abs=0.002)
+
+    # Same failure class at the function: an absent name before the
+    # observable violation must not raise and must not drop that row.
+    import narwhals.stable.v1 as nw
+
+    mixed = [
+        ConditionalIndependence("A", "ZZ", frozenset({"W"})),
+        ConditionalIndependence("W", "X", frozenset({"NOT_OBSERVED"})),
+        ConditionalIndependence("A", "Y", frozenset({"X"})),
+    ]
+    direct = score_implications(mixed, nw.from_native(frame, eager_only=True))
+    direct_table = direct.to_dataframe()
+    assert len(direct_table) == 1
+    assert direct_table.iloc[0]["significant"]
+    assert {direct_table.iloc[0]["x"], direct_table.iloc[0]["y"]} == {"A", "Y"}
