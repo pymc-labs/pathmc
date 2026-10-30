@@ -55,7 +55,15 @@ import pymc as pm
 
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
-from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
+from pathmc.parse import (
+    CategoricalCall,
+    Regression,
+    Spec,
+    Term,
+    TransformCall,
+    lag_part_base,
+    term_lag_bases,
+)
 from pathmc.policy import _POLICY_REQUIRES_SCAN, policy_scan_slots
 from pathmc.transforms import get_transform
 
@@ -1337,6 +1345,12 @@ def _make_scan_resolver(
             return new_endo[name]
         if name in exog_t:
             return exog_t[name]
+        base = lag_part_base(name)
+        if base is not None:
+            if base in prev_endo:
+                return prev_endo[base]
+            if base in prev_exog:
+                return prev_exog[base]
         return pt.zeros(n_units)
 
     def resolve(slot: PredictorSlot) -> Any:
@@ -2348,6 +2362,14 @@ def _build_lag_map(spec: Spec) -> dict[str, str]:
         for term in reg.terms:
             if term.lag_of is not None:
                 lag_map[term.variable] = term.lag_of
+            for part in term.interaction_of or ():
+                base = lag_part_base(part)
+                if base is not None:
+                    lag_map[part] = base
+        if reg.rate:
+            # A rate state is integrated from its previous value, so it is
+            # always carried even if no equation names it.
+            lag_map.setdefault(f"lag({reg.lhs})", reg.lhs)
     return lag_map
 
 
@@ -2359,8 +2381,10 @@ def _has_temporal_deps(spec: Spec) -> bool:
     - ``adstock()`` transforms (geometric only — triggers scan compilation)
     """
     for reg in spec.regressions:
+        if reg.rate:
+            return True
         for term in reg.terms:
-            if term.lag_of is not None:
+            if term_lag_bases(term):
                 return True
             if term.transform is not None:
                 tc: TransformCall | None = term.transform
@@ -2427,6 +2451,9 @@ def _scan_term_base_vars(term: Term) -> list[str]:
 
     if term.transform is not None:
         return _transform_base_vars(term.transform)
+
+    if term.interaction_of is not None:
+        return [lag_part_base(part) or part for part in term.interaction_of]
 
     return _term_base_vars(term)
 
@@ -2499,8 +2526,9 @@ def _scan_observed_contemporaneous_parents(
         for term in reg.terms:
             if term.lag_of is not None:
                 continue
+            lagged = set(term_lag_bases(term))
             for base_var in _scan_term_base_vars(term):
-                if base_var in latent:
+                if base_var in latent or base_var in lagged:
                     continue
                 if families.get(base_var, "gaussian") in nongauss:
                     parents.add(base_var)
@@ -2708,6 +2736,26 @@ def _apply_step_transform(
     return out, prev_adstock
 
 
+def lag_bases(spec: Spec) -> set[str]:
+    """Every variable read at the previous step, latent or observed.
+
+    Covers plain ``lag(x)`` terms, ``lag(x)`` parts of products, and the
+    states of ``d(x)`` rate equations, which always start from ``x[t-1]``.
+    """
+    bases: set[str] = set()
+    for reg in spec.regressions:
+        if reg.rate:
+            bases.add(reg.lhs)
+        for term in reg.terms:
+            bases.update(term_lag_bases(term))
+    return bases
+
+
+def has_lag_terms(spec: Spec) -> bool:
+    """Return True when any equation reads a previous-step value."""
+    return bool(lag_bases(spec))
+
+
 def observed_lag_bases(spec: Spec, latent: set[str] | None = None) -> tuple[str, ...]:
     """Observed variables read by ``lag()``, excluding latent bases.
 
@@ -2717,9 +2765,11 @@ def observed_lag_bases(spec: Spec, latent: set[str] | None = None) -> tuple[str,
     hidden = latent or set()
     bases: list[str] = []
     for reg in spec.regressions:
-        for term in reg.terms:
-            base = term.lag_of
-            if base is None or base in hidden or base in bases:
+        reads = [base for term in reg.terms for base in term_lag_bases(term)]
+        if reg.rate:
+            reads.append(reg.lhs)
+        for base in reads:
+            if base in hidden or base in bases:
                 continue
             bases.append(base)
     return tuple(sorted(bases))
@@ -2813,6 +2863,37 @@ def _policy_step_action(
     )
 
 
+def _validate_rate_equations(
+    spec: Spec, graph_info: GraphInfo, pooling: str | dict | None
+) -> None:
+    """Reject rate-equation features the RK4 step does not evaluate yet."""
+    rate_regs = [r for r in spec.regressions if r.rate]
+    if not rate_regs:
+        return
+    if _get_slope_vars(pooling) or (
+        isinstance(pooling, dict) and pooling.get("by_var")
+    ):
+        raise NotImplementedError(
+            "Random slopes and by_var pooling are not supported with d(...) "
+            "rate equations yet. Use pooling='partial' (random intercepts) or "
+            "no pooling."
+        )
+    for reg in rate_regs:
+        for term in reg.terms:
+            parts = term.interaction_of or (term.variable,)
+            for part in parts:
+                if lag_part_base(part) is not None:
+                    continue
+                if part in graph_info.endogenous:
+                    raise NotImplementedError(
+                        f"d({reg.lhs}) reads '{part}' in the same step, and "
+                        f"'{part}' is an outcome without its own d(...) "
+                        "equation. Rate equations can read rate states and "
+                        f"exogenous inputs only. Give '{part}' a d(...) "
+                        "equation or feed it in as data."
+                    )
+
+
 def _compile_scan_panel(
     spec: Spec,
     data: nw.DataFrame,
@@ -2847,6 +2928,9 @@ def _compile_scan_panel(
         families.get(r.lhs, "gaussian") == "gaussian" for r in spec.regressions
     )
     reg_by_lhs = {r.lhs: r for r in spec.regressions}
+    rate_vars = [r.lhs for r in spec.regressions if r.rate]
+    rate_substeps = max((r.substeps for r in spec.regressions if r.rate), default=1)
+    _validate_rate_equations(spec, graph_info, pooling)
     transform_map = _build_transform_map(spec)
     mu_specs = build_mu_specs(spec, pooling=pooling, panel_info=panel_info)
     has_ri = _has_random_intercepts(pooling)
@@ -3533,28 +3617,95 @@ def _compile_scan_panel(
             unclipped_log_rate = state["unclipped_log_rate"]
             use_observed_carry_t = state["use_observed_carry_t"]
 
-            def _advance(var: str) -> None:
+            rate_cache: dict[str, Any] = {}
+
+            def _beta_for(var: str) -> list[Any] | None:
                 beta_names = beta_component_names.get(var)
-                beta = (
-                    [ns_map[name] for name in beta_names]
-                    if beta_names is not None
-                    else None
-                )
+                if beta_names is None:
+                    return None
+                return [ns_map[name] for name in beta_names]
+
+            def _rate_derivative(
+                z: dict[str, Any], clamp: dict[str, Any]
+            ) -> dict[str, Any]:
+                held = {
+                    v: pt.switch(pt.isnan(clamp[v]), z[v], clamp[v]) for v in rate_vars
+                }
                 resolver = _make_scan_resolver(
                     exog_t,
-                    new_endo,
-                    prev_endo,
+                    {},
+                    {**prev_endo, **held},
                     prev_exog,
                     transform_map,
                     ns_map,
-                    prev_adstock_state,
-                    new_adstock,
-                    current_transform,
+                    {},
+                    {},
+                    {},
                     n_units,
                 )
-                mu = build_mu(mu_specs[var], resolver, beta, pt.zeros(n_units))
-                if f"alpha_{var}" in ns_map:
-                    mu = mu + ns_map[f"alpha_{var}"]
+                out: dict[str, Any] = {}
+                for v in rate_vars:
+                    dz = build_mu(
+                        mu_specs[v], resolver, _beta_for(v), pt.zeros(n_units)
+                    )
+                    if f"alpha_{v}" in ns_map:
+                        dz = dz + ns_map[f"alpha_{v}"]
+                    # A clamped state does not move inside the step.
+                    out[v] = pt.switch(pt.isnan(clamp[v]), dz, 0.0)
+                return out
+
+            def _rate_update() -> dict[str, Any]:
+                # All rate states advance together with fixed-step RK4. A
+                # do() value at step t holds that state over (t-1, t], so the
+                # other states see the clamp throughout the step.
+                if rate_cache:
+                    return rate_cache
+                nan = pt.as_tensor_variable(np.full(n_units, np.nan))
+                clamp = {v: do_intervene_t.get(v, nan) for v in rate_vars}
+                z = {
+                    v: pt.switch(pt.isnan(clamp[v]), prev_endo[v], clamp[v])
+                    for v in rate_vars
+                }
+                h = 1.0 / rate_substeps
+                for _ in range(rate_substeps):
+                    k1 = _rate_derivative(z, clamp)
+                    k2 = _rate_derivative(
+                        {v: z[v] + 0.5 * h * k1[v] for v in rate_vars}, clamp
+                    )
+                    k3 = _rate_derivative(
+                        {v: z[v] + 0.5 * h * k2[v] for v in rate_vars}, clamp
+                    )
+                    k4 = _rate_derivative(
+                        {v: z[v] + h * k3[v] for v in rate_vars}, clamp
+                    )
+                    z = {
+                        v: z[v] + (h / 6.0) * (k1[v] + 2 * k2[v] + 2 * k3[v] + k4[v])
+                        for v in rate_vars
+                    }
+                rate_cache.update(z)
+                return rate_cache
+
+            def _advance(var: str) -> None:
+                if var in rate_vars:
+                    mu = _rate_update()[var]
+                else:
+                    resolver = _make_scan_resolver(
+                        exog_t,
+                        new_endo,
+                        prev_endo,
+                        prev_exog,
+                        transform_map,
+                        ns_map,
+                        prev_adstock_state,
+                        new_adstock,
+                        current_transform,
+                        n_units,
+                    )
+                    mu = build_mu(
+                        mu_specs[var], resolver, _beta_for(var), pt.zeros(n_units)
+                    )
+                    if f"alpha_{var}" in ns_map:
+                        mu = mu + ns_map[f"alpha_{var}"]
                 for svar in slope_vars:
                     skey = f"slope_{var}_{svar}"
                     if skey in ns_map:

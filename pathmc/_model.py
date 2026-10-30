@@ -37,6 +37,7 @@ from pathmc.compile import (
     _build_lag_map,
     _has_temporal_deps,
     _identify_residual_blocks,
+    has_lag_terms as _has_lag_terms,
     _scan_discrete_sample_vars,
     _scan_term_base_vars,
     build_design_matrix,
@@ -3281,9 +3282,7 @@ def model(
         categorical_vars = fit_categorical_terms(spec, nw_data)
     graph_info = build_graph(spec, latent=latent_set)
 
-    has_lag_terms = any(
-        term.lag_of is not None for reg in spec.regressions for term in reg.terms
-    )
+    has_lag_terms = _has_lag_terms(spec)
     if has_lag_terms and panel is None:
         raise ValueError(
             "lag() terms require a panel model. Pass panel={'unit': ..., "
@@ -3695,9 +3694,7 @@ def simulate(
     for reg in spec.regressions:
         design_matrices[reg.lhs] = build_design_matrix(reg, data_sim)
 
-    has_lag_terms = any(
-        term.lag_of is not None for reg in spec.regressions for term in reg.terms
-    )
+    has_lag_terms = _has_lag_terms(spec)
     if has_lag_terms and panel is None:
         raise ValueError(
             "lag() terms require a panel model. Pass panel={'unit': ..., "
@@ -4037,9 +4034,7 @@ def simulate_params_template(
     fit_categorical_terms(spec, nw_data)
     graph_info = build_graph(spec, latent=latent_set)
 
-    has_lag_terms = any(
-        term.lag_of is not None for reg in spec.regressions for term in reg.terms
-    )
+    has_lag_terms = _has_lag_terms(spec)
     if has_lag_terms and panel is None:
         raise ValueError(
             "lag() terms require a panel model. Pass panel={'unit': ..., "
