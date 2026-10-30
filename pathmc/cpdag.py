@@ -296,20 +296,22 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             buf: list[str] = []
             i += 1
             while i < n:
-                if text[i] == "\\" and i + 1 < n:
-                    nxt = text[i + 1]
-                    if nxt == "\\":
-                        buf.append("\\")
-                        i += 2
-                        continue
-                    if nxt == '"':
-                        buf.append('"')
-                        i += 2
-                        continue
+                if text[i] == "\\":
                     buf.append("\\")
                     i += 1
                     continue
                 if text[i] == '"':
+                    # An odd run of backslashes escapes this quote. Graphviz
+                    # keeps every backslash in the id; it does not collapse \\.
+                    escapes = 0
+                    j = len(buf) - 1
+                    while j >= 0 and buf[j] == "\\":
+                        escapes += 1
+                        j -= 1
+                    if escapes % 2 == 1:
+                        buf.append('"')
+                        i += 1
+                        continue
                     break
                 buf.append(text[i])
                 i += 1
@@ -404,8 +406,9 @@ class _DotBodyParser:
         return token
 
     def add_node(self, name: str) -> None:
-        if not name:
-            return
+        # ``""`` is a real DOT id. Dropping it makes ``digraph { "" }`` compare
+        # equal to an empty graph, and dropping it from an edge leaves a
+        # dangling endpoint.
         self.nodes.add(name)
         self.scopes[-1].add(name)
 
@@ -546,6 +549,12 @@ class _DotBodyParser:
         token = self.peek()
         if token == "{" or _is_keyword(token, "subgraph"):
             return self.parse_subgraph()
+        if isinstance(token, tuple) and token[0] == "html":
+            self.pop()
+            # Graphviz node name is the HTML interior, not the angle brackets.
+            name = token[1][1:-1]
+            self.add_node(name)
+            return {name}
         if not _is_id(token):
             if token == "subgraph" or (
                 isinstance(token, str) and "subgraph" in token.lower()
@@ -555,27 +564,30 @@ class _DotBodyParser:
                     f"Offending endpoint: {token!r}."
                 )
             raise _dot_parse_error(f"unsupported edge endpoint {token!r}.")
-        name = _id_text(token)
-        if name is None:
+        raw_name = _id_text(token)
+        if raw_name is None:
             raise _dot_parse_error(f"unsupported edge endpoint {token!r}.")
+        name = raw_name
         literal = isinstance(token, tuple) and token[0] == "qid"
         self.pop()
         while self.peek() == "+":
-            if not literal:
+            nxt = self.peek(1)
+            if not (literal and isinstance(nxt, tuple) and nxt[0] == "qid"):
                 raise _dot_parse_error(
                     "unsupported DOT syntax near '+'. Only quoted strings can "
                     'be concatenated. Quote each piece, for example \'"A"+"B"\'.'
                 )
             self.pop()
-            extra = _id_text(self.peek())
+            extra = _id_text(self.pop())
             if extra is None:
-                raise _dot_parse_error(
-                    f"unsupported '+' in a DOT id before {self.peek()!r}."
-                )
-            self.pop()
+                raise _dot_parse_error("unsupported '+' in a DOT id.")
             name += extra
         if self.peek() == ":":
             self._skip_quoted_ports()
+        elif not literal and name.endswith(":") and _is_id(self.peek()):
+            # ``A: n`` is a compass port. ``A:n`` is one id and is not split.
+            name = name[:-1]
+            self.pop()
         if not literal and name.lower() in _RESERVED:
             nxt = _id_text(self.peek())
             if nxt is not None and nxt.startswith("-"):
