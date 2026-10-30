@@ -1,0 +1,25 @@
+docs/user_guide/19-panel-data.qmd
+  s_e1088c9cf620e9::t_f4e58750c9e6a4 214-215,219,223,230,235,242
+docs/user_guide/21-history-dependent-policies.qmd
+  s_e1088c9cf620e9::t_f4e58750c9e6a4 11-12,16,26
+pathmc/simulate.py
+  s_e1088c9cf620e9::t_4bc9a3e8a2500a 2355-2362
+tests/test_do_regressions.py
+  s_e1088c9cf620e9::t_ecb05ff3a1a3dc 456-493
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3044849d4db4707f62d99dd0e19f216b1aa664c3",
+  "prompts": {},
+  "sessions": {
+    "s_e1088c9cf620e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18beb-31d6-7012-b41b-6d1f2d5335fc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
