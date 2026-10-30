@@ -1,0 +1,26 @@
+pathmc/_model.py
+  h_63db634213747e 632,3147-3184,3298-3301,3317,3646-3648,3674,4044-4046,4062
+tests/test_adjustment.py
+  h_63db634213747e 120-122,127,781,788,790
+tests/test_bernoulli.py
+  h_63db634213747e 82-83,85
+tests/test_identification.py
+  h_63db634213747e 223-227,235-239
+tests/test_identification_scale.py
+  h_63db634213747e 148-149
+tests/test_interpret.py
+  h_63db634213747e 483-488
+tests/test_residual_cov.py
+  h_63db634213747e 307-310,313-321,324-329,513-582
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4e7cc820853054fee0b478077d0f40e802841c3a",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
