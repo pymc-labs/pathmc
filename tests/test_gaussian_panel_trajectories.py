@@ -412,6 +412,9 @@ def test_fitted_unit_effects_and_supplied_noise_are_conditioned_once():
         )
         post[f"mu_alpha_{var}"] = (("chain", "draw"), np.full((1, 3), 100.0))
         post[f"sigma_alpha_{var}"] = (("chain", "draw"), np.full((1, 3), 50.0))
+        post[f"alpha_{var}_offset"] = (
+            post[f"alpha_{var}"] - post[f"mu_alpha_{var}"]
+        ) / post[f"sigma_alpha_{var}"]
     post["sigma_y"][:] = 0.7
     post["sigma_z"][:] = 0.2
     info = model._gen_model._pathmc_panel_scan
