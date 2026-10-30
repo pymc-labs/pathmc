@@ -23,19 +23,8 @@ The generator stays inside constraints the compiler accepts:
 * ``lag()``, partial pooling, and slopes require ``panel=``. Without a
   panel the compiler either raises (lag) or silently drops the hierarchical
   terms (pooling).
-* A poisson or negbinomial endogenous variable is not a predictor in a
-  scan-compiled spec. ``model()`` returns, then compiling the logp raises
-  ``ValueError`` (``Random variables detected in the logp graph``). The leak
-  is any predictor role once a temporal term forces the scan compiler:
-  ``lag()``, ``adstock()``, a plain term, an interaction, or
-  ``logistic_saturation()``. Non-scan models may still use those predictors.
-  The minimized reproducers are frozen in ``test_fuzz_consistency.py``.
-  Drop the exclusion when those strict xfails start passing. Bernoulli and
-  gaussian endogenous inputs, and count outcomes with only exogenous
-  temporal inputs, stay in the grammar.
 * Contemporaneous self-edges (``y ~ y``, ``y ~ adstock(y, ...)``, ``y ~ y:x``)
-  are cycles. ``lag(y)`` is temporal and allowed when ``y`` is not a count
-  family.
+  are cycles. ``lag(y)`` is temporal and allowed, including count families.
 """
 
 from __future__ import annotations
@@ -85,6 +74,11 @@ PANEL_SHAPES: tuple[tuple[int, int], ...] = (
 # Cross-section has no time axis. n=1 is a constant predictor, which the
 # issue says to filter, so the smallest draw is 2.
 CROSS_SECTION_N: tuple[int, ...] = (2, 5, 10, 30)
+# The per-commit mixed budget compiles each draw, including ``dlogp``. Large
+# panels make that session take tens of minutes, so it draws from this subset.
+# Nightly and the grammar test still use the full menu above.
+FAST_PANEL_SHAPES: tuple[tuple[int, int], ...] = ((1, 2), (2, 3))
+FAST_CROSS_SECTION_N: tuple[int, ...] = (2, 5)
 
 _PANEL_KEYS = (("unit", "unit"), ("time", "time"))
 
@@ -173,38 +167,6 @@ class FuzzCase:
         """Whether this spec should take the scan-panel compiler."""
         temporal = bool(set(self.term_kinds) & _TEMPORAL_KINDS)
         return self.layout == "panel" and temporal
-
-    def count_predictors_in_scan(self) -> list[str]:
-        """Count-family names used as predictors in a scan-compiled spec.
-
-        Empty when the spec has no temporal term. Those predictors are legal
-        in a cross-section model and crash only once the scan compiler runs.
-        """
-        if not (set(self.term_kinds) & _TEMPORAL_KINDS):
-            return []
-        families = self.families_dict()
-        found: list[str] = []
-        for line in self.spec.splitlines():
-            rhs = line.split("~", 1)[1]
-            for raw in (
-                rhs
-                .replace(":", " ")
-                .replace("(", " ")
-                .replace(")", " ")
-                .replace(",", " ")
-                .replace("+", " ")
-                .split()
-            ):
-                token = raw.split("=")[-1]
-                if not token.isidentifier():
-                    continue
-                if token in {"lag", "adstock", "logistic_saturation"}:
-                    continue
-                if token.startswith(("decay_", "lam_")):
-                    continue
-                if families.get(token) in COUNT_FAMILIES and token not in found:
-                    found.append(token)
-        return found
 
     def plain_terms(self) -> set[str]:
         """Raw column names that appear as plain terms, not inside a call.
@@ -339,43 +301,12 @@ def render_spec(edges: list[Edge], intercept: dict[str, bool]) -> str:
     return "\n".join(lines)
 
 
-def _legal_kinds(parent: str, child: str, families: dict[str, str]) -> tuple[str, ...]:
-    parent_family = families.get(parent)
+def _legal_kinds(parent: str, child: str) -> tuple[str, ...]:
     if parent == child:
         # lag(y) is temporal. adstock(y) and lag+adstock (which renders
         # adstock(y)) are contemporaneous self-edges and a structural cycle.
-        # Count families also crash when lagged into the scan compiler.
-        if parent_family in COUNT_FAMILIES:
-            return ()
         return ("lag",)
-    if parent_family in COUNT_FAMILIES:
-        return ("plain", "logistic_saturation")
     return _SINGLE_PARENT_KINDS
-
-
-def _without_count_predictors_in_scan(
-    edges: list[Edge], families: dict[str, str]
-) -> list[Edge]:
-    """Drop count-family predictors once any temporal term forces scan.
-
-    A plain term, interaction, or ``logistic_saturation()`` of a count
-    endogenous node raises the same logp-graph ``ValueError`` as ``lag()``
-    of that node. Non-scan models keep those predictors. ``x0`` is always
-    exogenous, so every equation still has a legal term after the drop.
-    """
-    if not any(edge.kind in _TEMPORAL_KINDS for edge in edges):
-        return edges
-    kept = [
-        edge
-        for edge in edges
-        if not any(families.get(name) in COUNT_FAMILIES for name in edge.inputs)
-    ]
-    if not kept:
-        raise ValueError(
-            "scan spec lost every edge after dropping count-family "
-            "predictors. x0 is exogenous and should have remained."
-        )
-    return kept
 
 
 def _col_kind(name: str, families: dict[str, str]) -> str:
@@ -478,11 +409,16 @@ def _assemble(
     )
 
 
-def _shape(draw: st.DrawFn, layout: str) -> tuple[str, int, int, int]:
+def _shape(
+    draw: st.DrawFn,
+    layout: str,
+    panel_shapes: tuple[tuple[int, int], ...],
+    cross_section_n: tuple[int, ...],
+) -> tuple[str, int, int, int]:
     if layout == "panel":
-        n_units, n_time = draw(st.sampled_from(PANEL_SHAPES))
+        n_units, n_time = draw(st.sampled_from(panel_shapes))
         return layout, n_units, n_time, n_units * n_time
-    n_obs = draw(st.sampled_from(CROSS_SECTION_N))
+    n_obs = draw(st.sampled_from(cross_section_n))
     return layout, 0, 0, n_obs
 
 
@@ -552,12 +488,15 @@ def _endogenous(draw: st.DrawFn, names: list[str]) -> list[str]:
 
 
 @st.composite
-def fuzz_cases(draw: st.DrawFn) -> FuzzCase:
+def fuzz_cases(
+    draw: st.DrawFn,
+    panel_shapes: tuple[tuple[int, int], ...] = PANEL_SHAPES,
+    cross_section_n: tuple[int, ...] = CROSS_SECTION_N,
+) -> FuzzCase:
     """Random acyclic spec with 2–5 nodes and at least one equation.
 
     Every endogenous equation includes an edge from ``x0`` (always
-    exogenous), so the design is non-empty even when other parents are
-    count-family nodes that cannot be lagged or adstocked.
+    exogenous), so the design stays non-empty.
     """
     seed = draw(st.integers(0, 2**31 - 1))
     n_nodes = draw(st.integers(2, 5))
@@ -578,12 +517,12 @@ def fuzz_cases(draw: st.DrawFn) -> FuzzCase:
             if draw(st.booleans()):
                 chosen.append(parent)
         for parent in chosen:
-            kinds = _legal_kinds(parent, child, families)
+            kinds = _legal_kinds(parent, child)
             kind = draw(st.sampled_from(kinds))
             if kind in {"lag", "lag+adstock"}:
                 layout = "panel"
             edges.append(Edge(child, kind, (parent,)))
-        self_kinds = _legal_kinds(child, child, families)
+        self_kinds = _legal_kinds(child, child)
         if self_kinds and draw(st.booleans()):
             layout = "panel"
             edges.append(Edge(child, draw(st.sampled_from(self_kinds)), (child,)))
@@ -597,14 +536,13 @@ def fuzz_cases(draw: st.DrawFn) -> FuzzCase:
         right = draw(st.sampled_from(rest))
         edges.append(Edge(child, "interaction", tuple(sorted((left, right)))))
 
-    edges = _without_count_predictors_in_scan(edges, families)
     if pooling_kind == "slopes" and not any(edge.kind == "plain" for edge in edges):
         edges.append(Edge(endogenous[-1], "plain", ("x0",)))
     slope_vars = ()
     if pooling_kind == "slopes":
         slope_vars = next(edge.inputs for edge in edges if edge.kind == "plain")
     intercept = {child: draw(st.booleans()) for child in endogenous}
-    layout, n_units, n_time, n_obs = _shape(draw, layout)
+    layout, n_units, n_time, n_obs = _shape(draw, layout, panel_shapes, cross_section_n)
     return _assemble(
         seed=seed,
         edges=edges,

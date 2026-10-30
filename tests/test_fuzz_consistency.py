@@ -14,25 +14,23 @@
 """Hypothesis fuzz tests for logp-graph consistency (issue #414).
 
 The per-commit session compiles one example from each covering stratum plus
-a small mixed budget (``FAST_MIXED_EXAMPLES``). The nightly session repeats
-the strata and draws a larger mixed budget. Both fail if a required family,
-term kind, pooling mode, or scan bit was never compiled.
+a small mixed budget (``FAST_MIXED_EXAMPLES``) drawn from
+``FAST_PANEL_SHAPES``. The nightly session repeats the strata and draws a
+larger mixed budget from the full shape menu. Both fail if a required
+family, term kind, pooling mode, or scan bit was never compiled.
 
 ``PATHMC_FUZZ_MAX_EXAMPLES`` overrides the mixed budget for local debugging.
 It does not skip the covering strata.
 
-Known product gap: a poisson or negbinomial endogenous predictor in a
-scan-compiled model lets ``model()`` return, then raises ``ValueError``
-when the logp is compiled. The leak is any predictor role, not only
-``lag()`` or ``adstock()``. That class is excluded from generation and
-frozen below as strict xfails. Remove the exclusion in
-``tests/fuzz/strategies.py`` when those xfails start passing.
+Seeds 4141 and 4142 are former scan count-predictor crashes. Current main
+compiles them, so they stay in the passing corpus and the generator may
+emit that class.
 """
 
 from __future__ import annotations
 
 import os
-import re
+
 from dataclasses import replace
 
 import numpy as np
@@ -44,6 +42,8 @@ from _consistency import assert_model_consistent
 from fuzz.strategies import (
     COVERING_STRATA,
     CROSS_SECTION_N,
+    FAST_CROSS_SECTION_N,
+    FAST_PANEL_SHAPES,
     PANEL_SHAPES,
     TERM_KINDS,
     Coverage,
@@ -59,8 +59,7 @@ from pathmc.parse import parse_spec
 
 FAST_MIXED_EXAMPLES = 8
 NIGHTLY_MIXED_EXAMPLES = 40
-_COUNT_TEMPORAL = re.compile(r"(?:lag|adstock)\(([A-Za-z_][A-Za-z0-9_]*)")
-_KNOWN_LOGP_BUG = "Random variables detected in the logp graph"
+
 
 # Replay these without Hypothesis. The seed is the parametrize id.
 PASSING_CORPUS: tuple[FuzzCase, ...] = (
@@ -96,13 +95,6 @@ PASSING_CORPUS: tuple[FuzzCase, ...] = (
         term_kinds=("lag",),
         intercept=True,
     ),
-)
-# Minimized reproducers for the count-family predictor crash in the scan
-# compiler. ``model()`` returns; compiling the logp raises ValueError.
-# ``y ~ lag(y)`` is the self-lag case. ``m ~ x`` / ``y ~ lag(x) + m`` is the
-# smaller case the nightly draw reduced to: any predictor role, not only
-# ``lag()`` of the count node, once a temporal term forces scan.
-KNOWN_FAILURES: tuple[FuzzCase, ...] = (
     FuzzCase(
         seed=4141,
         spec="y ~ lag(y)",
@@ -236,16 +228,6 @@ def check_case(case: FuzzCase) -> bool:
     return scan
 
 
-def _count_temporal_inputs(case: FuzzCase) -> list[str]:
-    families = case.families_dict()
-    bad: list[str] = []
-    for match in _COUNT_TEMPORAL.finditer(case.spec):
-        name = match.group(1)
-        if families.get(name) in {"poisson", "negbinomial"}:
-            bad.append(name)
-    return bad
-
-
 def _assert_grammar(case: FuzzCase) -> None:
     if "lag(adstock" in case.spec or "lag(logistic_saturation" in case.spec:
         raise AssertionError(f"nested lag is not legal syntax: {case}")
@@ -273,12 +255,6 @@ def _assert_grammar(case: FuzzCase) -> None:
     if case.pooling_kind == "slopes":
         missing = set(case.slope_vars) - case.plain_terms()
         assert not missing, f"slope vars {missing} are not raw terms: {case}"
-    bad = _count_temporal_inputs(case)
-    assert not bad, f"count-family temporal inputs {bad} must be excluded: {case}"
-    scan_bad = case.count_predictors_in_scan()
-    assert not scan_bad, (
-        f"count-family predictors in a scan spec {scan_bad} must be excluded: {case}"
-    )
 
 
 def _run_stratum(stratum: Stratum, coverage: Coverage) -> None:
@@ -304,9 +280,15 @@ def _run_stratum(stratum: Stratum, coverage: Coverage) -> None:
         raise AssertionError(f"covering stratum {stratum.id} failed") from exc
 
 
-def _run_mixed(max_examples: int, coverage: Coverage) -> None:
+def _run_mixed(
+    max_examples: int,
+    coverage: Coverage,
+    *,
+    panel_shapes: tuple[tuple[int, int], ...] = PANEL_SHAPES,
+    cross_section_n: tuple[int, ...] = CROSS_SECTION_N,
+) -> None:
     @_fuzz_settings(max_examples)
-    @given(case=fuzz_cases())
+    @given(case=fuzz_cases(panel_shapes=panel_shapes, cross_section_n=cross_section_n))
     def _mixed(case: FuzzCase) -> None:
         _assert_grammar(case)
         coverage.record(case, scan=check_case(case))
@@ -314,11 +296,19 @@ def _run_mixed(max_examples: int, coverage: Coverage) -> None:
     _mixed()
 
 
-def _run_session(mixed_examples: int) -> None:
+def _run_session(mixed_examples: int, *, fast_shapes: bool = False) -> None:
     coverage = Coverage()
     for stratum in COVERING_STRATA:
         _run_stratum(stratum, coverage)
-    _run_mixed(_mixed_budget(mixed_examples), coverage)
+    if fast_shapes:
+        _run_mixed(
+            _mixed_budget(mixed_examples),
+            coverage,
+            panel_shapes=FAST_PANEL_SHAPES,
+            cross_section_n=FAST_CROSS_SECTION_N,
+        )
+    else:
+        _run_mixed(_mixed_budget(mixed_examples), coverage)
     coverage.assert_session_covered()
 
 
@@ -364,27 +354,6 @@ def test_plain_terms_keep_x0_when_the_intercept_is_off() -> None:
     assert case.plain_terms() == {"x0"}
 
 
-def test_count_predictor_is_legal_until_a_temporal_term_forces_scan() -> None:
-    """Plain count predictors are valid cross-section terms and illegal in scan."""
-    plain = replace(
-        PASSING_CORPUS[0],
-        spec="y ~ m",
-        families=(("m", "poisson"), ("y", "gaussian")),
-        columns=("m", "y"),
-        predictors=("m",),
-    )
-    assert plain.count_predictors_in_scan() == []
-    scanned = replace(
-        plain,
-        spec="y ~ lag(x) + m",
-        layout="panel",
-        term_kinds=("lag", "plain"),
-        panel=(("unit", "unit"), ("time", "time")),
-    )
-    assert scanned.count_predictors_in_scan() == ["m"]
-    assert KNOWN_FAILURES[0].count_predictors_in_scan() == ["y"]
-
-
 def test_grammar_rejects_a_contemporaneous_self_edge() -> None:
     """adstock(y) on y is a cycle; lag(y) is the only legal self-edge."""
     cycled = replace(
@@ -413,34 +382,6 @@ def test_frozen_corpus_replays_without_hypothesis(case: FuzzCase) -> None:
     check_case(case)
 
 
-@pytest.mark.parametrize("case", KNOWN_FAILURES, ids=_corpus_id)
-@pytest.mark.xfail(
-    strict=True,
-    raises=ValueError,
-    reason=(
-        "A poisson or negbinomial endogenous predictor in a scan-compiled "
-        "model raises ValueError: Random variables detected in the logp "
-        "graph, when the logp is compiled. model() itself returns. Excluded "
-        "from the live fuzzer until this xfail starts passing (issue #414)."
-    ),
-)
-def test_frozen_count_temporal_input_still_fails_to_compile(case: FuzzCase) -> None:
-    """The crash is at logp compilation, not model construction.
-
-    Drop the generator exclusion in ``strategies.py`` when this strict xfail
-    starts passing.
-    """
-    built = pathmc.model(
-        case.spec,
-        data=realize_frame(case),
-        families=case.families_dict(),
-        panel=case.panel_dict(),
-        pooling=case.pooling(),
-    )
-    point = built.pymc_model.initial_point(random_seed=case.seed)
-    float(built.pymc_model.compile_logp()(point))
-
-
 @_fuzz_settings(30)
 @given(case=fuzz_cases())
 def test_generated_specs_obey_the_grammar(case: FuzzCase) -> None:
@@ -456,8 +397,12 @@ def test_generated_specs_obey_the_grammar(case: FuzzCase) -> None:
 
 
 def test_fuzz_consistency() -> None:
-    """Per-commit budget: every covering cell, plus a small mixed explore."""
-    _run_session(FAST_MIXED_EXAMPLES)
+    """Per-commit budget: every covering cell, plus a small mixed explore.
+
+    Mixed draws stay on ``FAST_PANEL_SHAPES``. A 5×30 scan ``dlogp`` does not
+    belong on this path; nightly still draws the full shape menu.
+    """
+    _run_session(FAST_MIXED_EXAMPLES, fast_shapes=True)
 
 
 @pytest.mark.nightly
