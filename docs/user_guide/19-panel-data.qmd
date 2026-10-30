@@ -211,32 +211,35 @@ See the [Panel Data Models](../docs/examples/panel-time/panel_data.qmd), [Differ
 
 A static `set=` schedule is fixed before the simulation starts. A treatment policy is a rule evaluated inside the panel scan, so the action at time *t* can depend on that unit's simulated history. That is the g-computation path for dynamic regimes: the same posterior draws and the same process noise are reused across rules, and the result keeps the posterior dimension instead of collapsing to a noise-free mean.
 
+This example uses the fitted greenhouse model from [Water on a schedule—or when plants need it?](../docs/examples/panel-time/history_dependent_policies.qmd), with equations `stress ~ lag(stress) + lag(water) + heat` and `growth ~ stress + water + stress:water`. Its pre-sample states are stress and water; growth has no lag and needs no initial value. Here `data` is the pandas frame used to fit `model`.
+
 ```python
 from pathmc import TimeSchedule, TreatmentPolicy, previous, where
 
+n_times = data["time"].nunique()
 every_third = TreatmentPolicy(
     "every_third",
     "water",
-    TimeSchedule((1.0, 0.0, 0.0, 1.0, 0.0, 0.0)),
+    TimeSchedule(tuple(1.0 if i % 3 == 0 else 0.0 for i in range(n_times))),
 )
 responsive = TreatmentPolicy(
     "responsive",
     "water",
     where(previous("stress") > 0.5, 1.0, 0.0),
 )
-baseline = {"growth": 0.0, "water": 0.0, "stress": 0.6}
+baseline = {"water": 0.0, "stress": 0.0}
 
 fixed = model.do(
     policy=every_third,
     simulate_over="time",
-    horizon=6,
+    horizon=n_times,
     initial=baseline,
     random_seed=7,
 )
 adaptive = model.do(
     policy=responsive,
     simulate_over="time",
-    horizon=6,
+    horizon=n_times,
     initial=baseline,
     random_seed=7,
 )

@@ -8,9 +8,12 @@ jupyter: pathmc
 
 `do(set=)` replaces a treatment with a schedule that is fixed before the first step. A dynamic regime is different: the action at time *t* is a rule of the simulated history. `policy=` evaluates that rule inside the scan, so a time-varying confounder can respond to earlier treatment and then affect the next action.
 
+The call below uses the fitted [greenhouse model](../docs/examples/panel-time/history_dependent_policies.qmd): `stress ~ lag(stress) + lag(water) + heat` and `growth ~ stress + water + stress:water`. Only stress and water require initial states. Here `data` is the pandas frame used to fit `model`.
+
 ```python
 from pathmc import TimeSchedule, TreatmentPolicy, current, previous, where
 
+n_times = data["time"].nunique()
 responsive = TreatmentPolicy(
     "responsive",
     "water",
@@ -20,7 +23,7 @@ result = model.do(
     policy=responsive,
     simulate_over="time",
     horizon=n_times,
-    initial={"growth": 0.0, "water": 0.0, "stress": 0.6},
+    initial={"water": 0.0, "stress": 0.0},
     random_seed=7,
 )
 ```

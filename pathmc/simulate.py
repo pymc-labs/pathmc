@@ -2352,11 +2352,14 @@ def run_do_panel_unified(
             variables[var] = _panel_unit_mean(raw, np.asarray(scan_info.time_values))
         ones = _chain_draw_ones(posterior(idata))
         for var in graph_info.exogenous:
-            variables[var] = (
-                _spread_over_time(ones, set[var], np.asarray(scan_info.time_values))
-                if var in set
-                else ones * 0.0
-            )
+            if var in set:
+                variables[var] = _spread_over_time(
+                    ones, set[var], np.asarray(scan_info.time_values)
+                )
+            else:
+                filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
+                if filled is not None:
+                    variables[var] = filled
         return DoResult(ds=xr.Dataset(variables), observed_by_time=observed_by_time)
 
     if kind == "mean":
