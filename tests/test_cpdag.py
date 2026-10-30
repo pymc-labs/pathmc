@@ -768,6 +768,38 @@ def test_subgraph_keeps_empty_html_and_glued_port_ids():
         _parse_dot('digraph { "A"+B -> Y; Z -> Y }')
 
 
+def test_subgraph_ports_ids_and_edge_dir_default():
+    """Layout ports and cluster ids must not invent a Markov class.
+
+    A second compass piece is not a node. A concatenated or HTML subgraph
+    id is not a node and must not raise. ``edge [dir=none]`` inside a
+    subgraph is undirected, not a collider.
+    """
+    ports = "digraph { subgraph cluster { A: n: ne -> B } }"
+    nodes, directed, _ = _parse_dot(ports)
+    assert nodes == {"A", "B"}
+    assert directed == {("A", "B")}
+    assert same_markov_equivalence_class(ports, "digraph { A -> B }") is True
+    assert same_markov_equivalence_class(ports, "digraph { A; ne -> B }") is False
+    assert _parse_dot("digraph { A: n : ne -> B }")[0] == {"A", "B"}
+    assert _parse_dot("digraph { A:n -> B }")[0] == {"A:n", "B"}
+    assert _parse_dot('digraph { "A": n: ne -> B }')[0] == {"A", "B"}
+
+    concat = 'digraph { subgraph "A"+"B" { X -> Y; Z -> Y } }'
+    nodes, directed, _ = _parse_dot(concat)
+    assert nodes == {"X", "Y", "Z"}
+    assert "AB" not in nodes
+    assert same_markov_equivalence_class(concat, "digraph { X -> Y; Z -> Y }") is True
+    assert _parse_dot("digraph { subgraph <BR/> { X -> Y } }")[0] == {"X", "Y"}
+
+    default = "digraph { subgraph cluster { edge [dir=none]; X -> Y; Z -> Y } }"
+    nodes, directed, undirected = _parse_dot(default)
+    assert nodes == {"X", "Y", "Z"}
+    assert directed == set()
+    assert undirected == {frozenset(("X", "Y")), frozenset(("Z", "Y"))}
+    assert same_markov_equivalence_class(default, "digraph { X -> Y; Z -> Y }") is False
+
+
 def test_spaced_unquoted_compass_port_is_not_an_endpoint():
     """Whitespace around ``:`` is a compass port, including inside a subgraph.
 

@@ -389,6 +389,8 @@ class _DotBodyParser:
         self.directed: set[tuple[str, str]] = set()
         self.undirected: set[frozenset[str]] = set()
         self.scopes: list[set[str]] = [set()]
+        self.edge_dir_none: list[bool] = [False]
+        self._dir_was_set = False
 
     def peek(self, offset: int = 0) -> str | tuple[str, str] | None:
         index = self.i + offset
@@ -442,9 +444,17 @@ class _DotBodyParser:
             or _is_keyword(token, "edge")
         ):
             if self.peek(1) == "[":
+                is_edge_default = _is_keyword(token, "edge")
                 self.pop()
+                applied: bool | None = None
                 while self.peek() == "[":
-                    self.take_attr_list()
+                    none = self.take_attr_list()
+                    if self._dir_was_set:
+                        applied = none
+                if is_edge_default and applied is not None:
+                    # Later edges in this block inherit dir=none. Ignoring it
+                    # reports a directed collider.
+                    self.edge_dir_none[-1] = applied
                 return
             nxt = _id_text(self.peek(1))
             if nxt is not None and nxt.startswith("-"):
@@ -496,9 +506,11 @@ class _DotBodyParser:
                     if u != v:
                         hops.append((u, v, op))
             current = right
-        dir_none = False
+        dir_none = self.edge_dir_none[-1]
         while self.peek() == "[":
-            dir_none = self.take_attr_list() or dir_none
+            listed = self.take_attr_list()
+            if self._dir_was_set:
+                dir_none = listed
         for u, v, op in hops:
             if self.is_undirected_graph or op == "--" or dir_none:
                 self.undirected.add(frozenset((u, v)))
@@ -582,12 +594,12 @@ class _DotBodyParser:
             if extra is None:
                 raise _dot_parse_error("unsupported '+' in a DOT id.")
             name += extra
-        if self.peek() == ":":
-            self._skip_quoted_ports()
-        elif not literal and name.endswith(":") and _is_id(self.peek()):
-            # ``A: n`` is a compass port. ``A:n`` is one id and is not split.
-            name = name[:-1]
-            self.pop()
+        if self.peek() == ":" or (
+            not literal and name.endswith(":") and _is_id(self.peek())
+        ):
+            if name.endswith(":"):
+                name = name[:-1]
+            self._skip_port_chain()
         if not literal and name.lower() in _RESERVED:
             nxt = _id_text(self.peek())
             if nxt is not None and nxt.startswith("-"):
@@ -602,21 +614,32 @@ class _DotBodyParser:
         self.add_node(name)
         return {name}
 
-    def _skip_quoted_ports(self) -> None:
-        while self.peek() == ":":
-            self.pop()
+    def _skip_port_chain(self) -> None:
+        """Drop every compass piece after a real port colon.
+
+        ``A:n`` has no separate colon and stays one id. ``A: n: ne`` must not
+        leave ``ne`` as a node.
+        """
+        expect_piece = self.peek() != ":"
+        while True:
+            if self.peek() == ":":
+                self.pop()
+                expect_piece = True
+                continue
+            if not expect_piece:
+                return
             if not _is_id(self.peek()):
                 raise _dot_parse_error(
-                    "unsupported compass port after a quoted id "
-                    f"before {self.peek()!r}."
+                    f"unsupported compass port before {self.peek()!r}."
                 )
-            self.pop()
+            piece = _id_text(self.pop())
+            expect_piece = piece is not None and piece.endswith(":")
 
     def parse_subgraph(self) -> set[str]:
         if _is_keyword(self.peek(), "subgraph"):
             self.pop()
-            if _is_id(self.peek()) and self.peek(1) == "{":
-                self.pop()
+            if self.peek() != "{":
+                self._skip_subgraph_id()
             if self.peek() != "{":
                 raise _dot_parse_error(
                     "unsupported subgraph syntax. A subgraph block must be "
@@ -630,19 +653,45 @@ class _DotBodyParser:
             )
         self.pop()
         self.scopes.append(set())
+        self.edge_dir_none.append(self.edge_dir_none[-1])
         self.parse_statements(stop_at_rbrace=True)
         if self.peek() != "}":
             raise _dot_parse_error("unsupported subgraph syntax (unbalanced '{').")
         self.pop()
+        self.edge_dir_none.pop()
         inner = self.scopes.pop()
         self.scopes[-1].update(inner)
         return inner
+
+    def _skip_subgraph_id(self) -> None:
+        """Consume a cluster id. It is not a node."""
+        token = self.peek()
+        if isinstance(token, tuple) and token[0] == "html":
+            self.pop()
+            return
+        if not _is_id(token):
+            raise _dot_parse_error(
+                "unsupported subgraph syntax. A subgraph id must be a DOT id. "
+                f"Offending token: {token!r}."
+            )
+        literal = isinstance(token, tuple) and token[0] == "qid"
+        self.pop()
+        while self.peek() == "+":
+            nxt = self.peek(1)
+            if not (literal and isinstance(nxt, tuple) and nxt[0] == "qid"):
+                raise _dot_parse_error(
+                    "unsupported DOT syntax near '+'. Only quoted strings can "
+                    "be concatenated in a subgraph id."
+                )
+            self.pop()
+            self.pop()
 
     def take_attr_list(self) -> bool:
         """Consume one ``[ ... ]`` group. Return True if it sets ``dir=none``."""
         if self.pop() != "[":
             raise _dot_parse_error("unsupported subgraph syntax (expected '[').")
         dir_none = False
+        self._dir_was_set = False
         depth = 1
         prev: str | tuple[str, str] | None = None
         while depth:
@@ -657,9 +706,9 @@ class _DotBodyParser:
             else:
                 attr = _id_text(prev)
                 if token == "=" and attr is not None and attr.lower() == "dir":
+                    self._dir_was_set = True
                     value = _id_text(self.peek())
-                    if value is not None and value.lower() == "none":
-                        dir_none = True
+                    dir_none = value is not None and value.lower() == "none"
             prev = token
         return dir_none
 
@@ -673,8 +722,9 @@ def _parse_dot(
     ``frozenset({u, v})``. An ``A -> B`` edge carrying a ``dir=none``
     attribute is treated as undirected, as is any edge in an undirected
     ``graph { ... }`` block. Chained edges (``A -> B -> C``) are expanded.
-    Global style declarations (``graph [...]``, ``node [...]``, ``edge [...]``,
-    and ``ID = value`` assignments such as ``rankdir=LR``) are ignored.
+    Global style declarations (``graph [...]``, ``node [...]``, and ``ID =
+    value`` assignments such as ``rankdir=LR``) are ignored. ``edge
+    [dir=none]`` applies to later edges in that block.
     A ``subgraph`` block, including an anonymous ``{ ... }`` cluster, is layout
     only: its nodes and edges are parsed, and the cluster id is not a node.
     An edge into a subgraph connects to each node in that subgraph.
