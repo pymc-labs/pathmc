@@ -629,6 +629,7 @@ class PathModel:
     def _compile(self) -> None:
         """Compile the generative PyMC model and attach observations."""
         assert self._data is not None
+        _reject_within_block_directed_edges(self._spec, caller="model")
         # Drop any generative sibling; it must be rebuilt against this compile.
         self._residual_predictive_model = None
         self._gen_model = compile_to_pymc(
@@ -3143,6 +3144,44 @@ class PathModel:
         return grid
 
 
+def _within_block_directed_edges(spec: Spec) -> list[str]:
+    """Return ``lhs ~ member`` edges inside one residual-covariance block."""
+    block_var_set, blocks = _identify_residual_blocks(spec)
+    if not block_var_set:
+        return []
+    var_to_block = {v: block for block in blocks for v in block}
+    edges: list[str] = []
+    for reg in spec.regressions:
+        if reg.lhs not in var_to_block:
+            continue
+        own_block = var_to_block[reg.lhs]
+        seen: set[str] = set()
+        for term in reg.terms:
+            for var in _scan_term_base_vars(term):
+                if var in own_block and var != reg.lhs and var not in seen:
+                    seen.add(var)
+                    edges.append(f"{reg.lhs} ~ {var}")
+    return edges
+
+
+def _reject_within_block_directed_edges(spec: Spec, *, caller: str) -> None:
+    """Refuse a directed edge inside a ``~~`` block before compiling its density.
+
+    The residual-block likelihood centers every member on its structural mean.
+    A within-block regression needs the realized parent, which is not implemented.
+    """
+    edges = _within_block_directed_edges(spec)
+    if not edges:
+        return
+    shown = ", ".join(sorted(set(edges)))
+    raise NotImplementedError(
+        f"{caller}() cannot yet compile a directed edge inside a "
+        f"residual-covariance block ({shown}): a residual-covariance block "
+        "member reads another member of the same ~~ block. Drop the "
+        "within-block path or the ~~ clause."
+    )
+
+
 def model(
     spec_string: str,
     data: IntoFrame | None = None,
@@ -3256,6 +3295,10 @@ def model(
     ValueError
         If a latent variable is not endogenous, or an observed endogenous
         variable is missing from data.
+    NotImplementedError
+        If a directed edge lies inside a ``~~`` block (``Y2 ~ Y1`` together
+        with ``Y1 ~~ Y2``). Drop the within-block path or the ``~~`` clause.
+        The same refusal applies with or without data.
     """
     if initial is not None and _initial_internal is not None:
         raise ValueError("Pass initial= or already-normalized refit arrays, not both.")
@@ -3271,6 +3314,7 @@ def model(
             "formula, or omit initial=."
         )
     spec = parse_spec(spec_string)
+    _reject_within_block_directed_edges(spec, caller="model")
     latent_set = set(latent) if latent is not None else set()
 
     nw_data = nw.from_native(data, eager_only=True) if data is not None else None
@@ -3599,6 +3643,9 @@ def simulate(
         If required parameter values are missing from *params*, if a
         parameter array has the wrong shape, or if the spec contains
         ``lag()`` terms but ``panel=`` was omitted.
+    NotImplementedError
+        If a directed edge lies inside a ``~~`` block. Drop the
+        within-block path or the ``~~`` clause.
 
     Examples
     --------
@@ -3618,32 +3665,13 @@ def simulate(
     """
     spec = parse_spec(spec_string)
     latent_set = set(latent) if latent else set()
-    block_var_set, blocks = _identify_residual_blocks(spec)
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
 
     if spec.residual_covs and panel is not None and _has_temporal_deps(spec):
         raise NotImplementedError(_SCAN_PANEL_RESIDUAL_COV_MSG)
 
-    if block_var_set:
-        var_to_block = {v: block for block in blocks for v in block}
-        within_block_readers: dict[str, set[str]] = {}
-        for reg in spec.regressions:
-            if reg.lhs not in var_to_block:
-                continue
-            own_block = var_to_block[reg.lhs]
-            read_vars = {v for term in reg.terms for v in _scan_term_base_vars(term)}
-            block_deps = (own_block & read_vars) - {reg.lhs}
-            if block_deps:
-                within_block_readers[reg.lhs] = block_deps
-        if within_block_readers:
-            block_deps = set().union(*within_block_readers.values())
-            raise NotImplementedError(
-                f"simulate() cannot yet generate {sorted(within_block_readers)}: "
-                "a residual-covariance block member reads another member of "
-                f"the same ~~ block ({sorted(block_deps)}). Drop the "
-                "within-block path or the ~~ clause."
-            )
+    _reject_within_block_directed_edges(spec, caller="simulate")
 
     nw_data = nw.from_native(data, eager_only=True)
     from pathmc.categorical import fit_categorical_terms
@@ -4013,6 +4041,9 @@ def simulate_params_template(
     ValueError
         If the spec contains ``lag()`` terms but ``panel=`` was omitted,
         or if required exogenous columns are missing from *data*.
+    NotImplementedError
+        If a directed edge lies inside a ``~~`` block. Drop the
+        within-block path or the ``~~`` clause.
 
     Examples
     --------
@@ -4028,6 +4059,7 @@ def simulate_params_template(
     {'kind': 'vector', 'shape': (3,), 'dtype': 'float64'}
     """
     spec = parse_spec(spec_string)
+    _reject_within_block_directed_edges(spec, caller="simulate_params_template")
     validate_scaling_config(scaling)
     latent_set = set(latent) if latent else set()
 

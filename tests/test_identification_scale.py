@@ -145,7 +145,7 @@ class TestAdjustmentSetScale:
 
 
 def test_unidentifiable_explicit_set_keeps_the_backdoor_error(rng):
-    df = pd.DataFrame({name: rng.normal(size=40) for name in ("T", "Y", "Z")})
-    model = pathmc.model("T ~ Z\nY ~ T\nT ~~ Y", data=df)
+    df = pd.DataFrame({name: rng.normal(size=40) for name in ("T", "Y", "Z", "M")})
+    model = pathmc.model("T ~ Z\nM ~ T\nY ~ M\nT ~~ Y", data=df)
     with pytest.raises(ValueError, match="not identifiable"):
         model.adjustment_model("T -> Y", adjustment_set={"Z"})
