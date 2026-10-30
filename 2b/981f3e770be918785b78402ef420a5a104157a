@@ -1,0 +1,16 @@
+pathmc/cpdag.py
+  h_63db634213747e 392-393,447,449,451-457,509,511-513,597-602,617-630,633,635-636,641-642,656,661,666-688,694,709,711,725-727
+tests/test_cpdag.py
+  h_63db634213747e 771-802
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2b981f3e770be918785b78402ef420a5a104157a",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
