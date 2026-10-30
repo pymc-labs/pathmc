@@ -399,6 +399,18 @@ class TestSimulateNoIntercept:
         assert len(df) == len(exog_df)
 
 
+def _finite_geometric_adstock(series, decay, l_max=12):
+    """``y_t = sum_{i=0}^{l_max-1} decay**i * x_{t-i}``, zero before t=0."""
+    values = np.asarray(series, dtype=float)
+    out = np.empty(values.shape[0], dtype=float)
+    for t in range(values.shape[0]):
+        total = 0.0
+        for i in range(min(l_max, t + 1)):
+            total += decay**i * values[t - i]
+        out[t] = total
+    return out
+
+
 @pytest.fixture
 def panel_exog():
     """Panel exogenous data: 3 regions x 25 weeks of TV spend."""
@@ -633,15 +645,9 @@ class TestSimulatePanelTransforms:
 
     @staticmethod
     def _reference(tv, theta, lam):
-        """NumPy reference: geometric adstock recursion + pathmc saturation."""
-        adstocked = 0.0
-        saturated = []
-        for x in tv:
-            adstocked = x + theta * adstocked
-            saturated.append(
-                (1 - np.exp(-lam * adstocked)) / (1 + np.exp(-lam * adstocked))
-            )
-        return np.asarray(saturated)
+        """NumPy reference: l_max=12 geometric adstock + pathmc saturation."""
+        adstocked = _finite_geometric_adstock(tv, theta)
+        return (1 - np.exp(-lam * adstocked)) / (1 + np.exp(-lam * adstocked))
 
     def _panel_params(self, alphas, sigma=0.0):
         return {
@@ -734,7 +740,7 @@ class TestSimulatePanelTransforms:
             assert abs(centered - ref_mean) < 0.4, region
 
     def test_multi_dim_panel_geo_brand(self):
-        """Adstock recurses within each geo|brand composite unit (#430)."""
+        """Adstock carries within each geo|brand composite unit (#430)."""
         rng = np.random.default_rng(8)
         rows = [
             {"geo": g, "brand": b, "week": w, "tv": rng.uniform(5, 30)}
@@ -920,13 +926,9 @@ class TestSimulateFunnelDGP:
 
     @staticmethod
     def _reference(x4, theta, lam):
-        """NumPy adstock recursion + pathmc saturation kernel (tanh form)."""
-        adstocked = 0.0
-        out = []
-        for v in x4:
-            adstocked = v + theta * adstocked
-            out.append((1 - np.exp(-lam * adstocked)) / (1 + np.exp(-lam * adstocked)))
-        return np.asarray(out)
+        """NumPy l_max=12 adstock + pathmc saturation kernel (tanh form)."""
+        adstocked = _finite_geometric_adstock(x4, theta)
+        return (1 - np.exp(-lam * adstocked)) / (1 + np.exp(-lam * adstocked))
 
     def test_funnel_propagates_through_chain(self):
         out = self._simulate(self._exog())
