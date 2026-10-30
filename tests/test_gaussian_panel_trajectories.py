@@ -24,7 +24,7 @@ import xarray as xr
 import pathmc
 
 
-def _model(spec="y ~ 0 + 0.5*lag(y)\nz ~ 0 + 1*y", n=4, units=1):
+def _model(spec="y ~ 0 + 0.5*lag(y)\nz ~ 0 + 1*y", n=4, units=1, initial=None):
     data = pd.DataFrame({
         "unit": np.repeat([f"u{i}" for i in range(units)], n),
         "time": np.tile(np.arange(n), units),
@@ -32,7 +32,9 @@ def _model(spec="y ~ 0 + 0.5*lag(y)\nz ~ 0 + 1*y", n=4, units=1):
         "y": np.zeros(n * units),
         "z": np.zeros(n * units),
     })
-    return pathmc.model(spec, data=data, panel={"unit": "unit", "time": "time"})
+    return pathmc.model(
+        spec, data=data, panel={"unit": "unit", "time": "time"}, initial=initial
+    )
 
 
 def _posterior(model, draws=1000):
@@ -436,8 +438,8 @@ def test_fitted_unit_effects_and_supplied_noise_are_conditioned_once():
 def test_legacy_mean_ignores_lag_and_nonlag_noise():
     # Stored lag-carry innovations are prior draws wherever the outcome was
     # observed. kind="mean" is noise-free, so a carry of 0.7 must not reach
-    # z through lag(z) (it used to give 0, 0.35, 0.525, 0.6125).
-    model = _model("y ~ 0 + 1*x\nz ~ 0 + 1*y + 0.5*lag(z)")
+    # z through lag(z). The pre-sample z = 1 keeps the 0.5 lag in the oracle.
+    model = _model("y ~ 0 + 1*x\nz ~ 0 + 1*y + 0.5*lag(z)", initial={"z": 1.0})
     post = _posterior(model, draws=2).assign_coords(chain=[0], draw=[0, 1])
     post["sigma_z"][:] = 1.0
     post["carry_innovations_z"][:] = 0.7
@@ -448,7 +450,8 @@ def test_legacy_mean_ignores_lag_and_nonlag_noise():
         result.y.transpose("chain", "draw", "time"), np.zeros((1, 2, 4))
     )
     np.testing.assert_allclose(
-        result.z.transpose("chain", "draw", "time"), np.zeros((1, 2, 4))
+        result.z.transpose("chain", "draw", "time"),
+        np.broadcast_to([0.5, 0.25, 0.125, 0.0625], (1, 2, 4)),
     )
 
 
