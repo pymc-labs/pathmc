@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import builtins
 import warnings
-from collections.abc import Hashable, Iterator, Mapping
+from collections.abc import Collection, Hashable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
@@ -267,6 +267,17 @@ def _spread_over_time(
         coords={"time": np.asarray(time_index)},
     )
     return (ones * per_time).transpose("time", "chain", "draw")
+
+
+def _overlay_held(
+    path: xr.DataArray,
+    ones: xr.DataArray,
+    value: float | np.ndarray,
+    time_index: np.ndarray,
+) -> xr.DataArray:
+    """Report a NaN-padded intervention: held values, the scan path elsewhere."""
+    held = _spread_over_time(ones, value, time_index)
+    return xr.where(held.isnull(), path, held).transpose("time", "chain", "draw")
 
 
 def _panel_unit_mean(da: xr.DataArray, time_index: np.ndarray) -> xr.DataArray:
@@ -1993,6 +2004,7 @@ def _panel_predictive_sample_kwargs(
     do_model: pm.Model,
     graph_info: GraphInfo,
     set: dict[str, float | np.ndarray],
+    released: Collection[str] = (),
 ) -> dict[str, Any]:
     """Keyword args for ``sample_posterior_predictive`` on intervened scan panels.
 
@@ -2004,8 +2016,9 @@ def _panel_predictive_sample_kwargs(
     predictive draws stay consistent with the intervened generative graph.
     Requesting only ``sample_vars`` drops the merged outcome from
     ``posterior_predictive``, so ``var_names`` must name the non-latent
-    endogenous variables we still read from the PPC output. Latents not
-    in ``set`` are excluded from ``var_names`` and recovered through
+    endogenous variables we still read from the PPC output, including any
+    ``released`` intervention (NaN-padded, so read on its released steps).
+    Latents not in ``set`` are excluded from ``var_names`` and recovered through
     ``compute_deterministics`` with the fitted posterior (including
     ``innovations_{var}`` for stochastic latents), not fresh process noise.
     """
@@ -2018,7 +2031,7 @@ def _panel_predictive_sample_kwargs(
         var
         for var in graph_info.topological_order
         if var in graph_info.endogenous
-        and var not in set
+        and (var not in set or var in released)
         and var not in graph_info.latent
     ]
     if not var_names:
@@ -2146,7 +2159,9 @@ def _execute_gaussian_panel(
     """Execute coherent Gaussian states before aggregation, in model units.
 
     Initial states cover all structural lag bases with ``(unit,)`` arrays.
-    Interventions use ``(unit, time)`` arrays. Supplied innovations cover all
+    Interventions use ``(unit, time)`` arrays. An endogenous intervention may
+    hold NaN on steps it releases: the scan runs that state's own equation
+    there, so the returned state is the realized path. Supplied innovations cover all
     endogenous variables with standard-Normal epsilon arrays of dimensions
     ``(chain, draw, unit, time)``. When every innovation also carries a
     ``simulation`` dimension, posterior draws are repeated along ``draw`` by
@@ -2166,7 +2181,12 @@ def _execute_gaussian_panel(
     }
 
     def checked(
-        value: xr.DataArray, dims: tuple[str, ...], name: str, expected=None
+        value: xr.DataArray,
+        dims: tuple[str, ...],
+        name: str,
+        expected=None,
+        *,
+        allow_nan: bool = False,
     ) -> np.ndarray:
         reference = coords if expected is None else expected
         if value.dims != dims or any(
@@ -2178,7 +2198,8 @@ def _execute_gaussian_panel(
                 "align it to the fitted unit/time and posterior chain/draw labels."
             )
         array = np.asarray(value, dtype=float)
-        if not np.isfinite(array).all():
+        finite = np.isfinite(array) | (np.isnan(array) if allow_nan else False)
+        if not finite.all():
             raise ValueError(f"{name} contains nonfinite values; supply finite values.")
         return array
 
@@ -2197,7 +2218,11 @@ def _execute_gaussian_panel(
                 f"Unknown intervention {var!r}; use an endogenous or exogenous base variable."
             )
         key = f"_do_intervene_{var}" if var in states else var
-        replacements[key] = checked(value, ("unit", "time"), var).T
+        # NaN is the scan's release sentinel on ``_do_intervene_{var}`` only.
+        # An exogenous input has no equation to fall back on.
+        replacements[key] = checked(
+            value, ("unit", "time"), var, allow_nan=var in states
+        ).T
 
     # Only structural draws may bind the execution graph. In particular, stored
     # deterministics/imputations must not short-circuit a supplied-noise replay.
@@ -2381,8 +2406,19 @@ def run_do_panel_unified(
         v for v in latent if families.get(v, "gaussian") == "latent_normal"
     }
 
+    # NaN steps in an endogenous intervention release it: the scan's
+    # ``_do_intervene`` switch runs the structural equation there. Such a
+    # variable is severed inside the scan only, and is reported like an
+    # unintervened one with the held values laid over its path.
+    released = {
+        var
+        for var, val in set.items()
+        if var in graph_info.endogenous and np.isnan(np.asarray(val, dtype=float)).any()
+    }
+
     replacements: dict[str, Any] = {}
     scan_intervene_updates: dict[str, np.ndarray] = {}
+    scaled: dict[str, np.ndarray] = {}
     for var, val in set.items():
         if isinstance(val, np.ndarray):
             mat = np.broadcast_to(val[:, None], (n_times, n_units)).copy()
@@ -2395,16 +2431,19 @@ def run_do_panel_unified(
                     "can be aligned to the scan layout."
                 )
             mat = _scale_scan_intervention(var, mat, data, scan_info, scaling_factors)
+        scaled[var] = mat
         # Outer graph-surgery replacement, as before: needed so the
         # intervened var is no longer a free RV that compute_deterministics /
         # sample_posterior_predictive must bind from the posterior (the
         # fitted idata never sampled it -- it is observed during fit()).
+        # A released var keeps its outer node: on released steps that node
+        # is the path we report.
         if var in latent and var not in stochastic_latent:
             key = f"mu_{var}"
         else:
             key = var
-        target_dtype = gen_model[key].dtype
-        replacements[key] = mat.astype(target_dtype)
+        if var not in released:
+            replacements[key] = mat.astype(gen_model[key].dtype)
         if var in graph_info.endogenous:
             # Endogenous vars (incl. latent) *also* participate in the
             # scan's own temporal recursion: lag()/contemporaneous
@@ -2420,7 +2459,7 @@ def run_do_panel_unified(
     if scan_info.gaussian_states and kind == "predictive":
         interventions = {
             var: xr.DataArray(
-                np.asarray(replacements[var]).T,
+                scaled[var].T,
                 dims=("unit", "time"),
                 coords={"unit": scan_info.unit_labels, "time": scan_info.time_values},
             )
@@ -2451,9 +2490,15 @@ def run_do_panel_unified(
                     variables[var] = filled
         return DoResult(ds=xr.Dataset(variables), observed_by_time=observed_by_time)
 
+    unheld = [
+        var
+        for var in graph_info.topological_order
+        if var in graph_info.endogenous and (var not in set or var in released)
+    ]
+
     if kind == "mean":
-        for var in graph_info.topological_order:
-            if var in graph_info.endogenous and var not in set and var not in latent:
+        for var in unheld:
+            if var not in latent:
                 # Scan ``mu_{var}`` for a discrete outcome is already the
                 # response-scale mean (rate or probability). ``pm.do`` cannot
                 # substitute that float for the integer outcome RV; the mean
@@ -2465,13 +2510,7 @@ def run_do_panel_unified(
                     continue
                 replacements[var] = gen_model[f"mu_{var}"] * 1
 
-        det_names = []
-        for var in graph_info.topological_order:
-            if var in graph_info.endogenous and var not in set:
-                if var in stochastic_latent:
-                    det_names.append(var)
-                else:
-                    det_names.append(f"mu_{var}")
+        det_names = [var if var in stochastic_latent else f"mu_{var}" for var in unheld]
 
         with (
             _forced_generative_carry(gen_model),
@@ -2507,7 +2546,7 @@ def run_do_panel_unified(
         data_vars: dict[str, xr.DataArray] = {}
 
         for var in graph_info.topological_order:
-            if var in set:
+            if var in set and var not in released:
                 data_vars[var] = _spread_over_time(ones, set[var], time_idx)
             elif var in graph_info.exogenous:
                 filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
@@ -2523,6 +2562,10 @@ def run_do_panel_unified(
                     scan_info,
                 )
                 data_vars[var] = _panel_unit_mean(raw, time_idx)
+                if var in released:
+                    data_vars[var] = _overlay_held(
+                        data_vars[var], ones, set[var], time_idx
+                    )
 
         return DoResult(
             ds=xr.Dataset(data_vars),
@@ -2530,10 +2573,11 @@ def run_do_panel_unified(
         )
 
     # kind == "predictive" (other values already raised)
-    latent_det_names = []
-    for var in graph_info.topological_order:
-        if var in latent and var not in set:
-            latent_det_names.append(var if var in stochastic_latent else f"mu_{var}")
+    latent_det_names = [
+        var if var in stochastic_latent else f"mu_{var}"
+        for var in unheld
+        if var in latent
+    ]
 
     with (
         _forced_generative_carry(gen_model),
@@ -2549,12 +2593,19 @@ def run_do_panel_unified(
                     idata,
                     progressbar=False,
                     random_seed=random_seed,
-                    **_panel_predictive_sample_kwargs(do_model, graph_info, set),
+                    **_panel_predictive_sample_kwargs(
+                        do_model, graph_info, set, released
+                    ),
                 )
 
         if latent_det_names:
+            # A fully observed outcome is a free RV of the generative graph
+            # with no posterior draws. Latent states sit upstream of it, so a
+            # placeholder binding cannot reach them.
             latent_det = pm.compute_deterministics(
-                posterior(idata),
+                _fill_missing_posterior_rvs(
+                    posterior(idata), do_model, n_times * n_units
+                ),
                 model=do_model,
                 var_names=latent_det_names,
                 progressbar=False,
@@ -2569,7 +2620,7 @@ def run_do_panel_unified(
     predictive_vars: dict[str, xr.DataArray] = {}
 
     for var in graph_info.topological_order:
-        if var in set:
+        if var in set and var not in released:
             predictive_vars[var] = _spread_over_time(ones, set[var], time_idx)
         elif var in graph_info.exogenous:
             filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
@@ -2595,6 +2646,10 @@ def run_do_panel_unified(
                     scan_info,
                 )
                 predictive_vars[var] = _panel_unit_mean(raw, time_idx)
+        if var in released:
+            predictive_vars[var] = _overlay_held(
+                predictive_vars[var], ones, set[var], time_idx
+            )
 
     return DoResult(
         ds=xr.Dataset(predictive_vars),
