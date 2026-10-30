@@ -45,6 +45,7 @@ from pathmc.compile import (
     lag_base_kinds,
     required_initial_keys,
     validate_panel_scan_shape,
+    _warn_scan_rate_clip_at_fixed_coefficients,
 )
 from pathmc.effects import (
     EffectResult,
@@ -568,6 +569,7 @@ class PathModel:
             pooling=pooling,
             latent=self._latent,
             panel_info=panel_info,
+            data=data,
         )
         self._priors = merge_priors(defaults, priors)
 
@@ -761,9 +763,15 @@ class PathModel:
         An endogenous base then uses that unit's first observed value.
         An exogenous base uses a matching ``<variable>_lag1`` column when
         present, otherwise the first observed row, otherwise zeros.
-        A ``do(initial=)`` override does not change this record.
+        A ``do(initial=)`` override does not change this record. The returned
+        arrays are a snapshot; editing them does not alter model execution.
         """
-        return self._initial_baseline
+        if self._initial_baseline is None:
+            return None
+        return freeze_baseline(
+            explicit=self._initial_baseline.explicit,
+            values=self._initial_baseline.values,
+        )
 
     @property
     def pymc_model(self) -> pm.Model:
@@ -2396,6 +2404,7 @@ class PathModel:
                     scaling_factors=self._scaling_factors,
                     categorical_vars=self._categorical_vars,
                     observed_by_time=observed_by_time,
+                    random_seed=random_seed,
                 )
 
         with self._categorical_intervention(categorical_set):
@@ -3653,7 +3662,10 @@ def simulate(
                 )
         do_dict[name] = arr.astype(rv.dtype)
     fixed_model = pm.do(gen_model, do_dict)
-
+    # Coefficients are numeric only after they are bound. Evaluate the scan
+    # linear predictor here so a large intercept warns even when the outcome
+    # column is absent and observed counts cannot.
+    _warn_scan_rate_clip_at_fixed_coefficients(gen_model, do_dict)
     if scan_info is not None:
         # Scan-compiled panel model: draw the temporal recursion in one pass.
         # The recursion consumes its own ``carry_innovations`` sequences, so

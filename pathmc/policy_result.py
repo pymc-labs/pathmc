@@ -39,7 +39,7 @@ __all__ = ["PolicyRun", "PolicySimulationInfo"]
 
 @dataclass(frozen=True)
 class PolicySimulationInfo:
-    """Identity of one policy run. Contrast requires every field except name."""
+    """Simulation context; policies may differ in rules and unused initial keys."""
 
     policy_name: str
     target: str
@@ -56,7 +56,7 @@ class PolicySimulationInfo:
     weights: tuple[float, ...]
 
     def matches(self, other: PolicySimulationInfo) -> list[str]:
-        """Return identity fields that differ. Names are allowed to differ."""
+        """Return incompatible context fields, allowing unused initial states."""
         mismatched: list[str] = []
         for field in (
             "target",
@@ -65,7 +65,6 @@ class PolicySimulationInfo:
             "n_simulations",
             "horizon",
             "seed",
-            "baseline",
             "posterior_id",
             "exogenous_id",
             "coupling",
@@ -73,6 +72,11 @@ class PolicySimulationInfo:
         ):
             if getattr(self, field) != getattr(other, field):
                 mismatched.append(field)
+        left, right = dict(self.baseline), dict(other.baseline)
+        # A policy-only previous() reference has no effect on a rule that never
+        # reads it. Both runs still require every structural lag's initial state.
+        if any(left[name] != right[name] for name in left.keys() & right.keys()):
+            mismatched.append("baseline")
         return mismatched
 
 
@@ -86,13 +90,19 @@ def _time_label_index(times: list[Any], label: Any, where: str) -> int:
     )
 
 
+@dataclass(frozen=True)
+class _TimeAggregation:
+    reduction: str
+    time_values: tuple[Any, ...]
+
+
 def _reduce_policy_time(
     ds: xr.Dataset,
     var: str,
     reduction: str,
     start: Any,
     end: Any,
-) -> xr.Dataset:
+) -> tuple[xr.Dataset, _TimeAggregation]:
     """Reduce one variable's time dimension, dropping every other variable."""
     if var not in ds:
         raise KeyError(
@@ -121,7 +131,9 @@ def _reduce_policy_time(
             "aggregate_time reduction must be 'sum', 'mean', or 'last'. "
             f"Got {reduction!r}."
         )
-    return reduced.to_dataset()
+    return reduced.to_dataset(), _TimeAggregation(
+        reduction=reduction, time_values=tuple(times[start_i : end_i + 1])
+    )
 
 
 def _require_matching_layout(left: xr.Dataset, right: xr.Dataset) -> None:
@@ -151,6 +163,7 @@ class PolicyRun(_DrawStorageMixin):
     population: xr.Dataset
     simulation_draws: xr.Dataset
     _trajectories: xr.Dataset | None = None
+    _aggregation: _TimeAggregation | None = None
 
     def __post_init__(self) -> None:
         # The mixin declares ``_ds`` assignable, so a property override is a type error.
@@ -162,7 +175,7 @@ class PolicyRun(_DrawStorageMixin):
         return self.population
 
     def simulation_info(self) -> PolicySimulationInfo:
-        """Identity of this run. Contrast requires every field except name."""
+        """Simulation context, including the baseline states this run used."""
         return self.info
 
     @property
@@ -252,13 +265,18 @@ class PolicyRun(_DrawStorageMixin):
         ``end`` are inclusive fitted time labels. The result has no time
         dimension, so :meth:`mean` describes that scalar estimand.
         """
+        population, aggregation = _reduce_policy_time(
+            self.population, var, reduction, start, end
+        )
+        simulation_draws, _ = _reduce_policy_time(
+            self.simulation_draws, var, reduction, start, end
+        )
         return PolicyRun(
             info=self.info,
-            population=_reduce_policy_time(self.population, var, reduction, start, end),
-            simulation_draws=_reduce_policy_time(
-                self.simulation_draws, var, reduction, start, end
-            ),
+            population=population,
+            simulation_draws=simulation_draws,
             _trajectories=None,
+            _aggregation=aggregation,
         )
 
     def simulation_mcse(self, var: str, *, by: str | None = None) -> Any:
@@ -287,6 +305,11 @@ class PolicyRun(_DrawStorageMixin):
         """Paired difference. Innovations already match when the seed matches."""
         if not isinstance(other, PolicyRun):
             return NotImplemented
+        if self._aggregation != other._aggregation:
+            raise ValueError(
+                "Cannot contrast policy results with different time aggregation: "
+                "apply the same reduction and time window to both results."
+            )
         mismatched = self.info.matches(other.info)
         if mismatched:
             raise ValueError(
@@ -313,7 +336,14 @@ class PolicyRun(_DrawStorageMixin):
                 n_simulations=self.info.n_simulations,
                 horizon=self.info.horizon,
                 seed=self.info.seed,
-                baseline=self.info.baseline,
+                baseline=tuple(
+                    sorted(
+                        {
+                            **dict(self.info.baseline),
+                            **dict(other.info.baseline),
+                        }.items()
+                    )
+                ),
                 posterior_id=self.info.posterior_id,
                 exogenous_id=self.info.exogenous_id,
                 coupling=self.info.coupling,
@@ -322,6 +352,7 @@ class PolicyRun(_DrawStorageMixin):
             population=self.population - other.population,
             simulation_draws=self.simulation_draws - other.simulation_draws,
             _trajectories=trajectories,
+            _aggregation=self._aggregation,
         )
 
     def __sub__(self, other: PolicyRun) -> PolicyRun:

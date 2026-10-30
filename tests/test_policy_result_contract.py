@@ -277,3 +277,72 @@ def test_contrasts_require_exact_result_coordinates(fitted, layer):
     )
     with pytest.raises(ValueError, match="coordinates.*same posterior"):
         _ = original - misaligned
+
+
+def test_policy_only_history_can_pair_with_schedule_and_preserves_baseline(fitted):
+    common = dict(horizon=2, simulate_over="time", n_simulations=3, random_seed=13)
+    history = pathmc.TreatmentPolicy(
+        "history", "water", pathmc.where(pathmc.previous("rain") > 0, 1, 0)
+    )
+    responsive = fitted.do(
+        policy=history, initial={"growth": 0.0, "rain": 1.0}, **common
+    )
+    scheduled = fitted.do(
+        policy=pathmc.TreatmentPolicy("schedule", "water", pathmc.TimeSchedule([1, 0])),
+        **common,
+    )
+    difference = responsive - scheduled
+    reverse = scheduled - responsive
+    xr.testing.assert_allclose(difference.dataset, reverse.dataset * -1)
+    xr.testing.assert_allclose(
+        difference.simulation_draws,
+        responsive.simulation_draws - scheduled.simulation_draws,
+    )
+    np.testing.assert_allclose(difference.by_time("growth"), 0.0, atol=1e-12)
+    assert difference.info.baseline == reverse.info.baseline == responsive.info.baseline
+    incompatible = fitted.do(
+        policy=history, initial={"growth": 0.0, "rain": -1.0}, **common
+    )
+    for combined in (difference, reverse):
+        with pytest.raises(ValueError, match="baseline"):
+            _ = combined - incompatible
+
+
+@pytest.mark.parametrize(
+    "left,right",
+    [
+        ({"reduction": "sum"}, {"reduction": "mean"}),
+        ({"start": 0, "end": 0}, {"start": 1, "end": 1}),
+        ({}, {"start": 0, "end": 0}),
+    ],
+)
+def test_contrasts_reject_different_time_estimands(fitted, left, right):
+    result = _run(fitted)
+    with pytest.raises(ValueError, match="aggregation|window|reduction"):
+        _ = result.aggregate_time("growth", **left) - result.aggregate_time(
+            "growth", **right
+        )
+
+
+def test_equivalent_time_windows_pair_and_contrasts_keep_their_estimand(fitted):
+    result = _run(fitted)
+    total = result.aggregate_time("growth")
+    explicit = result.aggregate_time("growth", start=0, end=1)
+    difference = total - explicit
+    np.testing.assert_array_equal(difference.simulation_mcse("growth"), 0.0)
+    np.testing.assert_array_equal(difference.dataset["growth"], 0.0)
+    with pytest.raises(ValueError, match="aggregation|window|reduction"):
+        _ = difference - result.aggregate_time("growth", reduction="mean")
+
+
+def test_public_baseline_snapshot_cannot_change_policy_execution(fitted):
+    before = _run(fitted)
+    snapshot = fitted.initial_baseline
+    snapshot.values["growth"].values[:] = 100.0
+    snapshot.values["growth"].coords["unit"] = ["changed", "labels"]
+    np.testing.assert_array_equal(fitted.initial_baseline.values["growth"], 0.0)
+    assert list(fitted.initial_baseline.values["growth"].coords["unit"].values) == [
+        "A",
+        "B",
+    ]
+    xr.testing.assert_equal(_run(fitted).dataset, before.dataset)

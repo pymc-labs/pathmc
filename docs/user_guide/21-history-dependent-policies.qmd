@@ -39,7 +39,9 @@ The model must be a scan-compiled Gaussian lag panel. Latent variables, non-Gaus
 
 `do(policy=...)` returns a `PolicyRun`, not a `DoResult`. Population summaries are means over units and simulations, with dims `(time, chain, draw)`. `simulation_mcse(var)` is the Monte Carlo standard error within each posterior draw. It keeps `chain` and `draw`, and keeps `time` until `aggregate_time` reduces it. `aggregate_time(var, reduction="sum"|"mean"|"last")` is the cumulative or terminal estimand. Pass `keep_trajectories=True` for unit paths; those dims are `(chain, draw, simulation, unit, time)`.
 
-Contrast two policy results only when they share the posterior, the baseline, the seed, the horizon, and the simulation count. The contrast is the paired difference. It does not declare a winner. Report growth and water, or whatever the outcome and the treatment are, separately.
+Contrast two policy results only when they share the posterior, population, exogenous inputs, fixed interventions, seed, horizon, and simulation count. Initial values must agree for every state used by both policies. A rule using `previous("rain")` can be compared with a schedule that never reads previous rain: supply that initial value only to the rule that needs it. The contrast retains both policies' baseline requirements, so a later comparison still rejects conflicting values.
+
+Apply the same time reduction and reporting window to both results before subtraction, or subtract their trajectories first and then aggregate the contrast. For example, cumulative growth over the whole fitted grid cannot be paired with mean growth or a total over a shorter window. The contrast is a paired difference; it does not declare a winner. Report growth and water, or whatever the outcome and the treatment are, separately.
 
 A threshold on a stochastic state does not match the noise-free `do(set=..., kind="mean")` path. The reported mean averages posterior draws and simulations. A mean-substitution implementation, which plugs the conditional mean in for the random state before applying the threshold, is not this estimand.
 
