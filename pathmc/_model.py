@@ -3532,9 +3532,9 @@ def simulate(
         residual standard deviation. ``simulate()`` leaves that supplied
         value unchanged so a posterior round-trip is not converted twice.
         Cross-sectional draws use that scale with ``nu_{var}``. Scan
-        lag-carry reconstructs the state as ``mu + sigma_{var}`` times a
-        normal innovation, so that returned column's spread equals
-        ``sigma_{var}`` and does not use ``nu``. For residual covariances
+        lag-carry reconstructs each state as ``mu + sigma_{var} * e``,
+        where ``e`` is a unit normal innovation, so the innovation scale
+        is ``sigma_{var}`` and ``nu`` is not used. For residual covariances
         (``~~``), supply ``"chol_{block_name}"`` as the packed
         lower-triangular Cholesky vector of length ``k(k+1)/2``
         (PyMC ``LKJCholeskyCov`` packing); block members' simulated
