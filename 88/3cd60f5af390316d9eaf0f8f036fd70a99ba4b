@@ -1,0 +1,16 @@
+tests/fuzz/strategies.py
+  h_63db634213747e 27,77-81,304,412-417,419,421,491-495,499,520,525,545
+tests/test_fuzz_consistency.py
+  h_63db634213747e 17-20,25-27,33,45-46,62,283-289,291,299,303-311,400-405
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "883cd60f5af390316d9eaf0f8f036fd70a99ba4b",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
