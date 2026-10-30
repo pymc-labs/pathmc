@@ -54,7 +54,7 @@ test-fast: ## Run fast tests, excluding slow MCMC tests and nightly Tier 5
 test: ## Run per-commit tests with coverage, including slow MCMC, excluding nightly Tier 5
 	$(TEST_ENV) $(UV_RUN) pytest -x -v -n auto --dist loadscope -m "not nightly" --cov=pathmc --cov-report=term-missing
 
-test-nightly: ## Run Tier 5 MCMC recovery and light SBC (issue #326)
+test-nightly: ## Run Tier 5 MCMC/SBC and the larger Hypothesis fuzz budget
 	$(TEST_ENV) $(UV_RUN) pytest -x -v -n auto --dist loadscope -m nightly
 
 docs: jupyter-kernel ## Build the documentation site

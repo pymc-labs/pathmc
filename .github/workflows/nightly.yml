@@ -3,8 +3,9 @@ name: nightly
 on:
   workflow_dispatch:
   schedule:
-    # Tier 5 MCMC recovery and light SBC. Not on the per-commit path:
-    # `make test` already runs `@pytest.mark.slow`.
+    # Tier 5 MCMC recovery, light SBC, and the larger Hypothesis fuzz budget.
+    # Not on the per-commit path: `make test` already runs `@pytest.mark.slow`
+    # and the small fuzz budget.
     - cron: "0 3 * * *"
 
 permissions: {}
@@ -23,7 +24,7 @@ jobs:
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - name: Install dependencies
         run: uv sync --all-extras --locked
-      - name: Run nightly Tier 5 tests
+      - name: Run nightly Tier 5 and fuzz budget
         run: make test-nightly
         env:
           OMP_NUM_THREADS: "1"
