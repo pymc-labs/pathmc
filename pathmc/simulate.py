@@ -1061,15 +1061,19 @@ def _apply_inverse_link(mu_vals: Any, family: str) -> Any:
 
 
 def _replace_graph(expr: Any, replacements: dict[Any, Any]) -> Any:
-    """Clone *expr* with only the replacements that appear in its graph."""
+    """Clone *expr* with only the replacements that appear in its graph.
+
+    One ``graph_replace`` call is required. Replacing keys one at a time
+    clones the graph, so a later key is no longer the node in the clone
+    and a downstream mediator is left as a free random variable.
+    """
     if not replacements:
         return expr
-    result = expr
-    for var, replacement in replacements.items():
-        graph_vars = set(ancestors([result]))
-        if var in graph_vars:
-            result = graph_replace(result, replace={var: replacement}, strict=False)
-    return result
+    present = set(ancestors([expr]))
+    relevant = {var: repl for var, repl in replacements.items() if var in present}
+    if not relevant:
+        return expr
+    return graph_replace(expr, replace=relevant, strict=False)
 
 
 def _float_descendants_of(source_var: Any, exprs: list[Any]) -> list[Any]:
@@ -1490,6 +1494,62 @@ def _business_exog_value(
     return _exogenous_fill(values)
 
 
+def _observed_endogenous_binding(
+    data: nw.DataFrame,
+    var: str,
+    model_var: Any,
+    mu_source_exprs: list[Any],
+) -> dict[Any, Any]:
+    """Map a free endogenous RV to its observed numeric column, if any.
+
+    Used when associational predictions must evaluate downstream equations
+    at the observed mediator instead of substituting its structural mean.
+    Non-numeric columns are left unbound so categorical encodings keep the
+    structural-mean path.
+    """
+    if var not in data.columns:
+        return {}
+    raw = np.asarray(data[var].to_numpy())
+    if raw.dtype.kind not in "iufc":
+        return {}
+    observed_values = np.asarray(raw, dtype=float)
+    if not np.isfinite(observed_values).all():
+        return {}
+    observed = pt.as_tensor_variable(observed_values)
+    if str(getattr(model_var, "dtype", "")).startswith("float"):
+        return {model_var: observed}
+    return {key: observed for key in _float_descendants_of(model_var, mu_source_exprs)}
+
+
+def _endogenous_ancestors(graph_info: GraphInfo, outcome: str) -> set[str]:
+    """Strict endogenous ancestors of *outcome*, excluding latents.
+
+    Associational predictions hold these mediators at observed values.
+    The outcome itself is predicted, not required as a column. Off-path
+    endogenous variables must not abort the query. Latents stay structural.
+    """
+    if outcome not in graph_info._dag:
+        return set()
+    seen: set[str] = set()
+    stack = list(graph_info._dag.predecessors(outcome))
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        stack.extend(graph_info._dag.predecessors(node))
+    return (seen & graph_info.endogenous) - graph_info.latent
+
+
+def _name_in_graph(name: str, exprs: list[Any]) -> bool:
+    """Whether *name* is a node in any of *exprs*."""
+    for expr in exprs:
+        for node in ancestors([expr]):
+            if getattr(node, "name", None) == name:
+                return True
+    return False
+
+
 def _panel_unspecified_exog(
     var: str,
     ones: xr.DataArray,
@@ -1535,6 +1595,9 @@ def run_do_pymc(
     average_units: bool = True,
     scaling_factors: ScalingFactors | None = None,
     categorical_vars: set[str] | None = None,
+    *,
+    observed_endogenous: bool = False,
+    observed_outcome: str | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
@@ -1558,6 +1621,7 @@ def run_do_pymc(
         Observed data (used for sizing intervention arrays).
     set : dict[str, float] | None
         Variables to intervene on, with their fixed values.
+        ``observed_endogenous`` is ignored when this is non-empty.
     kind : str
         ``"mean"`` for deterministic propagation, ``"predictive"`` to
         include residual noise at each step.
@@ -1576,6 +1640,17 @@ def run_do_pymc(
         Fitted scale factors. When given, ``set`` values for scaled
         columns are treated as business units and divided by the
         per-row factor before graph surgery.
+    observed_endogenous : bool
+        When ``True`` and ``set`` is empty, downstream equations use the
+        observed numeric values of endogenous covariates instead of those
+        variables' structural means. Associational ``predictions()`` sets
+        this so an omitted ``set`` does no graph surgery. ``do()`` leaves
+        it false and still propagates structural means.
+    observed_outcome : str | None
+        Outcome whose strict endogenous ancestors must be fully observed
+        when ``observed_endogenous`` is set. Residual-block members are
+        bound through ``mu_{var}`` because they are not named RVs.
+        ``None`` keeps the older any-successor guard.
 
     Returns
     -------
@@ -1626,6 +1701,11 @@ def run_do_pymc(
             and var not in set
             and f"mu_{var}" in do_model.named_vars
         ]
+        required_observed = (
+            _endogenous_ancestors(graph_info, observed_outcome)
+            if observed_endogenous and not set and observed_outcome is not None
+            else None
+        )
         with do_model:
             for var in graph_info.topological_order:
                 if var in graph_info.endogenous and var not in set:
@@ -1636,7 +1716,40 @@ def run_do_pymc(
                     mean_det_names[var] = mean_name
 
                     response_expr = _apply_inverse_link(mu_expr, families.get(var, ""))
-                    if var in do_model.named_vars:
+                    binding: dict[Any, Any] = {}
+                    if observed_endogenous and not set and var not in graph_info.latent:
+                        if required_observed is not None:
+                            must_bind = var in required_observed
+                        else:
+                            must_bind = var in do_model.named_vars and (
+                                _name_in_graph(var, mu_source_exprs)
+                                or any(graph_info._dag.successors(var))
+                            )
+                        # Residual-block members are not named RVs. Descendants
+                        # read mu_{var}, so bind that node instead of falling
+                        # through to the structural mean.
+                        if must_bind or var in do_model.named_vars:
+                            if var in do_model.named_vars:
+                                target = do_model[var]
+                            elif mu_name in do_model.named_vars:
+                                target = do_model[mu_name]
+                            else:
+                                target = None
+                            if target is not None:
+                                binding = _observed_endogenous_binding(
+                                    data, var, target, mu_source_exprs
+                                )
+                        if must_bind and not binding:
+                            raise ValueError(
+                                f"predictions() without set= needs a fully observed "
+                                f"numeric column '{var}' in the query frame. The "
+                                "column is missing, not numeric, or has a non-finite "
+                                "value, so the mediator cannot be held at its observed "
+                                "value. Include it, or pass set= to intervene."
+                            )
+                    if binding:
+                        expr_replacements.update(binding)
+                    elif var in do_model.named_vars:
                         model_var = do_model[var]
                         if model_var.dtype.startswith("float"):
                             expr_replacements[model_var] = response_expr
