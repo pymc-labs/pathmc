@@ -1,0 +1,22 @@
+tests/test_gaussian_panel_trajectories.py
+  s_4e8d716eea03ab::t_8b3ad5870814ce 27,35-37,442
+  s_4e8d716eea03ab::t_78bfd227e3b042 441,453-454
+tests/test_do_mean_carry.py
+  s_4e8d716eea03ab::t_7dbdb88e70904d 22-23,26,30,39-46,49-50,52-75,79-81,84,89,96-100,102-124,126,130-131,145,149-150,155-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "40aa80ceb86872e3a3394c4b71b120344f326dc8",
+  "prompts": {},
+  "sessions": {
+    "s_4e8d716eea03ab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b6f4a11d-41fc-4a50-8fb0-8fda3bb9f7ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
