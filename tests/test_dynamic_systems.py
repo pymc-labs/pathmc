@@ -236,12 +236,12 @@ class TestSimulateOracle:
         np.testing.assert_allclose(sim["y"].to_numpy(), expected, rtol=1e-6)
 
 
-@pytest.fixture
-def lv_model() -> pathmc.PathModel:
+def _lv_model(substeps: int) -> pathmc.PathModel:
+    """LV model bound to one known posterior draw, so do() is deterministic."""
     n_times = 21
     df = _frame(n_times).assign(hare=1.0, lynx=1.0)
     model = pathmc.model(
-        LV_RATES.format(k=4), data=df, panel=PANEL, latent=["prey", "predator"]
+        LV_RATES.format(k=substeps), data=df, panel=PANEL, latent=["prey", "predator"]
     )
     one = np.ones((1, 1))
     model._idata = az.from_dict(
@@ -271,17 +271,19 @@ def lv_model() -> pathmc.PathModel:
 
 
 class TestDo:
-    def test_free_run_matches_scipy(self, lv_model: pathmc.PathModel) -> None:
-        result = lv_model.do(simulate_over="time", kind="mean")
+    def test_free_run_matches_scipy(self) -> None:
+        result = _lv_model(4).do(simulate_over="time", kind="mean")
         got = np.column_stack([
             np.asarray(result.by_time("prey")).mean(axis=1),
             np.asarray(result.by_time("predator")).mean(axis=1),
         ])
         np.testing.assert_allclose(got, _lv_ode(X0, Y0, 21), rtol=1e-4)
 
-    def test_released_clamp_reports_structural_path(
-        self, lv_model: pathmc.PathModel
-    ) -> None:
+    def test_released_clamp_reports_structural_path(self) -> None:
+        # Releasing the cull drives a predator boom with growth near 6/step.
+        # Fixed-step RK4 needs about 16 substeps to stay within 1e-3 there;
+        # at 4 substeps the boom is about 2% off scipy.
+        lv_model = _lv_model(16)
         window = slice(5, 10)
         cull = np.full(21, np.nan)
         cull[window] = 2.0
