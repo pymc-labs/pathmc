@@ -1,0 +1,16 @@
+.github/release.yml
+  h_63db634213747e 27-30
+CONTRIBUTING.md
+  h_63db634213747e 170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a96f06383ee29651bed9fdb1b82e498d8028d69b",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
