@@ -108,7 +108,7 @@ Each week's effective input depends on that week's spend and the previous 11 wee
 
 ```{dot}
 //| label: fig-adstock-cascade
-//| fig-cap: "Adstock creates temporal state. Each week's effective input depends on the accumulated stock from all previous weeks. Changing digital spend at week t alters the adstock at t, t+1, t+2, ... — a cascade through time."
+//| fig-cap: "Adstock creates temporal state. Each week's effective input depends on that week's spend and earlier spend, geometrically decayed. Changing digital spend at week t alters the adstock at t and at later weeks still inside the l_max window."
 //| fig-width: 6.5
 digraph {
   rankdir=LR
@@ -142,13 +142,13 @@ digraph {
     a3 -> s3
   }
 
-  a1 -> a2 [label="× θ", style=dashed, color="#e6550d", fontcolor="#e6550d"]
-  a2 -> a3 [label="× θ", style=dashed, color="#e6550d", fontcolor="#e6550d"]
-}
+  d1 -> a2 [label="× θ", style=dashed, color="#e6550d", fontcolor="#e6550d"]
+  d1 -> a3 [label="× θ²", style=dashed, color="#e6550d", fontcolor="#e6550d"]
+  d2 -> a3 [label="× θ", style=dashed, color="#e6550d", fontcolor="#e6550d"]
 ```
 
-The dashed orange arrows are the problem.
-They carry state from one time step to the next.
+The dashed orange arrows are the lagged inputs inside the convolution window.
+They carry earlier spend into later adstock values.
 Under the observed data, the adstock values at each time step were computed from the actual spending history.
 Under an intervention, the spending changes — so the adstock trajectory must be **re-computed from scratch**.
 
@@ -216,19 +216,20 @@ ax.plot(
     lw=2,
     label="Time-forward simulation (correct)",
 )
+level = (1 - theta**12) / (1 - theta)
 ax.axhline(
-    20 / (1 - theta),
+    20 * level,
     color=COLOR_CORRECT,
     ls=":",
     alpha=0.5,
-    label=f"True steady state ({20 / (1 - theta):.0f})",
+    label=f"True level ({20 * level:.1f})",
 )
 ax.axhline(
-    15 / (1 - theta),
+    15 * level,
     color=COLOR_OBSERVED,
     ls=":",
     alpha=0.5,
-    label=f"Observed steady state ({15 / (1 - theta):.0f})",
+    label=f"Observed level ({15 * level:.1f})",
 )
 ax.set_xlabel("Week")
 ax.set_ylabel("Effective adstock input")
