@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import itertools
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import matplotlib.axes
 import narwhals.stable.v1 as nw
@@ -310,16 +310,23 @@ def _identifiable_flag(
     return model.is_identifiable(treatment, outcome)
 
 
-def _validate_conditional(conditional: dict[str, Any] | None) -> dict[str, float]:
+def _validate_conditional(
+    conditional: dict[str, Any] | None,
+    *,
+    categorical_vars: set[str],
+) -> dict[str, float | str]:
     if not conditional:
         return {}
-    validated: dict[str, float] = {}
+    validated: dict[str, float | str] = {}
     for key, val in conditional.items():
         if isinstance(val, (list, tuple, np.ndarray)):
             raise TypeError(
                 f"conditional values must be scalars; got {type(val).__name__} "
                 f"for '{key}'. Use predictions(newdata=datagrid(...)) for grids."
             )
+        if key in categorical_vars:
+            validated[key] = val
+            continue
         validated[key] = float(val)
     return validated
 
@@ -381,7 +388,7 @@ def _unit_prediction(
     model: PathModel,
     data: nw.DataFrame,
     outcome: str,
-    set_dict: dict[str, float | np.ndarray],
+    set_dict: dict[str, float | np.ndarray | str],
     *,
     swap_data: bool = False,
 ) -> xr.DataArray:
@@ -391,17 +398,30 @@ def _unit_prediction(
 
     def _run() -> xr.DataArray:
         assert model._idata is not None
-        result = run_do_pymc(
-            gen_model=model._gen_model,
-            graph_info=model._graph_info,
-            idata=model._idata,
-            data=data,
-            set=set_dict,
-            kind="mean",
-            families=model._families,
-            average_units=False,
-            scaling_factors=model._scaling_factors,
-        )
+        categorical_vars = model._categorical_vars
+        categorical_set = {
+            var: value for var, value in set_dict.items() if var in categorical_vars
+        }
+        numeric_set = {
+            var: cast("float | np.ndarray", value)
+            for var, value in set_dict.items()
+            if var not in categorical_vars
+        }
+        with model._categorical_intervention(categorical_set):
+            result = run_do_pymc(
+                gen_model=model._gen_model,
+                graph_info=model._graph_info,
+                idata=model._idata,
+                data=data,
+                set=numeric_set,
+                kind="mean",
+                families=model._families,
+                average_units=False,
+                scaling_factors=model._scaling_factors,
+                categorical_vars=categorical_vars,
+                observed_endogenous=not set_dict,
+                observed_outcome=outcome,
+            )
         if outcome not in result.dataset:
             raise KeyError(
                 f"Outcome '{outcome}' not found in do() output. "
@@ -538,7 +558,7 @@ def predictions(
     model: PathModel,
     outcome: str,
     *,
-    set: dict[str, float | np.ndarray] | None = None,
+    set: dict[str, float | np.ndarray | str] | None = None,
     newdata: IntoFrame | None = None,
 ) -> InterpretResult:
     """Response-mean predictions on the fitted frame or a covariate grid.
@@ -574,7 +594,7 @@ def comparisons(
     *,
     contrast: tuple[float, float] = (0.0, 1.0),
     comparison: Literal["diff", "ratio", "lift"] = "diff",
-    conditional: dict[str, float] | None = None,
+    conditional: dict[str, float | str] | None = None,
     average_by: Literal["all"] | None = "all",
 ) -> EstimandResult | InterpretResult:
     """Draw-wise interventional contrasts between two intervention values."""
@@ -582,10 +602,10 @@ def comparisons(
     if model._panel_info is not None:
         _panel_not_implemented("comparisons")
 
-    cond = _validate_conditional(conditional)
+    cond = _validate_conditional(conditional, categorical_vars=model._categorical_vars)
     lo, hi = contrast
-    set_lo: dict[str, float | np.ndarray] = {variable: lo, **cond}
-    set_hi: dict[str, float | np.ndarray] = {variable: hi, **cond}
+    set_lo: dict[str, float | np.ndarray | str] = {variable: lo, **cond}
+    set_hi: dict[str, float | np.ndarray | str] = {variable: hi, **cond}
     data, _swap = _to_frame(model, None)
     identifiable = _identifiable_flag(model, variable, outcome)
 
@@ -620,7 +640,7 @@ def slopes(
     *,
     slope: Literal["dydx", "eyex", "eydx", "dyex"] = "dydx",
     eps: float = 1e-4,
-    conditional: dict[str, float] | None = None,
+    conditional: dict[str, float | str] | None = None,
     average_by: Literal["all"] | None = "all",
 ) -> EstimandResult | InterpretResult:
     """Finite-difference interventional slopes using per-row covariate values."""
@@ -628,11 +648,11 @@ def slopes(
     if model._panel_info is not None:
         _panel_not_implemented("slopes")
 
-    cond = _validate_conditional(conditional)
+    cond = _validate_conditional(conditional, categorical_vars=model._categorical_vars)
     data, _swap = _to_frame(model, None)
     x = _column_in_business_units(model, data, wrt)
-    set_lo: dict[str, float | np.ndarray] = {wrt: x, **cond}
-    set_hi: dict[str, float | np.ndarray] = {wrt: x + eps, **cond}
+    set_lo: dict[str, float | np.ndarray | str] = {wrt: x, **cond}
+    set_hi: dict[str, float | np.ndarray | str] = {wrt: x + eps, **cond}
     identifiable = _identifiable_flag(model, wrt, outcome)
 
     lo_da = _unit_prediction(model, data, outcome, set_lo)

@@ -12,7 +12,7 @@ Transforms are applied to predictor columns before entering the regression, with
 | Transform | Syntax | Behaviour |
 |-----------|--------|-----------|
 | `adstock` | `adstock(x, decay=theta)` | Geometric carry-over: `y_t = x_t + decay * y_{t-1}` |
-| `logistic_saturation` | `logistic_saturation(x, lam=lam)` | Diminishing returns: `y = 1 - exp(-lam * x)` |
+| `logistic_saturation` | `logistic_saturation(x, lam=lam)` | Diminishing returns: `y = (1 - exp(-lam * x)) / (1 + exp(-lam * x))` |
 
 Transform parameters get appropriate priors automatically: `decay` receives a `Beta(2, 2)` prior (constrained to (0, 1)), and `lam` receives a `HalfNormal(1)` prior (positive support).
 

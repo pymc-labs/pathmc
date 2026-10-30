@@ -63,6 +63,9 @@ __all__ = ["DoResult", "EstimandResult"]
 #: (rather than importing from ``pathmc._model``) to avoid a circular import,
 #: since ``_model.py`` imports this module.
 _OBSERVED_CARRY_FLAG = "_use_observed_carry"
+#: Set only while ``kind="mean"`` so a discrete scan predictor carries its
+#: response-scale mean instead of a sampled integer. See ``compile.py``.
+_MEAN_CARRY_FLAG = "_use_mean_carry"
 
 
 @contextmanager
@@ -129,6 +132,28 @@ def _forced_generative_carry(model: pm.Model) -> Iterator[None]:
     flag = model[_OBSERVED_CARRY_FLAG]
     previous = flag.get_value()
     flag.set_value(np.array(0, dtype="int8"))
+    try:
+        yield
+    finally:
+        flag.set_value(previous)
+
+
+@contextmanager
+def _forced_mean_carry(model: pm.Model) -> Iterator[None]:
+    """Carry discrete scan predictors at their response-scale mean.
+
+    ``kind="mean"`` is noise-free propagation. A Bernoulli, Poisson, or
+    NegativeBinomial node used as a lag or contemporaneous predictor otherwise
+    feeds a sampled integer into the next step. The flag is a no-op on models
+    that do not have one (Gaussian scan panels, cross-sectional models).
+    """
+    if _MEAN_CARRY_FLAG not in model.named_vars:
+        yield
+        return
+
+    flag = model[_MEAN_CARRY_FLAG]
+    previous = flag.get_value()
+    flag.set_value(np.array(1, dtype="int8"))
     try:
         yield
     finally:
@@ -258,6 +283,115 @@ def _panel_unit_mean(da: xr.DataArray, time_index: np.ndarray) -> xr.DataArray:
     return da.transpose("time", "chain", "draw").assign_coords(
         time=np.asarray(time_index)
     )
+
+
+def _static_panel_time_index(data: nw.DataFrame, time_col: str) -> np.ndarray:
+    """Sorted unique time labels, matching scan compilation order."""
+    return np.asarray(sorted(data[time_col].unique().to_list()))
+
+
+def _align_static_panel_intervention(
+    var: str,
+    val: float | np.ndarray,
+    row_times: np.ndarray,
+    time_index: np.ndarray,
+) -> float | np.ndarray:
+    """Map a scalar or length-``n_times`` intervention onto frame rows.
+
+    A length-``n_times`` vector is in time order, not row order. Each row
+    receives the value for its own time label.
+    """
+    arr = np.asarray(val)
+    if arr.ndim == 0:
+        return float(arr)
+    flat = np.asarray(arr, dtype=float).reshape(-1)
+    n_times = len(time_index)
+    if arr.ndim != 1 or flat.size != n_times:
+        raise ValueError(
+            f"Intervention array for '{var}' has length {flat.size}, expected "
+            f"{n_times} (one per time step)."
+        )
+    aligned = np.full(len(row_times), np.nan, dtype=float)
+    for value, label in zip(flat, time_index, strict=True):
+        aligned[row_times == label] = value
+    if np.isnan(aligned).any():
+        raise ValueError(
+            f"Intervention for '{var}' could not be aligned to every panel row."
+        )
+    return aligned
+
+
+def _fold_rows_to_time(
+    da: xr.DataArray,
+    row_times: np.ndarray,
+    time_index: np.ndarray,
+) -> xr.DataArray:
+    """Average row-ordered draws within each time label.
+
+    Cross-sectional propagation stores one value per frame row on ``unit``.
+    Panel ``simulate_over="time"`` reports the unit mean at each time, in
+    time order, so a shuffled frame cannot be mistaken for the trajectory.
+    """
+    if "unit" not in da.dims:
+        folded = da.expand_dims(time=np.asarray(time_index))
+    else:
+        pieces = []
+        for label in time_index:
+            rows = np.flatnonzero(row_times == label)
+            pieces.append(da.isel(unit=rows).mean("unit"))
+        folded = xr.concat(pieces, dim="time")
+    return folded.transpose("time", "chain", "draw").assign_coords(
+        time=np.asarray(time_index)
+    )
+
+
+def run_do_static_panel(
+    gen_model: pm.Model,
+    graph_info: GraphInfo,
+    idata: xr.DataTree,
+    data: nw.DataFrame,
+    panel_info: PanelInfo,
+    set: dict[str, float | np.ndarray] | None = None,
+    kind: str = "mean",
+    families: dict[str, str] | None = None,
+    scaling_factors: ScalingFactors | None = None,
+    categorical_vars: set[str] | None = None,
+    observed_by_time: Mapping[str, np.ndarray] | None = None,
+) -> DoResult:
+    """Time-aligned ``do`` for a panel model that was not scan-compiled.
+
+    Models without ``lag()`` or ``adstock()`` still have a time axis. A
+    length-``n_times`` intervention is applied to the matching time of every
+    unit, then averaged within time. The result carries a ``time`` dim so
+    :meth:`DoResult.by_time` works. It is not the row-order average from
+    cross-sectional ``do``.
+    """
+    if set is None:
+        set = {}
+    time_col = panel_info.time
+    row_times = np.asarray(data[time_col].to_numpy())
+    time_index = _static_panel_time_index(data, time_col)
+    aligned = {
+        var: _align_static_panel_intervention(var, val, row_times, time_index)
+        for var, val in set.items()
+    }
+    result = run_do_pymc(
+        gen_model=gen_model,
+        graph_info=graph_info,
+        idata=idata,
+        data=data,
+        set=aligned,
+        kind=kind,
+        families=families,
+        average_units=False,
+        scaling_factors=scaling_factors,
+        categorical_vars=categorical_vars,
+    )
+    folded = {
+        name: _fold_rows_to_time(da, row_times, time_index)
+        for name, da in result.dataset.data_vars.items()
+    }
+    return DoResult(ds=xr.Dataset(folded), observed_by_time=observed_by_time)
 
 
 def _fill_missing_posterior_rvs(
@@ -952,15 +1086,19 @@ def _apply_inverse_link(mu_vals: Any, family: str) -> Any:
 
 
 def _replace_graph(expr: Any, replacements: dict[Any, Any]) -> Any:
-    """Clone *expr* with only the replacements that appear in its graph."""
+    """Clone *expr* with only the replacements that appear in its graph.
+
+    One ``graph_replace`` call is required. Replacing keys one at a time
+    clones the graph, so a later key is no longer the node in the clone
+    and a downstream mediator is left as a free random variable.
+    """
     if not replacements:
         return expr
-    result = expr
-    for var, replacement in replacements.items():
-        graph_vars = set(ancestors([result]))
-        if var in graph_vars:
-            result = graph_replace(result, replace={var: replacement}, strict=False)
-    return result
+    present = set(ancestors([expr]))
+    relevant = {var: repl for var, repl in replacements.items() if var in present}
+    if not relevant:
+        return expr
+    return graph_replace(expr, replace=relevant, strict=False)
 
 
 def _float_descendants_of(source_var: Any, exprs: list[Any]) -> list[Any]:
@@ -1381,6 +1519,147 @@ def _business_exog_value(
     return _exogenous_fill(values)
 
 
+def _residual_predictive_sample_kwargs(
+    gen_model: pm.Model,
+    do_model: pm.Model,
+    graph_info: GraphInfo,
+    intervened: dict[str, float | np.ndarray],
+) -> dict[str, Any]:
+    """Resample residual-block joints and keep noisy descendant draws.
+
+    The estimation model observes block members, so predictive ``do()``
+    samples a generative sibling. Those joints, and any non-intervened
+    endogenous free RVs, must be listed in ``sample_vars``: a posterior
+    that already contains them would otherwise freeze the estimation draws.
+    ``var_names`` keeps the noisy block slices in the posterior predictive.
+    """
+    joint_names = set(getattr(gen_model, "_pathmc_block_joint_rvs", ()))
+    if not joint_names:
+        return {}
+    free_names = {rv.name for rv in do_model.free_RVs}
+    resample = [
+        name
+        for name in sorted(free_names)
+        if name in joint_names or name in graph_info.endogenous
+    ]
+    # The sibling owns its own data nodes, so PyMC treats posterior
+    # coefficients as stale unless they are explicitly frozen.
+    freeze = [
+        name
+        for name in sorted(free_names)
+        if name not in joint_names and name not in graph_info.endogenous
+    ]
+    var_names = []
+    for var in graph_info.topological_order:
+        if var not in graph_info.endogenous or var in intervened:
+            continue
+        if var in do_model.named_vars:
+            var_names.append(var)
+            continue
+        # A deterministic latent is only ``mu_{var}``. Computing it later
+        # from a zero-filled posterior drops the sampled parent joint.
+        mu_name = f"mu_{var}"
+        if mu_name in do_model.named_vars:
+            var_names.append(mu_name)
+    kwargs: dict[str, Any] = {}
+    if resample:
+        kwargs["sample_vars"] = resample
+    if freeze:
+        kwargs["freeze_vars"] = freeze
+    if var_names:
+        kwargs["var_names"] = var_names
+    return kwargs
+
+
+def _observed_endogenous_binding(
+    data: nw.DataFrame,
+    var: str,
+    model_var: Any,
+    mu_source_exprs: list[Any],
+) -> dict[Any, Any]:
+    """Map a free endogenous RV to its observed numeric column, if any.
+
+    Used when associational predictions must evaluate downstream equations
+    at the observed mediator instead of substituting its structural mean.
+    Non-numeric columns are left unbound so categorical encodings keep the
+    structural-mean path.
+    """
+    if var not in data.columns:
+        return {}
+    raw = np.asarray(data[var].to_numpy())
+    if raw.dtype.kind not in "iufc":
+        return {}
+    observed_values = np.asarray(raw, dtype=float)
+    if not np.isfinite(observed_values).all():
+        return {}
+    observed = pt.as_tensor_variable(observed_values)
+    if str(getattr(model_var, "dtype", "")).startswith("float"):
+        return {model_var: observed}
+    return {key: observed for key in _float_descendants_of(model_var, mu_source_exprs)}
+
+
+def _endogenous_ancestors(graph_info: GraphInfo, outcome: str) -> set[str]:
+    """Strict endogenous ancestors of *outcome*, excluding latents.
+
+    Associational predictions hold these mediators at observed values.
+    The outcome itself is predicted, not required as a column. Off-path
+    endogenous variables must not abort the query. Latents stay structural.
+    """
+    if outcome not in graph_info._dag:
+        return set()
+    seen: set[str] = set()
+    stack = list(graph_info._dag.predecessors(outcome))
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        stack.extend(graph_info._dag.predecessors(node))
+    return (seen & graph_info.endogenous) - graph_info.latent
+
+
+def _name_in_graph(name: str, exprs: list[Any]) -> bool:
+    """Whether *name* is a node in any of *exprs*."""
+    for expr in exprs:
+        for node in ancestors([expr]):
+            if getattr(node, "name", None) == name:
+                return True
+    return False
+
+
+def _panel_unspecified_exog(
+    var: str,
+    ones: xr.DataArray,
+    data: nw.DataFrame | None,
+    scaling_factors: ScalingFactors | None,
+) -> xr.DataArray | None:
+    """Broadcast the business-unit empirical fill used by the structural mean.
+
+    Matches the cross-sectional result: ``(chain, draw)`` of the fitted-column
+    mean after converting each row back to business units. A derived exogenous
+    name with no fitted column (for example ``lag(Y)``) is omitted rather than
+    reported as 0, because that 0 was never the value the scan used.
+    """
+    if data is None or var not in data.columns:
+        return None
+    try:
+        fill = _business_exog_value(var, data, None, scaling_factors)
+    except (TypeError, ValueError):
+        # String and categorical labels are not a numeric fill. Derived names
+        # with no fitted column are already omitted above.
+        return None
+    return ones * fill
+
+
+_DO_KINDS = ("mean", "predictive")
+
+
+def _require_do_kind(kind: str) -> None:
+    """Reject a ``kind`` that would otherwise sample posterior predictive."""
+    if kind not in _DO_KINDS:
+        raise ValueError(f"kind must be 'mean' or 'predictive', got {kind!r}.")
+
+
 def run_do_pymc(
     gen_model: pm.Model,
     graph_info: GraphInfo,
@@ -1393,12 +1672,18 @@ def run_do_pymc(
     average_units: bool = True,
     scaling_factors: ScalingFactors | None = None,
     categorical_vars: set[str] | None = None,
+    *,
+    observed_endogenous: bool = False,
+    observed_outcome: str | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
     For ``kind="predictive"``: uses ``pm.do()`` on the generative model
     followed by ``pm.sample_posterior_predictive()`` to forward-sample
-    through the causal chain with residual noise.
+    through the causal chain with residual noise. Residual-block models
+    pass a generative sibling whose block members are named Deterministics
+    of a free joint, so a hard intervention replaces that Deterministic
+    and descendants read the intervened value plus their own noise.
 
     For ``kind="mean"``: uses ``pm.do()`` for interventions, then computes
     cloned mu Deterministics with upstream endogenous variables replaced by
@@ -1416,6 +1701,7 @@ def run_do_pymc(
         Observed data (used for sizing intervention arrays).
     set : dict[str, float] | None
         Variables to intervene on, with their fixed values.
+        ``observed_endogenous`` is ignored when this is non-empty.
     kind : str
         ``"mean"`` for deterministic propagation, ``"predictive"`` to
         include residual noise at each step.
@@ -1434,6 +1720,17 @@ def run_do_pymc(
         Fitted scale factors. When given, ``set`` values for scaled
         columns are treated as business units and divided by the
         per-row factor before graph surgery.
+    observed_endogenous : bool
+        When ``True`` and ``set`` is empty, downstream equations use the
+        observed numeric values of endogenous covariates instead of those
+        variables' structural means. Associational ``predictions()`` sets
+        this so an omitted ``set`` does no graph surgery. ``do()`` leaves
+        it false and still propagates structural means.
+    observed_outcome : str | None
+        Outcome whose strict endogenous ancestors must be fully observed
+        when ``observed_endogenous`` is set. Residual-block members are
+        bound through ``mu_{var}`` because they are not named RVs.
+        ``None`` keeps the older any-successor guard.
 
     Returns
     -------
@@ -1441,6 +1738,7 @@ def run_do_pymc(
         Propagated posterior draws for every endogenous variable.
     """
 
+    _require_do_kind(kind)
     if set is None:
         set = {}
     if families is None:
@@ -1454,14 +1752,30 @@ def run_do_pymc(
     block_vars = {v for block in graph_info.residual_blocks for v in block}
 
     replacements: dict[str, Any] = {}
+    scaled_interventions: dict[str, np.ndarray] = {}
     data_basis_bindings = getattr(gen_model, "_pathmc_data_bases", {})
     for var, val in set.items():
-        key = f"mu_{var}" if (var in latent or var in block_vars) else var
+        # Generative siblings name the block member itself. Descendants
+        # read that realized value, so replacing it drops the intervened
+        # parent's residual and leaves the descendant's own joint slice.
+        # Block members read the structural mean, so the mean walk below
+        # also substitutes ``mu_{var}`` or ``pathmc_resp_{var}``.
+        keys: list[str] = []
+        if var in block_vars and var in gen_model.named_vars:
+            keys.append(var)
+            mu_name = f"mu_{var}"
+            if mu_name in gen_model.named_vars:
+                keys.append(mu_name)
+        elif var in latent or var in block_vars:
+            keys.append(f"mu_{var}")
+        else:
+            keys.append(var)
         arr = _scale_cross_section_intervention(
             var, _intervention_array(val, N), data, scaling_factors
         )
-        target_dtype = gen_model[key].dtype
-        replacements[key] = arr.astype(target_dtype)
+        scaled_interventions[var] = arr
+        for key in keys:
+            replacements[key] = arr.astype(gen_model[key].dtype)
         if data_basis_bindings:
             from pathmc.basis import replay_data_bases
 
@@ -1476,6 +1790,21 @@ def run_do_pymc(
 
         mean_det_names: dict[str, str] = {}
         expr_replacements: dict[Any, Any] = {}
+        # Block members read the parent's structural mean, not its free RV.
+        # pm.do already replaced the RV, which non-block equations read.
+        for var, arr in scaled_interventions.items():
+            if var in block_vars or var in latent:
+                continue
+            family = families.get(var, "")
+            node_name = (
+                f"pathmc_resp_{var}"
+                if family in ("bernoulli", "poisson", "negbinomial")
+                else f"mu_{var}"
+            )
+            if node_name not in do_model.named_vars:
+                continue
+            node = do_model[node_name]
+            expr_replacements[node] = pt.as_tensor_variable(arr).astype(node.dtype)
         mu_source_exprs = [
             do_model[f"mu_{var}"] * 1
             for var in graph_info.topological_order
@@ -1483,6 +1812,11 @@ def run_do_pymc(
             and var not in set
             and f"mu_{var}" in do_model.named_vars
         ]
+        required_observed = (
+            _endogenous_ancestors(graph_info, observed_outcome)
+            if observed_endogenous and not set and observed_outcome is not None
+            else None
+        )
         with do_model:
             for var in graph_info.topological_order:
                 if var in graph_info.endogenous and var not in set:
@@ -1493,7 +1827,40 @@ def run_do_pymc(
                     mean_det_names[var] = mean_name
 
                     response_expr = _apply_inverse_link(mu_expr, families.get(var, ""))
-                    if var in do_model.named_vars:
+                    binding: dict[Any, Any] = {}
+                    if observed_endogenous and not set and var not in graph_info.latent:
+                        if required_observed is not None:
+                            must_bind = var in required_observed
+                        else:
+                            must_bind = var in do_model.named_vars and (
+                                _name_in_graph(var, mu_source_exprs)
+                                or any(graph_info._dag.successors(var))
+                            )
+                        # Residual-block members are not named RVs. Descendants
+                        # read mu_{var}, so bind that node instead of falling
+                        # through to the structural mean.
+                        if must_bind or var in do_model.named_vars:
+                            if var in do_model.named_vars:
+                                target = do_model[var]
+                            elif mu_name in do_model.named_vars:
+                                target = do_model[mu_name]
+                            else:
+                                target = None
+                            if target is not None:
+                                binding = _observed_endogenous_binding(
+                                    data, var, target, mu_source_exprs
+                                )
+                        if must_bind and not binding:
+                            raise ValueError(
+                                f"predictions() without set= needs a fully observed "
+                                f"numeric column '{var}' in the query frame. The "
+                                "column is missing, not numeric, or has a non-finite "
+                                "value, so the mediator cannot be held at its observed "
+                                "value. Include it, or pass set= to intervene."
+                            )
+                    if binding:
+                        expr_replacements.update(binding)
+                    elif var in do_model.named_vars:
                         model_var = do_model[var]
                         if model_var.dtype.startswith("float"):
                             expr_replacements[model_var] = response_expr
@@ -1547,8 +1914,11 @@ def run_do_pymc(
         warnings.filterwarnings(
             "ignore", message="Could not extract data from symbolic observation"
         )
+        ppc_kwargs = _residual_predictive_sample_kwargs(
+            gen_model, do_model, graph_info, set
+        )
         with do_model:
-            ppc = pm.sample_posterior_predictive(idata, progressbar=False)
+            ppc = pm.sample_posterior_predictive(idata, progressbar=False, **ppc_kwargs)
 
     extra_det_names = [
         f"mu_{var}"
@@ -1675,6 +2045,7 @@ def run_do_panel_unified(
         columns are treated as business units and divided by the
         scan-aligned factor before graph surgery.
     """
+    _require_do_kind(kind)
     if set is None:
         set = {}
     if families is None:
@@ -1727,6 +2098,15 @@ def run_do_panel_unified(
     if kind == "mean":
         for var in graph_info.topological_order:
             if var in graph_info.endogenous and var not in set and var not in latent:
+                # Scan ``mu_{var}`` for a discrete outcome is already the
+                # response-scale mean (rate or probability). ``pm.do`` cannot
+                # substitute that float for the integer outcome RV; the mean
+                # trajectory is the ``mu_{var}`` deterministic computed below.
+                # Float outcomes still replace the observation RV so
+                # propagation stays noise-free.
+                outcome = gen_model[var]
+                if not str(outcome.dtype).startswith("float"):
+                    continue
                 replacements[var] = gen_model[f"mu_{var}"] * 1
 
         det_names = []
@@ -1739,14 +2119,27 @@ def run_do_panel_unified(
 
         with (
             _forced_generative_carry(gen_model),
+            _forced_mean_carry(gen_model),
             _scan_do_intervention(gen_model, scan_intervene_updates),
         ):
             do_model = pm.do(gen_model, replacements)
+            posterior_ds = _fill_missing_posterior_rvs(
+                posterior(idata), do_model, n_times * n_units
+            )
+            # Poisson/NegativeBinomial scan carries draw inside the step.
+            # That random op is still in the scan graph (the mean flag only
+            # switches away from it). Numba cannot compile it; the C backend
+            # can. Bernoulli carries use a Uniform free RV and do not need this.
+            discrete_rate = any(
+                families.get(var, "gaussian") in ("poisson", "negbinomial")
+                for var in graph_info.endogenous
+            )
             det = pm.compute_deterministics(
-                posterior(idata),
+                posterior_ds,
                 model=do_model,
                 var_names=det_names,
                 progressbar=False,
+                backend="c" if discrete_rate else None,
             )
 
         ones = _chain_draw_ones(posterior(idata))
@@ -1761,7 +2154,9 @@ def run_do_panel_unified(
             if var in set:
                 data_vars[var] = _spread_over_time(ones, set[var], time_idx)
             elif var in graph_info.exogenous:
-                data_vars[var] = ones * 0.0
+                filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
+                if filled is not None:
+                    data_vars[var] = filled
             elif var in graph_info.endogenous:
                 det_key = var if var in stochastic_latent else f"mu_{var}"
                 raw = _to_business_units(
@@ -1778,7 +2173,7 @@ def run_do_panel_unified(
             observed_by_time=observed_by_time,
         )
 
-    # kind == "predictive"
+    # kind == "predictive" (other values already raised)
     latent_det_names = []
     for var in graph_info.topological_order:
         if var in latent and var not in set:
@@ -1820,7 +2215,9 @@ def run_do_panel_unified(
         if var in set:
             predictive_vars[var] = _spread_over_time(ones, set[var], time_idx)
         elif var in graph_info.exogenous:
-            predictive_vars[var] = ones * 0.0
+            filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
+            if filled is not None:
+                predictive_vars[var] = filled
         elif var in ppc.posterior_predictive:
             raw = _to_business_units(
                 var,

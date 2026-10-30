@@ -173,6 +173,8 @@ indirect := a*b
 
 Here `indirect` is computed element-wise as the product of the posterior draws for `a` and `b`, giving a full posterior distribution for the indirect effect.
 
+The defined parameter's name must not match a coefficient label. `a := a * 2` is rejected because `a` is already the label on a coefficient; use a distinct name such as `twice := a * 2`. A colliding name would otherwise replace the labeled coefficient in `effects_summary()`.
+
 ### Residual covariance
 
 Every structural equation has a residual — the variation not explained by its predictors.
@@ -272,7 +274,7 @@ M1 ~~ M2
 """
 ```
 
-Under the hood, pathmc groups `~~`-connected variables into multivariate normal blocks with an LKJ prior on the residual correlation matrix.
+Under the hood, pathmc groups `~~`-connected variables into multivariate normal blocks with an LKJ prior on the residual correlation matrix. `do(kind="predictive")` carries that residual noise into descendant draws; `kind="mean"` stays on the noise-free structural path.
 
 ## Directed acyclic graphs
 

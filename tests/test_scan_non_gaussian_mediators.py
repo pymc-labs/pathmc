@@ -27,10 +27,11 @@ Two independent concerns:
 
 2. The ``clip(mu, -20, 20)`` guard on Poisson/NegativeBinomial rates
    inside the scan (``pathmc.compile._SCAN_MU_CLIP_BOUND``) is a
-   numerical-stability guard, not a modeling choice, but it silently
-   truncates genuinely high rates. ``_warn_high_rate_clip_risk`` surfaces
-   that via a ``UserWarning`` at compile time instead of staying silent;
-   these tests check the warning fires/doesn't fire at the right boundary.
+   numerical-stability guard, not a modeling choice, but it truncates
+   genuinely high rates. ``_warn_high_rate_clip_risk`` surfaces that via a
+   ``UserWarning`` at compile time when observed counts already imply a
+   log-rate near the bound; these tests check that boundary. A separate
+   check warns from the linear predictor itself.
 
 All of this is resolved at model-construction time (no MCMC), so these
 tests are intentionally cheap.
@@ -303,7 +304,7 @@ class TestLatentDiscreteFamilyRejected:
 
 
 class TestHighRateClipWarning:
-    """``_warn_high_rate_clip_risk`` should warn only when observed counts
+    """``_warn_high_rate_clip_risk`` should warn when observed counts
     approach the internal ``mu`` clip bound used inside the scan."""
 
     def _panel_with_counts(self, max_count: float) -> pd.DataFrame:
@@ -352,3 +353,201 @@ class TestHighRateClipWarning:
             panel={"unit": "region", "time": "week"},
         )
         assert not any("clip bound" in str(w.message) for w in recwarn.list)
+
+
+class TestGaussianChildFollowsDiscreteMediator:
+    """Issue #581: a scan-compiled Gaussian child follows the discrete draw.
+
+    ``Y ~ 0 + M`` with ``sigma_Y = 0`` and a unit coefficient is ``Y = M``
+    on every row. A dummy lag forces the scan compiler. The mediator must
+    vary across time; one broadcast draw is not the structural equation.
+    """
+
+    def test_poisson_identity_is_not_a_broadcast_draw(self):
+        df = pd.DataFrame({"unit": ["A"] * 6, "time": range(6)})
+        saw_variation = False
+        for seed in range(30):
+            sim = pathmc.simulate(
+                "M ~ 0 + 1.0\nY ~ 0 + M\nW ~ 0 + lag(W)",
+                data=df,
+                params={
+                    "beta_M": [1.0],
+                    "beta_Y": [1.0],
+                    "beta_W": [0.0],
+                    "sigma_Y": 0.0,
+                    "sigma_W": 0.0,
+                },
+                panel={"unit": "unit", "time": "time"},
+                families={"M": "poisson"},
+                random_seed=seed,
+            )
+            ordered = sim.sort_values("time")
+            m = ordered.M.to_numpy()
+            y = ordered.Y.to_numpy()
+            assert np.array_equal(y, m)
+            saw_variation = saw_variation or len(set(m.tolist())) > 1
+        assert saw_variation
+
+    def test_bernoulli_identity_uses_the_structural_draw(self):
+        df = pd.DataFrame({"unit": ["A"] * 6, "time": range(6)})
+        uniforms = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7], dtype=float).reshape(6, 1)
+        sim = pathmc.simulate(
+            "M ~ 0 + 1.0\nY ~ 0 + M\nW ~ 0 + lag(W)",
+            data=df,
+            params={
+                "beta_M": [0.0],
+                "beta_Y": [1.0],
+                "beta_W": [0.0],
+                "sigma_Y": 0.0,
+                "sigma_W": 0.0,
+                "discrete_uniforms_M": uniforms,
+            },
+            panel={"unit": "unit", "time": "time"},
+            families={"M": "bernoulli"},
+            random_seed=0,
+        )
+        ordered = sim.sort_values("time")
+        m = ordered.M.to_numpy()
+        y = ordered.Y.to_numpy()
+        assert np.array_equal(m, np.array([1.0, 0.0, 1.0, 0.0, 1.0, 0.0]))
+        assert np.array_equal(y, m)
+
+    def test_scaled_coefficient_and_second_unit(self):
+        df = pd.DataFrame({
+            "unit": ["A", "A", "B", "B", "A", "B"],
+            "time": [0, 1, 0, 1, 2, 2],
+        })
+        sim = pathmc.simulate(
+            "M ~ 0 + 1.0\nY ~ 0 + M\nW ~ 0 + lag(W)",
+            data=df,
+            params={
+                "beta_M": [1.0],
+                "beta_Y": [2.0],
+                "beta_W": [0.0],
+                "sigma_Y": 0.0,
+                "sigma_W": 0.0,
+            },
+            panel={"unit": "unit", "time": "time"},
+            families={"M": "poisson"},
+            random_seed=1,
+        )
+        ordered = sim.sort_values(["unit", "time"])
+        assert np.array_equal(ordered.Y.to_numpy(), 2.0 * ordered.M.to_numpy())
+        assert len(set(ordered.M.to_numpy().tolist())) > 1
+
+
+class TestObservedNonGaussianParent:
+    """Issue #596: a scan child conditions on an observed non-Gaussian parent
+    even when nothing lags that parent.
+
+    The estimation model (``_use_observed_carry`` left at its compiled 1)
+    must put the observed column into the child's mean. An auxiliary
+    Bernoulli uniform, a Poisson draw, and the parent's structural mean
+    must not.
+    """
+
+    def _panel(self, y: np.ndarray, z: float = 0.0) -> pd.DataFrame:
+        n = len(y)
+        n_times = n // 2
+        return pd.DataFrame({
+            "unit": np.repeat(["U0", "U1"], n_times),
+            "time": np.tile(np.arange(n_times), 2),
+            "X": np.ones(n),
+            "Y": y,
+            "Z": np.full(n, z),
+        })
+
+    def _mu_z(self, model, **values) -> np.ndarray:
+        import pymc as pm
+
+        cast = {}
+        for name, val in values.items():
+            rv = model.pymc_model[name]
+            cast[name] = np.broadcast_to(
+                np.asarray(val, dtype=float), tuple(rv.shape.eval())
+            ).copy()
+        graph = pm.do(model.pymc_model, cast)
+        return np.asarray(pm.draw(graph["mu_Z"], draws=1, random_seed=0))
+
+    def test_bernoulli_parent_ignores_auxiliary_uniform(self):
+        y = np.zeros(6, dtype=int)
+        model = pathmc.model(
+            "Y ~ X\nZ ~ Y + lag(Z)",
+            data=self._panel(y),
+            families={"Y": "bernoulli"},
+            panel={"unit": "unit", "time": "time"},
+        )
+        assert "Y" in str(model.equations())
+        assert int(model.pymc_model["_use_observed_carry"].get_value()) == 1
+        common = {
+            "beta_Y": [0.0, 0.0],
+            "beta_Z": [0.0, 10.0, 0.0],
+            "sigma_Z": 1.0,
+        }
+        for uniform in (0.05, 0.95):
+            mu = self._mu_z(model, discrete_uniforms_Y=uniform, **common)
+            np.testing.assert_allclose(mu, 0.0)
+
+    def test_mixed_bernoulli_parent_matches_observed_column(self):
+        # Each unit is 0, 1, 0. A uniform of 0 would draw 1 wherever p > 0,
+        # so a mean that still follows the auxiliary draw cannot match this
+        # column.
+        y = np.array([0, 1, 0, 0, 1, 0], dtype=int)
+        model = pathmc.model(
+            "Y ~ X\nZ ~ Y + lag(Z)",
+            data=self._panel(y),
+            families={"Y": "bernoulli"},
+            panel={"unit": "unit", "time": "time"},
+        )
+        mu = self._mu_z(
+            model,
+            discrete_uniforms_Y=0.0,
+            beta_Y=[0.0, 0.0],
+            beta_Z=[0.0, 4.0, 0.0],
+            sigma_Z=1.0,
+        )
+        expected = y.reshape(2, 3).T * 4.0
+        np.testing.assert_allclose(mu.reshape(3, 2), expected)
+
+    def test_poisson_parent_matches_observed_counts(self):
+        import pymc as pm
+        import pytensor
+
+        y = np.array([0, 2, 1, 0, 2, 1], dtype=int)
+        model = pathmc.model(
+            "Y ~ X\nZ ~ Y + lag(Z)",
+            data=self._panel(y),
+            families={"Y": "poisson"},
+            panel={"unit": "unit", "time": "time"},
+        )
+        graph = pm.do(
+            model.pymc_model,
+            {
+                "beta_Y": np.zeros(2),
+                "beta_Z": np.array([0.0, 3.0, 0.0]),
+                "sigma_Z": np.array(1.0),
+            },
+        )
+        # The unused Poisson draw stays in the switch, and Numba cannot
+        # compile that scan RNG. Python mode still evaluates the mean.
+        mu = pytensor.function([], graph["mu_Z"], mode="FAST_COMPILE")()
+        expected = y.reshape(2, 3).T * 3.0
+        np.testing.assert_allclose(mu.reshape(3, 2), expected)
+
+    def test_studentt_parent_is_not_the_structural_mean(self):
+        y = np.full(6, 5.0)
+        model = pathmc.model(
+            "Y ~ X\nZ ~ Y + lag(Z)",
+            data=self._panel(y),
+            families={"Y": "studentt"},
+            panel={"unit": "unit", "time": "time"},
+        )
+        mu = self._mu_z(
+            model,
+            beta_Y=[0.0, 0.0],
+            beta_Z=[0.0, 2.0, 0.0],
+            sigma_Y=1.0,
+            sigma_Z=1.0,
+            nu_Y=5.0,
+        )
+        np.testing.assert_allclose(mu, 10.0)
