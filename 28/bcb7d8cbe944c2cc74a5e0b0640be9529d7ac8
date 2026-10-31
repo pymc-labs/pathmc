@@ -1,0 +1,18 @@
+docs/user_guide/21-causal-discovery.qmd
+  h_63db634213747e 107
+pathmc/cpdag.py
+  h_63db634213747e 208-216,218-224,431-432,496-511,648-654,677-680,799-800,806,829-833,904-906,939-945,978-982,1012-1014,1016,1018-1019
+tests/test_cpdag.py
+  h_63db634213747e 1090-1113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "28bcb7d8cbe944c2cc74a5e0b0640be9529d7ac8",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
