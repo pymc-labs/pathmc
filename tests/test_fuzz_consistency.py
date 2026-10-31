@@ -53,6 +53,7 @@ from fuzz.strategies import (
     fuzz_cases,
     realize_frame,
     render_spec,
+    slow_count_scan,
     stratum_cases,
 )
 from pathmc.parse import parse_spec
@@ -152,14 +153,20 @@ def _mixed_budget(default: int) -> int:
     return value
 
 
-def _fuzz_settings(max_examples: int) -> settings:
+def _fuzz_settings(max_examples: int, *, deadline: int | None = None) -> settings:
     return settings(
         max_examples=max_examples,
-        deadline=None,
+        deadline=deadline,
         derandomize=True,
         database=None,
         suppress_health_check=[HealthCheck.too_slow],
     )
+
+
+# Legitimate per-commit compiles finish in about a minute warm. Three minutes
+# leaves cold-CI margin. A longer compile fails with the printed case instead
+# of consuming the 60-minute nightly job.
+_COMPILE_DEADLINE_MS = 180_000
 
 
 def _scan_flag(model: pathmc.PathModel) -> bool:
@@ -255,10 +262,16 @@ def _assert_grammar(case: FuzzCase) -> None:
     if case.pooling_kind == "slopes":
         missing = set(case.slope_vars) - case.plain_terms()
         assert not missing, f"slope vars {missing} are not raw terms: {case}"
+        endogenous = set(case.slope_vars) & set(case.families_dict())
+        assert not endogenous, (
+            f"slope vars {sorted(endogenous)} are endogenous; the non-scan "
+            "compiler looks them up as data columns and raises KeyError. "
+            f"Slope an exogenous plain column such as x0: {case}"
+        )
 
 
 def _run_stratum(stratum: Stratum, coverage: Coverage) -> None:
-    @_fuzz_settings(1)
+    @_fuzz_settings(1, deadline=_COMPILE_DEADLINE_MS)
     @given(case=stratum_cases(stratum))
     def _one(case: FuzzCase) -> None:
         _assert_grammar(case)
@@ -287,8 +300,14 @@ def _run_mixed(
     panel_shapes: tuple[tuple[int, int], ...] = PANEL_SHAPES,
     cross_section_n: tuple[int, ...] = CROSS_SECTION_N,
 ) -> None:
-    @_fuzz_settings(max_examples)
-    @given(case=fuzz_cases(panel_shapes=panel_shapes, cross_section_n=cross_section_n))
+    @_fuzz_settings(max_examples, deadline=_COMPILE_DEADLINE_MS)
+    @given(
+        case=fuzz_cases(
+            panel_shapes=panel_shapes,
+            cross_section_n=cross_section_n,
+            for_compile=True,
+        )
+    )
     def _mixed(case: FuzzCase) -> None:
         _assert_grammar(case)
         coverage.record(case, scan=check_case(case))
@@ -396,16 +415,64 @@ def test_generated_specs_obey_the_grammar(case: FuzzCase) -> None:
         assert case.panel is None
 
 
+def test_endogenous_slope_is_rejected_before_compile() -> None:
+    """The non-scan compiler looks slope names up in the data columns."""
+    case = FuzzCase(
+        seed=0,
+        spec="x1 ~ logistic_saturation(x0, lam=lam_x1_x0)\nx2 ~ x1",
+        families=(("x1", "gaussian"), ("x2", "gaussian")),
+        panel=(("unit", "unit"), ("time", "time")),
+        pooling_kind="slopes",
+        slope_vars=("x1",),
+        layout="panel",
+        n_units=2,
+        n_time=3,
+        n_obs=6,
+        columns=("x0", "x1", "x2"),
+        predictors=("x0", "x1"),
+        term_kinds=("logistic_saturation", "plain"),
+        intercept=True,
+    )
+    with pytest.raises(AssertionError, match="endogenous"):
+        _assert_grammar(case)
+
+
+def test_compiling_budget_skips_count_outcomes_on_the_scan_path() -> None:
+    """Narrower predicates missed the next multi-minute count-scan graph."""
+    assert slow_count_scan([Edge("y", "lag", ("y",))], {"y": "poisson"}, "panel")
+    assert not slow_count_scan([Edge("y", "lag", ("x",))], {"y": "gaussian"}, "panel")
+    assert not slow_count_scan(
+        [Edge("y", "plain", ("x",))], {"y": "poisson"}, "cross_section"
+    )
+    mediated = [Edge("x1", "lag", ("x0",)), Edge("x2", "plain", ("x1",))]
+    assert slow_count_scan(mediated, {"x1": "negbinomial", "x2": "gaussian"}, "panel")
+
+
+@_fuzz_settings(40)
+@given(case=fuzz_cases(for_compile=True))
+def test_compiling_draws_skip_count_scan_predictors(case: FuzzCase) -> None:
+    """The nightly and per-commit mixed budgets must not compile the slow class."""
+    _assert_grammar(case)
+    assert not case.count_scan_predictor()
+    if case.pooling_kind == "slopes":
+        assert case.slope_vars == ("x0",)
+
+
 def test_fuzz_consistency() -> None:
     """Per-commit budget: every covering cell, plus a small mixed explore.
 
-    Mixed draws stay on ``FAST_PANEL_SHAPES``. A 5×30 scan ``dlogp`` does not
-    belong on this path; nightly still draws the full shape menu.
+    Mixed draws stay on ``FAST_PANEL_SHAPES`` and skip every count outcome
+    on the scan path. Those ``dlogp`` graphs take minutes. The covering
+    stratum and the frozen corpus still compile the known cases.
     """
     _run_session(FAST_MIXED_EXAMPLES, fast_shapes=True)
 
 
 @pytest.mark.nightly
 def test_fuzz_consistency_nightly() -> None:
-    """Larger mixed budget. Not ``slow``: ``make test-nightly`` is the gate."""
+    """Larger mixed budget. Not ``slow``: ``make test-nightly`` is the gate.
+
+    Same compile filter as the per-commit session. The grammar test still
+    draws the unfiltered strategy.
+    """
     _run_session(NIGHTLY_MIXED_EXAMPLES)

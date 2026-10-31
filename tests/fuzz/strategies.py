@@ -25,6 +25,14 @@ The generator stays inside constraints the compiler accepts:
   terms (pooling).
 * Contemporaneous self-edges (``y ~ y``, ``y ~ adstock(y, ...)``, ``y ~ y:x``)
   are cycles. ``lag(y)`` is temporal and allowed, including count families.
+* Random slopes name an exogenous plain column (``x0``). An endogenous slope
+  is not a data column; the non-scan compiler raises ``KeyError``.
+* The compiling budget does not draw a count outcome on the scan path.
+  ``dlogp`` for that class takes minutes (a count predictor, a count outcome
+  coupled to a Gaussian mediator, and a count outcome with slopes all did).
+  Naming a narrower subclass kept missing the next one. ``lag`` of a count
+  is still compiled by the covering stratum and the frozen corpus. The
+  grammar still emits the class.
 """
 
 from __future__ import annotations
@@ -33,7 +41,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from hypothesis import strategies as st
+from hypothesis import assume, strategies as st
 
 FAMILIES: tuple[str, ...] = ("gaussian", "bernoulli", "poisson", "negbinomial")
 COUNT_FAMILIES = frozenset({"poisson", "negbinomial"})
@@ -168,6 +176,16 @@ class FuzzCase:
         temporal = bool(set(self.term_kinds) & _TEMPORAL_KINDS)
         return self.layout == "panel" and temporal
 
+    def count_scan_predictor(self) -> bool:
+        """Count outcome on the scan path.
+
+        The compiling budget skips the whole class. A narrower predicate
+        missed the next multi-minute graph.
+        """
+        if not self.expects_scan():
+            return False
+        return any(family in COUNT_FAMILIES for _, family in self.families)
+
     def plain_terms(self) -> set[str]:
         """Raw column names that appear as plain terms, not inside a call.
 
@@ -299,6 +317,25 @@ def render_spec(edges: list[Edge], intercept: dict[str, bool]) -> str:
     if not lines:
         raise ValueError("empty design: the spec has no equations.")
     return "\n".join(lines)
+
+
+def slow_count_scan(
+    edges: list[Edge],
+    families: dict[str, str],
+    layout: str,
+) -> bool:
+    """Count outcome on the scan path.
+
+    ``dlogp`` for this class takes minutes. A count predictor, a count
+    outcome coupled to a Gaussian mediator (seed 4119011), and a count
+    outcome with exogenous slopes (seed 44270) were all slow. The compiling
+    budget skips the class. The covering stratum and the frozen corpus still
+    compile the known cases.
+    """
+    temporal = any(edge.kind in _TEMPORAL_KINDS for edge in edges)
+    if layout != "panel" or not temporal:
+        return False
+    return any(family in COUNT_FAMILIES for family in families.values())
 
 
 def _legal_kinds(parent: str, child: str) -> tuple[str, ...]:
@@ -492,6 +529,7 @@ def fuzz_cases(
     draw: st.DrawFn,
     panel_shapes: tuple[tuple[int, int], ...] = PANEL_SHAPES,
     cross_section_n: tuple[int, ...] = CROSS_SECTION_N,
+    for_compile: bool = False,
 ) -> FuzzCase:
     """Random acyclic spec with 2–5 nodes and at least one equation.
 
@@ -536,11 +574,14 @@ def fuzz_cases(
         right = draw(st.sampled_from(rest))
         edges.append(Edge(child, "interaction", tuple(sorted((left, right)))))
 
-    if pooling_kind == "slopes" and not any(edge.kind == "plain" for edge in edges):
+    if pooling_kind == "slopes" and not any(
+        edge.kind == "plain" and edge.inputs == ("x0",) for edge in edges
+    ):
         edges.append(Edge(endogenous[-1], "plain", ("x0",)))
-    slope_vars = ()
-    if pooling_kind == "slopes":
-        slope_vars = next(edge.inputs for edge in edges if edge.kind == "plain")
+    # x0 is always exogenous. An endogenous plain parent is not a data column.
+    slope_vars = ("x0",) if pooling_kind == "slopes" else ()
+    if for_compile and slow_count_scan(edges, families, layout):
+        assume(False)
     intercept = {child: draw(st.booleans()) for child in endogenous}
     layout, n_units, n_time, n_obs = _shape(draw, layout, panel_shapes, cross_section_n)
     return _assemble(
