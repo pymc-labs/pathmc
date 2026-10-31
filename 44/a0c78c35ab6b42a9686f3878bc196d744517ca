@@ -1,0 +1,18 @@
+pathmc/parse.py
+  h_63db634213747e 30,246,354-355,357-359,361,363-368,374,385,392-418,422-425,615,623-625,629,840
+pathmc/spline_policy.py
+  h_63db634213747e 1-168
+pathmc/splines.py
+  h_63db634213747e 33-40,99-100,205,207,347
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "44a0c78c35ab6b42a9686f3878bc196d744517ca",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
