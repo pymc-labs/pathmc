@@ -883,6 +883,86 @@ def test_keyword_endpoint_and_unquoted_plus_do_not_rewrite_the_graph():
     assert _parse_dot("digraph { A -> B, C }")[1] == {("A", "B"), ("A", "C")}
 
 
+def test_unquoted_graph_keywords_and_node_assignment_are_rejected():
+    """Graphviz rejects bare keywords and ``node = box``; do not rewrite them.
+
+    An unquoted ``digraph``, ``subgraph``, or ``strict`` is not a node.
+    Keeping it, or dropping ``node = box``, makes the graph compare equal to
+    a rewritten valid graph. Quote the keyword, or write ``node [shape=box]``.
+    """
+    quoted = {
+        "digraph": 'digraph { "digraph" -> Y }',
+        "strict": 'digraph { "strict" -> Y }',
+        "subgraph": 'digraph { "subgraph" -> Y }',
+    }
+    bare = (
+        "digraph { digraph -> Y }",
+        "digraph { DIGRAPH -> Y }",
+        "digraph { subgraph cluster { digraph -> Y } }",
+        "digraph { strict -> Y }",
+        "digraph { STRICT; X -> Y }",
+        "digraph { subgraph digraph { X -> Y } }",
+        "digraph { subgraph strict { X -> Y } }",
+        "digraph { A:digraph -> Y }",
+        "digraph { A:strict -> Y }",
+        "digraph { X [label=strict] }",
+        "digraph { X [digraph=box] }",
+        "digraph { digraph = box; X -> Y }",
+        "digraph { strict = box; X -> Y }",
+        "digraph { subgraph = box; X -> Y }",
+    )
+    for bad in bare:
+        with pytest.raises(ValueError, match="keyword"):
+            same_markov_equivalence_class(bad, 'digraph { "digraph" -> Y }')
+    with pytest.raises(ValueError, match="Quote it"):
+        same_markov_equivalence_class("digraph { subgraph -> Y }", quoted["subgraph"])
+    for spelling in (
+        "digraph { node = box; X -> Y }",
+        "digraph { node=box; X -> Y }",
+        "digraph { Node = box; X -> Y }",
+        "digraph { subgraph cluster { node = box; X -> Y; Z -> Y } }",
+        "graph { node = box; A -- B }",
+    ):
+        with pytest.raises(ValueError, match=r"node \[shape=box\]"):
+            same_markov_equivalence_class(spelling, "digraph { X -> Y }")
+    assert _parse_dot('digraph { "digraph" -> Y }')[0] == {"digraph", "Y"}
+    assert _parse_dot('digraph { "strict" -> Y }')[0] == {"strict", "Y"}
+    assert _parse_dot('digraph { "subgraph" -> Y }')[0] == {"subgraph", "Y"}
+    assert _parse_dot("digraph { node [shape=box]; X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot('digraph { "node" = box; X -> Y }')[1] == {("X", "Y")}
+    assert _parse_dot("digraph { subgraph cluster { X -> Y; Z -> Y } }")[0] == {
+        "X",
+        "Y",
+        "Z",
+    }
+    assert (
+        same_markov_equivalence_class("strict graph { A -- B }", "graph { A -- B }")
+        is True
+    )
+
+
+def test_quoted_odd_backslash_before_lf_is_line_continuation():
+    """An odd backslash run before LF joins the lines; an even run does not.
+
+    Graphviz treats ``"foo\\<LF>bar"`` as node ``foobar``. Two backslashes
+    before the line feed stay in the id, with the line feed.
+    """
+    odd = 'digraph { "foo\\\nbar" -> Y; Z -> Y }'
+    wrapped = 'digraph { subgraph cluster { "foo\\\nbar" -> Y; Z -> Y } }'
+    flat = "digraph { foobar -> Y; Z -> Y }"
+    assert _parse_dot(odd)[0] == {"foobar", "Y", "Z"}
+    assert _parse_dot(wrapped)[0] == {"foobar", "Y", "Z"}
+    assert same_markov_equivalence_class(odd, flat) is True
+    assert same_markov_equivalence_class(wrapped, flat) is True
+    three = 'digraph { "foo\\\\\\\nbar" }'
+    assert _parse_dot(three)[0] == {"foo\\\\bar"}
+    even = 'digraph { "foo\\\\\nbar" -> Y }'
+    nodes, directed, _ = _parse_dot(even)
+    assert nodes == {"foo\\\\\nbar", "Y"}
+    assert directed == {("foo\\\\\nbar", "Y")}
+    assert same_markov_equivalence_class(even, "digraph { foobar -> Y }") is False
+
+
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""
     g = nx.DiGraph()

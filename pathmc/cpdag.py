@@ -62,6 +62,11 @@ def same_markov_equivalence_class(
     nodes and edges inside it, not the cluster id. Node identity is
     the DOT id (or ``networkx`` node); ``label`` attributes are not treated
     as identity. Attribute assignments such as ``rankdir=LR`` are not nodes.
+    Unquoted ``digraph``, ``subgraph``, and ``strict`` are keywords, not node
+    ids: quote them (``"digraph" -> Y``). ``node = box`` is rejected; write
+    ``node [shape=box]``. A quoted odd backslash run before a line feed is
+    line continuation, so ``"foo\\<newline>bar"`` is the node ``foobar``.
+    An even run is not continuation.
 
     Parameters
     ----------
@@ -134,13 +139,45 @@ def _coerce_to_components(
     )
 
 
-# Reserved statement keywords. A bare ``node`` / ``graph`` / ``edge`` is not a
-# node id; ``node [shape=box]`` is a style declaration.
-_RESERVED = frozenset({"graph", "node", "edge"})
+# Reserved statement keywords. A bare ``node`` / ``graph`` / ``edge`` /
+# ``digraph`` / ``subgraph`` / ``strict`` is not a node id.
+# ``node [shape=box]`` is a style declaration; ``node = box`` is not.
+_BARE_KEYWORDS = frozenset({"digraph", "subgraph", "strict"})
+_RESERVED = frozenset({"graph", "node", "edge"}) | _BARE_KEYWORDS
 
 
 def _dot_parse_error(detail: str) -> ValueError:
     return ValueError(f"Could not parse DOT text: {detail}")
+
+
+def _keyword_id_error(name: str) -> ValueError:
+    """Reject an unquoted Graphviz keyword used where an id was accepted."""
+    example = f'"{name}" -> Y'
+    return _dot_parse_error(
+        f"unsupported DOT syntax: {name!r} is a keyword, not a node id. "
+        f"Quote it if it is a node, for example {example!r}."
+    )
+
+
+def _node_assignment_error(name: str, value: str | None) -> ValueError:
+    """Reject ``node = value``. Graphviz wants an attribute list."""
+    if value is not None:
+        shown = f"{name} = {value}"
+        instead = f"node [shape={value}]"
+    else:
+        shown = f"{name} = ..."
+        instead = "node [shape=box]"
+    return _dot_parse_error(
+        f"unsupported DOT syntax: {shown!r}. Write {instead!r} instead."
+    )
+
+
+def _keyword_assignment_error(name: str) -> ValueError:
+    quoted = f'"{name}" = box'
+    return _dot_parse_error(
+        f"unsupported DOT syntax: {name!r} is a keyword, not an assignment "
+        f"name. Quote it, for example {quoted!r}."
+    )
 
 
 def _end_of_quoted(text: str, start: int) -> int:
@@ -284,6 +321,9 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
     token: DOT makes ``;`` optional, so ``X -> Y Z -> Y`` is two statements.
     ``,`` and ``;`` are explicit separators. Quoted strings and HTML labels
     are single tokens, so a ``}`` inside either is not a subgraph boundary.
+    An odd run of backslashes immediately before a line feed is Graphviz line
+    continuation: ``"foo\\<LF>bar"`` is the id ``foobar``. An even run is not
+    continuation; the backslashes and the line feed stay in the id.
     ``->`` and ``--`` are operators. A bare id may include ``:`` so a compass
     port stays part of the id, matching the previous reader.
     """
@@ -304,6 +344,12 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
                     while i < n and text[i] == "\\":
                         i += 1
                     count = i - start
+                    if i < n and text[i] == "\n" and count % 2 == 1:
+                        # Odd run before LF is Graphviz line continuation.
+                        if count > 1:
+                            buf.append("\\" * (count - 1))
+                        i += 1
+                        continue
                     if i < n and text[i] == '"' and count % 2 == 1:
                         # The last backslash escapes the quote. Keep the rest.
                         if count > 1:
@@ -465,6 +511,15 @@ class _DotBodyParser:
                     "unsupported DOT syntax near '-'. A hyphen is not part of a node id."
                 )
         if _is_id(token) and self.peek(1) == "=":
+            name = _id_text(token)
+            quoted = isinstance(token, tuple) and token[0] == "qid"
+            if not quoted and name is not None and name.lower() == "node":
+                value = _id_text(self.peek(2))
+                if self.peek(3) == "+":
+                    value = None
+                raise _node_assignment_error(name, value)
+            if not quoted and name is not None and name.lower() in _BARE_KEYWORDS:
+                raise _keyword_assignment_error(name)
             self.pop()
             self.pop()
             self.take_value()
@@ -614,10 +669,7 @@ class _DotBodyParser:
                     "unsupported DOT syntax near '-'. A hyphen is not part of a node id."
                 )
         if not literal and name.lower() in _RESERVED:
-            raise _dot_parse_error(
-                f"unsupported DOT syntax: {name!r} is a keyword, not a node id. "
-                "Quote it if it is a node, for example '\"node\" -> Y'."
-            )
+            raise _keyword_id_error(name)
         self.add_node(name)
         return {name}
 
@@ -641,11 +693,7 @@ class _DotBodyParser:
             if not (isinstance(piece, tuple) and piece[0] == "qid"):
                 port_name = _id_text(piece)
                 if port_name is not None and port_name.lower() in _RESERVED:
-                    raise _dot_parse_error(
-                        f"unsupported DOT syntax: {port_name!r} is a keyword, "
-                        "not a node id. Quote it if it is a node, for example "
-                        "'\"node\" -> Y'."
-                    )
+                    raise _keyword_id_error(port_name)
             self.pop()
 
     def _is_literal_piece(self, token: str | tuple[str, str] | None) -> bool:
@@ -673,8 +721,12 @@ class _DotBodyParser:
 
     def parse_subgraph(self) -> set[str]:
         if _is_keyword(self.peek(), "subgraph"):
+            keyword = _id_text(self.peek()) or "subgraph"
             self.pop()
-            if self.peek() != "{":
+            nxt = self.peek()
+            if nxt != "{":
+                if not (_is_id(nxt) or (isinstance(nxt, tuple) and nxt[0] == "html")):
+                    raise _keyword_id_error(keyword)
                 self._skip_subgraph_id()
             if self.peek() != "{":
                 raise _dot_parse_error(
@@ -713,10 +765,7 @@ class _DotBodyParser:
         if not (isinstance(token, tuple) and token[0] == "qid"):
             name = _id_text(token)
             if name is not None and name.lower() in _RESERVED:
-                raise _dot_parse_error(
-                    f"unsupported DOT syntax: {name!r} is a keyword, not a node id. "
-                    "Quote it if it is a node, for example '\"node\" -> Y'."
-                )
+                raise _keyword_id_error(name)
         self.pop()
         while self.peek() == "+":
             nxt = self.peek(1)
@@ -746,6 +795,12 @@ class _DotBodyParser:
             elif token == "]":
                 depth -= 1
             else:
+                if (
+                    isinstance(token, tuple)
+                    and token[0] == "id"
+                    and token[1].lower() in _BARE_KEYWORDS
+                ):
+                    raise _keyword_id_error(token[1])
                 attr = _id_text(prev)
                 if token == "=" and attr is not None and attr.lower() == "dir":
                     self._dir_was_set = True
@@ -769,8 +824,10 @@ def _parse_dot(
     attribute is treated as undirected, as is any edge in an undirected
     ``graph { ... }`` block. Chained edges (``A -> B -> C``) are expanded.
     Global style declarations (``graph [...]``, ``node [...]``, and ``ID =
-    value`` assignments such as ``rankdir=LR``) are ignored. ``edge
-    [dir=none]`` applies to later edges in that block.
+    value`` assignments such as ``rankdir=LR``) are ignored. ``node = box``
+    is rejected; write ``node [shape=box]``. Unquoted ``digraph``,
+    ``subgraph``, and ``strict`` are keywords, not ids. A quoted odd
+    backslash run before a line feed continues the string.
     A ``subgraph`` block, including an anonymous ``{ ... }`` cluster, is layout
     only: its nodes and edges are parsed, and the cluster id is not a node.
     An edge into a subgraph connects to each node in that subgraph.
