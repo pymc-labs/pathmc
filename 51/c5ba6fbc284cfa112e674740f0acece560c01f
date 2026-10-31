@@ -1,0 +1,18 @@
+docs/user_guide/basis-terms.qmd
+  h_63db634213747e 41
+pathmc/parse.py
+  h_63db634213747e 352-367,396,406-427
+tests/test_splines.py
+  h_63db634213747e 89-93,189-205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "51c5ba6fbc284cfa112e674740f0acece560c01f",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
