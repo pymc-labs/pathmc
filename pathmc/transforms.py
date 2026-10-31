@@ -27,6 +27,7 @@ pathmc's ``pytensor>=3.1.1`` floor is published upstream to activate delegation.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -244,6 +245,43 @@ class Transform:
         return self.apply_pymc(x_t, params), state
 
 
+def _user_stacklevel() -> int:
+    """Stacklevel so a warning points at the first non-pathmc caller."""
+    import sys
+
+    frame = sys._getframe(1)
+    level = 1
+    while frame.f_back is not None:
+        frame = frame.f_back
+        level += 1
+        module = frame.f_globals.get("__name__", "")
+        if module != "pathmc" and not module.startswith("pathmc."):
+            return level
+    return level
+
+
+def _row_order_series_message(name: str, l_max: int | None) -> str:
+    """Name the silent stacked-unit leak, and how to declare a time axis.
+
+    Geometric ``adstock()`` also has to say that this branch is the finite
+    window, not the scan recursion. Delayed and Weibull stay on the
+    row-order assumption: a finite kernel is already their model.
+    """
+    message = (
+        f"{name}() without panel= convolves down row order and treats those "
+        f"rows as one series. Stacked units then carry one unit's tail into "
+        f"the next; the compiler cannot see the unit change. Pass "
+        f'panel={{"unit": ..., "time": ...}} so each unit is transformed on '
+        f"its own time axis."
+    )
+    if name == "adstock":
+        message += (
+            f" This path is a {l_max}-lag convolution, not the full recursive "
+            f"stock used when panel= is set."
+        )
+    return message
+
+
 class _ConvAdstockBase(Transform):
     """Shared panel / scan behaviour for convolution-based adstock transforms."""
 
@@ -280,7 +318,17 @@ class _ConvAdstockBase(Transform):
         }
         if panel_info is not None and data is not None:
             return _apply_conv_panel(self._kernel, x, panel_info, data, **kernel_kwargs)
+        # No unit marker on this branch. Warning here, not in the kernel,
+        # so the per-unit convolution does not inherit the same message.
+        self._warn_row_order_series()
         return self._kernel(x, **kernel_kwargs)
+
+    def _warn_row_order_series(self) -> None:
+        warnings.warn(
+            _row_order_series_message(self.name, self.l_max),
+            UserWarning,
+            stacklevel=_user_stacklevel(),
+        )
 
     def _kernel(self, x: Any, **kwargs: Any) -> Any:
         raise NotImplementedError
@@ -302,7 +350,9 @@ class Adstock(_ConvAdstockBase):
     """Geometric adstock: ``y_t = sum_{i=0}^{l_max-1} decay**i * x_{t-i}``.
 
     Applied along the time axis within each panel unit.
-    For cross-sectional data, applied along the row axis.
+    For cross-sectional data, applied along the row axis. That path warns:
+    row order is treated as one series, and the result is an ``l_max``-lag
+    convolution, not the recursive stock used when ``panel=`` is set.
 
     ``l_max`` and ``normalize`` mirror
     ``pymc_marketing.mmm.transformers.geometric_adstock`` — pass them to
@@ -366,6 +416,8 @@ class DelayedAdstock(_ConvAdstockBase):
     """Delayed adstock with peak at lag ``theta``.
 
     Convolution-based; vectorized only (no ``step()`` for scan paths).
+    Without panel information the call convolves down row order, treats
+    those rows as one series, and warns.
     """
 
     name = "delayed_adstock"
@@ -398,6 +450,8 @@ class WeibullAdstock(_ConvAdstockBase):
     """Weibull adstock with shape ``k`` and scale ``lam``.
 
     Convolution-based; vectorized only (no ``step()`` for scan paths).
+    Without panel information the call convolves down row order, treats
+    those rows as one series, and warns.
     """
 
     name = "weibull_adstock"

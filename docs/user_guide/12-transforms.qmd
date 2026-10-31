@@ -16,6 +16,8 @@ Transforms are applied to predictor columns before entering the regression, with
 
 Transform parameters get appropriate priors automatically: `decay` receives a `Beta(2, 2)` prior (constrained to (0, 1)), and `lam` receives a `HalfNormal(1)` prior (positive support).
 
+Without `panel=`, `adstock()`, `delayed_adstock()`, and `weibull_adstock()` convolve down row order and treat those rows as one series. pathmc warns: a stacked-unit frame would carry one unit's tail into the next, and the compiler cannot see the unit change. Pass `panel={"unit": ..., "time": ...}` to keep each unit on its own time axis. For geometric `adstock()`, that warning also says the non-panel path is a 12-lag convolution, not the full recursive stock `y_t = x_t + decay * y_{t-1}` used when `panel=` compiles the scan. Delayed and Weibull adstock are finite kernels either way; their warning is only about the row-order assumption.
+
 ### Composability
 
 Transforms nest naturally — inner transforms are evaluated first:

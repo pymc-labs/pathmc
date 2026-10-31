@@ -3177,7 +3177,8 @@ def model(
         Per-variable distribution families (default ``"gaussian"``).
     panel : dict[str, str] | None
         Panel structure with ``"unit"`` and ``"time"`` keys mapping to
-        column names. Activates panel mode.
+        column names. Activates panel mode. Convolution adstock compiled
+        without it treats row order as one series and warns.
     pooling : str | dict | None
         ``"partial"`` for random intercepts per unit. A dict like
         ``{"intercept": True, "slopes": ["var"]}`` enables random slopes.
@@ -3562,6 +3563,8 @@ def simulate(
         :func:`model`). With *panel*, temporal state starts cold:
         lagged endogenous terms and adstock carry begin at zero at each
         unit's first time step, matching the compiler's init semantics.
+        Convolution adstock compiled without *panel* treats row order as
+        one series and warns.
     pooling : str | dict | None
         Pooling configuration forwarded to the compiler, identical to
         :func:`model`: ``"partial"`` for random intercepts per unit
