@@ -562,6 +562,9 @@ class PathModel:
         self._initial_explicit = initial_explicit
         self._initial_baseline: InitialBaseline | None = None
         self._construction: dict[str, Any] | None = None
+        # Fit-time data-basis state. Later compiles (predictions, set_priors)
+        # replay it so knots are not recomputed on a query frame.
+        self._frozen_basis_states: dict[Any, Any] | None = None
 
         defaults = default_priors(
             spec,
@@ -643,6 +646,7 @@ class PathModel:
             graph_info=self._graph_info,
             priors=self._priors,
             initial=self._initial_internal,
+            replay_states=self._frozen_basis_states,
         )
 
         block_vars = (
@@ -684,6 +688,8 @@ class PathModel:
         self._pymc_model._pathmc_basis_states = getattr(
             self._gen_model, "_pathmc_basis_states", {}
         )
+        if self._frozen_basis_states is None:
+            self._frozen_basis_states = self._pymc_model._pathmc_basis_states
 
         # Enable the observed carry unconditionally, not only when
         # ``observations`` is non-empty. A variable with any NaN is skipped
@@ -3224,7 +3230,8 @@ def model(
         Per-variable distribution families (default ``"gaussian"``).
     panel : dict[str, str] | None
         Panel structure with ``"unit"`` and ``"time"`` keys mapping to
-        column names. Activates panel mode.
+        column names. Activates panel mode. Convolution adstock compiled
+        without it treats row order as one series and warns.
     pooling : str | dict | None
         ``"partial"`` for random intercepts per unit. A dict like
         ``{"intercept": True, "slopes": ["var"]}`` enables random slopes.
@@ -3622,6 +3629,8 @@ def simulate(
         :func:`model`). With *panel*, temporal state starts cold:
         lagged endogenous terms and adstock carry begin at zero at each
         unit's first time step, matching the compiler's init semantics.
+        Convolution adstock compiled without *panel* treats row order as
+        one series and warns.
     pooling : str | dict | None
         Pooling configuration forwarded to the compiler, identical to
         :func:`model`: ``"partial"`` for random intercepts per unit

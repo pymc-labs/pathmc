@@ -53,6 +53,7 @@ import pandas as pd
 import patsy
 import pymc as pm
 
+from pathmc._warnings import _user_stacklevel
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
 from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
@@ -67,27 +68,6 @@ _SCAN_PANEL_RESIDUAL_COV_MSG = (
     "so the model is not scan-compiled. "
     "Future support is tracked in https://github.com/pymc-labs/pathmc/issues/520."
 )
-
-
-def _user_stacklevel() -> int:
-    """Stacklevel to attribute a ``warnings.warn`` to the first non-pathmc frame.
-
-    A fixed ``stacklevel`` constant cannot be correct for every call site
-    because internal call-chain depth varies (e.g. warnings from
-    ``_compile_scan_panel`` vs ``compile_to_pymc``). Walking frames is
-    robust to refactors.
-    """
-    import sys
-
-    frame = sys._getframe(1)
-    level = 1
-    while frame.f_back is not None:
-        frame = frame.f_back
-        level += 1
-        module = frame.f_globals.get("__name__", "")
-        if module != "pathmc" and not module.startswith("pathmc."):
-            return level
-    return level
 
 
 @dataclass
@@ -639,6 +619,7 @@ def compile_to_pymc(
     initial: Mapping[str, np.ndarray] | None = None,
     policy_plan: Any | None = None,
     policy_scaling: Any | None = None,
+    replay_states: Mapping[Any, Any] | None = None,
 ) -> pm.Model:
     """Compile a structural specification into a generative PyMC model.
 
@@ -894,8 +875,13 @@ def compile_to_pymc(
                 basis = get_basis(term.basis.name)
                 if basis.has_data_contract():
                     key = basis.binding_key(reg.lhs, term.basis)
-                    state = basis.freeze_data_state(
-                        data[term.basis.variable].to_numpy(), term.basis
+                    stored = None if replay_states is None else replay_states.get(key)
+                    state = (
+                        basis.freeze_data_state(
+                            data[term.basis.variable].to_numpy(), term.basis
+                        )
+                        if stored is None
+                        else stored
                     )
                     columns, _ = basis.build_data(
                         data[term.basis.variable].to_numpy(), term.basis, state=state
@@ -2000,6 +1986,7 @@ def _reject_basis_in_residual_blocks(spec: Spec) -> None:
 def _validate_basis_capabilities(spec: Spec, panel_info: PanelInfo | None) -> None:
     """Reject combinations not declared by a basis's capability metadata."""
     from pathmc.basis import get_basis
+    from pathmc.categorical import baseline_variable
 
     endogenous = {reg.lhs for reg in spec.regressions}
     for reg in spec.regressions:
@@ -2011,6 +1998,15 @@ def _validate_basis_capabilities(spec: Spec, panel_info: PanelInfo | None) -> No
                 raise NotImplementedError(
                     f"{basis.name}() is not supported in panel models yet. "
                     "Fit a cross-sectional model or remove the basis term."
+                )
+            carries_mean = reg.has_intercept or baseline_variable(reg) is not None
+            if basis.capabilities.requires_intercept and not carries_mean:
+                raise ValueError(
+                    f"{basis.name}() in the '{reg.lhs}' equation is centered, so "
+                    "its contribution has mean zero and cannot carry the response "
+                    f"mean. Drop the '0 +' prefix so '{reg.lhs} ~ {basis.name}(...)' "
+                    "keeps an intercept, or keep a categorical that supplies the "
+                    "baseline."
                 )
             if term.basis.variable in endogenous:
                 if not basis.capabilities.supports_endogenous:

@@ -243,4 +243,4 @@ plt.show()
 
 The orange and green bands now describe the same quantity: plausible **individual sales observations**, not just the model's expected curve. The forecast does not become artificially narrow at week 104; any remaining difference reflects what the model learned about the repeating pattern, not omitted residual noise. In applied work the dashed reference will be unavailable, but the predictive band still communicates uncertainty about future observations.
 
-**Takeaway:** use `fourier()` when the outcome varies smoothly and periodically, use a posterior predictive check to assess observations, and use `do()` to project the expected cycle at future input values. For a smooth relationship that does not repeat, see the [HSGP example](hsgp_1d.qmd).
+**Takeaway:** use `fourier()` when the outcome varies smoothly and periodically, use a posterior predictive check to assess observations, and use `do()` to project the expected cycle at future input values. For a smooth relationship that does not repeat, see the [HSGP example](hsgp_1d.qmd) or [spline smooths](splines.qmd).
