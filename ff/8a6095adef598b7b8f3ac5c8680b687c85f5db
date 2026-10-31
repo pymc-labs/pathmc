@@ -1,0 +1,14 @@
+docs/user_guide/19-panel-data.qmd
+  h_63db634213747e 49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ff8a6095adef598b7b8f3ac5c8680b687c85f5db",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
