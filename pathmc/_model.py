@@ -2273,7 +2273,12 @@ class PathModel:
             Variables to fix at specific values (hard intervention).
             For panel models with ``simulate_over="time"``, values can
             be arrays of shape ``(n_times,)`` for time-varying
-            interventions (e.g., a temporary spend increase).
+            interventions (e.g., a temporary spend increase). A NaN in
+            that array releases the step of an endogenous variable: the
+            scan runs the variable's own equation there, and the reported
+            path keeps the finite held values elsewhere. NaN does not
+            release an exogenous input, which has no equation to fall
+            back on.
             On a model compiled with ``scaling=``, values are in
             *business* units: pathmc divides by the fitted factor before
             graph surgery so ``do(set={"tv": 500})`` means 500 of the

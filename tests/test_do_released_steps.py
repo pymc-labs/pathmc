@@ -158,7 +158,8 @@ def test_latent_state_reports_released_steps(kind: str) -> None:
     np.testing.assert_allclose(_by_time(result, "y")[:, 0, 0], 2 * x, atol=1e-5)
 
 
-def test_released_parent_of_a_count_outcome_reports_released_steps() -> None:
+@pytest.mark.parametrize("kind", ["mean", "predictive"])
+def test_released_parent_of_a_count_outcome_reports_released_steps(kind: str) -> None:
     # A Poisson child keeps the model off the coherent Gaussian executor, so
     # kind="predictive" reads the released Gaussian parent from the PPC output.
     model = pathmc.model(
@@ -170,13 +171,18 @@ def test_released_parent_of_a_count_outcome_reports_released_steps() -> None:
     )
     _pin_posterior(model, sigma_x=1e-8)
 
-    result = model.do(
-        set={"x": HOLD}, kind="predictive", simulate_over="time", random_seed=3
-    )
+    result = model.do(set={"x": HOLD}, kind=kind, simulate_over="time", random_seed=3)
 
-    x = _recurrence(np.array([2.0, 6.0]), lambda prev: 0.5 * prev).mean(axis=1)
+    x_path = _recurrence(np.array([2.0, 6.0]), lambda prev: 0.5 * prev)
+    x = x_path.mean(axis=1)
     np.testing.assert_allclose(_by_time(result, "x")[:, 0, 0], x, atol=1e-5)
-    assert np.isfinite(_by_time(result, "y")).all()
+    y = _by_time(result, "y")[:, 0, 0]
+    if kind == "mean":
+        # Log link, then the same unit average the result reports.
+        # exp of the averaged state would hide a per-unit rate bug.
+        np.testing.assert_allclose(y, np.exp(x_path).mean(axis=1), atol=1e-5)
+    else:
+        assert np.isfinite(y).all()
 
 
 def test_latent_predictive_with_fully_observed_outcome() -> None:
@@ -200,3 +206,103 @@ def test_latent_predictive_with_fully_observed_outcome() -> None:
     np.testing.assert_allclose(
         _by_time(result, "x")[:, 0, 0], x.mean(axis=1), atol=1e-5
     )
+    np.testing.assert_allclose(
+        _by_time(result, "y")[:, 0, 0], 2 * x.mean(axis=1), atol=1e-5
+    )
+
+
+@pytest.mark.parametrize("kind", ["mean", "predictive"])
+def test_latent_normal_reports_released_steps(kind: str) -> None:
+    # Stochastic latent recovery reads ``var``, not ``mu_var``.
+    model = pathmc.model(
+        "x ~ 0 + 0.5*lag(x)\ny ~ 0 + 2*x",
+        data=_frame({"y": 2.0}),
+        panel=PANEL,
+        latent=["x"],
+        families={"x": "latent_normal"},
+    )
+    _pin_posterior(model, init_x=[2.0, 6.0], sigma_x=1e-8, sigma_y=1e-8)
+
+    result = model.do(set={"x": HOLD}, kind=kind, simulate_over="time", random_seed=3)
+
+    # Unit mean of the 0.5*lag recurrence from init [2, 6], held at 4 on steps 1-2.
+    x = np.array([2.0, 4.0, 4.0, 2.0, 1.0])
+    np.testing.assert_allclose(_by_time(result, "x")[:, 0, 0], x, atol=1e-5)
+    np.testing.assert_allclose(_by_time(result, "y")[:, 0, 0], 2 * x, atol=1e-5)
+
+
+def test_scaled_predictive_overlays_held_values_in_business_units() -> None:
+    # A Poisson child keeps predictive off the coherent executor, so the held
+    # business-unit value is laid over the PPC path rather than the seam output.
+    factor = np.array([2.0, 10.0])
+    model = pathmc.model(
+        "x ~ 0 + 1*z + 0.5*lag(x)\nc ~ 0 + 0.1*x",
+        data=_frame({"z": 1.0, "x": 1.0, "c": 1}),
+        panel=PANEL,
+        families={"c": "poisson"},
+        scaling=pathmc.Scaling(
+            target={
+                "method": "fixed",
+                "value": dict(zip(UNITS, factor, strict=True)),
+                "dims": ("unit",),
+            }
+        ),
+        initial={"x": {"A": 4.0, "B": 30.0}},
+    )
+    _pin_posterior(model, sigma_x=1e-8)
+    hold = np.array([np.nan, 6.0, np.nan, np.nan, np.nan])
+
+    result = model.do(
+        set={"x": hold}, kind="predictive", simulate_over="time", random_seed=3
+    )
+
+    x = _recurrence(np.array([4.0, 30.0]), lambda prev: factor + 0.5 * prev, hold)
+    np.testing.assert_allclose(
+        _by_time(result, "x")[:, 0, 0], x.mean(axis=1), atol=1e-5
+    )
+    np.testing.assert_allclose(
+        _by_time(result, "x")[:, 0, 0],
+        [14.5, 6.0, 9.0, 10.5, 11.25],
+        atol=1e-5,
+    )
+
+
+def test_released_poisson_outcome_follows_the_rate_and_full_release() -> None:
+    model = pathmc.model(
+        "y ~ 0 + 0.1*lag(y)",
+        data=_frame({"y": 1}),
+        panel=PANEL,
+        families={"y": "poisson"},
+        initial={"y": 1.0},
+    )
+    _pin_posterior(model)
+    # Stay far below the scan's mu clip so the oracle is the rate, not the clip.
+    hold = np.array([np.nan, 2.0, np.nan, np.nan, np.nan])
+
+    mean = model.do(set={"y": hold}, kind="mean", simulate_over="time")
+    expected = _recurrence(np.ones(2), lambda prev: np.exp(0.1 * prev), hold)
+    np.testing.assert_allclose(
+        _by_time(mean, "y")[:, 0, 0], expected.mean(axis=1), atol=1e-5
+    )
+
+    seed = 11
+    for kind in ("mean", "predictive"):
+        baseline = model.do(kind=kind, simulate_over="time", random_seed=seed)
+        scalar = model.do(
+            set={"y": np.nan}, kind=kind, simulate_over="time", random_seed=seed
+        )
+        all_nan = model.do(
+            set={"y": np.full(N_TIMES, np.nan)},
+            kind=kind,
+            simulate_over="time",
+            random_seed=seed,
+        )
+        xr.testing.assert_allclose(scalar.dataset, baseline.dataset)
+        xr.testing.assert_allclose(all_nan.dataset, baseline.dataset)
+
+    predictive = model.do(
+        set={"y": hold}, kind="predictive", simulate_over="time", random_seed=seed
+    )
+    got = _by_time(predictive, "y")[:, 0, 0]
+    assert got[1] == 2.0
+    assert np.isfinite(got).all()

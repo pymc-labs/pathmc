@@ -2159,11 +2159,12 @@ def _execute_gaussian_panel(
     """Execute coherent Gaussian states before aggregation, in model units.
 
     Initial states cover all structural lag bases with ``(unit,)`` arrays.
-    Interventions use ``(unit, time)`` arrays. An endogenous intervention may
-    hold NaN on steps it releases: the scan runs that state's own equation
-    there, so the returned state is the realized path. Supplied innovations cover all
-    endogenous variables with standard-Normal epsilon arrays of dimensions
-    ``(chain, draw, unit, time)``. When every innovation also carries a
+    Interventions use ``(unit, time)`` arrays. An endogenous intervention
+    may hold NaN on steps it releases: the scan runs that state's own
+    equation there, and the returned state is the realized path. Supplied
+    innovations cover all endogenous variables with standard-Normal epsilon
+    arrays of dimensions ``(chain, draw, unit, time)``. When every innovation
+    also carries a
     ``simulation`` dimension, posterior draws are repeated along ``draw`` by
     that count and the noise is stacked into the same axis. The returned
     states then include ``simulation`` and, when the scan recorded one, the
@@ -2198,8 +2199,8 @@ def _execute_gaussian_panel(
                 "align it to the fitted unit/time and posterior chain/draw labels."
             )
         array = np.asarray(value, dtype=float)
-        finite = np.isfinite(array) | (np.isnan(array) if allow_nan else False)
-        if not finite.all():
+        bad = np.isinf(array) if allow_nan else ~np.isfinite(array)
+        if bad.any():
             raise ValueError(f"{name} contains nonfinite values; supply finite values.")
         return array
 
@@ -2620,6 +2621,7 @@ def run_do_panel_unified(
     predictive_vars: dict[str, xr.DataArray] = {}
 
     for var in graph_info.topological_order:
+        recovered = None
         if var in set and var not in released:
             predictive_vars[var] = _spread_over_time(ones, set[var], time_idx)
         elif var in graph_info.exogenous:
@@ -2627,29 +2629,28 @@ def run_do_panel_unified(
             if filled is not None:
                 predictive_vars[var] = filled
         elif var in ppc.posterior_predictive:
-            raw = _to_business_units(
-                var,
-                ppc.posterior_predictive[var],
-                data,
-                scaling_factors,
-                scan_info,
-            )
-            predictive_vars[var] = _panel_unit_mean(raw, time_idx)
-        elif latent_det is not None:
+            recovered = ppc.posterior_predictive[var]
+        elif latent_det is not None and (
+            (var if var in stochastic_latent else f"mu_{var}") in latent_det
+        ):
             det_key = var if var in stochastic_latent else f"mu_{var}"
-            if det_key in latent_det:
-                raw = _to_business_units(
-                    var,
-                    latent_det[det_key],
-                    data,
-                    scaling_factors,
-                    scan_info,
-                )
-                predictive_vars[var] = _panel_unit_mean(raw, time_idx)
-        if var in released:
-            predictive_vars[var] = _overlay_held(
-                predictive_vars[var], ones, set[var], time_idx
+            recovered = latent_det[det_key]
+        elif var in released:
+            raise ValueError(
+                f"Released intervention {var!r} has no recovered trajectory "
+                "to overlay held values on. NaN releases an endogenous "
+                "variable the scan computes; supply finite values for an "
+                "input with no equation."
             )
+        if recovered is None:
+            continue
+        path = _panel_unit_mean(
+            _to_business_units(var, recovered, data, scaling_factors, scan_info),
+            time_idx,
+        )
+        if var in released:
+            path = _overlay_held(path, ones, set[var], time_idx)
+        predictive_vars[var] = path
 
     return DoResult(
         ds=xr.Dataset(predictive_vars),

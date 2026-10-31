@@ -190,6 +190,8 @@ result = model.do(
 )
 ```
 
+A `NaN` in an endogenous array releases that step. The scan runs the variable's own equation there, and the reported trajectory keeps the finite held values on the other steps, so a temporary hold is "set it, then let it go". `NaN` does not release an exogenous input: an input has no equation to fall back on, and those values must be finite.
+
 ### Per-time-step results
 
 Panel `do()` results include per-time-step data accessible via `.by_time()`:
