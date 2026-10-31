@@ -53,6 +53,7 @@ import pandas as pd
 import patsy
 import pymc as pm
 
+from pathmc._warnings import _user_stacklevel
 from pathmc.graph import GraphInfo
 from pathmc.panel import PanelInfo
 from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
@@ -67,27 +68,6 @@ _SCAN_PANEL_RESIDUAL_COV_MSG = (
     "so the model is not scan-compiled. "
     "Future support is tracked in https://github.com/pymc-labs/pathmc/issues/520."
 )
-
-
-def _user_stacklevel() -> int:
-    """Stacklevel to attribute a ``warnings.warn`` to the first non-pathmc frame.
-
-    A fixed ``stacklevel`` constant cannot be correct for every call site
-    because internal call-chain depth varies (e.g. warnings from
-    ``_compile_scan_panel`` vs ``compile_to_pymc``). Walking frames is
-    robust to refactors.
-    """
-    import sys
-
-    frame = sys._getframe(1)
-    level = 1
-    while frame.f_back is not None:
-        frame = frame.f_back
-        level += 1
-        module = frame.f_globals.get("__name__", "")
-        if module != "pathmc" and not module.startswith("pathmc."):
-            return level
-    return level
 
 
 @dataclass

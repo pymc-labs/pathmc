@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -68,8 +69,23 @@ def _stacked_units() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _series_warnings(
+    caught: list[warnings.WarningMessage],
+) -> list[warnings.WarningMessage]:
+    return [item for item in caught if "one series" in str(item.message)]
+
+
 def _series_messages(caught: list[warnings.WarningMessage]) -> list[str]:
-    return [str(item.message) for item in caught if "one series" in str(item.message)]
+    return [str(item.message) for item in _series_warnings(caught)]
+
+
+def _attributed_to_this_file(caught: list[warnings.WarningMessage]) -> bool:
+    """The shared walker must still name this file, not a pathmc frame."""
+    caller = Path(__file__).resolve()
+    series = _series_warnings(caught)
+    return bool(series) and all(
+        Path(item.filename).resolve() == caller for item in series
+    )
 
 
 def test_kernel_helper_does_not_warn() -> None:
@@ -100,6 +116,7 @@ def test_nonpanel_probe_warns_and_keeps_the_kernel(name: str) -> None:
         flat = pathmc.simulate(spec, data=frame[["X"]], params=params, random_seed=0)
     messages = _series_messages(list(caught))
     assert messages
+    assert _attributed_to_this_file(list(caught))
     assert all("row order" in message for message in messages)
     assert all("panel=" in message for message in messages)
     if name == "adstock":
@@ -144,6 +161,7 @@ def test_model_without_panel_warns(name: str) -> None:
     messages = _series_messages(list(caught))
     assert messages
     assert all("row order" in message for message in messages)
+    assert _attributed_to_this_file(list(caught))
 
 
 @pytest.mark.parametrize("name", ["adstock", "delayed_adstock", "weibull_adstock"])
@@ -208,5 +226,6 @@ def test_custom_l_max_names_its_own_window() -> None:
         )
     messages = _series_messages(list(caught))
     assert messages
+    assert _attributed_to_this_file(list(caught))
     assert all("12-lag" not in message for message in messages)
     assert any("recursive stock" in message for message in messages)

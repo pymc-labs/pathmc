@@ -26,6 +26,8 @@ from collections.abc import Iterable
 
 import pandas as pd
 
+from pathmc._warnings import _user_stacklevel
+
 
 def rank_collapsed_mask(frame: pd.DataFrame) -> pd.Series:
     """Boolean mask of rows that did not test the written conditioning set.
@@ -115,8 +117,6 @@ def warn_conditioning_rank_collapse(statements: list[str]) -> None:
     """
     if not statements:
         return
-    from pathmc.compile import _user_stacklevel
-
     n_collapsed = len(statements)
     noun = "test" if n_collapsed == 1 else "tests"
     subject = "This test" if n_collapsed == 1 else "These tests"

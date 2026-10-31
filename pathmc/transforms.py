@@ -35,6 +35,7 @@ import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
 
+from pathmc._warnings import _user_stacklevel
 from pathmc._pmm_backend import (
     _batched_convolution,
     adstock_pmm,
@@ -243,21 +244,6 @@ class Transform:
     def step(self, x_t: Any, state: Any, params: dict[str, Any]) -> tuple[Any, Any]:
         """Apply one time step inside a ``pytensor.scan`` body."""
         return self.apply_pymc(x_t, params), state
-
-
-def _user_stacklevel() -> int:
-    """Stacklevel so a warning points at the first non-pathmc caller."""
-    import sys
-
-    frame = sys._getframe(1)
-    level = 1
-    while frame.f_back is not None:
-        frame = frame.f_back
-        level += 1
-        module = frame.f_globals.get("__name__", "")
-        if module != "pathmc" and not module.startswith("pathmc."):
-            return level
-    return level
 
 
 def _row_order_series_message(name: str, l_max: int | None) -> str:
