@@ -2,21 +2,21 @@
 title: "Spline Smooths"
 author:
   - name: "Benjamin Vincent"
-description: "Fit a 1-D smooth with ps() on a non-unit dose scale, then extrapolate with frozen knots."
+description: "Choose among bs(), ns(), and ps() for one curved predictor, and see frozen-knot extrapolation."
 tags: [Basis Functions, Splines, Nonparametric]
 image: thumbnails/splines.png
 jupyter: pathmc
 ---
 
-A dose–response curve can bend without repeating and without needing a Gaussian-process lengthscale. `ps(dose, df=6)` is a cubic B-spline with a random-walk penalty on adjacent coefficients. The knots are frozen from the training doses, so `predict()` and `do()` replay that basis instead of refitting it. For the kernel alternative, see the [HSGP example](hsgp_1d.qmd). The [basis-terms guide](/user-guide/basis-terms.html) states when `bs()`, `ns()`, and `ps()` differ.
+Three calls describe one curved dose, and they are not three names for one smooth. `bs()` leaves the basis unpenalized. `ps()` spends extra flexibility through a penalty. `ns()` keeps a dose past the data on a line. The [basis-terms guide](/user-guide/basis-terms.html) is the contract for the syntax, the owned coefficients, and the limits. For a kernel lengthscale and a hard support boundary, see the [HSGP example](hsgp_1d.qmd). For a pattern that repeats, see [Fourier seasonality](fourier_seasonality.qmd).
 
-## Simulated dose–response
+## One curve
 
-The planted mean is a sine wave on doses 10 to 40. That range is deliberately not a unit interval: the default penalty is calibrated so its median effective degrees of freedom stay between a line and the full basis on a scale like this one. Observation noise has standard deviation 0.08.
+The planted mean is a sine on doses 10 to 40. Knots are placed on those declared units, and the sine is defined there, so the grid stays on that range rather than being rescaled to the unit interval. That is not because the penalty is calibrated to a non-unit scale. Observation noise has standard deviation 0.35, large enough that an unpenalized basis with more coefficients than the curve needs will follow the noise.
 
 ```{python}
 # | label: fig-spline-simulated
-# | fig-cap: "Simulated dose–response. Points include Gaussian observation noise; the dashed curve is the planted mean."
+# | fig-cap: "Simulated dose–response on doses 10 to 40. Points include observation noise; the dashed curve is the planted mean."
 # | code-fold: true
 import warnings
 
@@ -26,21 +26,21 @@ import numpy as np
 import pandas as pd
 
 import pathmc
-from pathmc.basis import get_basis
-from pathmc.parse import BasisCall
 
 FIG_WIDTH = 8
 FIG_HEIGHT = 3.6
 COLOR_OBSERVED = "#4c78a8"
-COLOR_POSTERIOR = "#f58518"
+COLOR_BS = "#e45756"
+COLOR_PS = "#f58518"
+COLOR_NS = "#b279a2"
 COLOR_FUTURE = "#54a24b"
 COLOR_TRUE = "black"
-COLOR_NS = "#4c78a8"
-COLOR_BS = "#e45756"
+COLOR_MARK = "0.45"
+DF = 20
 
 
 def response_mean(x):
-    """One bend on a non-unit dose scale, in response units."""
+    """One bend that continues past the last training dose."""
     return 1.5 + 0.8 * np.sin((x - 10.0) / 4.0)
 
 
@@ -48,7 +48,7 @@ rng = np.random.default_rng(1)
 dose = np.linspace(10.0, 40.0, 60)
 df = pd.DataFrame({
     "dose": dose,
-    "response": response_mean(dose) + rng.normal(0.0, 0.08, size=dose.size),
+    "response": response_mean(dose) + rng.normal(0.0, 0.35, size=dose.size),
 })
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -61,67 +61,93 @@ ax.scatter(
     label="Observed",
 )
 ax.plot(
-    dose, response_mean(dose), color=COLOR_TRUE, ls="--", lw=1.5, label="Planted mean"
+    dose,
+    response_mean(dose),
+    color=COLOR_TRUE,
+    ls="--",
+    lw=1.5,
+    label="Planted mean",
 )
 ax.set(xlabel="Dose (arbitrary units)", ylabel="Response (arbitrary units)")
 ax.legend()
 plt.show()
 ```
 
-## The model
+## What the three calls share
 
-`ps()` is a standalone term. `df` is the number of free coefficients, not the number of interior knots. The smooth owns `beta_ps_response_dose` and the innovation scale `tau_ps_response_dose`, so it does not take a coefficient prefix.
+`ps()` is a standalone term. The cell is the call. The output names that term; it is not the coefficient prior. The smooth owns `beta_ps_response_dose` and `tau_ps_response_dose`; the scales are in the next section.
 
 ```{python}
-model = pathmc.model("response ~ ps(dose, df=6)", data=df)
-model.equations()
+model_ps = pathmc.model(f"response ~ ps(dose, df={DF})", data=df)
+model_ps.equations(show="structural")
 ```
 
-The coefficient prior is not one shared standard deviation. The first two coefficients, the unpenalized level and slope, keep `sigma=10`. The remaining coefficients are scaled by `tau`, whose default prior is `HalfNormal(sigma=2)`.
+The rendered equation has no coefficient prefix, and it does not display `df`. `df` counts free coefficients, not interior knots. Pass `df` or `knots`, not both. The columns are centered, so the intercept remains the mean response.
+
+A cubic `bs` or `ps` with `df=k` has `k - 3` interior knots. `ns` with `df=k` has `k - 1`. That count is a property of the call, not something this equation displays.
+
+The errors a reader will actually type already name the fix. Remove a prefix such as `b*bs(dose, df=5)`: the spline carries its own weights. Drop a plain `dose` beside `bs(dose)`: the basis already spans that column, including a line. Pass `df` or `knots`, not both. The guide covers `0 +`, panel and endogenous inputs, scaling units, and self-products. This equation does not show that knots are frozen.
+
+## Same columns, different prior
+
+`bs` and `ps` are the same cubic B-spline. `bs` gives each coefficient an independent `Normal(0, 10)`. `ps` maps a random walk onto those coefficients. Default `order=2` leaves the level and the slope unpenalized; `order=1` penalizes the slope as well. `tau` multiplies only the remaining innovations, in the contribution, after the innovation prior. `tau` can be overridden.
+
+`priors()` prints that split. For this `df` the innovation scale has two leading `10`s, the unpenalized null space, and then `1`s. Those `1`s are the innovation prior before `tau` multiplies. `tau_ps_response_dose` is a separate `HalfNormal(sigma=2.0)`. The table is not a picture of the penalty, and it is not a `Normal(0, 1)` line.
 
 ```{python}
-model.priors()
+model_ps.priors()
 ```
 
-## Fit and recover the smooth
-
-`tau` and the penalized weights trade off, so the default target acceptance diverges. `target_accept=0.99` is the setting that samples this curve cleanly.
+The penalty changes the fit only if the posterior means differ. Both fits use the same `df` on this frame, so they place the same quantile knots. The `ps` fit diverges at the default target acceptance, so that call raises it. The `bs` fit does not.
 
 ```{python}
-idata = model.fit(draws=800, tune=800, chains=4, random_seed=1, target_accept=0.99)
+model_bs = pathmc.model(f"response ~ bs(dose, df={DF})", data=df)
+idata_bs = model_bs.fit(draws=800, tune=800, chains=4, random_seed=1)
+idata_ps = model_ps.fit(
+    draws=800,
+    tune=800,
+    chains=4,
+    random_seed=1,
+    target_accept=0.99,
+)
 ```
 
-`mu_response` is the full linear predictor, intercept included.
-
 ```{python}
-# | label: fig-spline-recovery
-# | fig-cap: "In-sample posterior mean of the response with a 94% HDI. The dashed curve is the planted dose–response."
+# | label: fig-spline-penalty
+# | fig-cap: "Posterior means of the response for bs() and ps() at the same df, each with a 94% HDI. The dashed curve is the planted mean."
 # | code-fold: true
-mu = idata.posterior["mu_response"]
-mu_draws = mu.stack(sample=("chain", "draw")).transpose("sample", ...).values
-mu_mean = mu_draws.mean(axis=0)
-mu_hdi = az.hdi(mu_draws, prob=0.94, axis=0)
+bs_state = model_bs._pymc_model._pathmc_basis_states[("response", "bs", "dose", None)]
+ps_state = model_ps._pymc_model._pathmc_basis_states[("response", "ps", "dose", None)]
+# Same data and the same df place the same quantile knots.
+assert bs_state.interior == ps_state.interior
+
+
+def _mean_hdi(posterior):
+    draws = posterior.stack(sample=("chain", "draw")).transpose("sample", ...).values
+    return draws.mean(axis=0), az.hdi(draws, prob=0.94, axis=0)
+
+
+bs_mean, bs_hdi = _mean_hdi(idata_bs.posterior["mu_response"])
+ps_mean, ps_hdi = _mean_hdi(idata_ps.posterior["mu_response"])
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 ax.scatter(
     df["dose"],
     df["response"],
     s=16,
-    alpha=0.45,
+    alpha=0.35,
     color=COLOR_OBSERVED,
     label="Observed",
     zorder=1,
 )
 ax.fill_between(
-    dose,
-    mu_hdi[:, 0],
-    mu_hdi[:, 1],
-    color=COLOR_POSTERIOR,
-    alpha=0.3,
-    label="94% HDI",
-    zorder=2,
+    dose, bs_hdi[:, 0], bs_hdi[:, 1], color=COLOR_BS, alpha=0.2, label="bs 94% HDI"
 )
-ax.plot(dose, mu_mean, color=COLOR_POSTERIOR, lw=2.5, label="Posterior mean", zorder=3)
+ax.fill_between(
+    dose, ps_hdi[:, 0], ps_hdi[:, 1], color=COLOR_PS, alpha=0.2, label="ps 94% HDI"
+)
+ax.plot(dose, bs_mean, color=COLOR_BS, lw=2.2, label="bs posterior mean", zorder=3)
+ax.plot(dose, ps_mean, color=COLOR_PS, lw=2.2, label="ps posterior mean", zorder=4)
 ax.plot(
     dose,
     response_mean(dose),
@@ -129,71 +155,185 @@ ax.plot(
     ls="--",
     lw=1.5,
     label="Planted mean",
-    zorder=4,
+    zorder=2,
 )
+ax.set(xlabel="Dose (arbitrary units)", ylabel="Response (arbitrary units)")
+ax.legend(fontsize=8, ncol=2)
+plt.show()
+```
+
+The red mean keeps extra wiggle. The orange mean stays nearer the planted curve. That comparison is the penalty spending extra `df`. The prior table does not show it.
+
+`ps` spends complexity through `tau` instead of treating `df` as a hard wiggliness, at the cost of a harder sample and the same cubic tails as `bs`. `bs` is the transparent prior: `df` is the complexity you chose, and a `df` larger than the curve keeps wiggle the penalty shrinks.
+
+## When the tail must be a line
+
+`ns` is a natural cubic spline. Outside the boundary knots the columns continue as a line. The interior is still unpenalized, and `degree` cannot change.
+
+`knots=` are interiors only. The boundary is the range of the doses the basis is built on, not the range of a later grid. Building that call on a grid past the last dose would move the boundary to the new end, and inside that boundary both bases are ordinary columns. The linear-versus-cubic contrast would not be there.
+
+```{python}
+# | code-fold: true
+from pathmc.basis import get_basis
+from pathmc.parse import BasisCall
+
+# No public accessor returns the interiors frozen at fit.
+stored_knots = ps_state.interior
+assert stored_knots == bs_state.interior
+assert ps_state.boundary == (float(dose.min()), float(dose.max()))
+
+future_dose = np.linspace(40.0, 41.2, len(df))
+
+
+def _extended(name, knots):
+    """Least squares on the training doses, replayed past the last dose."""
+    basis = get_basis(name)
+    call = BasisCall(name, "dose", {"knots": knots})
+    columns, state = basis.build_data(dose, call)
+    assert state.boundary == (float(dose.min()), float(dose.max()))
+    truth = response_mean(dose)
+    beta, *_ = np.linalg.lstsq(columns, truth - truth.mean(), rcond=None)
+    grid = np.linspace(10.0, 50.0, 200)
+    extended, replayed = basis.build_data(grid, call, state=state)
+    assert replayed.boundary == state.boundary
+    return grid, truth.mean() + extended @ beta
+```
+
+The next call is not another sample. It uses the interior knots stored by the fits, so it is the basis in the figure. `ns` with those knots has one more coefficient than the knot count, not the knot count plus `degree`, and it has no `tau`.
+
+```{python}
+ns_model = pathmc.model(
+    f"response ~ ns(dose, knots={stored_knots})",
+    data=df,
+)
+print(len(stored_knots) + 1)
+ns_model.equations()
+```
+
+```{python}
+# | label: fig-spline-tails
+# | fig-cap: "Least-squares fit of the planted mean, built on the training doses and replayed past the last dose. ns() is linear past the training boundary; bs() keeps a cubic bend. ps() uses the bs() columns and is not drawn."
+# | code-fold: true
+grid, ns_curve = _extended("ns", stored_knots)
+_, bs_curve = _extended("bs", stored_knots)
+
+fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
+ax.plot(
+    grid,
+    response_mean(grid),
+    color=COLOR_TRUE,
+    ls="--",
+    lw=1.5,
+    label="Planted mean",
+)
+ax.plot(grid, ns_curve, color=COLOR_NS, lw=2.2, label="ns() least squares")
+ax.plot(grid, bs_curve, color=COLOR_BS, lw=2.2, label="bs() least squares")
+ax.axvline(40.0, color=COLOR_MARK, ls="-", lw=1.0, label="Last observed dose")
 ax.set(xlabel="Dose (arbitrary units)", ylabel="Response (arbitrary units)")
 ax.legend()
 plt.show()
 ```
 
-The posterior mean follows the planted bend. That is the check that six penalized B-spline coefficients are enough for this curve.
+Past the training boundary the purple curve is a line and the red curve still bends. The planted curve bends too, so `ns` missing it is the choice, not a failed fit. `ps` is not drawn: it uses the `bs` columns.
 
-## Extrapolate with the frozen knots
+A cubic `bs` rejects `dose:dose` beside it, because that power is already in the span. `ns` spans only the line, so the same product is allowed. The guide has the rule.
 
-`do()` replaces the dose column and rebuilds the spline from the knots stored at fit time. The new grid has one value per observed row and sits past the last dose, so the call warns. The basis is still defined: `bs` and `ps` continue as a cubic polynomial, and `ns` would continue as a line.
+Use `ns` when a dose past the data should stay linear. It cannot follow a bend outside the range, and it has no penalty inside.
+
+## What `do()` replays
+
+A warning, and a curve that continues, do not show that the knots were kept. A basis recomputed on the new grid would warn too, and it would also produce a curve. `equations()` cannot show the stored knots. Band width cannot either.
 
 ```{python}
-future_dose = np.linspace(40.0, 48.0, len(df))
 with warnings.catch_warnings(record=True) as caught:
     warnings.simplefilter("always")
-    future = model.do(set={"dose": future_dose}, kind="predictive", random_seed=1)
+    future = model_ps.do(
+        set={"dose": future_dose},
+        kind="mean",
+        average_units=False,
+        random_seed=1,
+    )
 print(next(item.message for item in caught if issubclass(item.category, UserWarning)))
 ```
 
 ```{python}
-# | label: fig-spline-extrapolation
-# | fig-cap: "In-sample posterior mean (orange) and extrapolated posterior predictive mean (green). The vertical line is the last observed dose. The dashed curve is the planted mean."
 # | code-fold: true
-future_draws = future.dataset["response"].values.reshape(-1, future_dose.size)
-future_mean = future_draws.mean(axis=0)
-future_hdi = az.hdi(future_draws, prob=0.94, axis=0)
+# do() replays the generative model's data-basis binding. No public
+# accessor returns the interiors that binding used for the new doses.
+_used = [
+    binding.state
+    for binding in model_ps._gen_model._pathmc_data_bases.values()
+    if binding.call.name == "ps" and binding.call.variable == "dose"
+]
+assert len(_used) == 1
+used_knots = _used[0].interior
+assert used_knots == stored_knots
+_, _refit_state = get_basis("ps").build_data(
+    future_dose, BasisCall("ps", "dose", {"df": DF})
+)
+refit_knots = _refit_state.interior
+assert used_knots != refit_knots
+```
+
+```{python}
+print("used", used_knots)
+print("training", stored_knots)
+print("refit", refit_knots)
+```
+
+The first tuple is the interiors the intervention used for the doses past the last dose. The second is the training interiors; they match. The third is what a fresh `df` call would place on that future grid. `do()` used the first, not the third.
+
+`kind="mean"` is the posterior of the mean, the same functional as in-sample `mu_response`. The default `average_units=True` would collapse the future grid to one row-average, so the call passes `False` and keeps one mean at each future dose. Width is not the claim. The plotted window stops a little past the last dose: farther out the cubic tail leaves the data scale, and the interval would hide the join.
+
+```{python}
+# | label: fig-spline-extrapolation
+# | fig-cap: "In-sample posterior mean and the posterior mean from do(kind='mean') past the last dose, each with a 94% HDI. Both intervals are the mean. The horizontal window is around the last dose, not the full dose range. The vertical line is the last observed dose. The dashed curve is the planted mean."
+# | code-fold: true
+future_values = (
+    future
+    .dataset["response"]
+    .stack(sample=("chain", "draw"))
+    .transpose("sample", "unit")
+    .values
+)
+future_mean = future_values.mean(axis=0)
+future_hdi = az.hdi(future_values, prob=0.94, axis=0)
+extended = np.concatenate([dose, future_dose])
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
 ax.scatter(
     df["dose"],
     df["response"],
     s=14,
-    alpha=0.4,
+    alpha=0.35,
     color=COLOR_OBSERVED,
     label="Observed",
     zorder=1,
 )
 ax.fill_between(
     dose,
-    mu_hdi[:, 0],
-    mu_hdi[:, 1],
-    color=COLOR_POSTERIOR,
+    ps_hdi[:, 0],
+    ps_hdi[:, 1],
+    color=COLOR_PS,
     alpha=0.25,
     label="94% in-sample HDI",
 )
-ax.plot(dose, mu_mean, color=COLOR_POSTERIOR, lw=2.5, label="In-sample mean")
+ax.plot(dose, ps_mean, color=COLOR_PS, lw=2.2, label="In-sample mean")
 ax.fill_between(
     future_dose,
     future_hdi[:, 0],
     future_hdi[:, 1],
     color=COLOR_FUTURE,
     alpha=0.25,
-    label="94% extrapolated predictive HDI",
+    label="94% extrapolated HDI",
 )
 ax.plot(
     future_dose,
     future_mean,
     color=COLOR_FUTURE,
-    lw=2.5,
-    ls="--",
-    label="Extrapolated predictive mean",
+    lw=2.2,
+    label="Extrapolated mean",
 )
-extended = np.concatenate([dose, future_dose])
 ax.plot(
     extended,
     response_mean(extended),
@@ -202,45 +342,24 @@ ax.plot(
     lw=1.5,
     label="Planted mean",
 )
-ax.axvline(40.0, color=COLOR_TRUE, ls="--", lw=1.2, label="Last observed dose")
+ax.axvline(40.0, color=COLOR_MARK, ls="-", lw=1.0, label="Last observed dose")
+# Farther out the cubic tail leaves the data scale and hides the join.
+ax.set_xlim(32.0, future_dose[-1])
 ax.set(xlabel="Dose (arbitrary units)", ylabel="Response (arbitrary units)")
 ax.legend(fontsize=8, ncol=2)
 plt.show()
 ```
 
-The green band is an extrapolation, not a refit. Quantile knots from doses 40 to 48 would sit in a different place; `do()` does not recompute them.
+`predict()` replays that same stored state. It does not emit the extrapolation warning, and it is not plotted. An `ns` sample would be the linear continuation already shown.
 
-Natural and B-spline tails are a property of the basis, visible without another sample. The curves below are least-squares fits of the planted mean, replayed on a grid that runs past the last dose.
+## Choosing
 
-```{python}
-# | label: fig-spline-tails
-# | fig-cap: "Least-squares spline fit of the planted mean, extended past the last dose. Natural-spline tails are linear; B-spline tails keep a cubic bend."
-# | code-fold: true
-grid = np.linspace(10.0, 50.0, 200)
-truth = response_mean(dose)
+| Situation | Call |
+| --- | --- |
+| The penalty should spend complexity, and cubic tails are acceptable | `ps()` |
+| Extrapolation should stay linear | `ns()` |
+| Unpenalized basis, and you will set `df` or the coefficient prior yourself | `bs()` |
+| Kernel lengthscale and a hard boundary | [`hsgp()`](hsgp_1d.qmd) |
+| Repeating cycle | [`fourier()`](fourier_seasonality.qmd) |
 
-
-def _extended(name):
-    basis = get_basis(name)
-    call = BasisCall(name, "dose", {"df": 6})
-    columns, state = basis.build_data(dose, call)
-    beta, *_ = np.linalg.lstsq(columns, truth - truth.mean(), rcond=None)
-    extended_columns, _ = basis.build_data(grid, call, state=state)
-    return truth.mean() + extended_columns @ beta
-
-
-fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
-ax.plot(
-    grid, response_mean(grid), color=COLOR_TRUE, ls="--", lw=1.5, label="Planted mean"
-)
-ax.plot(grid, _extended("ns"), color=COLOR_NS, lw=2.2, label="ns() least squares")
-ax.plot(grid, _extended("bs"), color=COLOR_BS, lw=2.2, label="bs() least squares")
-ax.axvline(40.0, color=COLOR_TRUE, ls="--", lw=1.2, label="Last observed dose")
-ax.set(xlabel="Dose (arbitrary units)", ylabel="Response (arbitrary units)")
-ax.legend()
-plt.show()
-```
-
-Past the last dose the blue curve is a straight line and the red curve is not. Use `ns()` when an intervention beyond the observed range should not keep bending. Use `hsgp()` when the smooth should stop at a kernel boundary instead of extrapolating at all.
-
-**Takeaway:** use `ps()` for a smooth penalty on a fixed B-spline, `bs()` for that basis without a penalty, and `ns()` when tails must be linear. Knots stay at the training quantiles under `predict()` and `do()`.
+**Takeaway:** use `ps()` when the penalty should spend complexity and cubic tails are acceptable, `ns()` when extrapolation should stay linear, and `bs()` when you will set `df` or the coefficient prior yourself. Knots stored at fit are what `do()` and `predict()` replay.
