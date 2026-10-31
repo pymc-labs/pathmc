@@ -44,7 +44,9 @@ The dense grid is required for carry-over, not only for `lag()`:
 
 A panel with no `lag()` and no convolution adstock (`adstock()`, `delayed_adstock()`, or `weibull_adstock()`) does not take this reshape. Random intercepts, random slopes, and a trend stay row-wise. `model()` accepts that frame without a dense rectangle. `simulate()` still requires every unit to share the same times.
 
-On a scan model, the dense grid is a compile-time shape. `n_units` and `n_times` are baked in. `pm.set_data()` itself does not reject a different shape. `predict()` rejects a scan model whose 2-D data no longer has that `(n_times, n_units)` shape, rather than silently mis-reshaping. Build a new model on the new frame instead. `do()` keeps the compiled horizon and does not read the resized array.
+On a scan model, the dense grid is a compile-time shape. `n_units` and `n_times` are baked in. `pm.set_data()` itself does not reject a different shape. `predict()` rejects a scan model whose 2-D data no longer has that `(n_times, n_units)` shape, rather than silently mis-reshaping. Build a new model on the new frame instead.
+
+`do()` keeps the compiled horizon. It is not a shape check. On a latent model it reads the array `pm.set_data()` changed, and a longer grid is truncated. On an observed model, `pm.set_data()` does not reach the model that `do()` runs.
 
 Without `panel=`, convolution adstock treats row order as one series (the [non-panel warning in #655](https://github.com/pymc-labs/pathmc/issues/655)).
 
