@@ -1715,7 +1715,10 @@ class PathModel:
         ``results["significant"].sum()``. The display does not mark that
         row pass or fail. Drop the redundant variable and re-test.
 
-        Uses the observed data, not the posterior.
+        Uses the observed data, not the posterior. Statements that name
+        a latent or any other column absent from the data are skipped;
+        ``implied_independences()`` may still list them. Only observable
+        implications are returned.
 
         Parameters
         ----------

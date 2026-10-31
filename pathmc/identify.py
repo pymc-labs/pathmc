@@ -798,8 +798,9 @@ def test_implications(
     independences : list[ConditionalIndependence]
         Independence statements to test (from :func:`implied_independences`).
     data : nw.DataFrame
-        Observed data. Must contain columns for all variables referenced
-        in the independence statements.
+        Observed data. A statement that names a column absent from
+        *data* is skipped. Declared latents and other unobserved
+        members do not abort the remaining observable tests.
     alpha : float
         Significance level for flagging violations (default 0.05).
     categorical_vars : Iterable[str] | None
@@ -823,10 +824,6 @@ def test_implications(
         entered; the p-value is not evidence about the full independence.
         Drop the redundant variable and re-test.
 
-    Raises
-    ------
-    ValueError
-        If required columns are missing from *data*.
     """
     rows: list[dict] = []
     collapse_labels: list[str] = []
@@ -835,11 +832,9 @@ def test_implications(
         all_vars = {ci.x, ci.y} | set(ci.conditioning_set)
         missing = all_vars - set(data.columns)
         if missing:
-            raise ValueError(
-                f"Columns {sorted(missing)} required by independence "
-                f"'{ci}' are not in the data. Available columns: "
-                f"{sorted(data.columns)}"
-            )
+            # Unobserved members have no column to test; skip so a later
+            # observable violation is still returned.
+            continue
 
         z_vars = sorted(ci.conditioning_set)
         result = named_column_ci(
