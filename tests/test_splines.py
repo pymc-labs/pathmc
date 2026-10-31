@@ -83,6 +83,9 @@ def test_spline_formulas_parse_and_render():
         ("y ~ bs(x, df=4):z", "standalone"),
         ("y ~ bs(x, df=4):bs(z, df=3)", "standalone"),
         ("y ~ z:bs(x, df=4)", "standalone"),
+        ("y ~ x + bs(x, df=4)", "not identified"),
+        ("y ~ ns(x, df=4) + x", "not identified"),
+        ("y ~ x + ps(x, df=4)", "not identified"),
     ],
 )
 def test_invalid_spline_formulas_name_a_fix(formula: str, match: str):
@@ -164,6 +167,20 @@ def test_centered_spline_rejects_a_formula_without_an_intercept():
         pathmc.model("y ~ 0 + bs(x, df=4)", data=_frame())
 
 
+def test_categorical_baseline_carries_a_centered_spline():
+    """0 + C(g) already spans the mean, so a centered spline does not need an intercept."""
+    data = pd.DataFrame({
+        "g": ["a", "b", "c"] * 8,
+        "x": np.linspace(0.0, 1.0, 24),
+        "y": np.zeros(24),
+    })
+    model = pathmc.model("y ~ 0 + C(g) + bs(x, df=4)", data=data)
+    text = str(model.equations())
+    assert "Intercept" not in text
+    assert "C(g" in text
+    assert "bs(x, df=4)" in text
+
+
 def test_spline_rejects_panel_and_endogenous_inputs():
     """Splines are cross-sectional data bases, not graph or panel terms."""
     panel = pd.DataFrame({
@@ -222,7 +239,7 @@ def test_scaling_keeps_spline_knots_in_declared_units():
     data = _frame(x)
     with pytest.warns(UserWarning, match="remain in their declared units"):
         model = pathmc.model(
-            "y ~ x + bs(x, df=4)",
+            "y ~ bs(x, df=4)",
             data=data,
             scaling=pathmc.Scaling(channel={"method": "max"}),
         )

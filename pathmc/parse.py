@@ -370,6 +370,23 @@ def _assign_basis_identifiers(reg: Regression) -> None:
                 "Use one spline term per input; a second spline on the same "
                 "column is not identified."
             )
+        plain_on_input = [
+            term
+            for term in reg.terms
+            if term.basis is None
+            and term.categorical is None
+            and term.transform is None
+            and term.lag_of is None
+            and term.interaction_of is None
+            and term.variable == variable
+        ]
+        if spline_terms and plain_on_input:
+            raise ParseError(
+                f"'{reg.lhs}' has a spline and a plain term on '{variable}'. "
+                "The spline already spans that column, including a straight "
+                "line, so the two coefficients are not identified. Drop the "
+                "plain term."
+            )
         if len(terms) < 2 or all(isinstance(term.basis, HSGPCall) for term in terms):
             continue
         for index, term in enumerate(terms, start=1):

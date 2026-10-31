@@ -2006,6 +2006,7 @@ def _reject_basis_in_residual_blocks(spec: Spec) -> None:
 def _validate_basis_capabilities(spec: Spec, panel_info: PanelInfo | None) -> None:
     """Reject combinations not declared by a basis's capability metadata."""
     from pathmc.basis import get_basis
+    from pathmc.categorical import baseline_variable
 
     endogenous = {reg.lhs for reg in spec.regressions}
     for reg in spec.regressions:
@@ -2018,12 +2019,14 @@ def _validate_basis_capabilities(spec: Spec, panel_info: PanelInfo | None) -> No
                     f"{basis.name}() is not supported in panel models yet. "
                     "Fit a cross-sectional model or remove the basis term."
                 )
-            if basis.capabilities.requires_intercept and not reg.has_intercept:
+            carries_mean = reg.has_intercept or baseline_variable(reg) is not None
+            if basis.capabilities.requires_intercept and not carries_mean:
                 raise ValueError(
                     f"{basis.name}() in the '{reg.lhs}' equation is centered, so "
                     "its contribution has mean zero and cannot carry the response "
                     f"mean. Drop the '0 +' prefix so '{reg.lhs} ~ {basis.name}(...)' "
-                    "keeps an intercept."
+                    "keeps an intercept, or keep a categorical that supplies the "
+                    "baseline."
                 )
             if term.basis.variable in endogenous:
                 if not basis.capabilities.supports_endogenous:
