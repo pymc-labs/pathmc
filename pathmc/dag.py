@@ -79,8 +79,13 @@ def _parse_dag(dag_str: str) -> nx.DiGraph:
     if s.lower().startswith("digraph"):
         # Shared brace match so a ``}`` in a comment or HTML label is not the
         # end of the graph, and a ``}`` only in a trailing comment is ignored.
-        from pathmc.cpdag import _brace_interior, _parse_dot_body
+        from pathmc.cpdag import (
+            _brace_interior,
+            _parse_dot_body,
+            _reject_keywords_before_body,
+        )
 
+        _reject_keywords_before_body(s)
         body = _brace_interior(s)
         if body is None:
             raise ValueError(

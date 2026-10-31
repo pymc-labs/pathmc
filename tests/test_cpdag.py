@@ -985,6 +985,8 @@ def test_unquoted_keywords_in_values_and_graph_names_are_rejected():
         "DiGraph Strict { X -> Y }",
         "digraph /*c*/ strict { X -> Y }",
         "digraph G [label=strict] { X -> Y }",
+        "digraph 0strict { X -> Y; Z -> Y }",
+        "digraph 00strict { X -> Y }",
     ):
         with pytest.raises(ValueError, match="unsupported DOT syntax"):
             same_markov_equivalence_class(bad, flat)
@@ -999,6 +1001,20 @@ def test_unquoted_keywords_in_values_and_graph_names_are_rejected():
     assert _parse_dot("digraph G { X -> Y }")[1] == {("X", "Y")}
     assert _parse_dot("strict digraph { A -> B }")[1] == {("A", "B")}
     assert _parse_dot("digraph { rankdir=LR; X -> Y }")[1] == {("X", "Y")}
+    nbsp = "digraph foo\u00a0strict { X -> Y }"
+    em = "digraph foo\u2003strict { X -> Y }"
+    assert _parse_dot(nbsp)[0] == {"X", "Y"}
+    assert _parse_dot(em)[0] == {"X", "Y"}
+    assert _parse_dot("digraph \u00a0strict { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("digraph strict\u00a0 { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("digraph strict\u2003 { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("digraph my-graph { X -> Y }")[0] == {"X", "Y"}
+    from pathmc.dag import BuildModelFromDAG
+
+    with pytest.raises(ValueError, match=r'digraph "strict"'):
+        BuildModelFromDAG._parse_dag("digraph strict { X -> Y; Z -> Y }")
+    with pytest.raises(ValueError, match=r'label="strict"'):
+        BuildModelFromDAG._parse_dag("digraph G [label=strict] { X -> Y }")
 
 
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():

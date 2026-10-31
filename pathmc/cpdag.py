@@ -332,7 +332,9 @@ def _brace_interior_from(cleaned: str, start: int) -> str | None:
     raise _dot_parse_error("unsupported subgraph syntax (unbalanced '{').")
 
 
-def _tokenize(text: str) -> list[str | tuple[str, str]]:
+def _tokenize(
+    text: str, *, skip_unsupported: bool = False
+) -> list[str | tuple[str, str]]:
     """Tokenize a DOT body.
 
     Only ASCII space, tab, CR, and LF separate tokens. Other ``str.isspace()``
@@ -412,10 +414,16 @@ def _tokenize(text: str) -> list[str | tuple[str, str]]:
             i += numeral.end()
             continue
         if ch == "-":
+            if skip_unsupported:
+                i += 1
+                continue
             raise _dot_parse_error(
                 "unsupported DOT syntax near '-'. A hyphen is not part of a node id."
             )
         if ch in "()\\":
+            if skip_unsupported:
+                i += 1
+                continue
             raise _dot_parse_error(f"unsupported DOT syntax near {ch!r}.")
         if ch == ":":
             tokens.append(":")
@@ -844,66 +852,63 @@ def _reject_keyword_preamble(span: str, kind: str) -> None:
 
     The graph name and a header attribute list are outside the body. Dropping
     a keyword there compares equal to the graph with that keyword removed.
+    Identifiers use the body lexer: a numeral does not glue onto the next
+    letters, and U+00A0 / U+2003 stay inside one id. A hyphen is not an id
+    character, but it is not this hole, so it is skipped rather than rejected.
     """
-    i = 0
-    n = len(span)
     seen_name = False
     depth = 0
-    prev_word: str | None = None
+    prev_lhs: str | None = None
     saw_eq = False
-    while i < n:
-        ch = span[i]
-        if ch in " \t\r\n":
-            i += 1
-            continue
-        if ch == '"':
-            if depth == 0 and not seen_name:
-                seen_name = True
-            saw_eq = False
-            prev_word = None
-            i = _end_of_quoted(span, i)
-            continue
-        if ch == "<":
-            if depth == 0 and not seen_name:
-                seen_name = True
-            saw_eq = False
-            prev_word = None
-            i = _skip_html(span, i)
-            continue
-        if ch == "[":
+    for token in _tokenize(span, skip_unsupported=True):
+        if token == "[":
             depth += 1
             saw_eq = False
-            prev_word = None
-            i += 1
+            prev_lhs = None
             continue
-        if ch == "]":
+        if token == "]":
             depth = max(0, depth - 1)
             saw_eq = False
-            prev_word = None
-            i += 1
+            prev_lhs = None
             continue
-        if ch == "=":
+        if token == "=":
             saw_eq = True
-            i += 1
             continue
-        if ch.isalnum() or ch == "_":
-            start = i
-            while i < n and (span[i].isalnum() or span[i] == "_"):
-                i += 1
-            word = span[start:i]
+        if token == "+":
+            continue
+        if isinstance(token, tuple) and token[0] == "id":
+            word = token[1]
             if word.lower() in _BARE_KEYWORDS:
                 if depth == 0 and not seen_name:
                     raise _keyword_graph_name_error(kind, word)
-                if saw_eq and prev_word:
-                    raise _keyword_value_error(word, prev_word)
+                if saw_eq and prev_lhs:
+                    raise _keyword_value_error(word, prev_lhs)
                 raise _keyword_id_error(word)
             if depth == 0 and not seen_name:
                 seen_name = True
-            prev_word = word
+            prev_lhs = word
             saw_eq = False
             continue
+        if isinstance(token, tuple) and token[0] in {"qid", "html"}:
+            if depth == 0 and not seen_name:
+                seen_name = True
+            saw_eq = False
+            prev_lhs = None
+            continue
         saw_eq = False
-        i += 1
+        prev_lhs = None
+
+
+def _reject_keywords_before_body(dot_text: str) -> None:
+    """Apply the preamble keyword check when a graph header is present."""
+    header = re.match(r"\s*(?:strict\s+)?(graph|digraph)\b", dot_text, flags=re.I)
+    if header is None:
+        return
+    cleaned = _strip_comments(dot_text[header.end() :])
+    brace = _opening_brace(cleaned)
+    if brace is None:
+        return
+    _reject_keyword_preamble(cleaned[:brace], header.group(1))
 
 
 def _parse_dot(
@@ -941,11 +946,7 @@ def _parse_dot(
             "Could not parse DOT text. Expected a 'graph { ... }' or "
             "'digraph { ... }' block."
         )
-    suffix = dot_text[header.end() :]
-    cleaned_suffix = _strip_comments(suffix)
-    brace = _opening_brace(cleaned_suffix)
-    if brace is not None:
-        _reject_keyword_preamble(cleaned_suffix[:brace], header.group(1))
+    _reject_keywords_before_body(dot_text)
     body = _brace_interior(dot_text)
     if body is None:
         raise ValueError(
