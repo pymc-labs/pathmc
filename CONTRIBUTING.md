@@ -122,7 +122,7 @@ Run the per-commit suite, including slow integration tests and excluding nightly
 make test
 ```
 
-`make test` measures line and branch coverage of `pathmc` and fails if total coverage drops below the `fail_under` threshold in `pyproject.toml` (`[tool.coverage.report]`). The same command and gate run in CI on every pull request. Nightly Tier 5 and the larger Hypothesis fuzz budget stay on `make test-nightly`. Coverage is intentionally not collected by `make test-fast` or by single-file gate runs, so those stay fast and never trip the threshold on a partial run.
+`make test` measures line and branch coverage of `pathmc` and fails if total coverage drops below the `fail_under` threshold in `pyproject.toml` (`[tool.coverage.report]`). That is the local gate. CI runs the same selection across four jobs and passes `--cov-fail-under=0` on each, because one job does not cover 80% by itself; the required `test` job combines the coverage files and enforces the threshold. Docs-only pull requests skip that job. Nightly Tier 5 and the larger Hypothesis fuzz budget stay on `make test-nightly`. Coverage is intentionally not collected by `make test-fast` or by single-file gate runs, so those stay fast and never trip the threshold on a partial run.
 
 Run a targeted milestone or module test while iterating:
 
