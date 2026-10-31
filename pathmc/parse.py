@@ -1043,6 +1043,11 @@ _SPLINE_SCALAR_KEYS = frozenset({"df", "degree", "order"})
 
 def _parse_spline_expr(raw: str) -> BasisCall:
     """Parse ``bs``, ``ns``, or ``ps`` into a generic basis call."""
+    if _find_top_level_colon(raw) is not None:
+        raise ParseError(
+            f"{raw} is not a standalone spline term. Use bs(), ns(), or ps() "
+            "directly on one variable, e.g. 'y ~ bs(x, df=5)'."
+        )
     if raw[-1] != ")":
         raise ParseError(
             f"Unclosed parenthesis in spline term: '{raw}'. Add a closing ')'."

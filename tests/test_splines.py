@@ -80,6 +80,9 @@ def test_spline_formulas_parse_and_render():
         ("y ~ bs(x, df=4) + ps(x, df=5)", "more than one spline"),
         ("y ~ adstock(bs(x, df=4), decay=theta)", "directly"),
         ("y ~ bs(x, knots=(0.8, 0.2))", "strictly increasing"),
+        ("y ~ bs(x, df=4):z", "standalone"),
+        ("y ~ bs(x, df=4):bs(z, df=3)", "standalone"),
+        ("y ~ z:bs(x, df=4)", "standalone"),
     ],
 )
 def test_invalid_spline_formulas_name_a_fix(formula: str, match: str):
@@ -270,15 +273,43 @@ def test_predict_and_do_replay_frozen_knots(mock_pymc_sample, monkeypatch):
     assert not np.allclose(actual, refit_columns.sum(axis=1), atol=1e-3)
 
 
+def test_predictions_newdata_replays_frozen_knots(mock_pymc_sample):
+    """predictions(newdata=) must use the training knots, not a refit."""
+    train = np.linspace(0.0, 1.0, 12)
+    shifted = np.linspace(10.0, 11.0, 12)
+    model = pathmc.model("y ~ bs(x, df=4)", data=_frame(train))
+    model.fit(draws=8, tune=8, chains=1, random_seed=0)
+
+    basis = get_basis("bs")
+    call = _call("bs", df=4)
+    frozen = model._pymc_model._pathmc_basis_states[("y", "bs", "x", None)]
+    frozen_columns, _ = basis.build_data(shifted, call, state=frozen)
+    refit_columns, refit = basis.build_data(shifted, call)
+    assert not np.allclose(frozen.interior, refit.interior)
+
+    posterior = model._idata.posterior.copy(deep=True)
+    posterior["beta_y"].loc[{"y_predictors": "Intercept"}] = 0.0
+    posterior["beta_bs_y_x"] = posterior["beta_bs_y_x"] * 0.0 + 1.0
+    posterior["sigma_y"] = posterior["sigma_y"] * 0.0 + 1e-8
+    model._idata["posterior"] = posterior
+    grid = pd.DataFrame({"x": shifted, "y": np.zeros(shifted.size)})
+    result = model.predictions("y", newdata=grid)
+    actual = np.asarray(result.dataset["y"].mean(("chain", "draw")))
+    np.testing.assert_allclose(actual, frozen_columns.sum(axis=1), atol=1e-5)
+    assert not np.allclose(actual, refit_columns.sum(axis=1), atol=1e-3)
+    restored = model._pymc_model._pathmc_basis_states[("y", "bs", "x", None)]
+    np.testing.assert_allclose(restored.interior, frozen.interior)
+
+
 @pytest.mark.slow
 def test_sampled_spline_recovers_a_known_smooth():
-    """A short sample of bs() and ps() follows a planted non-unit-scale curve."""
+    """A short sample of bs(), ns(), and ps() follows a planted curve."""
     rng = np.random.default_rng(1)
     x = np.linspace(10.0, 40.0, 60)
     truth = 1.5 + 0.8 * np.sin((x - 10.0) / 4.0)
     y = truth + rng.normal(scale=0.05, size=x.size)
     data = pd.DataFrame({"x": x, "y": y})
-    for formula in ("y ~ bs(x, df=6)", "y ~ ps(x, df=6)"):
+    for formula in ("y ~ bs(x, df=6)", "y ~ ns(x, df=6)", "y ~ ps(x, df=6)"):
         model = pathmc.model(formula, data=data)
         idata = model.fit(
             draws=200,

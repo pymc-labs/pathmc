@@ -562,6 +562,9 @@ class PathModel:
         self._initial_explicit = initial_explicit
         self._initial_baseline: InitialBaseline | None = None
         self._construction: dict[str, Any] | None = None
+        # Fit-time data-basis state. Later compiles (predictions, set_priors)
+        # replay it so knots are not recomputed on a query frame.
+        self._frozen_basis_states: dict[Any, Any] | None = None
 
         defaults = default_priors(
             spec,
@@ -642,6 +645,7 @@ class PathModel:
             graph_info=self._graph_info,
             priors=self._priors,
             initial=self._initial_internal,
+            replay_states=self._frozen_basis_states,
         )
 
         block_vars = (
@@ -683,6 +687,8 @@ class PathModel:
         self._pymc_model._pathmc_basis_states = getattr(
             self._gen_model, "_pathmc_basis_states", {}
         )
+        if self._frozen_basis_states is None:
+            self._frozen_basis_states = self._pymc_model._pathmc_basis_states
 
         # Enable the observed carry unconditionally, not only when
         # ``observations`` is non-empty. A variable with any NaN is skipped

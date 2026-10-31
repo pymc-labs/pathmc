@@ -639,6 +639,7 @@ def compile_to_pymc(
     initial: Mapping[str, np.ndarray] | None = None,
     policy_plan: Any | None = None,
     policy_scaling: Any | None = None,
+    replay_states: Mapping[Any, Any] | None = None,
 ) -> pm.Model:
     """Compile a structural specification into a generative PyMC model.
 
@@ -894,8 +895,13 @@ def compile_to_pymc(
                 basis = get_basis(term.basis.name)
                 if basis.has_data_contract():
                     key = basis.binding_key(reg.lhs, term.basis)
-                    state = basis.freeze_data_state(
-                        data[term.basis.variable].to_numpy(), term.basis
+                    stored = None if replay_states is None else replay_states.get(key)
+                    state = (
+                        basis.freeze_data_state(
+                            data[term.basis.variable].to_numpy(), term.basis
+                        )
+                        if stored is None
+                        else stored
                     )
                     columns, _ = basis.build_data(
                         data[term.basis.variable].to_numpy(), term.basis, state=state
