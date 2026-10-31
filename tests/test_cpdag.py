@@ -1030,6 +1030,65 @@ def test_unquoted_keywords_in_values_and_graph_names_are_rejected():
         BuildModelFromDAG._parse_dag("digraph G [label=strict] { X -> Y }")
 
 
+def test_unicode_space_does_not_separate_header_keywords():
+    """A non-ASCII space is not a header separator.
+
+    Graphviz rejects ``strict<NBSP>digraph`` and ``digraph<NBSP>foo``.
+    Those must raise and name an ASCII-space repair, not match the graph
+    with the glued keyword removed. A unicode space inside a name still
+    parses. ``digraph.foo`` stays accepted: that mismatch is out of scope.
+    """
+    from pathmc.dag import BuildModelFromDAG
+
+    flat = "digraph { X -> Y; Z -> Y }"
+    repairs = (
+        ("strict\u00a0digraph { X -> Y; Z -> Y }", flat, "strict digraph"),
+        ("strict\u2003digraph { X -> Y; Z -> Y }", flat, "strict digraph"),
+        ("STRICT\u00a0DiGraph { X -> Y }", "digraph { X -> Y }", "STRICT DiGraph"),
+        ("strict\u00a0graph { A -- B }", "graph { A -- B }", "strict graph"),
+        ("\u00a0digraph { X -> Y }", "digraph { X -> Y }", "digraph"),
+        ("digraph\u00a0foo { X -> Y }", "digraph { X -> Y }", "digraph foo"),
+        ("digraph\u00a0{ X -> Y }", "digraph { X -> Y }", "digraph {"),
+        ("strict \u00a0digraph { X -> Y }", "digraph { X -> Y }", "strict digraph"),
+    )
+    for src, rewritten, repair in repairs:
+        with pytest.raises(ValueError, match=f"Write {repair!r} instead"):
+            same_markov_equivalence_class(src, rewritten)
+    assert _parse_dot("digraph foo\u00a0bar { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("strict digraph { X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot("strict\tdigraph { X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot("strict\ndigraph { X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot("digraph.foo { X -> Y }")[0] == {"X", "Y"}
+    with pytest.raises(ValueError, match="Write 'digraph foo' instead"):
+        BuildModelFromDAG._parse_dag("digraph\u00a0foo { X -> Y }")
+    with pytest.raises(ValueError, match="Write 'digraph' instead"):
+        BuildModelFromDAG._parse_dag("\u00a0digraph { X -> Y }")
+    parsed = BuildModelFromDAG._parse_dag("digraph foo\u00a0bar { X -> Y }")
+    assert set(parsed.nodes) == {"X", "Y"}
+
+
+def test_keyword_rejections_name_the_position_repair():
+    """Attribute values and glued numerals must name the position's repair."""
+    from pathmc.dag import BuildModelFromDAG, dag_to_spec
+
+    with pytest.raises(ValueError, match=r'label="strict"'):
+        _parse_dot("digraph { X [label=strict] }")
+    with pytest.raises(ValueError, match=r'label="strict"'):
+        _parse_dot("digraph { X -> Y [label=strict] }")
+    with pytest.raises(ValueError, match=r'digraph "0strict"'):
+        _parse_dot("digraph 0strict { X -> Y }")
+    with pytest.raises(ValueError, match=r'digraph "00strict"'):
+        _parse_dot("digraph 00strict { X -> Y }")
+    with pytest.raises(ValueError, match=r'subgraph "0strict"'):
+        _parse_dot("digraph { subgraph 0strict { X -> Y } }")
+    with pytest.raises(ValueError, match=r'digraph "0strict"'):
+        BuildModelFromDAG._parse_dag("digraph 0strict { X -> Y }")
+    with pytest.raises(ValueError, match=r'subgraph "0strict"'):
+        BuildModelFromDAG._parse_dag("digraph { subgraph 0strict { X -> Y } }")
+    with pytest.raises(ValueError, match=r'label="strict"'):
+        dag_to_spec("digraph { X [label=strict]; X -> Y }")
+
+
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""
     g = nx.DiGraph()

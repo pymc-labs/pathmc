@@ -63,10 +63,12 @@ def same_markov_equivalence_class(
     the DOT id (or ``networkx`` node); ``label`` attributes are not treated
     as identity. Attribute assignments such as ``rankdir=LR`` are not nodes.
     Unquoted ``digraph``, ``subgraph``, and ``strict`` are keywords, not node
-    ids: quote them (``"digraph" -> Y``). ``node = box`` is rejected; write
-    ``node [shape=box]``. A quoted odd backslash run before a line feed is
-    line continuation, so ``"foo\\<newline>bar"`` is the node ``foobar``.
-    An even run is not continuation.
+    ids: quote them (``"digraph" -> Y``). A unicode space does not separate
+    those keywords; write an ASCII space, as in ``strict digraph``.
+    ``node = box`` is rejected; write ``node [shape=box]``. A quoted odd
+    backslash run before a line feed is line continuation, so
+    ``"foo\\<newline>bar"`` is the node ``foobar``. An even run is not
+    continuation.
 
     Parameters
     ----------
@@ -181,6 +183,7 @@ def _keyword_assignment_error(name: str) -> ValueError:
 
 
 def _keyword_value_error(name: str, lhs: str | None) -> ValueError:
+    """Reject an unquoted keyword used as an attribute value."""
     quoted = f'"{name}"'
     if lhs:
         shown = f"{lhs}={name}"
@@ -189,7 +192,8 @@ def _keyword_value_error(name: str, lhs: str | None) -> ValueError:
         shown = name
         instead = quoted
     return _dot_parse_error(
-        f"unsupported DOT syntax: {shown!r}. Write {instead!r} instead."
+        f"unsupported DOT syntax: {shown!r} is a keyword, not an attribute "
+        f"value. Write {instead!r} instead."
     )
 
 
@@ -199,6 +203,71 @@ def _keyword_graph_name_error(kind: str, name: str) -> ValueError:
     return _dot_parse_error(
         f"unsupported DOT syntax: {shown!r}. Write {instead!r} instead."
     )
+
+
+def _is_numeral_id(name: str) -> bool:
+    """True for a numeral token the lexer split off the following letters."""
+    return bool(re.fullmatch(r"-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)", name)) and (
+        name not in {"-", "."}
+    )
+
+
+def _is_id_space(ch: str) -> bool:
+    """True for a space the body lexer keeps inside an id."""
+    return ch.isspace() and ch not in " \t\r\n"
+
+
+def _header_keyword_error(shown: str, instead: str) -> ValueError:
+    return _dot_parse_error(
+        f"unsupported DOT syntax: {shown!r} is not an ASCII-separated keyword. "
+        f"Write {instead!r} instead."
+    )
+
+
+def _ascii_keyword_form(shown: str) -> str:
+    collapsed = re.sub(r"[^\S \t\r\n]+", " ", shown)
+    return re.sub(r" +", " ", collapsed).strip()
+
+
+def _match_graph_header(dot_text: str) -> re.Match[str] | None:
+    """Match ``[strict] graph|digraph`` using the body separator rule.
+
+    ASCII space, tab, CR, and LF separate keywords. U+00A0, U+2003, and
+    other non-ASCII spaces stay inside an id, so a keyword glued to one is
+    not a header. ``digraph.foo`` still matches: a dot is outside this hole.
+    """
+    leading = re.match(
+        r"([^\S \t\r\n]+)[ \t\r\n]*((?:strict|digraph|graph))",
+        dot_text,
+        flags=re.I,
+    )
+    if leading:
+        raise _header_keyword_error(leading.group(0), leading.group(2))
+    match = re.match(
+        r"[ \t\r\n]*(?:(?P<strict>strict)(?=[ \t\r\n]))?[ \t\r\n]*"
+        r"(?P<kind>digraph|graph)",
+        dot_text,
+        flags=re.I,
+    )
+    if match is not None:
+        end = match.end()
+        if end < len(dot_text) and _is_id_space(dot_text[end]):
+            kind = match.group("kind")
+            rest = re.match(r"[^\S \t\r\n]+(\S*)", dot_text[end:])
+            tail = rest.group(1) if rest else ""
+            shown = kind + (rest.group(0) if rest else dot_text[end])
+            instead = f"{kind} {tail}".strip() if tail else kind
+            raise _header_keyword_error(shown, instead)
+        return match
+    glued = re.match(
+        r"[ \t\r\n]*((?:strict|digraph|graph)[ \t\r\n]*[^\S \t\r\n]+\S*)",
+        dot_text,
+        flags=re.I,
+    )
+    if glued:
+        shown = glued.group(1)
+        raise _header_keyword_error(shown, _ascii_keyword_form(shown))
+    return None
 
 
 def _end_of_quoted(text: str, start: int) -> int:
@@ -459,6 +528,7 @@ class _DotBodyParser:
     """Recursive-descent reader for the inside of a DOT ``{ ... }`` block."""
 
     def __init__(self, body: str, *, is_undirected_graph: bool) -> None:
+        self.source = body
         self.tokens = _tokenize(_strip_comments(body))
         self.i = 0
         self.is_undirected_graph = is_undirected_graph
@@ -799,6 +869,14 @@ class _DotBodyParser:
             name = _id_text(token)
             if name is not None and name.lower() in _RESERVED:
                 raise _keyword_id_error(name)
+            nxt_name = _id_text(self.peek(1))
+            if (
+                name
+                and nxt_name
+                and nxt_name.lower() in _BARE_KEYWORDS
+                and f"{name}{nxt_name}" in self.source
+            ):
+                raise _keyword_graph_name_error("subgraph", f"{name}{nxt_name}")
         self.pop()
         while self.peek() == "+":
             nxt = self.peek(1)
@@ -818,6 +896,7 @@ class _DotBodyParser:
         self._dir_was_set = False
         depth = 1
         prev: str | tuple[str, str] | None = None
+        lhs: str | None = None
         while depth:
             token = self.peek()
             if token is None:
@@ -833,7 +912,13 @@ class _DotBodyParser:
                     and token[0] == "id"
                     and token[1].lower() in _BARE_KEYWORDS
                 ):
+                    if prev == "=" and lhs:
+                        raise _keyword_value_error(token[1], lhs)
                     raise _keyword_id_error(token[1])
+                if token == "=" and isinstance(prev, tuple) and prev[0] == "id":
+                    lhs = prev[1]
+                elif token != "=":
+                    lhs = None
                 if (
                     token == "="
                     and isinstance(prev, tuple)
@@ -899,6 +984,13 @@ def _reject_keyword_preamble(span: str, kind: str) -> None:
                     raise _keyword_graph_name_error(kind, word)
                 if saw_eq and prev_lhs:
                     raise _keyword_value_error(word, prev_lhs)
+                if (
+                    depth == 0
+                    and prev_lhs
+                    and _is_numeral_id(prev_lhs)
+                    and f"{prev_lhs}{word}" in span
+                ):
+                    raise _keyword_graph_name_error(kind, f"{prev_lhs}{word}")
                 raise _keyword_id_error(word)
             if depth == 0 and not seen_name:
                 seen_name = True
@@ -917,14 +1009,14 @@ def _reject_keyword_preamble(span: str, kind: str) -> None:
 
 def _reject_keywords_before_body(dot_text: str) -> None:
     """Apply the preamble keyword check when a graph header is present."""
-    header = re.match(r"\s*(?:strict\s+)?(graph|digraph)\b", dot_text, flags=re.I)
+    header = _match_graph_header(dot_text)
     if header is None:
         return
     cleaned = _strip_comments(dot_text[header.end() :])
     brace = _opening_brace(cleaned)
     if brace is None:
         return
-    _reject_keyword_preamble(cleaned[:brace], header.group(1))
+    _reject_keyword_preamble(cleaned[:brace], header.group("kind"))
 
 
 def _parse_dot(
@@ -941,6 +1033,7 @@ def _parse_dot(
     is rejected; write ``node [shape=box]``. Unquoted ``digraph``,
     ``subgraph``, and ``strict`` are keywords, not ids, graph names, or
     assignment values. Quote them (``label="strict"``, ``digraph "strict"``).
+    A unicode space does not separate a header keyword; write an ASCII space.
     A quoted odd backslash run before a line feed continues the string.
     A ``subgraph`` block, including an anonymous ``{ ... }`` cluster, is layout
     only: its nodes and edges are parsed, and the cluster id is not a node.
@@ -956,7 +1049,7 @@ def _parse_dot(
         If no ``graph``/``digraph`` block can be found, or a ``subgraph``
         block is not valid DOT.
     """
-    header = re.match(r"\s*(?:strict\s+)?(graph|digraph)\b", dot_text, flags=re.I)
+    header = _match_graph_header(dot_text)
     if header is None:
         raise ValueError(
             "Could not parse DOT text. Expected a 'graph { ... }' or "
@@ -969,7 +1062,7 @@ def _parse_dot(
             "Could not parse DOT text. Expected a 'graph { ... }' or "
             "'digraph { ... }' block."
         )
-    is_undirected_graph = header.group(1).lower() == "graph"
+    is_undirected_graph = header.group("kind").lower() == "graph"
     return _parse_dot_body(body, is_undirected_graph=is_undirected_graph)
 
 

@@ -73,10 +73,17 @@ def _parse_dag(dag_str: str) -> nx.DiGraph:
         If the DOT braces are malformed, an edge token is invalid, or the
         result is not acyclic.
     """
+    ascii_s = dag_str.strip(" \t\r\n")
+    if ascii_s[:1].isspace() or ascii_s.lower().startswith("digraph"):
+        # ``str.strip`` would hide a leading unicode space and accept it as
+        # a header separator. The body lexer does not.
+        from pathmc.cpdag import _match_graph_header
+
+        _match_graph_header(ascii_s)
     s = dag_str.strip()
     g = nx.DiGraph()
 
-    if s.lower().startswith("digraph"):
+    if ascii_s.lower().startswith("digraph"):
         # Shared brace match so a ``}`` in a comment or HTML label is not the
         # end of the graph, and a ``}`` only in a trailing comment is ignored.
         from pathmc.cpdag import (
@@ -85,6 +92,7 @@ def _parse_dag(dag_str: str) -> nx.DiGraph:
             _reject_keywords_before_body,
         )
 
+        s = ascii_s
         _reject_keywords_before_body(s)
         body = _brace_interior(s)
         if body is None:
