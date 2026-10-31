@@ -55,6 +55,13 @@ def _fast_sampling(monkeypatch):
 
     def _sample(*args, **kwargs):
         kwargs.update(SAMPLE_KWARGS)
+        # Issue #654 probe. PyMC selects nutpie when that extra is installed,
+        # which is what `uv sync --all-extras` does on CI. Set the env var to
+        # measure the pymc NUTS compile path without overriding a test that
+        # already passed nuts_sampler=.
+        forced = os.environ.get("PATHMC_TEST_NUTS_SAMPLER")
+        if forced:
+            kwargs.setdefault("nuts_sampler", forced)
         return original_sample(*args, **kwargs)
 
     monkeypatch.setattr(pm, "sample", _sample)
