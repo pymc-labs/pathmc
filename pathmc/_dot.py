@@ -189,9 +189,10 @@ def _ascii_keyword_form(shown: str) -> str:
 def _match_graph_header(dot_text: str) -> re.Match[str] | None:
     """Match ``[strict] graph|digraph`` using the body separator rule.
 
-    ASCII space, tab, CR, and LF separate keywords. U+00A0, U+2003, and
-    other non-ASCII spaces stay inside an id, so a keyword glued to one is
-    not a header. ``digraph.foo`` still matches: a dot is outside this hole.
+    ASCII space, tab, CR, and LF separate keywords. A word character glued
+    to ``graph`` or ``digraph`` (``digraphfoo``) is not a header. U+00A0 and
+    U+2003 stay inside an id, so a keyword glued to one raises rather than
+    matching. ``digraph.foo`` still matches: a dot is outside this hole.
     """
     leading = re.match(
         r"([^\S \t\r\n]+)[ \t\r\n]*((?:strict|digraph|graph))",
@@ -215,6 +216,11 @@ def _match_graph_header(dot_text: str) -> re.Match[str] | None:
             shown = kind + (rest.group(0) if rest else dot_text[end])
             instead = f"{kind} {tail}".strip() if tail else kind
             raise _header_keyword_error(shown, instead)
+        # A bare ``\b`` would treat U+00A0 as a separator. That case already
+        # raised above. A word character is the prefix split (``digraphfoo``).
+        # Dot, hyphen, and ``{`` are not word characters, so those forms stay.
+        if end < len(dot_text) and re.match(r"\w", dot_text[end]):
+            return None
         return match
     glued = re.match(
         r"[ \t\r\n]*((?:strict|digraph|graph)[ \t\r\n]*[^\S \t\r\n]+\S*)",

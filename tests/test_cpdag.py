@@ -1067,6 +1067,42 @@ def test_unicode_space_does_not_separate_header_keywords():
     assert set(parsed.nodes) == {"X", "Y"}
 
 
+def test_header_keyword_prefix_is_not_a_header():
+    """A keyword glued to a longer id is not a header.
+
+    Graphviz rejects ``digraphfoo``. That string must not compare equal to
+    the graph with the suffix removed. A dot, a hyphen, and a brace are not
+    this split: ``digraph.foo``, ``digraph my-graph``, and ``digraph{`` stay
+    accepted. A unicode space after the keyword still names an ASCII-space
+    repair rather than taking this path.
+    """
+    from pathmc.dag import BuildModelFromDAG, dag_to_spec
+
+    flat = "digraph { X -> Y; Z -> Y }"
+    prefixes = (
+        "digraphfoo { X -> Y; Z -> Y }",
+        "graphfoo { A -- B }",
+        "DIGRAPHfoo { X -> Y }",
+        "digraph0 { X -> Y }",
+        "digraph_foo { X -> Y }",
+        "digraphé { X -> Y }",
+        "strict digraphfoo { X -> Y; Z -> Y }",
+    )
+    for src in prefixes:
+        with pytest.raises(ValueError, match="Could not parse DOT text"):
+            same_markov_equivalence_class(src, flat)
+        with pytest.raises(ValueError, match="Could not parse DOT text"):
+            _parse_dot(src)
+    with pytest.raises(ValueError, match="Malformed DOT digraph: missing braces"):
+        dag_to_spec("digraphfoo { X -> Y }")
+    with pytest.raises(ValueError, match="Malformed DOT digraph: missing braces"):
+        BuildModelFromDAG._parse_dag("digraphfoo { X -> Y }")
+    assert _parse_dot("digraph.foo { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("digraph my-graph { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("digraph{ X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot("digraph-foo { X -> Y }")[0] == {"X", "Y"}
+
+
 def test_keyword_rejections_name_the_position_repair():
     """Attribute values and glued numerals must name the position's repair."""
     from pathmc.dag import BuildModelFromDAG, dag_to_spec
