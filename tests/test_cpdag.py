@@ -922,9 +922,22 @@ def test_unquoted_graph_keywords_and_node_assignment_are_rejected():
         "digraph { Node = box; X -> Y }",
         "digraph { subgraph cluster { node = box; X -> Y; Z -> Y } }",
         "graph { node = box; A -- B }",
+        "digraph G [node = box] { X -> Y; Z -> Y }",
+        "digraph G [NODE=box] { X -> Y }",
+        "graph G [node = box] { A -- B }",
+        "digraph node = box { X -> Y }",
+        "digraph G node = box { X -> Y }",
+        "digraph { X -> Y [node=box]; Z -> Y }",
+        "digraph { X [node = box]; X -> Y }",
     ):
         with pytest.raises(ValueError, match=r"node \[shape=box\]"):
             same_markov_equivalence_class(spelling, "digraph { X -> Y }")
+    from pathmc.dag import BuildModelFromDAG, dag_to_spec
+
+    with pytest.raises(ValueError, match=r"node \[shape=box\]"):
+        BuildModelFromDAG._parse_dag("digraph G [node = box] { X -> Y; Z -> Y }")
+    with pytest.raises(ValueError, match=r"node \[shape=box\]"):
+        dag_to_spec("digraph { X -> Y [node = box] }")
     assert _parse_dot('digraph { "digraph" -> Y }')[0] == {"digraph", "Y"}
     assert _parse_dot('digraph { "strict" -> Y }')[0] == {"strict", "Y"}
     assert _parse_dot('digraph { "subgraph" -> Y }')[0] == {"subgraph", "Y"}

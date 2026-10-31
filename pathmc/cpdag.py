@@ -834,6 +834,16 @@ class _DotBodyParser:
                     and token[1].lower() in _BARE_KEYWORDS
                 ):
                     raise _keyword_id_error(token[1])
+                if (
+                    token == "="
+                    and isinstance(prev, tuple)
+                    and prev[0] == "id"
+                    and prev[1].lower() == "node"
+                ):
+                    value = _id_text(self.peek())
+                    if self.peek(1) == "+":
+                        value = None
+                    raise _node_assignment_error(prev[1], value)
                 attr = _id_text(prev)
                 if token == "=" and attr is not None and attr.lower() == "dir":
                     self._dir_was_set = True
@@ -860,7 +870,8 @@ def _reject_keyword_preamble(span: str, kind: str) -> None:
     depth = 0
     prev_lhs: str | None = None
     saw_eq = False
-    for token in _tokenize(span, skip_unsupported=True):
+    tokens = list(_tokenize(span, skip_unsupported=True))
+    for index, token in enumerate(tokens):
         if token == "[":
             depth += 1
             saw_eq = False
@@ -872,6 +883,11 @@ def _reject_keyword_preamble(span: str, kind: str) -> None:
             prev_lhs = None
             continue
         if token == "=":
+            if prev_lhs is not None and prev_lhs.lower() == "node":
+                value = _id_text(tokens[index + 1]) if index + 1 < len(tokens) else None
+                if index + 2 < len(tokens) and tokens[index + 2] == "+":
+                    value = None
+                raise _node_assignment_error(prev_lhs, value)
             saw_eq = True
             continue
         if token == "+":
