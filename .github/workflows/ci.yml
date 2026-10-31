@@ -39,8 +39,57 @@ jobs:
               - '!*.qmd'
               - '!**/*.qmd'
 
-  test:
+  # Issue #654 probe. File groups come from per-worker gaps on run 41164860641.
+  # Group 1 is only the fuzz file, so that job's wall clock is the indivisible
+  # floor. The required check stays named `test`.
+  test-shard:
     needs: changes
+    if: >-
+      !cancelled() &&
+      (github.event_name != 'pull_request' ||
+       needs.changes.result != 'success' ||
+       needs.changes.outputs.code == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Record runner shape
+        run: |
+          echo "group=${{ matrix.group }}"
+          echo "nproc=$(nproc)"
+          python3 -c 'import os; print("cpu_count", os.cpu_count())'
+          lscpu | awk -F: '/Model name|CPU\(s\)|Thread|Core\(s\) per socket|Socket|Architecture|Vendor ID/ {gsub(/^[ \t]+/, "", $2); print}'
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: Install dependencies
+        run: uv sync --all-extras --locked
+      - name: Run tests
+        run: |
+          mkdir -p coverage-data
+          files=$(paste -sd' ' ".github/ci-groups/group-${{ matrix.group }}.txt")
+          make test PYTEST_ARGS="--cov-fail-under=0 ${files}"
+        env:
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          COVERAGE_FILE: coverage-data/.coverage.shard-${{ matrix.group }}
+      - name: Upload coverage data
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-${{ matrix.group }}
+          path: coverage-data/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  test:
+    needs: [changes, test-shard]
     if: >-
       !cancelled() &&
       (github.event_name != 'pull_request' ||
@@ -50,6 +99,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Require shard success
+        if: needs.test-shard.result != 'success'
+        run: |
+          echo "test shards result: ${{ needs.test-shard.result }}"
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -57,12 +111,17 @@ jobs:
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - name: Install dependencies
         run: uv sync --all-extras --locked
-      - name: Run tests
-        run: make test
-        env:
-          # Avoid BLAS thread oversubscription when xdist spawns worker processes.
-          OMP_NUM_THREADS: "1"
-          OPENBLAS_NUM_THREADS: "1"
+      - name: Download coverage data
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-*
+          path: coverage-data
+          merge-multiple: true
+      - name: Enforce combined coverage
+        run: |
+          find coverage-data -type f -print
+          uv run --locked --all-extras coverage combine coverage-data
+          uv run --locked --all-extras coverage report --fail-under=80
 
   prek:
     runs-on: ubuntu-latest
