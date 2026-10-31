@@ -286,16 +286,16 @@ class TBFPC:
     ) -> tuple[set[str], set[tuple[str, str]], set[tuple[str, str]]]:
         """Parse a CPDAG DOT block into nodes, directed and undirected edges.
 
-        Delegates to :func:`pathmc.cpdag._parse_dot` so every DOT consumer
+        Delegates to :func:`pathmc._dot.parse_dot` so every DOT consumer
         shares one grammar (quoted ids, chained edges, attribute brackets,
         quote-aware comments, ``dir=none`` undirected edges, and subgraph
         blocks). Undirected edges
         are returned here as sorted ``(u, v)`` tuples for the orientation
         bookkeeping below.
         """
-        from pathmc.cpdag import _parse_dot
+        from pathmc._dot import parse_dot
 
-        nodes, directed, undirected_fs = _parse_dot(dot)
+        nodes, directed, undirected_fs = parse_dot(dot)
         undirected = {tuple(sorted(edge)) for edge in undirected_fs}
         return nodes, directed, undirected  # type: ignore[return-value]
 

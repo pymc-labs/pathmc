@@ -73,34 +73,13 @@ def _parse_dag(dag_str: str) -> nx.DiGraph:
         If the DOT braces are malformed, an edge token is invalid, or the
         result is not acyclic.
     """
-    ascii_s = dag_str.strip(" \t\r\n")
-    if ascii_s[:1].isspace() or ascii_s.lower().startswith("digraph"):
-        # ``str.strip`` would hide a leading unicode space and accept it as
-        # a header separator. The body lexer does not.
-        from pathmc.cpdag import _match_graph_header
+    from pathmc._dot import parse_dag_digraph
 
-        _match_graph_header(ascii_s)
-    s = dag_str.strip()
+    parsed = parse_dag_digraph(dag_str)
     g = nx.DiGraph()
 
-    if ascii_s.lower().startswith("digraph"):
-        # Shared brace match so a ``}`` in a comment or HTML label is not the
-        # end of the graph, and a ``}`` only in a trailing comment is ignored.
-        from pathmc.cpdag import (
-            _brace_interior,
-            _parse_dot_body,
-            _reject_keywords_before_body,
-        )
-
-        s = ascii_s
-        _reject_keywords_before_body(s)
-        body = _brace_interior(s)
-        if body is None:
-            raise ValueError(
-                "Malformed DOT digraph: missing braces. Expected "
-                "'digraph { A -> B; ... }'."
-            )
-        nodes, directed, undirected = _parse_dot_body(body, is_undirected_graph=False)
+    if parsed is not None:
+        nodes, directed, undirected = parsed
         if undirected:
             pretty = ", ".join(
                 f"{u}--{v}" for u, v in sorted(tuple(sorted(e)) for e in undirected)
@@ -114,6 +93,7 @@ def _parse_dag(dag_str: str) -> nx.DiGraph:
         g.add_edges_from(directed)
 
     else:
+        s = dag_str.strip()
         edges: list[tuple[str, str]] = []
         for token in re.split(r"[,\n]+", s):
             token = token.strip().rstrip(";")

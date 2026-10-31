@@ -374,7 +374,7 @@ def test_tbfpc_enumerated_dags_lie_in_cpdag_class(fitted_tbfpc):
 # Regression tests for just-fixed DOT parser behaviors
 # ---------------------------------------------------------------------------
 
-from pathmc.cpdag import _parse_dot  # noqa: E402
+from pathmc._dot import parse_dot as _parse_dot  # noqa: E402
 
 
 def test_chained_edges_expand_to_directed_segments():
