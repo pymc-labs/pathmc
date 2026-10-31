@@ -17,8 +17,8 @@ Two graphs lie in the same Markov equivalence class iff they share the same
 *skeleton* (adjacencies, ignoring orientation) and the same set of
 *v-structures* (unshielded colliders) — the Verma–Pearl (1990) criterion.
 This module compares graphs supplied as DOT strings, graphviz objects (any
-object exposing a ``.source`` attribute), or ``networkx.DiGraph`` instances,
-using a dependency-free DOT reader so the only requirement is pathmc's core
+object exposing a ``.source`` attribute), or ``networkx.DiGraph`` instances.
+DOT text is read by :mod:`pathmc._dot`; the only third-party requirement is
 ``networkx``.
 
 A *CPDAG* (completed partially directed acyclic graph) is the canonical
@@ -31,11 +31,12 @@ encoding, so its CPDAGs and the DAGs it enumerates can be compared directly.
 
 from __future__ import annotations
 
-import re
 from itertools import combinations
 from typing import Protocol, runtime_checkable
 
 import networkx as nx
+
+from pathmc._dot import parse_dot
 
 __all__ = ["same_markov_equivalence_class"]
 
@@ -48,11 +49,6 @@ class _SupportsSource(Protocol):
     def source(self) -> str: ...
 
 
-# A DOT identifier: either a double-quoted string or a bare alphanumeric token.
-_ID = r'(?:"([^"]+)"|([A-Za-z0-9_]+))'
-_RESERVED = frozenset({"graph", "node", "edge"})
-
-
 def same_markov_equivalence_class(
     graph1: str | _SupportsSource | nx.DiGraph,
     graph2: str | _SupportsSource | nx.DiGraph,
@@ -62,9 +58,18 @@ def same_markov_equivalence_class(
     Each graph may be a DOT string, an object with a ``.source`` attribute
     (such as a ``graphviz.Digraph``), or a ``networkx.DiGraph``. Two graphs
     are Markov-equivalent when they have identical node sets, identical
-    skeletons, and identical sets of unshielded colliders. Node identity is
+    skeletons, and identical sets of unshielded colliders. A ``subgraph``
+    or anonymous ``{ ... }`` block is layout only: the comparison uses the
+    nodes and edges inside it, not the cluster id. Node identity is
     the DOT id (or ``networkx`` node); ``label`` attributes are not treated
-    as identity.
+    as identity. Attribute assignments such as ``rankdir=LR`` are not nodes.
+    Unquoted ``digraph``, ``subgraph``, and ``strict`` are keywords, not node
+    ids: quote them (``"digraph" -> Y``). A unicode space does not separate
+    those keywords; write an ASCII space, as in ``strict digraph``.
+    ``node = box`` is rejected; write ``node [shape=box]``. A quoted odd
+    backslash run before a line feed is line continuation, so
+    ``"foo\\<newline>bar"`` is the node ``foobar``. An even run is not
+    continuation.
 
     Parameters
     ----------
@@ -125,157 +130,16 @@ def _coerce_to_components(
         directed = {(u, v) for u, v in graph.edges if u != v}
         return set(graph.nodes), directed, set()
     if isinstance(graph, str):
-        return _parse_dot(graph)
+        return parse_dot(graph)
     source = getattr(graph, "source", None)
     if isinstance(source, str):
-        return _parse_dot(source)
+        return parse_dot(source)
     raise TypeError(
         "Graph must be a DOT string, an object with a '.source' attribute "
         "(e.g. graphviz.Digraph), or a networkx.DiGraph. "
         f"Got {type(graph).__name__}. Pass one of these, or build a "
         "networkx.DiGraph from your edges first."
     )
-
-
-def _strip_comments(text: str) -> str:
-    """Remove ``//``, ``#`` and ``/* ... */`` comments, ignoring quoted strings.
-
-    A ``#`` or ``//`` inside a double-quoted DOT string (e.g.
-    ``fillcolor="#eef5ff"``) is *not* a comment and must survive, otherwise
-    the rest of the statement — including the node it declares — is lost.
-    """
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    out_lines = []
-    for raw in text.splitlines():
-        kept: list[str] = []
-        in_quotes = False
-        i = 0
-        while i < len(raw):
-            ch = raw[i]
-            if ch == '"':
-                in_quotes = not in_quotes
-                kept.append(ch)
-            elif not in_quotes and (
-                ch == "#" or (ch == "/" and raw[i + 1 : i + 2] == "/")
-            ):
-                break
-            else:
-                kept.append(ch)
-            i += 1
-        out_lines.append("".join(kept))
-    return "\n".join(out_lines)
-
-
-def _split_statements(body: str) -> list[str]:
-    """Split a DOT body on ``;``/newline, ignoring separators inside quotes."""
-    statements: list[str] = []
-    current: list[str] = []
-    in_quotes = False
-    for ch in body:
-        if ch == '"':
-            in_quotes = not in_quotes
-            current.append(ch)
-        elif ch in ";\n" and not in_quotes:
-            statements.append("".join(current))
-            current = []
-        else:
-            current.append(ch)
-    statements.append("".join(current))
-    return statements
-
-
-def _clean_id(token: str) -> str | None:
-    """Strip surrounding quotes/whitespace from a DOT identifier token."""
-    token = token.strip()
-    if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
-        return token[1:-1]
-    return token or None
-
-
-def _parse_dot(
-    dot_text: str,
-) -> tuple[set[str], set[tuple[str, str]], set[frozenset[str]]]:
-    """Parse DOT text into ``(nodes, directed_edges, undirected_edges)``.
-
-    Directed edges are ``(u, v)`` tuples; undirected edges are
-    ``frozenset({u, v})``. An ``A -> B`` edge carrying a ``dir=none``
-    attribute is treated as undirected, as is any edge in an undirected
-    ``graph { ... }`` block. Chained edges (``A -> B -> C``) are expanded, and
-    global style declarations (``graph [...]``, ``node [...]``, ``edge [...]``)
-    are ignored. Node identity is the DOT id; ``label`` attributes are not
-    used as identity.
-
-    Raises
-    ------
-    ValueError
-        If no ``graph``/``digraph`` block can be found.
-    """
-    header = re.match(r"\s*(?:strict\s+)?(graph|digraph)\b", dot_text, flags=re.I)
-    brace_start = dot_text.find("{")
-    brace_end = dot_text.rfind("}")
-    if header is None or brace_start == -1 or brace_end <= brace_start:
-        raise ValueError(
-            "Could not parse DOT text. Expected a 'graph { ... }' or "
-            "'digraph { ... }' block."
-        )
-
-    is_undirected_graph = header.group(1).lower() == "graph"
-    body = dot_text[brace_start + 1 : brace_end]
-    return _parse_dot_body(body, is_undirected_graph=is_undirected_graph)
-
-
-def _parse_dot_body(
-    body: str, *, is_undirected_graph: bool
-) -> tuple[set[str], set[tuple[str, str]], set[frozenset[str]]]:
-    """Parse the inside of a DOT ``{ ... }`` block.
-
-    Shared by :func:`_parse_dot` and (for directed graphs) by
-    ``pathmc.dag._parse_dag``, so all DOT consumers agree on the grammar:
-    quoted ids, chained edges, attribute brackets, and quote-aware comment
-    and statement handling.
-    """
-    body = _strip_comments(body)
-
-    nodes: set[str] = set()
-    directed: set[tuple[str, str]] = set()
-    undirected: set[frozenset[str]] = set()
-
-    for raw_stmt in _split_statements(body):
-        stmt = raw_stmt.strip()
-        if not stmt:
-            continue
-
-        attrs = ""
-        bracket = stmt.find("[")
-        if bracket != -1:
-            attrs = stmt[bracket:]
-            stmt = stmt[:bracket].strip()
-        if not stmt:
-            continue
-
-        if "->" in stmt or "--" in stmt:
-            parts = re.split(r"(->|--)", stmt)
-            endpoints = [_clean_id(p) for p in parts[0::2]]
-            operators = parts[1::2]
-            if len(endpoints) < 2 or not all(endpoints):
-                continue
-            dir_none = re.search(r"dir\s*=\s*none", attrs, flags=re.I) is not None
-            for (u, v), op in zip(zip(endpoints, endpoints[1:]), operators):
-                assert u is not None and v is not None
-                nodes.update((u, v))
-                if u == v:
-                    continue
-                if is_undirected_graph or op == "--" or dir_none:
-                    undirected.add(frozenset((u, v)))
-                else:
-                    directed.add((u, v))
-            continue
-
-        name = _clean_id(stmt)
-        if name and name not in _RESERVED:
-            nodes.add(name)
-
-    return nodes, directed, undirected
 
 
 def _skeleton(

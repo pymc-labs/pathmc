@@ -154,6 +154,32 @@ def test_styled_dir_none_is_undirected():
     )
 
 
+def test_quoted_dir_none_stays_directed():
+    """A quoted ``dir`` value is not the contracted unquoted spelling.
+
+    origin/main matched ``dir\\s*=\\s*none`` on the raw attribute text, so a
+    quote between ``=`` and ``none`` stayed directed. ``dir="none"`` and
+    ``dir="none"+"x"`` must not compare equal to an undirected edge. HTML
+    ``dir=<none>`` remains the contracted undirected form.
+    """
+    from pathmc.dag import dag_to_spec
+
+    collider = "digraph { A -> C; B -> C }"
+    undirected = "graph { A -- C; B -- C }"
+    quoted = (
+        'digraph { A -> C [dir="none"]; B -> C [dir="none"] }',
+        'digraph { A -> C [dir="none"+"x"]; B -> C [dir="none"+"x"] }',
+        'digraph { A -> C [dir="NONE"]; B -> C [dir="NONE"] }',
+    )
+    for src in quoted:
+        assert same_markov_equivalence_class(src, collider) is True
+        assert same_markov_equivalence_class(src, undirected) is False
+    assert dag_to_spec(quoted[0]) == "C ~ A + B"
+    html = "digraph { A -> C [dir=<none>]; B -> C [dir=<none>] }"
+    assert same_markov_equivalence_class(html, undirected) is True
+    assert same_markov_equivalence_class(html, collider) is False
+
+
 def test_dir_none_breaks_a_vstructure():
     """Marking one collider arm undirected destroys the v-structure.
 
@@ -374,7 +400,7 @@ def test_tbfpc_enumerated_dags_lie_in_cpdag_class(fitted_tbfpc):
 # Regression tests for just-fixed DOT parser behaviors
 # ---------------------------------------------------------------------------
 
-from pathmc.cpdag import _parse_dot  # noqa: E402
+from pathmc._dot import parse_dot as _parse_dot  # noqa: E402
 
 
 def test_chained_edges_expand_to_directed_segments():
@@ -429,6 +455,724 @@ def test_semicolon_inside_quoted_attribute_does_not_split_statement():
     assert directed == {("A", "B"), ("B", "C")}
     assert undirected == set()
     assert same_markov_equivalence_class(dot, "digraph { A -> B; B -> C; }") is True
+
+
+def test_subgraph_wrapper_matches_flat_collider():
+    """A graphviz ``subgraph`` wrapper is the same collider, not new nodes.
+
+    Layout clusters do not change the nodes, skeleton, or unshielded colliders.
+    The reader must not invent nodes such as ``subgraph cluster { X`` or ``}``
+    and report the graphs as inequivalent.
+    """
+    flat = "digraph { X -> Y; Z -> Y; }"
+    wrapped = "digraph { subgraph cluster { X -> Y; Z -> Y; } }"
+    nodes, directed, undirected = _parse_dot(wrapped)
+    assert nodes == {"X", "Y", "Z"}
+    assert directed == {("X", "Y"), ("Z", "Y")}
+    assert undirected == set()
+    assert same_markov_equivalence_class(wrapped, flat) is True
+    assert same_markov_equivalence_class(_DummySource(wrapped), flat) is True
+
+
+def test_block_comment_does_not_glue_subgraph_keyword():
+    """A ``/* */`` between ids is a separator, not a deletion.
+
+    ``subgraph/*c*/cluster`` must stay the keyword plus a cluster id. Deleting
+    the comment invents node ``subgraphcluster`` and reports the collider as
+    inequivalent.
+    """
+    flat = "digraph { X -> Y; Z -> Y; }"
+    commented = "digraph { subgraph/*c*/cluster { X -> Y; Z -> Y } }"
+    nodes, directed, _ = _parse_dot(commented)
+    assert "subgraphcluster" not in nodes
+    assert nodes == {"X", "Y", "Z"}
+    assert directed == {("X", "Y"), ("Z", "Y")}
+    assert same_markov_equivalence_class(commented, flat) is True
+    split = _parse_dot("digraph { A/*c*/B -> Y }")
+    assert split[0] == {"A", "B", "Y"}
+    assert split[1] == {("B", "Y")}
+    with pytest.raises(ValueError):
+        _parse_dot("digraph { sub/*c*/graph cluster { X -> Y } }")
+
+
+def test_subgraph_layout_variants_do_not_invent_nodes():
+    """Nearby subgraph forms keep the same nodes and edges as the flat graph."""
+    flat = "digraph { X -> Y; Z -> Y; }"
+    variants = [
+        "digraph { { X -> Y; Z -> Y; } }",
+        "digraph { subgraph { X -> Y; Z -> Y } }",
+        "digraph { subgraph outer { subgraph cluster_in { X -> Y; Z -> Y } } }",
+        "digraph { subgraph cluster { X -> Y } Z -> Y }",
+        (
+            "digraph {\n"
+            "  rankdir=LR\n"
+            "  subgraph cluster_c {\n"
+            '    label="collider"\n'
+            "    style=dashed\n"
+            "    X -> Y\n"
+            "    Z -> Y\n"
+            "  }\n"
+            "}"
+        ),
+        'digraph { subgraph "c 1" { "X" -> "Y"; "Z" -> "Y"; } }',
+        "graph { subgraph cluster { X -- Y; Z -- Y } }",
+        "digraph { subgraph cluster { X -> Y Z -> Y } }",
+        "digraph { X -> Y subgraph cluster { Z -> Y } }",
+        "digraph { rankdir=LR subgraph cluster { X -> Y; Z -> Y } }",
+        'digraph { subgraph c { label="collider" style=dashed X -> Y; Z -> Y } }',
+    ]
+    for dot in variants:
+        nodes, directed, undirected = _parse_dot(dot)
+        assert "}" not in nodes
+        assert all("subgraph" not in node for node in nodes)
+        assert all("=" not in node for node in nodes)
+        if dot.startswith("graph "):
+            assert nodes == {"X", "Y", "Z"}
+            assert directed == set()
+            assert undirected == {frozenset({"X", "Y"}), frozenset({"Z", "Y"})}
+            assert (
+                same_markov_equivalence_class(dot, "graph { X -- Y; Z -- Y }") is True
+            )
+        else:
+            assert nodes == {"X", "Y", "Z"}
+            assert directed == {("X", "Y"), ("Z", "Y")}
+            assert undirected == set()
+            assert same_markov_equivalence_class(dot, flat) is True
+
+
+def test_edge_into_subgraph_expands_to_member_nodes():
+    """An edge into a subgraph connects to each node inside, not to the block."""
+    dotted = "digraph { A -> subgraph { B; C }; }"
+    nodes, directed, undirected = _parse_dot(dotted)
+    assert nodes == {"A", "B", "C"}
+    assert directed == {("A", "B"), ("A", "C")}
+    assert undirected == set()
+    assert same_markov_equivalence_class(dotted, "digraph { A -> B; A -> C; }") is True
+
+    braced = "digraph { { A B } -> C }"
+    nodes, directed, undirected = _parse_dot(braced)
+    assert nodes == {"A", "B", "C"}
+    assert directed == {("A", "C"), ("B", "C")}
+    assert undirected == set()
+
+    internal = "digraph { A -> subgraph { B -> C } }"
+    nodes, directed, undirected = _parse_dot(internal)
+    assert nodes == {"A", "B", "C"}
+    assert directed == {("A", "B"), ("A", "C"), ("B", "C")}
+    assert undirected == set()
+
+    product = "digraph { { A B } -> { C D } }"
+    nodes, directed, undirected = _parse_dot(product)
+    assert nodes == {"A", "B", "C", "D"}
+    assert directed == {("A", "C"), ("A", "D"), ("B", "C"), ("B", "D")}
+    assert undirected == set()
+
+    undirected_into = "digraph { A -> { B C } [dir=none] }"
+    nodes, directed, undirected = _parse_dot(undirected_into)
+    assert nodes == {"A", "B", "C"}
+    assert directed == set()
+    assert undirected == {frozenset({"A", "B"}), frozenset({"A", "C"})}
+
+    comma_nodes = "digraph { A -> subgraph cluster_c { B, C } }"
+    nodes, directed, undirected = _parse_dot(comma_nodes)
+    assert nodes == {"A", "B", "C"}
+    assert directed == {("A", "B"), ("A", "C")}
+    assert undirected == set()
+
+
+def test_malformed_subgraph_raises_instead_of_inventing_nodes():
+    """Unbalanced or bare ``subgraph`` syntax raises, naming that syntax."""
+    unbalanced = "digraph { subgraph cluster { X -> Y; Z -> Y; }"
+    with pytest.raises(ValueError, match="subgraph"):
+        same_markov_equivalence_class(unbalanced, "digraph { X -> Y; Z -> Y; }")
+    bare = "digraph { subgraph cluster X -> Y; }"
+    with pytest.raises(ValueError, match="subgraph"):
+        _parse_dot(bare)
+
+
+def test_dag_parser_uses_subgraph_nodes_not_invented_ones():
+    """The shared body reader must not invent nodes for ``dag`` either."""
+    from pathmc.dag import BuildModelFromDAG
+
+    graph = BuildModelFromDAG._parse_dag(
+        "digraph { subgraph cluster { X -> Y; Z -> Y } }"
+    )
+    assert set(graph.nodes) == {"X", "Y", "Z"}
+    assert set(graph.edges) == {("X", "Y"), ("Z", "Y")}
+
+
+def test_comment_and_html_braces_are_not_subgraph_boundaries():
+    """A ``}`` in a comment or HTML label is not unsupported subgraph syntax.
+
+    The previous reader accepted these and kept the real edge. Treating the
+    brace as a subgraph boundary must not raise or invent a node.
+    """
+    from pathmc.dag import BuildModelFromDAG
+
+    commented = "digraph { X -> Y; Z -> Y; }\n// note }\n"
+    nodes, directed, undirected = _parse_dot(commented)
+    assert nodes == {"X", "Y", "Z"}
+    assert directed == {("X", "Y"), ("Z", "Y")}
+    assert undirected == set()
+    assert (
+        same_markov_equivalence_class(commented, "digraph { X -> Y; Z -> Y; }") is True
+    )
+
+    html = "digraph { X [label=<foo {bar}>]; X -> Y }"
+    nodes, directed, undirected = _parse_dot(html)
+    assert nodes == {"X", "Y"}
+    assert directed == {("X", "Y")}
+    assert undirected == set()
+    graph = BuildModelFromDAG._parse_dag(html)
+    assert set(graph.nodes) == {"X", "Y"}
+    assert set(graph.edges) == {("X", "Y")}
+
+
+def test_html_comment_markers_numerals_and_comma_lists_keep_edges():
+    """Layout syntax must not drop the edges of an otherwise identical graph.
+
+    ``//`` and ``#`` inside an HTML label are label text. A leading ``-`` is a
+    numeral id. A comma separates a node list, so ``A -> B, C`` is the same
+    edges as ``A -> { B C }``.
+    """
+    flat = "digraph { X -> Y; Z -> Y; }"
+    html_url = "digraph {\n  X [label=<http://example.com>];\n  X -> Y;\n  Z -> Y;\n}"
+    html_hash = (
+        "digraph { subgraph cluster { X [label=<http://ex.com/a#b>]; X -> Y; Z -> Y } }"
+    )
+    for dot in (html_url, html_hash):
+        nodes, directed, undirected = _parse_dot(dot)
+        assert nodes == {"X", "Y", "Z"}
+        assert directed == {("X", "Y"), ("Z", "Y")}
+        assert undirected == set()
+        assert same_markov_equivalence_class(dot, flat) is True
+
+    weighted = "digraph { subgraph cluster { X -> Y [weight=-1]; Z -> Y } }"
+    nodes, directed, undirected = _parse_dot(weighted)
+    assert nodes == {"X", "Y", "Z"}
+    assert directed == {("X", "Y"), ("Z", "Y")}
+    assert same_markov_equivalence_class(weighted, flat) is True
+
+    numeral = "digraph { -1 -> Y; Z -> Y [weight=-1] }"
+    nodes, directed, undirected = _parse_dot(numeral)
+    assert nodes == {"-1", "Y", "Z"}
+    assert directed == {("-1", "Y"), ("Z", "Y")}
+
+    plus = 'digraph { X -> Y [label="a" + "b"]; Z -> Y }'
+    assert same_markov_equivalence_class(plus, flat) is True
+    assert _parse_dot('"a" + "b" -> Y'.join(["digraph { ", " }"]))[0] == {"ab", "Y"}
+
+    assert (
+        same_markov_equivalence_class(
+            "digraph { A -> B, C }", "digraph { A -> { B C } }"
+        )
+        is True
+    )
+    nodes, directed, undirected = _parse_dot(
+        "digraph { subgraph cluster { B, C -> D } }"
+    )
+    assert nodes == {"B", "C", "D"}
+    assert directed == {("B", "D"), ("C", "D")}
+    assert undirected == set()
+    nodes, directed, undirected = _parse_dot("digraph { A, B -> C [dir=none] }")
+    assert directed == set()
+    assert undirected == {frozenset({"A", "C"}), frozenset({"B", "C"})}
+
+    quoted = 'digraph { "node" -> Y; Z -> Y }'
+    nodes, directed, undirected = _parse_dot(quoted)
+    assert nodes == {"node", "Y", "Z"}
+    assert directed == {("node", "Y"), ("Z", "Y")}
+    assert same_markov_equivalence_class(quoted, "digraph { Z -> Y }") is False
+    assert _parse_dot('digraph { "subgraph" -> Y }')[0] == {"subgraph", "Y"}
+    assert _parse_dot('digraph { "no" + "de" -> Y }')[1] == {("node", "Y")}
+    assert _parse_dot("digraph { café -> Y }")[0] == {"café", "Y"}
+    port_nodes, port_edges, _ = _parse_dot('digraph { "A":n -> B }')
+    assert port_nodes == {"A", "B"}
+    assert port_edges == {("A", "B")}
+
+    escaped = r'digraph { A -> B [label="\""] }'
+    assert _parse_dot(escaped)[1] == {("A", "B")}
+    commented = 'digraph { X -> Y [label="a\\" // not comment"]; Z -> Y }'
+    assert _parse_dot(commented)[1] == {("X", "Y"), ("Z", "Y")}
+    assert _parse_dot("digraph { α -> β; γ -> β }")[0] == {"α", "β", "γ"}
+    for ported in (
+        'digraph { "A" : n -> B }',
+        'digraph { "A": n -> B }',
+        'digraph { "A":"n" -> B }',
+    ):
+        nodes, edges, _ = _parse_dot(ported)
+        assert nodes == {"A", "B"}
+        assert edges == {("A", "B")}
+
+    backslash = 'digraph { "foo\\bar" -> Y }'
+    assert _parse_dot(backslash)[0] == {"foo\\bar", "Y"}
+    with pytest.raises(ValueError, match="-"):
+        _parse_dot("digraph { my-node -> Y }")
+    with pytest.raises(ValueError, match=","):
+        _parse_dot("digraph { A -> B [dir=none], C }")
+
+    unicode_id = "digraph { subgraph cluster { café_α -> Y; Z -> Y } }"
+    assert _parse_dot(unicode_id)[0] == {"café_α", "Y", "Z"}
+    assert (
+        same_markov_equivalence_class(unicode_id, 'digraph { "café_α" -> Y; Z -> Y }')
+        is True
+    )
+    for bad, token in (
+        ("digraph { Node-2 -> Y }", "-"),
+        ("digraph { node-2 -> Y }", "-"),
+        ("digraph { foo(bar) -> Y }", r"\("),
+        ("digraph { foo\\bar -> Y }", r"\\"),
+    ):
+        with pytest.raises(ValueError, match=token):
+            _parse_dot(bad)
+
+    assert _parse_dot("digraph { © -> Y; Z -> Y }")[0] == {"©", "Y", "Z"}
+    fullwidth = "digraph { subgraph cluster { ３abc -> Y; Z -> Y } }"
+    assert _parse_dot(fullwidth)[0] == {"３abc", "Y", "Z"}
+    with pytest.raises(ValueError, match="-"):
+        _parse_dot("digraph { A -> Node-2 }")
+
+
+def test_unquoted_unicode_space_stays_one_id():
+    """NBSP and em space are part of an unquoted id, including in a subgraph.
+
+    ASCII space, tab, CR, and LF still separate tokens. Splitting every
+    ``str.isspace()`` character invents nodes and reports a false mismatch
+    against the quoted form of the same id.
+    """
+    for gap in ("\u00a0", "\u2003"):
+        node = f"A{gap}B"
+        flat = f"digraph {{ {node} -> Y; Z -> Y; }}"
+        wrapped = f"digraph {{ subgraph cluster {{ {node} -> Y; Z -> Y; }} }}"
+        quoted = f'digraph {{ "{node}" -> Y; Z -> Y; }}'
+        assert _parse_dot(flat)[0] == {node, "Y", "Z"}
+        assert _parse_dot(wrapped)[0] == {node, "Y", "Z"}
+        assert _parse_dot(flat)[1] == {(node, "Y"), ("Z", "Y")}
+        assert same_markov_equivalence_class(flat, quoted) is True
+        assert same_markov_equivalence_class(wrapped, flat) is True
+
+    for sep in (" ", "\t", "\r", "\n"):
+        split = f"digraph {{ A{sep}B -> Y; }}"
+        nodes, directed, _ = _parse_dot(split)
+        assert "A" in nodes and "B" in nodes
+        assert f"A{sep}B" not in nodes
+        assert directed == {("B", "Y")}
+
+
+def test_quoted_string_keeps_every_backslash():
+    """Graphviz keeps each backslash in a quoted id; ``\\\\`` is not one slash.
+
+    A quote ends the string only when preceded by an even number of
+    backslashes. Collapsing ``\\\\`` makes ``"foo\\\\bar"`` compare equal to
+    ``"foo\\bar"``, and a subgraph id ``"C:\\\\"`` is no longer ``C:\\\\``.
+    """
+    labeled = 'digraph { A [label="foo\\\\"]; A -> B }'
+    nodes, directed, _ = _parse_dot(labeled)
+    assert nodes == {"A", "B"}
+    assert directed == {("A", "B")}
+    wrapped = 'digraph { subgraph cluster { "C:\\\\" -> Y; Z -> Y } }'
+    nodes, directed, _ = _parse_dot(wrapped)
+    assert nodes == {"C:\\\\", "Y", "Z"}
+    assert directed == {("C:\\\\", "Y"), ("Z", "Y")}
+    assert _parse_dot('digraph { "foo\\bar" -> Y }')[0] == {"foo\\bar", "Y"}
+    assert _parse_dot('digraph { "foo\\\\bar" -> Y }')[0] == {"foo\\\\bar", "Y"}
+    assert _parse_dot('digraph { "foo\\"bar" -> Y }')[0] == {'foo"bar', "Y"}
+    assert (
+        same_markov_equivalence_class(
+            'digraph { "foo\\bar" -> Y; Z -> Y }',
+            'digraph { "foo\\\\bar" -> Y; Z -> Y }',
+        )
+        is False
+    )
+
+
+def test_subgraph_keeps_empty_html_and_glued_port_ids():
+    """Valid subgraph spellings keep Graphviz node identity.
+
+    ``A: n`` and ``A:n`` are both a port on ``A``. ``""`` is a node.
+    An HTML statement is a node, not an error. Mixed ``"A"+B`` raises.
+    """
+    glued = "digraph { subgraph cluster { A: n -> Y; Z -> Y } }"
+    nodes, directed, _ = _parse_dot(glued)
+    assert nodes == {"A", "Y", "Z"}
+    assert directed == {("A", "Y"), ("Z", "Y")}
+    assert _parse_dot("digraph { A:n -> B }")[0] == {"A", "B"}
+    assert _parse_dot("digraph { subgraph cluster { A:n -> Y; Z -> Y } }")[0] == {
+        "A",
+        "Y",
+        "Z",
+    }
+    assert _parse_dot('digraph { subgraph cluster { "" } }')[0] == {""}
+    assert (
+        same_markov_equivalence_class(
+            'digraph { subgraph cluster { "" } }', "digraph { }"
+        )
+        is False
+    )
+    empty_edge = 'digraph { subgraph cluster { "" -> Y } }'
+    nodes, directed, _ = _parse_dot(empty_edge)
+    assert "" in nodes and "Y" in nodes
+    assert directed == {("", "Y")}
+    html = "digraph { subgraph cluster { <!-- x --> X -> Y; Z -> Y } }"
+    nodes, directed, _ = _parse_dot(html)
+    assert "!-- x --" in nodes
+    assert directed == {("X", "Y"), ("Z", "Y")}
+    with pytest.raises(ValueError, match=r"\+"):
+        _parse_dot('digraph { "A"+B -> Y; Z -> Y }')
+
+
+def test_subgraph_ports_ids_and_edge_dir_default():
+    """Layout ports and cluster ids must not invent a Markov class.
+
+    A second compass piece is not a node. A concatenated or HTML subgraph
+    id is not a node and must not raise. ``edge [dir=none]`` inside a
+    subgraph is undirected, not a collider.
+    """
+    ports = "digraph { subgraph cluster { A: n: ne -> B } }"
+    nodes, directed, _ = _parse_dot(ports)
+    assert nodes == {"A", "B"}
+    assert directed == {("A", "B")}
+    assert same_markov_equivalence_class(ports, "digraph { A -> B }") is True
+    assert same_markov_equivalence_class(ports, "digraph { A; ne -> B }") is False
+    assert _parse_dot("digraph { A: n : ne -> B }")[0] == {"A", "B"}
+    assert _parse_dot("digraph { A:n -> B }")[0] == {"A", "B"}
+    assert _parse_dot('digraph { "A": n: ne -> B }')[0] == {"A", "B"}
+
+    concat = 'digraph { subgraph "A"+"B" { X -> Y; Z -> Y } }'
+    nodes, directed, _ = _parse_dot(concat)
+    assert nodes == {"X", "Y", "Z"}
+    assert "AB" not in nodes
+    assert same_markov_equivalence_class(concat, "digraph { X -> Y; Z -> Y }") is True
+    assert _parse_dot("digraph { subgraph <BR/> { X -> Y } }")[0] == {"X", "Y"}
+
+    default = "digraph { subgraph cluster { edge [dir=none]; X -> Y; Z -> Y } }"
+    nodes, directed, undirected = _parse_dot(default)
+    assert nodes == {"X", "Y", "Z"}
+    assert directed == set()
+    assert undirected == {frozenset(("X", "Y")), frozenset(("Z", "Y"))}
+    assert same_markov_equivalence_class(default, "digraph { X -> Y; Z -> Y }") is False
+
+
+def test_glued_compass_port_is_not_a_node():
+    """Graphviz emits ``A:n -> B`` for node ``A``. That is not node ``A:n``."""
+    wrapped = "digraph { subgraph cluster { A:n -> Y; Z -> Y } }"
+    assert _parse_dot(wrapped)[0] == {"A", "Y", "Z"}
+    assert same_markov_equivalence_class(wrapped, "digraph { A -> Y; Z -> Y }") is True
+    assert _parse_dot("digraph { A:n -> B }")[0] == {"A", "B"}
+    assert _parse_dot('digraph { "A:":n -> B }')[0] == {"A:", "B"}
+    nodes, directed, _ = _parse_dot('digraph { "A":"n:" B -> C }')
+    assert nodes == {"A", "B", "C"}
+    assert directed == {("B", "C")}
+    assert _parse_dot("digraph { <A>:n -> Y }")[0] == {"A", "Y"}
+    assert _parse_dot("digraph { A:<n> -> B }")[0] == {"A", "B"}
+    assert _parse_dot('digraph { "A"+<B> -> Y }')[0] == {"AB", "Y"}
+    assert _parse_dot("digraph { <A>+<B> -> Y }")[0] == {"AB", "Y"}
+    html_dir = "digraph { subgraph cluster { X -> Y [dir=<none>]; Z -> Y } }"
+    _, directed, undirected = _parse_dot(html_dir)
+    assert ("X", "Y") not in directed
+    assert frozenset(("X", "Y")) in undirected
+    assert ("Z", "Y") in directed
+    with pytest.raises(ValueError, match="keyword"):
+        _parse_dot("digraph { A:node -> B }")
+    with pytest.raises(ValueError, match="keyword"):
+        _parse_dot("digraph { subgraph node { X -> Y; Z -> Y } }")
+    assert _parse_dot('digraph { subgraph "node" { X -> Y } }')[0] == {"X", "Y"}
+
+
+def test_keyword_endpoint_and_unquoted_plus_do_not_rewrite_the_graph():
+    """Invalid spellings raise instead of comparing equal to a different graph."""
+    for bad in (
+        "digraph { node -> Y }",
+        "digraph { subgraph cluster { node -> Y } }",
+        "digraph { Node -> Y }",
+        "digraph { subgraph cluster { EDGE -> Y } }",
+        "digraph { edge -> Y }",
+        "digraph { graph -> Y }",
+        "digraph { Graph -> Y }",
+    ):
+        with pytest.raises(ValueError, match="keyword"):
+            same_markov_equivalence_class(bad, "digraph { Y }")
+    with pytest.raises(ValueError, match=r"\+"):
+        same_markov_equivalence_class("digraph { A+B -> Y }", "digraph { AB -> Y }")
+    assert _parse_dot('digraph { "A"+"B" -> Y }')[1] == {("AB", "Y")}
+    with pytest.raises(ValueError, match="dir=none"):
+        _parse_dot("digraph { D -> C; A -> C [dir=none] -> B }")
+    split = "digraph { A -> C [dir=none]; C -> B }"
+    _, directed, undirected = _parse_dot(split)
+    assert ("A", "C") not in directed
+    assert frozenset(("A", "C")) in undirected
+    assert ("C", "B") in directed
+    with pytest.raises(ValueError, match=","):
+        _parse_dot("digraph { A -> { B C }, D }")
+    with pytest.raises(ValueError, match=","):
+        _parse_dot("digraph { { A B }, C -> D }")
+    assert _parse_dot("digraph { A -> B, C }")[1] == {("A", "B"), ("A", "C")}
+
+
+def test_unquoted_graph_keywords_and_node_assignment_are_rejected():
+    """Graphviz rejects bare keywords and ``node = box``; do not rewrite them.
+
+    An unquoted ``digraph``, ``subgraph``, or ``strict`` is not a node.
+    Keeping it, or dropping ``node = box``, makes the graph compare equal to
+    a rewritten valid graph. Quote the keyword, or write ``node [shape=box]``.
+    """
+    quoted = {
+        "digraph": 'digraph { "digraph" -> Y }',
+        "strict": 'digraph { "strict" -> Y }',
+        "subgraph": 'digraph { "subgraph" -> Y }',
+    }
+    bare = (
+        "digraph { digraph -> Y }",
+        "digraph { DIGRAPH -> Y }",
+        "digraph { subgraph cluster { digraph -> Y } }",
+        "digraph { strict -> Y }",
+        "digraph { STRICT; X -> Y }",
+        "digraph { subgraph digraph { X -> Y } }",
+        "digraph { subgraph strict { X -> Y } }",
+        "digraph { A:digraph -> Y }",
+        "digraph { A:strict -> Y }",
+        "digraph { X [label=strict] }",
+        "digraph { X [digraph=box] }",
+        "digraph { digraph = box; X -> Y }",
+        "digraph { strict = box; X -> Y }",
+        "digraph { subgraph = box; X -> Y }",
+    )
+    for bad in bare:
+        with pytest.raises(ValueError, match="keyword"):
+            same_markov_equivalence_class(bad, 'digraph { "digraph" -> Y }')
+    with pytest.raises(ValueError, match="Quote it"):
+        same_markov_equivalence_class("digraph { subgraph -> Y }", quoted["subgraph"])
+    for spelling in (
+        "digraph { node = box; X -> Y }",
+        "digraph { node=box; X -> Y }",
+        "digraph { Node = box; X -> Y }",
+        "digraph { subgraph cluster { node = box; X -> Y; Z -> Y } }",
+        "graph { node = box; A -- B }",
+        "digraph G [node = box] { X -> Y; Z -> Y }",
+        "digraph G [NODE=box] { X -> Y }",
+        "graph G [node = box] { A -- B }",
+        "digraph node = box { X -> Y }",
+        "digraph G node = box { X -> Y }",
+        "digraph { X -> Y [node=box]; Z -> Y }",
+        "digraph { X [node = box]; X -> Y }",
+    ):
+        with pytest.raises(ValueError, match=r"node \[shape=box\]"):
+            same_markov_equivalence_class(spelling, "digraph { X -> Y }")
+    from pathmc.dag import BuildModelFromDAG, dag_to_spec
+
+    with pytest.raises(ValueError, match=r"node \[shape=box\]"):
+        BuildModelFromDAG._parse_dag("digraph G [node = box] { X -> Y; Z -> Y }")
+    with pytest.raises(ValueError, match=r"node \[shape=box\]"):
+        dag_to_spec("digraph { X -> Y [node = box] }")
+    assert _parse_dot('digraph { "digraph" -> Y }')[0] == {"digraph", "Y"}
+    assert _parse_dot('digraph { "strict" -> Y }')[0] == {"strict", "Y"}
+    assert _parse_dot('digraph { "subgraph" -> Y }')[0] == {"subgraph", "Y"}
+    assert _parse_dot("digraph { node [shape=box]; X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot('digraph { "node" = box; X -> Y }')[1] == {("X", "Y")}
+    assert _parse_dot("digraph { subgraph cluster { X -> Y; Z -> Y } }")[0] == {
+        "X",
+        "Y",
+        "Z",
+    }
+    assert (
+        same_markov_equivalence_class("strict graph { A -- B }", "graph { A -- B }")
+        is True
+    )
+
+
+def test_quoted_odd_backslash_before_lf_is_line_continuation():
+    """An odd backslash run before LF joins the lines; an even run does not.
+
+    Graphviz treats ``"foo\\<LF>bar"`` as node ``foobar``. Two backslashes
+    before the line feed stay in the id, with the line feed.
+    """
+    odd = 'digraph { "foo\\\nbar" -> Y; Z -> Y }'
+    wrapped = 'digraph { subgraph cluster { "foo\\\nbar" -> Y; Z -> Y } }'
+    flat = "digraph { foobar -> Y; Z -> Y }"
+    assert _parse_dot(odd)[0] == {"foobar", "Y", "Z"}
+    assert _parse_dot(wrapped)[0] == {"foobar", "Y", "Z"}
+    assert same_markov_equivalence_class(odd, flat) is True
+    assert same_markov_equivalence_class(wrapped, flat) is True
+    three = 'digraph { "foo\\\\\\\nbar" }'
+    assert _parse_dot(three)[0] == {"foo\\\\bar"}
+    even = 'digraph { "foo\\\\\nbar" -> Y }'
+    nodes, directed, _ = _parse_dot(even)
+    assert nodes == {"foo\\\\\nbar", "Y"}
+    assert directed == {("foo\\\\\nbar", "Y")}
+    assert same_markov_equivalence_class(even, "digraph { foobar -> Y }") is False
+
+
+def test_unquoted_keywords_in_values_and_graph_names_are_rejected():
+    """A dropped keyword value or graph name must not match a rewritten graph.
+
+    ``label=strict`` and ``digraph strict { ... }`` are not ids. Quote the
+    keyword. ``label=node`` and ``graph = box`` are a separate Graphviz
+    difference and are not covered here.
+    """
+    flat = "digraph { X -> Y; Z -> Y }"
+    for bad in (
+        "digraph { label=strict; X -> Y; Z -> Y }",
+        "digraph { rankdir=DIGRAPH; X -> Y }",
+        "digraph { foo = SUBGRAPH; X -> Y }",
+        'digraph { foo="a"+subgraph; X -> Y }',
+        "digraph { subgraph cluster { label=strict; X -> Y } }",
+        "graph { label=strict; A -- B }",
+        "digraph strict { X -> Y; Z -> Y }",
+        "digraph DIGRAPH { X -> Y }",
+        "strict digraph strict { X -> Y }",
+        "graph SUBGRAPH { A -- B }",
+        "DiGraph Strict { X -> Y }",
+        "digraph /*c*/ strict { X -> Y }",
+        "digraph G [label=strict] { X -> Y }",
+        "digraph 0strict { X -> Y; Z -> Y }",
+        "digraph 00strict { X -> Y }",
+    ):
+        with pytest.raises(ValueError, match="unsupported DOT syntax"):
+            same_markov_equivalence_class(bad, flat)
+    with pytest.raises(ValueError, match=r'label="strict"'):
+        _parse_dot("digraph { label=strict; X -> Y }")
+    with pytest.raises(ValueError, match=r'digraph "strict"'):
+        _parse_dot("digraph strict { X -> Y }")
+    with pytest.raises(ValueError, match=r'DiGraph "Strict"'):
+        _parse_dot("DiGraph Strict { X -> Y }")
+    assert _parse_dot('digraph "strict" { X -> Y }')[0] == {"X", "Y"}
+    assert _parse_dot('digraph { label="strict"; X -> Y }')[0] == {"X", "Y"}
+    assert _parse_dot("digraph G { X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot("strict digraph { A -> B }")[1] == {("A", "B")}
+    assert _parse_dot("digraph { rankdir=LR; X -> Y }")[1] == {("X", "Y")}
+    nbsp = "digraph foo\u00a0strict { X -> Y }"
+    em = "digraph foo\u2003strict { X -> Y }"
+    assert _parse_dot(nbsp)[0] == {"X", "Y"}
+    assert _parse_dot(em)[0] == {"X", "Y"}
+    assert _parse_dot("digraph \u00a0strict { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("digraph strict\u00a0 { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("digraph strict\u2003 { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("digraph my-graph { X -> Y }")[0] == {"X", "Y"}
+    from pathmc.dag import BuildModelFromDAG
+
+    with pytest.raises(ValueError, match=r'digraph "strict"'):
+        BuildModelFromDAG._parse_dag("digraph strict { X -> Y; Z -> Y }")
+    with pytest.raises(ValueError, match=r'label="strict"'):
+        BuildModelFromDAG._parse_dag("digraph G [label=strict] { X -> Y }")
+
+
+def test_unicode_space_does_not_separate_header_keywords():
+    """A non-ASCII space is not a header separator.
+
+    Graphviz rejects ``strict<NBSP>digraph`` and ``digraph<NBSP>foo``.
+    Those must raise and name an ASCII-space repair, not match the graph
+    with the glued keyword removed. A unicode space inside a name still
+    parses. ``digraph.foo`` stays accepted: that mismatch is out of scope.
+    """
+    from pathmc.dag import BuildModelFromDAG
+
+    flat = "digraph { X -> Y; Z -> Y }"
+    repairs = (
+        ("strict\u00a0digraph { X -> Y; Z -> Y }", flat, "strict digraph"),
+        ("strict\u2003digraph { X -> Y; Z -> Y }", flat, "strict digraph"),
+        ("STRICT\u00a0DiGraph { X -> Y }", "digraph { X -> Y }", "STRICT DiGraph"),
+        ("strict\u00a0graph { A -- B }", "graph { A -- B }", "strict graph"),
+        ("\u00a0digraph { X -> Y }", "digraph { X -> Y }", "digraph"),
+        ("digraph\u00a0foo { X -> Y }", "digraph { X -> Y }", "digraph foo"),
+        ("digraph\u00a0{ X -> Y }", "digraph { X -> Y }", "digraph {"),
+        ("strict \u00a0digraph { X -> Y }", "digraph { X -> Y }", "strict digraph"),
+    )
+    for src, rewritten, repair in repairs:
+        with pytest.raises(ValueError, match=f"Write {repair!r} instead"):
+            same_markov_equivalence_class(src, rewritten)
+    assert _parse_dot("digraph foo\u00a0bar { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("strict digraph { X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot("strict\tdigraph { X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot("strict\ndigraph { X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot("digraph.foo { X -> Y }")[0] == {"X", "Y"}
+    with pytest.raises(ValueError, match="Write 'digraph foo' instead"):
+        BuildModelFromDAG._parse_dag("digraph\u00a0foo { X -> Y }")
+    with pytest.raises(ValueError, match="Write 'digraph' instead"):
+        BuildModelFromDAG._parse_dag("\u00a0digraph { X -> Y }")
+    parsed = BuildModelFromDAG._parse_dag("digraph foo\u00a0bar { X -> Y }")
+    assert set(parsed.nodes) == {"X", "Y"}
+
+
+def test_header_keyword_prefix_is_not_a_header():
+    """A keyword glued to a longer id is not a header.
+
+    Graphviz rejects ``digraphfoo``. That string must not compare equal to
+    the graph with the suffix removed. A dot, a hyphen, and a brace are not
+    this split: ``digraph.foo``, ``digraph my-graph``, and ``digraph{`` stay
+    accepted. A unicode space after the keyword still names an ASCII-space
+    repair rather than taking this path.
+    """
+    from pathmc.dag import BuildModelFromDAG, dag_to_spec
+
+    flat = "digraph { X -> Y; Z -> Y }"
+    prefixes = (
+        "digraphfoo { X -> Y; Z -> Y }",
+        "graphfoo { A -- B }",
+        "DIGRAPHfoo { X -> Y }",
+        "digraph0 { X -> Y }",
+        "digraph_foo { X -> Y }",
+        "digraphé { X -> Y }",
+        "strict digraphfoo { X -> Y; Z -> Y }",
+    )
+    for src in prefixes:
+        with pytest.raises(ValueError, match="Could not parse DOT text"):
+            same_markov_equivalence_class(src, flat)
+        with pytest.raises(ValueError, match="Could not parse DOT text"):
+            _parse_dot(src)
+    with pytest.raises(ValueError, match="Could not parse DOT text"):
+        dag_to_spec("digraphfoo { X -> Y }")
+    with pytest.raises(ValueError, match="Could not parse DOT text"):
+        BuildModelFromDAG._parse_dag("digraphfoo { X -> Y }")
+    assert _parse_dot("digraph.foo { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("digraph my-graph { X -> Y }")[0] == {"X", "Y"}
+    assert _parse_dot("digraph{ X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot("digraph-foo { X -> Y }")[0] == {"X", "Y"}
+
+
+def test_keyword_rejections_name_the_position_repair():
+    """Attribute values and glued numerals must name the position's repair."""
+    from pathmc.dag import BuildModelFromDAG, dag_to_spec
+
+    with pytest.raises(ValueError, match=r'label="strict"'):
+        _parse_dot("digraph { X [label=strict] }")
+    with pytest.raises(ValueError, match=r'label="strict"'):
+        _parse_dot("digraph { X -> Y [label=strict] }")
+    with pytest.raises(ValueError, match=r'digraph "0strict"'):
+        _parse_dot("digraph 0strict { X -> Y }")
+    with pytest.raises(ValueError, match=r'digraph "00strict"'):
+        _parse_dot("digraph 00strict { X -> Y }")
+    with pytest.raises(ValueError, match=r'subgraph "0strict"'):
+        _parse_dot("digraph { subgraph 0strict { X -> Y } }")
+    with pytest.raises(ValueError, match=r'digraph "0strict"'):
+        BuildModelFromDAG._parse_dag("digraph 0strict { X -> Y }")
+    with pytest.raises(ValueError, match=r'subgraph "0strict"'):
+        BuildModelFromDAG._parse_dag("digraph { subgraph 0strict { X -> Y } }")
+    with pytest.raises(ValueError, match=r'label="strict"'):
+        dag_to_spec("digraph { X [label=strict]; X -> Y }")
+    with pytest.raises(ValueError, match=r'"0strict" -> Y'):
+        _parse_dot("digraph { 0strict -> Y }")
+    with pytest.raises(ValueError, match=r'"0strict" -> Y'):
+        _parse_dot("digraph { A:0strict -> Y }")
+    with pytest.raises(ValueError, match=r'"0STRICT" = box'):
+        _parse_dot("digraph { 0STRICT = box }")
+    with pytest.raises(ValueError, match=r'label="0strict"'):
+        _parse_dot("digraph { X [label=0strict] }")
+    with pytest.raises(ValueError, match=r'label="00strict"'):
+        _parse_dot("digraph { X -> Y [label=00strict] }")
+    with pytest.raises(ValueError, match=r'label="0Subgraph"'):
+        _parse_dot("digraph G [label=0Subgraph] { X -> Y }")
+    with pytest.raises(ValueError, match=r"node \[shape=0strict\]"):
+        _parse_dot("digraph { node=0strict; X -> Y }")
+    with pytest.raises(ValueError, match=r"node \[shape=0strict\]"):
+        _parse_dot("digraph G [node=0strict] { X -> Y }")
+    with pytest.raises(ValueError, match=r"node \[shape=0strict\]"):
+        _parse_dot("digraph { X [node = 0strict] }")
+    with pytest.raises(ValueError, match=r"node \[shape=0strict\]"):
+        _parse_dot("digraph { X -> Y [node=0strict] }")
+    with pytest.raises(ValueError, match=r'"0strict" -> Y'):
+        dag_to_spec("digraph { 0strict -> Y }")
+    with pytest.raises(ValueError, match=r"node \[shape=0strict\]"):
+        BuildModelFromDAG._parse_dag("digraph { node=0strict; X -> Y }")
 
 
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():

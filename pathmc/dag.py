@@ -73,25 +73,13 @@ def _parse_dag(dag_str: str) -> nx.DiGraph:
         If the DOT braces are malformed, an edge token is invalid, or the
         result is not acyclic.
     """
-    s = dag_str.strip()
+    from pathmc._dot import parse_dag_digraph
+
+    parsed = parse_dag_digraph(dag_str)
     g = nx.DiGraph()
 
-    if s.lower().startswith("digraph"):
-        brace_start = s.find("{")
-        brace_end = s.rfind("}")
-        if brace_start == -1 or brace_end == -1 or brace_end <= brace_start:
-            raise ValueError(
-                "Malformed DOT digraph: missing braces. Expected "
-                "'digraph { A -> B; ... }'."
-            )
-        # Reuse the shared DOT body parser so quoted ids (as emitted by
-        # TBFPC.to_digraph / get_all_cdags_from_cpdag), chained edges, and
-        # attribute brackets are all handled consistently.
-        from pathmc.cpdag import _parse_dot_body
-
-        nodes, directed, undirected = _parse_dot_body(
-            s[brace_start + 1 : brace_end], is_undirected_graph=False
-        )
+    if parsed is not None:
+        nodes, directed, undirected = parsed
         if undirected:
             pretty = ", ".join(
                 f"{u}--{v}" for u, v in sorted(tuple(sorted(e)) for e in undirected)
@@ -105,6 +93,7 @@ def _parse_dag(dag_str: str) -> nx.DiGraph:
         g.add_edges_from(directed)
 
     else:
+        s = dag_str.strip()
         edges: list[tuple[str, str]] = []
         for token in re.split(r"[,\n]+", s):
             token = token.strip().rstrip(";")
