@@ -46,13 +46,21 @@ jobs:
       (github.event_name != 'pull_request' ||
        needs.changes.result != 'success' ||
        needs.changes.outputs.code == 'true')
-    runs-on: ubuntu-latest
+    # Issue #654 probe: public arm64 runners are also 4 vCPU. Measure compile
+    # wall clock on that image without changing the suite.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Record runner shape
+        run: |
+          echo "nproc=$(nproc)"
+          python3 -c 'import os; print("cpu_count", os.cpu_count())'
+          lscpu | awk -F: '/Model name|CPU\(s\)|Thread|Core\(s\) per socket|Socket|Architecture|Vendor ID/ {gsub(/^[ \t]+/, "", $2); print}'
       - name: Install uv
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - name: Install dependencies
