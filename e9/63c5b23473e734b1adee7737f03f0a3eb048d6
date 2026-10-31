@@ -1,0 +1,22 @@
+docs/user_guide/19-panel-data.qmd
+  h_63db634213747e 193-194
+pathmc/_model.py
+  h_63db634213747e 2276-2281
+pathmc/simulate.py
+  h_63db634213747e 2162-2167,2202-2203,2624,2632-2635,2637-2643,2645-2653
+tests/test_do_released_steps.py
+  h_63db634213747e 161-162,174,176-177,179-185,209-308
+tests/test_gaussian_panel_trajectories.py
+  h_63db634213747e 283-316
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e963c5b23473e734b1adee7737f03f0a3eb048d6",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
