@@ -42,9 +42,9 @@ The dense grid is required for carry-over, not only for `lag()`:
 - Geometric `adstock()` with `panel=` uses that same scan. The recursion `y_t = x_t + decay * y_{t-1}` runs inside each unit, including past lag 12.
 - `delayed_adstock()` and `weibull_adstock()` do not use the scan. They still sort, reshape to the same grid, and convolve down the time axis only. Their kernels stay finite.
 
-A panel with no `lag()` and no convolution adstock (`adstock()`, `delayed_adstock()`, or `weibull_adstock()`) does not take this reshape. Random intercepts, random slopes, and a trend stay row-wise. That frame does not have to be a dense unit-by-time rectangle.
+A panel with no `lag()` and no convolution adstock (`adstock()`, `delayed_adstock()`, or `weibull_adstock()`) does not take this reshape. Random intercepts, random slopes, and a trend stay row-wise. `model()` accepts that frame without a dense rectangle. `simulate()` still requires every unit to share the same times.
 
-On a scan model, the dense grid is a compile-time shape. `n_units` and `n_times` are baked in, so a later `pm.set_data()` of a different panel shape is rejected rather than silently mis-reshaped. Build a new model on the new frame instead.
+On a scan model, the dense grid is a compile-time shape. `n_units` and `n_times` are baked in. `pm.set_data()` itself does not reject a different shape. `predict()` rejects a scan model whose 2-D data no longer has that `(n_times, n_units)` shape, rather than silently mis-reshaping. Build a new model on the new frame instead. `do()` keeps the compiled horizon and does not read the resized array.
 
 Without `panel=`, convolution adstock treats row order as one series (the [non-panel warning in #655](https://github.com/pymc-labs/pathmc/issues/655)).
 
@@ -158,7 +158,7 @@ model = pathmc.model(
 )
 ```
 
-The data must be rectangular: every `geo × brand` combination shares the same set of `week` values. Non-rectangular panels raise an error naming the offending combinations. Under the hood the composite key (`"North|Acme"` style labels) becomes the unit coordinate, so each cell gets its own random intercept under `pooling="partial"` — the same machinery as single-column panels. Because `|` separates the source labels, values in multi-dimensional unit columns cannot themselves contain `|`; recode those values before building the model. Per-dimension coords such as `geo` keep their native dtype (numeric columns stay numeric), while the composite `unit` labels are strings — cast when joining lookups across the two.
+That adstock formula takes the carry-over reshape, so the frame must be rectangular: every `geo × brand` combination shares the same set of `week` values. A non-rectangular panel raises an error naming the offending combinations. Under the hood the composite key (`"North|Acme"` style labels) becomes the unit coordinate, so each cell gets its own random intercept under `pooling="partial"` — the same machinery as single-column panels. Because `|` separates the source labels, values in multi-dimensional unit columns cannot themselves contain `|`; recode those values before building the model. Per-dimension coords such as `geo` keep their native dtype (numeric columns stay numeric), while the composite `unit` labels are strings — cast when joining lookups across the two.
 
 ## Structured pooling with `by_var`
 
