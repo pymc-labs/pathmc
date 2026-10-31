@@ -154,6 +154,32 @@ def test_styled_dir_none_is_undirected():
     )
 
 
+def test_quoted_dir_none_stays_directed():
+    """A quoted ``dir`` value is not the contracted unquoted spelling.
+
+    origin/main matched ``dir\\s*=\\s*none`` on the raw attribute text, so a
+    quote between ``=`` and ``none`` stayed directed. ``dir="none"`` and
+    ``dir="none"+"x"`` must not compare equal to an undirected edge. HTML
+    ``dir=<none>`` remains the contracted undirected form.
+    """
+    from pathmc.dag import dag_to_spec
+
+    collider = "digraph { A -> C; B -> C }"
+    undirected = "graph { A -- C; B -- C }"
+    quoted = (
+        'digraph { A -> C [dir="none"]; B -> C [dir="none"] }',
+        'digraph { A -> C [dir="none"+"x"]; B -> C [dir="none"+"x"] }',
+        'digraph { A -> C [dir="NONE"]; B -> C [dir="NONE"] }',
+    )
+    for src in quoted:
+        assert same_markov_equivalence_class(src, collider) is True
+        assert same_markov_equivalence_class(src, undirected) is False
+    assert dag_to_spec(quoted[0]) == "C ~ A + B"
+    html = "digraph { A -> C [dir=<none>]; B -> C [dir=<none>] }"
+    assert same_markov_equivalence_class(html, undirected) is True
+    assert same_markov_equivalence_class(html, collider) is False
+
+
 def test_dir_none_breaks_a_vstructure():
     """Marking one collider arm undirected destroys the v-structure.
 
@@ -1093,9 +1119,9 @@ def test_header_keyword_prefix_is_not_a_header():
             same_markov_equivalence_class(src, flat)
         with pytest.raises(ValueError, match="Could not parse DOT text"):
             _parse_dot(src)
-    with pytest.raises(ValueError, match="Malformed DOT digraph: missing braces"):
+    with pytest.raises(ValueError, match="Could not parse DOT text"):
         dag_to_spec("digraphfoo { X -> Y }")
-    with pytest.raises(ValueError, match="Malformed DOT digraph: missing braces"):
+    with pytest.raises(ValueError, match="Could not parse DOT text"):
         BuildModelFromDAG._parse_dag("digraphfoo { X -> Y }")
     assert _parse_dot("digraph.foo { X -> Y }")[0] == {"X", "Y"}
     assert _parse_dot("digraph my-graph { X -> Y }")[0] == {"X", "Y"}

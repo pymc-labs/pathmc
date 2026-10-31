@@ -837,11 +837,16 @@ class _DotBodyParser:
                 if _is_op(token, "=") and attr is not None and attr.lower() == "dir":
                     dir_was_set = True
                     value_token = self.peek()
+                    # Quoted ``dir="none"`` is not the contracted spelling.
+                    # origin/main's raw dir=none search did not see
+                    # through quotes, so a quoted value stays directed. HTML
+                    # ``dir=<none>`` is the one quoted-like form the tests lock.
                     if value_token is not None and value_token.kind == "html":
                         dir_none = value_token.interior == "none"
+                    elif value_token is not None and value_token.kind == "id":
+                        dir_none = value_token.text.lower() == "none"
                     else:
-                        value = _id_text(value_token)
-                        dir_none = value is not None and value.lower() == "none"
+                        dir_none = False
             prev = token
         return dir_none, dir_was_set
 
@@ -970,8 +975,10 @@ def parse_dag_digraph(
     ``pathmc.dag`` accepts either ``digraph { ... }`` or ``A->B, B->C``.
     Only an ASCII-stripped ``digraph`` prefix is DOT here; ``strict digraph``
     stays on the edge-list path. A leading non-ASCII space is not a header
-    separator. Missing braces raise the dag message. Keyword and body errors
-    raise the DOT reader's ``ValueError``.
+    separator. A failed header match raises the DOT reader's missing-graph
+    error: ``digraphfoo { ... }`` has braces, so it is not a missing-brace
+    input. Missing braces raise the dag message only after a real header.
+    Keyword and body errors raise the DOT reader's ``ValueError``.
     """
     ascii_s = text.strip(" \t\r\n")
     looks_like_header = ascii_s[:1].isspace() or ascii_s.lower().startswith("digraph")
@@ -979,7 +986,7 @@ def parse_dag_digraph(
     if not ascii_s.lower().startswith("digraph"):
         return None
     if header is None:
-        raise ValueError(_DAG_MISSING_BRACES)
+        raise ValueError(_MISSING_GRAPH)
     body = _body_after(ascii_s, header)
     if body is None:
         raise ValueError(_DAG_MISSING_BRACES)
