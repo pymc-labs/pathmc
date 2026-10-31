@@ -3526,7 +3526,15 @@ def simulate(
     params : dict[str, Any]
         True parameter values keyed by PyMC variable name. Typical
         keys are ``"beta_{var}"`` (coefficient vector) and
-        ``"sigma_{var}"`` (residual std). For residual covariances
+        ``"sigma_{var}"``. For a Gaussian outcome, ``sigma_{var}`` is
+        the residual standard deviation, which equals the distribution
+        scale. For StudentT, ``sigma_{var}`` is the scale, not the
+        residual standard deviation. ``simulate()`` leaves that supplied
+        value unchanged so a posterior round-trip is not converted twice.
+        Cross-sectional draws use that scale with ``nu_{var}``. Scan
+        lag-carry reconstructs each state as ``mu + sigma_{var} * e``,
+        where ``e`` is a unit normal innovation, so the innovation scale
+        is ``sigma_{var}`` and ``nu`` is not used. For residual covariances
         (``~~``), supply ``"chol_{block_name}"`` as the packed
         lower-triangular Cholesky vector of length ``k(k+1)/2``
         (PyMC ``LKJCholeskyCov`` packing); block members' simulated
