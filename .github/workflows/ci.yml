@@ -39,7 +39,11 @@ jobs:
               - '!*.qmd'
               - '!**/*.qmd'
 
-  test:
+  # One runner takes about forty minutes. Four jobs share the same `make test`
+  # selection. Group 1 is the fuzz file; its wall clock is the floor. The
+  # script appends a test file that is not listed yet, so a merge with main
+  # cannot drop it. The required check stays named `test`.
+  test-shard:
     needs: changes
     if: >-
       !cancelled() &&
@@ -47,8 +51,13 @@ jobs:
        needs.changes.result != 'success' ||
        needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -58,11 +67,63 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --locked
       - name: Run tests
-        run: make test
+        run: |
+          mkdir -p coverage-data
+          if ! files_text=$(uv run --locked --all-extras --quiet python scripts/ci_test_groups.py --group "${{ matrix.group }}"); then
+            echo "could not assign CI group ${{ matrix.group }}"
+            exit 1
+          fi
+          mapfile -t files <<< "${files_text}"
+          echo "group=${{ matrix.group }} nproc=$(nproc) files=${#files[@]}"
+          make test PYTEST_ARGS="--cov-fail-under=0 ${files[*]}"
         env:
-          # Avoid BLAS thread oversubscription when xdist spawns worker processes.
           OMP_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
+          COVERAGE_FILE: coverage-data/.coverage.shard-${{ matrix.group }}
+      - name: Upload coverage data
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-${{ matrix.group }}
+          path: coverage-data/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  test:
+    needs: [changes, test-shard]
+    if: >-
+      !cancelled() &&
+      (github.event_name != 'pull_request' ||
+       needs.changes.result != 'success' ||
+       needs.changes.outputs.code == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Require shard success
+        if: needs.test-shard.result != 'success'
+        run: |
+          echo "test shards result: ${{ needs.test-shard.result }}"
+          echo "A shard failed or was cancelled. Fix that job; do not lower the coverage threshold to hide it."
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: Install dependencies
+        run: uv sync --all-extras --locked
+      - name: Download coverage data
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-*
+          path: coverage-data
+          merge-multiple: true
+      - name: Enforce combined coverage
+        run: |
+          find coverage-data -type f -print
+          uv run --locked --all-extras coverage combine coverage-data
+          uv run --locked --all-extras coverage report --fail-under=80
 
   prek:
     runs-on: ubuntu-latest

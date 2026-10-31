@@ -52,7 +52,8 @@ test-fast: ## Run fast tests, excluding slow MCMC tests and nightly Tier 5
 	$(TEST_ENV) $(UV_RUN) pytest -x -v -n auto --dist loadscope -m "not slow and not nightly"
 
 test: ## Run per-commit tests with coverage, including slow MCMC, excluding nightly Tier 5
-	$(TEST_ENV) $(UV_RUN) pytest -x -v -n auto --dist loadscope -m "not nightly" --cov=pathmc --cov-report=term-missing
+	# CI appends a shard file list and --cov-fail-under=0; the combine job enforces 80%.
+	$(TEST_ENV) $(UV_RUN) pytest -x -v -n auto --dist loadscope -m "not nightly" --cov=pathmc --cov-report=term-missing $(PYTEST_ARGS)
 
 test-nightly: ## Run Tier 5 MCMC/SBC and the larger Hypothesis fuzz budget
 	$(TEST_ENV) $(UV_RUN) pytest -x -v -n auto --dist loadscope -m nightly
