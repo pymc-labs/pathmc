@@ -280,6 +280,40 @@ def test_execution_seam_rejects_ambiguous_inputs(bad):
         _execute_gaussian_panel(model._gen_model, post, info, **kwargs)
 
 
+def test_execution_seam_rejects_released_exogenous_and_infinite_state():
+    """NaN is a release sentinel only on an endogenous state."""
+    from pathmc.simulate import _execute_gaussian_panel
+
+    model = _model("y ~ 0 + 0.5*lag(y) + 1*x")
+    post = _posterior(model, draws=2)
+    info = model._gen_model._pathmc_panel_scan
+    grid = xr.DataArray(
+        np.zeros((info.n_units, info.n_times)),
+        dims=("unit", "time"),
+        coords={"unit": info.unit_labels, "time": info.time_values},
+    )
+    exogenous = grid.copy()
+    exogenous[0, 0] = np.nan
+    with pytest.raises(ValueError, match="nonfinite"):
+        _execute_gaussian_panel(
+            model._gen_model,
+            post,
+            info,
+            innovations=_noise(model, post),
+            interventions={"x": exogenous},
+        )
+    endogenous = grid.copy()
+    endogenous[0, 0] = np.inf
+    with pytest.raises(ValueError, match="nonfinite"):
+        _execute_gaussian_panel(
+            model._gen_model,
+            post,
+            info,
+            innovations=_noise(model, post),
+            interventions={"y": endogenous},
+        )
+
+
 def test_predict_and_missing_data_do_not_freeze_future_imputations():
     data = pd.DataFrame({
         "unit": ["u"] * 4,
