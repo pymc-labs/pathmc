@@ -245,49 +245,72 @@ Use `ns` when a dose past the data should stay linear. It cannot follow a bend o
 A warning, and a curve that continues, do not show that the knots were kept. A basis recomputed on the new grid would warn too, and it would also produce a curve. `equations()` cannot show the stored knots. Band width cannot either.
 
 ```{python}
-with warnings.catch_warnings(record=True) as caught:
-    warnings.simplefilter("always")
-    future = model_ps.do(
-        set={"dose": future_dose},
-        kind="mean",
-        average_units=False,
-        random_seed=1,
-    )
+import pathmc.basis as _basis
+
+# do() does not return the columns it substituted, and it does not
+# write them back onto the binding. Capture the replay this call uses.
+_real_replay = _basis.replay_data_bases
+_substituted = {}
+
+
+def _capture_replay(bindings, values):
+    updates = _real_replay(bindings, values)
+    _substituted.update(updates)
+    return updates
+
+
+_basis.replay_data_bases = _capture_replay
+try:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        future = model_ps.do(
+            set={"dose": future_dose},
+            kind="mean",
+            average_units=False,
+            random_seed=1,
+        )
+finally:
+    _basis.replay_data_bases = _real_replay
 print(next(item.message for item in caught if issubclass(item.category, UserWarning)))
 ```
 
 ```{python}
 # | code-fold: true
-# do() replays the generative model's data-basis binding. No public
-# accessor returns the interiors that binding used for the new doses.
-_used = [
-    binding.state
-    for binding in model_ps._gen_model._pathmc_data_bases.values()
+# The captured columns are what this do() call placed in the graph.
+_items = [
+    (name, binding)
+    for name, binding in model_ps._gen_model._pathmc_data_bases.items()
     if binding.call.name == "ps" and binding.call.variable == "dose"
 ]
-assert len(_used) == 1
-used_knots = _used[0].interior
-assert used_knots == stored_knots
-_, _refit_state = get_basis("ps").build_data(
+assert len(_items) == 1
+_data_name, _binding = _items[0]
+substituted = _substituted[_data_name]
+training_columns, _ = _binding.basis.build_data(
+    future_dose, _binding.call, state=_binding.state
+)
+refit_columns, refit_state = get_basis("ps").build_data(
     future_dose, BasisCall("ps", "dose", {"df": DF})
 )
-refit_knots = _refit_state.interior
-assert used_knots != refit_knots
+assert np.allclose(substituted, training_columns)
+assert not np.allclose(substituted, refit_columns)
 ```
 
 ```{python}
-print("used", used_knots)
-print("training", stored_knots)
-print("refit", refit_knots)
+print(
+    "max_abs_diff_from_refit",
+    float(np.max(np.abs(substituted - refit_columns))),
+)
+print("training", _binding.state.interior)
+print("refit", refit_state.interior)
 ```
 
-The first tuple is the interiors the intervention used for the doses past the last dose. The second is the training interiors; they match. The third is what a fresh `df` call would place on that future grid. `do()` used the first, not the third.
+The number is the largest gap between the columns this `do()` call substituted and a fresh `df` build on the same future doses. A folded check asserts those substituted columns match a replay of the training interiors and do not match the fresh build. The training tuple is that stored state. The refit tuple is what the fresh build placed. `do()` substituted the training replay, not the refit. Reading the binding after the call would not show this: `do()` does not write the knots it applied back onto that binding.
 
-`kind="mean"` is the posterior of the mean, the same functional as in-sample `mu_response`. The default `average_units=True` would collapse the future grid to one row-average, so the call passes `False` and keeps one mean at each future dose. Width is not the claim. The plotted window stops a little past the last dose: farther out the cubic tail leaves the data scale, and the interval would hide the join.
+`kind="mean"` is the posterior of the mean, the same functional as in-sample `mu_response`. The default `average_units=True` would collapse the future grid to one row-average, so the call passes `False` and keeps one mean at each future dose. Width is not the claim. The extrapolated interval leaves the observed response range inside this window, so it is not drawn. The window stops at the end of `future_dose`, where the cubic mean is still inside that range.
 
 ```{python}
 # | label: fig-spline-extrapolation
-# | fig-cap: "In-sample posterior mean and the posterior mean from do(kind='mean') past the last dose, each with a 94% HDI. Both intervals are the mean. The horizontal window is around the last dose, not the full dose range. The vertical line is the last observed dose. The dashed curve is the planted mean."
+# | fig-cap: "In-sample posterior mean and the posterior mean from do(kind='mean') past the last dose. The in-sample band is a 94% HDI. The extrapolated interval leaves the observed response range inside this window, so it is not drawn. The horizontal window is around the last dose, not the full dose range. The vertical line is the last observed dose. The dashed curve is the planted mean."
 # | code-fold: true
 future_values = (
     future
@@ -298,6 +321,11 @@ future_values = (
 )
 future_mean = future_values.mean(axis=0)
 future_hdi = az.hdi(future_values, prob=0.94, axis=0)
+observed_lo = float(df["response"].min())
+observed_hi = float(df["response"].max())
+# The interval leaves the observed range inside this window, so it is not drawn.
+assert observed_lo <= float(future_mean[-1]) <= observed_hi
+assert float(future_hdi[-1, 0]) < observed_lo or float(future_hdi[-1, 1]) > observed_hi
 extended = np.concatenate([dose, future_dose])
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -319,14 +347,6 @@ ax.fill_between(
     label="94% in-sample HDI",
 )
 ax.plot(dose, ps_mean, color=COLOR_PS, lw=2.2, label="In-sample mean")
-ax.fill_between(
-    future_dose,
-    future_hdi[:, 0],
-    future_hdi[:, 1],
-    color=COLOR_FUTURE,
-    alpha=0.25,
-    label="94% extrapolated HDI",
-)
 ax.plot(
     future_dose,
     future_mean,
@@ -343,7 +363,7 @@ ax.plot(
     label="Planted mean",
 )
 ax.axvline(40.0, color=COLOR_MARK, ls="-", lw=1.0, label="Last observed dose")
-# Farther out the cubic tail leaves the data scale and hides the join.
+# Stop where the cubic mean is still inside the observed range.
 ax.set_xlim(32.0, future_dose[-1])
 ax.set(xlabel="Dose (arbitrary units)", ylabel="Response (arbitrary units)")
 ax.legend(fontsize=8, ncol=2)
