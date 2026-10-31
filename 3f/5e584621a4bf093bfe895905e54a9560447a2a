@@ -1,0 +1,16 @@
+.github/workflows/ci.yml
+  h_63db634213747e 50,57-61,72-73
+tests/conftest.py
+  h_63db634213747e 58-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3f5e584621a4bf093bfe895905e54a9560447a2a",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
