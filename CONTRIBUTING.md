@@ -15,6 +15,8 @@ make test-fast
 
 Common contributor commands are collected in the root `Makefile`; run `make help` to list the available setup, lint, test, docs, and build targets. The targets are thin aliases over the underlying `uv` commands (for example `make setup` runs `uv sync --all-extras` plus the hook install, and `make test-fast` runs `uv run pytest -x -v -m "not slow and not nightly"`), so you can read the `Makefile` to see the exact command behind each alias.
 
+`make test` is the per-commit suite. CI runs that same selection across four jobs and combines coverage, because one runner takes about forty minutes. The measured split is in `.github/ci-groups/`. `scripts/ci_test_groups.py` puts a test file that is not listed yet on the smallest job, so a file added on `main` after the lists were cut still runs. Local `make test` still runs the whole suite in one process.
+
 `make setup` runs `uv sync --all-extras`, which reads `pyproject.toml` and `uv.lock`, then creates a project virtual environment at `.venv/` containing the correct Python (per `.python-version`), pathmc installed in editable mode, the default `dev` dependency group, and every dependency from the `docs` and `samplers` extras. It then installs the pre-commit hooks with `uv run prek install -f`. You do not need to `source .venv/bin/activate` or otherwise activate the environment by hand: the `Makefile` targets prefix commands with `uv run`, which runs them inside `.venv/` (syncing first if anything is stale). If you need a command without a target, prefix it with `uv run` yourself (for example `uv run pytest` or `uv run python -c "import pathmc"`).
 
 ## Opening issues

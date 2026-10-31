@@ -1,0 +1,5 @@
+# Group 1 is the fuzz file alone. Its wall clock is the indivisible floor.
+# scripts/ci_test_groups.py appends a file that is not listed yet; do not
+# rebalance this list by file count.
+tests/test_fuzz_consistency.py
+tests/test_ci_test_groups.py
