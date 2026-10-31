@@ -1,5 +1,8 @@
-# Group 1 is the fuzz file alone. Its wall clock is the indivisible floor.
+# Group 1 carries the fuzz file. Its wall clock is the indivisible floor,
+# so only files that are not already packed onto the other jobs share it.
 # scripts/ci_test_groups.py appends a file that is not listed yet; do not
 # rebalance this list by file count.
 tests/test_fuzz_consistency.py
+tests/test_adstock_row_order.py
 tests/test_ci_test_groups.py
+tests/test_splines.py
