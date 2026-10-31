@@ -1,0 +1,24 @@
+.github/ci-groups/group-1.txt
+  h_63db634213747e 1
+.github/ci-groups/group-2.txt
+  h_63db634213747e 1-36
+.github/ci-groups/group-3.txt
+  h_63db634213747e 1-35
+.github/ci-groups/group-4.txt
+  h_63db634213747e 1-37
+.github/workflows/ci.yml
+  h_63db634213747e 42-45,53,56-59,64-69,75-78,82-124
+Makefile
+  h_63db634213747e 55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "13684df9d4fea864d0bc05303f3be5133c092c93",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
