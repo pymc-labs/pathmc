@@ -205,11 +205,23 @@ def _keyword_graph_name_error(kind: str, name: str) -> ValueError:
     )
 
 
-def _is_numeral_id(name: str) -> bool:
-    """True for a numeral token the lexer split off the following letters."""
-    return bool(re.fullmatch(r"-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)", name)) and (
-        name not in {"-", "."}
+def _numeral_glued_keyword(name: str) -> str | None:
+    """Return *name* when a numeral is glued to a bare keyword.
+
+    ``0strict`` is not a node id. The error must name that spelling, not the
+    keyword the lexer would otherwise split off.
+    """
+    match = re.fullmatch(
+        r"(-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+))([A-Za-z]+)",
+        name,
     )
+    if (
+        match
+        and match.group(1) not in {"-", "."}
+        and match.group(2).lower() in _BARE_KEYWORDS
+    ):
+        return name
+    return None
 
 
 def _is_id_space(ch: str) -> bool:
@@ -416,6 +428,8 @@ def _tokenize(
     An odd run of backslashes immediately before a line feed is Graphviz line
     continuation: ``"foo\\<LF>bar"`` is the id ``foobar``. An even run is not
     continuation; the backslashes and the line feed stay in the id.
+    A numeral immediately followed by ``digraph``, ``subgraph``, or ``strict``
+    stays one id, so the rejection names ``0strict`` rather than the split keyword.
     ``->`` and ``--`` are operators. A bare id may include ``:`` so a compass
     port stays part of the id, matching the previous reader.
     """
@@ -479,8 +493,22 @@ def _tokenize(
             continue
         numeral = re.match(r"-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)", text[i:])
         if numeral and numeral.group(0) not in {"-", "."}:
-            tokens.append(("id", numeral.group(0)))
-            i += numeral.end()
+            end = i + numeral.end()
+            word_end = end
+            while word_end < n and text[word_end] not in ' \t\r\n{}[]=,;+"<()\\:':
+                if (
+                    text[word_end : word_end + 2] in {"->", "--"}
+                    or text[word_end] == "-"
+                ):
+                    break
+                word_end += 1
+            word = text[end:word_end]
+            if word.lower() in _BARE_KEYWORDS:
+                tokens.append(("id", text[i:word_end]))
+                i = word_end
+            else:
+                tokens.append(("id", numeral.group(0)))
+                i = end
             continue
         if ch == "-":
             if skip_unsupported:
@@ -617,8 +645,13 @@ class _DotBodyParser:
                 if self.peek(3) == "+":
                     value = None
                 raise _node_assignment_error(name, value)
-            if not quoted and name is not None and name.lower() in _BARE_KEYWORDS:
-                raise _keyword_assignment_error(name)
+            glued = None if quoted or name is None else _numeral_glued_keyword(name)
+            if (
+                not quoted
+                and name is not None
+                and (glued is not None or name.lower() in _BARE_KEYWORDS)
+            ):
+                raise _keyword_assignment_error(glued or name)
             self.pop()
             self.pop()
             self.take_value(name)
@@ -641,12 +674,10 @@ class _DotBodyParser:
                 "unsupported subgraph syntax in an attribute value. "
                 f"Offending token: {token!r}."
             )
-        if (
-            isinstance(token, tuple)
-            and token[0] == "id"
-            and token[1].lower() in _BARE_KEYWORDS
-        ):
-            raise _keyword_value_error(token[1], lhs)
+        if isinstance(token, tuple) and token[0] == "id":
+            glued = _numeral_glued_keyword(token[1])
+            if glued is not None or token[1].lower() in _BARE_KEYWORDS:
+                raise _keyword_value_error(glued or token[1], lhs)
         self.pop()
 
     def parse_node_or_edge(self) -> None:
@@ -765,14 +796,14 @@ class _DotBodyParser:
             name += self._literal_text(self.pop())
         if self.peek() == ":":
             self._skip_port_chain()
-        if not literal and name.lower() in _RESERVED:
+        glued = None if literal else _numeral_glued_keyword(name)
+        if not literal and (name.lower() in _RESERVED or glued is not None):
             nxt = _id_text(self.peek())
             if nxt is not None and nxt.startswith("-"):
                 raise _dot_parse_error(
                     "unsupported DOT syntax near '-'. A hyphen is not part of a node id."
                 )
-        if not literal and name.lower() in _RESERVED:
-            raise _keyword_id_error(name)
+            raise _keyword_id_error(glued or name)
         self.add_node(name)
         return {name}
 
@@ -795,8 +826,11 @@ class _DotBodyParser:
                 raise _dot_parse_error(f"unsupported compass port before {piece!r}.")
             if not (isinstance(piece, tuple) and piece[0] == "qid"):
                 port_name = _id_text(piece)
-                if port_name is not None and port_name.lower() in _RESERVED:
-                    raise _keyword_id_error(port_name)
+                glued = _numeral_glued_keyword(port_name) if port_name else None
+                if port_name is not None and (
+                    port_name.lower() in _RESERVED or glued is not None
+                ):
+                    raise _keyword_id_error(glued or port_name)
             self.pop()
 
     def _is_literal_piece(self, token: str | tuple[str, str] | None) -> bool:
@@ -867,16 +901,11 @@ class _DotBodyParser:
             )
         if not (isinstance(token, tuple) and token[0] == "qid"):
             name = _id_text(token)
+            glued = _numeral_glued_keyword(name) if name else None
+            if glued is not None:
+                raise _keyword_graph_name_error("subgraph", glued)
             if name is not None and name.lower() in _RESERVED:
                 raise _keyword_id_error(name)
-            nxt_name = _id_text(self.peek(1))
-            if (
-                name
-                and nxt_name
-                and nxt_name.lower() in _BARE_KEYWORDS
-                and f"{name}{nxt_name}" in self.source
-            ):
-                raise _keyword_graph_name_error("subgraph", f"{name}{nxt_name}")
         self.pop()
         while self.peek() == "+":
             nxt = self.peek(1)
@@ -907,14 +936,13 @@ class _DotBodyParser:
             elif token == "]":
                 depth -= 1
             else:
-                if (
-                    isinstance(token, tuple)
-                    and token[0] == "id"
-                    and token[1].lower() in _BARE_KEYWORDS
-                ):
-                    if prev == "=" and lhs:
-                        raise _keyword_value_error(token[1], lhs)
-                    raise _keyword_id_error(token[1])
+                if isinstance(token, tuple) and token[0] == "id":
+                    glued = _numeral_glued_keyword(token[1])
+                    if glued is not None or token[1].lower() in _BARE_KEYWORDS:
+                        shown = glued or token[1]
+                        if prev == "=" and lhs:
+                            raise _keyword_value_error(shown, lhs)
+                        raise _keyword_id_error(shown)
                 if token == "=" and isinstance(prev, tuple) and prev[0] == "id":
                     lhs = prev[1]
                 elif token != "=":
@@ -947,9 +975,11 @@ def _reject_keyword_preamble(span: str, kind: str) -> None:
 
     The graph name and a header attribute list are outside the body. Dropping
     a keyword there compares equal to the graph with that keyword removed.
-    Identifiers use the body lexer: a numeral does not glue onto the next
-    letters, and U+00A0 / U+2003 stay inside one id. A hyphen is not an id
-    character, but it is not this hole, so it is skipped rather than rejected.
+    Identifiers use the body lexer. A numeral glued to ``digraph``,
+    ``subgraph``, or ``strict`` is one id, so the error names ``0strict``
+    rather than the split keyword. U+00A0 / U+2003 stay inside one id. A
+    hyphen is not an id character, but it is not this hole, so it is skipped
+    rather than rejected.
     """
     seen_name = False
     depth = 0
@@ -979,19 +1009,14 @@ def _reject_keyword_preamble(span: str, kind: str) -> None:
             continue
         if isinstance(token, tuple) and token[0] == "id":
             word = token[1]
-            if word.lower() in _BARE_KEYWORDS:
+            glued = _numeral_glued_keyword(word)
+            if word.lower() in _BARE_KEYWORDS or glued is not None:
+                shown = glued or word
                 if depth == 0 and not seen_name:
-                    raise _keyword_graph_name_error(kind, word)
+                    raise _keyword_graph_name_error(kind, shown)
                 if saw_eq and prev_lhs:
-                    raise _keyword_value_error(word, prev_lhs)
-                if (
-                    depth == 0
-                    and prev_lhs
-                    and _is_numeral_id(prev_lhs)
-                    and f"{prev_lhs}{word}" in span
-                ):
-                    raise _keyword_graph_name_error(kind, f"{prev_lhs}{word}")
-                raise _keyword_id_error(word)
+                    raise _keyword_value_error(shown, prev_lhs)
+                raise _keyword_id_error(shown)
             if depth == 0 and not seen_name:
                 seen_name = True
             prev_lhs = word

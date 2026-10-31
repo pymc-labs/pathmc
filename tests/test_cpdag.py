@@ -1087,6 +1087,30 @@ def test_keyword_rejections_name_the_position_repair():
         BuildModelFromDAG._parse_dag("digraph { subgraph 0strict { X -> Y } }")
     with pytest.raises(ValueError, match=r'label="strict"'):
         dag_to_spec("digraph { X [label=strict]; X -> Y }")
+    with pytest.raises(ValueError, match=r'"0strict" -> Y'):
+        _parse_dot("digraph { 0strict -> Y }")
+    with pytest.raises(ValueError, match=r'"0strict" -> Y'):
+        _parse_dot("digraph { A:0strict -> Y }")
+    with pytest.raises(ValueError, match=r'"0STRICT" = box'):
+        _parse_dot("digraph { 0STRICT = box }")
+    with pytest.raises(ValueError, match=r'label="0strict"'):
+        _parse_dot("digraph { X [label=0strict] }")
+    with pytest.raises(ValueError, match=r'label="00strict"'):
+        _parse_dot("digraph { X -> Y [label=00strict] }")
+    with pytest.raises(ValueError, match=r'label="0Subgraph"'):
+        _parse_dot("digraph G [label=0Subgraph] { X -> Y }")
+    with pytest.raises(ValueError, match=r"node \[shape=0strict\]"):
+        _parse_dot("digraph { node=0strict; X -> Y }")
+    with pytest.raises(ValueError, match=r"node \[shape=0strict\]"):
+        _parse_dot("digraph G [node=0strict] { X -> Y }")
+    with pytest.raises(ValueError, match=r"node \[shape=0strict\]"):
+        _parse_dot("digraph { X [node = 0strict] }")
+    with pytest.raises(ValueError, match=r"node \[shape=0strict\]"):
+        _parse_dot("digraph { X -> Y [node=0strict] }")
+    with pytest.raises(ValueError, match=r'"0strict" -> Y'):
+        dag_to_spec("digraph { 0strict -> Y }")
+    with pytest.raises(ValueError, match=r"node \[shape=0strict\]"):
+        BuildModelFromDAG._parse_dag("digraph { node=0strict; X -> Y }")
 
 
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
