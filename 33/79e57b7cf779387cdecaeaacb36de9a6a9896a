@@ -1,0 +1,24 @@
+docs/user_guide/12-transforms.qmd
+  h_63db634213747e 14
+pathmc/_ci_report.py
+  h_63db634213747e 29-30
+pathmc/_warnings.py
+  h_63db634213747e 1-43
+pathmc/compile.py
+  h_63db634213747e 56
+pathmc/transforms.py
+  h_63db634213747e 38
+tests/test_adstock_row_order.py
+  h_63db634213747e 25,72-77,79-88,119,164,229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3379e57b7cf779387cdecaeaacb36de9a6a9896a",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
