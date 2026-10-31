@@ -349,6 +349,22 @@ def _reject_defined_param_label_collisions(
     )
 
 
+def _polynomial_degree_in_span(term: Term) -> int:
+    """Highest power of the spline input already in the basis.
+
+    A B-spline or P-spline of degree ``d``, plus the intercept, spans
+    polynomials through degree ``d``. A natural spline spans only the
+    line. Omitted ``degree`` means cubic.
+    """
+    basis = term.basis
+    assert isinstance(basis, BasisCall)
+    if basis.name == "ns":
+        return 1
+    degree = basis.params.get("degree", 3)
+    assert isinstance(degree, int)
+    return degree
+
+
 def _assign_basis_identifiers(reg: Regression) -> None:
     """Disambiguate basis calls sharing one equation input."""
     grouped: dict[str, list[Term]] = {}
@@ -377,7 +393,7 @@ def _assign_basis_identifiers(reg: Regression) -> None:
             and term.categorical is None
             and term.transform is None
             and term.lag_of is None
-            and term.interaction_of is None
+            and term.fixed_value is None
             and term.variable == variable
         ]
         if spline_terms and plain_on_input:
@@ -387,6 +403,28 @@ def _assign_basis_identifiers(reg: Regression) -> None:
                 "line, so the two coefficients are not identified. Drop the "
                 "plain term."
             )
+        if spline_terms:
+            spanned = _polynomial_degree_in_span(spline_terms[0])
+            self_powers = [
+                term
+                for term in reg.terms
+                if term.interaction_of is not None
+                and term.fixed_value is None
+                and all(part == variable for part in term.interaction_of)
+                and len(term.interaction_of) <= spanned
+            ]
+            if self_powers:
+                shown = ", ".join(f"'{term.variable}'" for term in self_powers)
+                basis = spline_terms[0].basis
+                assert isinstance(basis, BasisCall)
+                name = basis.name
+                raise ParseError(
+                    f"'{reg.lhs}' has a {name} spline and {shown} on "
+                    f"'{variable}'. A degree-{spanned} {name} spline already "
+                    f"spans powers of '{variable}' through degree {spanned}, "
+                    "so those coefficients are not identified. Drop the "
+                    "self-product."
+                )
         if len(terms) < 2 or all(isinstance(term.basis, HSGPCall) for term in terms):
             continue
         for index, term in enumerate(terms, start=1):

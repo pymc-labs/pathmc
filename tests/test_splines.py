@@ -86,6 +86,11 @@ def test_spline_formulas_parse_and_render():
         ("y ~ x + bs(x, df=4)", "not identified"),
         ("y ~ ns(x, df=4) + x", "not identified"),
         ("y ~ x + ps(x, df=4)", "not identified"),
+        ("y ~ bs(x, df=4) + x:x", "not identified"),
+        ("y ~ ps(x, df=6) + x:x", "not identified"),
+        ("y ~ bs(x, df=4) + x:x:x", "not identified"),
+        ("y ~ bs(x, df=4, degree=2) + x:x", "not identified"),
+        ("y ~ 0 + C(g) + bs(x, df=4) + x:x", "not identified"),
     ],
 )
 def test_invalid_spline_formulas_name_a_fix(formula: str, match: str):
@@ -179,6 +184,23 @@ def test_categorical_baseline_carries_a_centered_spline():
     assert "Intercept" not in text
     assert "C(g" in text
     assert "bs(x, df=4)" in text
+
+
+@pytest.mark.parametrize(
+    "formula",
+    [
+        "y ~ 2*x + bs(x, df=4)",
+        "y ~ 2*x:x + bs(x, df=4)",
+        "y ~ bs(x, degree=1, df=2) + x:x",
+        "y ~ bs(x, df=4, degree=2) + x:x:x",
+        "y ~ bs(x, df=4) + x:x:x:x",
+        "y ~ ns(x, df=4) + x:x",
+        "y ~ bs(x, df=4) + x:z",
+    ],
+)
+def test_spline_span_keeps_offsets_and_powers_outside_the_basis(formula: str):
+    """A fixed offset, or a power the basis does not contain, stays free."""
+    pathmc.model(formula, data=_frame())
 
 
 def test_spline_rejects_panel_and_endogenous_inputs():
