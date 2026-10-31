@@ -73,25 +73,34 @@ def _parse_dag(dag_str: str) -> nx.DiGraph:
         If the DOT braces are malformed, an edge token is invalid, or the
         result is not acyclic.
     """
+    ascii_s = dag_str.strip(" \t\r\n")
+    if ascii_s[:1].isspace() or ascii_s.lower().startswith("digraph"):
+        # ``str.strip`` would hide a leading unicode space and accept it as
+        # a header separator. The body lexer does not.
+        from pathmc.cpdag import _match_graph_header
+
+        _match_graph_header(ascii_s)
     s = dag_str.strip()
     g = nx.DiGraph()
 
-    if s.lower().startswith("digraph"):
-        brace_start = s.find("{")
-        brace_end = s.rfind("}")
-        if brace_start == -1 or brace_end == -1 or brace_end <= brace_start:
+    if ascii_s.lower().startswith("digraph"):
+        # Shared brace match so a ``}`` in a comment or HTML label is not the
+        # end of the graph, and a ``}`` only in a trailing comment is ignored.
+        from pathmc.cpdag import (
+            _brace_interior,
+            _parse_dot_body,
+            _reject_keywords_before_body,
+        )
+
+        s = ascii_s
+        _reject_keywords_before_body(s)
+        body = _brace_interior(s)
+        if body is None:
             raise ValueError(
                 "Malformed DOT digraph: missing braces. Expected "
                 "'digraph { A -> B; ... }'."
             )
-        # Reuse the shared DOT body parser so quoted ids (as emitted by
-        # TBFPC.to_digraph / get_all_cdags_from_cpdag), chained edges, and
-        # attribute brackets are all handled consistently.
-        from pathmc.cpdag import _parse_dot_body
-
-        nodes, directed, undirected = _parse_dot_body(
-            s[brace_start + 1 : brace_end], is_undirected_graph=False
-        )
+        nodes, directed, undirected = _parse_dot_body(body, is_undirected_graph=False)
         if undirected:
             pretty = ", ".join(
                 f"{u}--{v}" for u, v in sorted(tuple(sorted(e)) for e in undirected)

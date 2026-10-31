@@ -288,7 +288,8 @@ class TBFPC:
 
         Delegates to :func:`pathmc.cpdag._parse_dot` so every DOT consumer
         shares one grammar (quoted ids, chained edges, attribute brackets,
-        quote-aware comments, ``dir=none`` undirected edges). Undirected edges
+        quote-aware comments, ``dir=none`` undirected edges, and subgraph
+        blocks). Undirected edges
         are returned here as sorted ``(u, v)`` tuples for the orientation
         bookkeeping below.
         """
