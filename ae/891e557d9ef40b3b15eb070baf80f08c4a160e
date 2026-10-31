@@ -1,0 +1,14 @@
+.github/ci-groups/group-1.txt
+  h_63db634213747e 1-2,6,8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ae891e557d9ef40b3b15eb070baf80f08c4a160e",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
