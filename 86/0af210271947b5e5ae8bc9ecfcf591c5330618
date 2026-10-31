@@ -1,0 +1,14 @@
+.github/workflows/ci.yml
+  h_63db634213747e 50,57-61,72-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "860af210271947b5e5ae8bc9ecfcf591c5330618",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
