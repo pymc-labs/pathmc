@@ -180,6 +180,27 @@ def _keyword_assignment_error(name: str) -> ValueError:
     )
 
 
+def _keyword_value_error(name: str, lhs: str | None) -> ValueError:
+    quoted = f'"{name}"'
+    if lhs:
+        shown = f"{lhs}={name}"
+        instead = f"{lhs}={quoted}"
+    else:
+        shown = name
+        instead = quoted
+    return _dot_parse_error(
+        f"unsupported DOT syntax: {shown!r}. Write {instead!r} instead."
+    )
+
+
+def _keyword_graph_name_error(kind: str, name: str) -> ValueError:
+    shown = f"{kind} {name}"
+    instead = f'{kind} "{name}"'
+    return _dot_parse_error(
+        f"unsupported DOT syntax: {shown!r}. Write {instead!r} instead."
+    )
+
+
 def _end_of_quoted(text: str, start: int) -> int:
     """Index just after the quoted string at *start*, honoring ``\\"``."""
     i = start + 1
@@ -522,11 +543,17 @@ class _DotBodyParser:
                 raise _keyword_assignment_error(name)
             self.pop()
             self.pop()
-            self.take_value()
+            self.take_value(name)
             return
         self.parse_node_or_edge()
 
-    def take_value(self) -> None:
+    def take_value(self, lhs: str | None = None) -> None:
+        self._take_value_piece(lhs)
+        while self.peek() == "+":
+            self.pop()
+            self._take_value_piece(lhs)
+
+    def _take_value_piece(self, lhs: str | None) -> None:
         token = self.peek()
         if isinstance(token, tuple) and token[0] == "html":
             self.pop()
@@ -536,15 +563,13 @@ class _DotBodyParser:
                 "unsupported subgraph syntax in an attribute value. "
                 f"Offending token: {token!r}."
             )
+        if (
+            isinstance(token, tuple)
+            and token[0] == "id"
+            and token[1].lower() in _BARE_KEYWORDS
+        ):
+            raise _keyword_value_error(token[1], lhs)
         self.pop()
-        while self.peek() == "+":
-            self.pop()
-            if not _is_id(self.peek()):
-                raise _dot_parse_error(
-                    "unsupported subgraph syntax in an attribute value. "
-                    f"Offending token: {self.peek()!r}."
-                )
-            self.pop()
 
     def parse_node_or_edge(self) -> None:
         left = self.parse_node_list(on_edge=False)
@@ -814,6 +839,73 @@ class _DotBodyParser:
         return dir_none
 
 
+def _reject_keyword_preamble(span: str, kind: str) -> None:
+    """Reject unquoted ``digraph`` / ``subgraph`` / ``strict`` before ``{``.
+
+    The graph name and a header attribute list are outside the body. Dropping
+    a keyword there compares equal to the graph with that keyword removed.
+    """
+    i = 0
+    n = len(span)
+    seen_name = False
+    depth = 0
+    prev_word: str | None = None
+    saw_eq = False
+    while i < n:
+        ch = span[i]
+        if ch in " \t\r\n":
+            i += 1
+            continue
+        if ch == '"':
+            if depth == 0 and not seen_name:
+                seen_name = True
+            saw_eq = False
+            prev_word = None
+            i = _end_of_quoted(span, i)
+            continue
+        if ch == "<":
+            if depth == 0 and not seen_name:
+                seen_name = True
+            saw_eq = False
+            prev_word = None
+            i = _skip_html(span, i)
+            continue
+        if ch == "[":
+            depth += 1
+            saw_eq = False
+            prev_word = None
+            i += 1
+            continue
+        if ch == "]":
+            depth = max(0, depth - 1)
+            saw_eq = False
+            prev_word = None
+            i += 1
+            continue
+        if ch == "=":
+            saw_eq = True
+            i += 1
+            continue
+        if ch.isalnum() or ch == "_":
+            start = i
+            while i < n and (span[i].isalnum() or span[i] == "_"):
+                i += 1
+            word = span[start:i]
+            if word.lower() in _BARE_KEYWORDS:
+                if depth == 0 and not seen_name:
+                    raise _keyword_graph_name_error(kind, word)
+                if saw_eq and prev_word:
+                    raise _keyword_value_error(word, prev_word)
+                raise _keyword_id_error(word)
+            if depth == 0 and not seen_name:
+                seen_name = True
+            prev_word = word
+            saw_eq = False
+            continue
+        saw_eq = False
+        i += 1
+
+
 def _parse_dot(
     dot_text: str,
 ) -> tuple[set[str], set[tuple[str, str]], set[frozenset[str]]]:
@@ -826,8 +918,9 @@ def _parse_dot(
     Global style declarations (``graph [...]``, ``node [...]``, and ``ID =
     value`` assignments such as ``rankdir=LR``) are ignored. ``node = box``
     is rejected; write ``node [shape=box]``. Unquoted ``digraph``,
-    ``subgraph``, and ``strict`` are keywords, not ids. A quoted odd
-    backslash run before a line feed continues the string.
+    ``subgraph``, and ``strict`` are keywords, not ids, graph names, or
+    assignment values. Quote them (``label="strict"``, ``digraph "strict"``).
+    A quoted odd backslash run before a line feed continues the string.
     A ``subgraph`` block, including an anonymous ``{ ... }`` cluster, is layout
     only: its nodes and edges are parsed, and the cluster id is not a node.
     An edge into a subgraph connects to each node in that subgraph.
@@ -848,6 +941,11 @@ def _parse_dot(
             "Could not parse DOT text. Expected a 'graph { ... }' or "
             "'digraph { ... }' block."
         )
+    suffix = dot_text[header.end() :]
+    cleaned_suffix = _strip_comments(suffix)
+    brace = _opening_brace(cleaned_suffix)
+    if brace is not None:
+        _reject_keyword_preamble(cleaned_suffix[:brace], header.group(1))
     body = _brace_interior(dot_text)
     if body is None:
         raise ValueError(

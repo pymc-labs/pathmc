@@ -963,6 +963,44 @@ def test_quoted_odd_backslash_before_lf_is_line_continuation():
     assert same_markov_equivalence_class(even, "digraph { foobar -> Y }") is False
 
 
+def test_unquoted_keywords_in_values_and_graph_names_are_rejected():
+    """A dropped keyword value or graph name must not match a rewritten graph.
+
+    ``label=strict`` and ``digraph strict { ... }`` are not ids. Quote the
+    keyword. ``label=node`` and ``graph = box`` are a separate Graphviz
+    difference and are not covered here.
+    """
+    flat = "digraph { X -> Y; Z -> Y }"
+    for bad in (
+        "digraph { label=strict; X -> Y; Z -> Y }",
+        "digraph { rankdir=DIGRAPH; X -> Y }",
+        "digraph { foo = SUBGRAPH; X -> Y }",
+        'digraph { foo="a"+subgraph; X -> Y }',
+        "digraph { subgraph cluster { label=strict; X -> Y } }",
+        "graph { label=strict; A -- B }",
+        "digraph strict { X -> Y; Z -> Y }",
+        "digraph DIGRAPH { X -> Y }",
+        "strict digraph strict { X -> Y }",
+        "graph SUBGRAPH { A -- B }",
+        "DiGraph Strict { X -> Y }",
+        "digraph /*c*/ strict { X -> Y }",
+        "digraph G [label=strict] { X -> Y }",
+    ):
+        with pytest.raises(ValueError, match="unsupported DOT syntax"):
+            same_markov_equivalence_class(bad, flat)
+    with pytest.raises(ValueError, match=r'label="strict"'):
+        _parse_dot("digraph { label=strict; X -> Y }")
+    with pytest.raises(ValueError, match=r'digraph "strict"'):
+        _parse_dot("digraph strict { X -> Y }")
+    with pytest.raises(ValueError, match=r'DiGraph "Strict"'):
+        _parse_dot("DiGraph Strict { X -> Y }")
+    assert _parse_dot('digraph "strict" { X -> Y }')[0] == {"X", "Y"}
+    assert _parse_dot('digraph { label="strict"; X -> Y }')[0] == {"X", "Y"}
+    assert _parse_dot("digraph G { X -> Y }")[1] == {("X", "Y")}
+    assert _parse_dot("strict digraph { A -> B }")[1] == {("A", "B")}
+    assert _parse_dot("digraph { rankdir=LR; X -> Y }")[1] == {("X", "Y")}
+
+
 def test_networkx_self_loop_is_markov_equivalent_to_dot_self_loop():
     """A DiGraph self-loop is ignored consistently with its DOT counterpart."""
     g = nx.DiGraph()
