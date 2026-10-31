@@ -79,9 +79,10 @@ class TestBernoulliCompilation:
         assert "beta_Y" in free_names
 
     def test_residual_cov_with_bernoulli_raises(self, binary_data):
-        spec = "Y ~ X\nY ~~ X"
+        data = binary_data.assign(Z=np.zeros(len(binary_data)))
+        spec = "Y ~ X\nZ ~ X\nY ~~ Z"
         with pytest.raises(ValueError, match="(?i)gaussian"):
-            pathmc.model(spec, data=binary_data, families={"Y": "bernoulli"})
+            pathmc.model(spec, data=data, families={"Y": "bernoulli"})
 
 
 class TestBernoulliMixed:

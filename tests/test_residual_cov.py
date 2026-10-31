@@ -304,74 +304,29 @@ class TestResidualPredictiveDo:
         assert base_var > 10 * fixed_var, (base_var, fixed_var)
 
     def test_predictive_intervention_shifts_within_block_descendant(self):
-        rng = np.random.default_rng(0)
-        n = 40
-        data = pd.DataFrame({
-            "X": rng.normal(size=n),
-            "Y1": rng.normal(size=n),
-            "Y2": rng.normal(size=n),
-        })
-        model = self._point_model(
-            "Y1 ~ X\nY2 ~ Y1\nY1 ~~ Y2",
-            data,
-            {"beta_Y2": 2.0, "chol_Y1_Y2": np.array([1.0, 0.0, 1.0])},
-        )
-        shift = model.do(set={"Y1": 1.0}, kind="predictive").mean("Y2") - model.do(
-            set={"Y1": 0.0}, kind="predictive"
-        ).mean("Y2")
-        assert abs(shift - 2.0) < 0.35, shift
+        """A within-block directed edge is refused, not compiled onto mu."""
+        data = pd.DataFrame({"X": [0.0, 1.0], "Y1": [0.0, 1.0], "Y2": [0.1, 0.2]})
+        with pytest.raises(NotImplementedError, match=r"Y2 ~ Y1"):
+            pathmc.model("Y1 ~ X\nY2 ~ Y1\nY1 ~~ Y2", data=data)
 
     def test_within_block_descendant_reads_parent_residual(self):
-        from pytensor.graph.traversal import ancestors
-
-        n = 12
-        data = pd.DataFrame({c: np.zeros(n) for c in ("X", "Y1", "Y2", "Y3")})
-        model = pathmc.model(
-            "Y1 ~ X\nY2 ~ Y1\nY3 ~ Y2\nY1 ~~ Y2\nY2 ~~ Y3",
-            data=data,
-        )
-        sibling = model._predictive_gen_model()
-        y2_names = {getattr(v, "name", None) for v in ancestors([sibling["Y2"]])}
-        y3_names = {getattr(v, "name", None) for v in ancestors([sibling["Y3"]])}
-        # A slice of the joint alone does not name the parent member.
-        assert "Y1" in y2_names
-        assert "Y2" in y3_names
-        assert any(name and str(name).endswith("_joint") for name in y2_names)
-        assert "Y1" not in model.pymc_model.named_vars
-        est_mu = {
-            getattr(v, "name", None) for v in ancestors([model.pymc_model["mu_Y2"]])
-        }
-        assert "mu_Y1" in est_mu
-        assert "Y1" not in est_mu
+        """Do not center a within-block child on the parent's structural mean."""
+        data = pd.DataFrame({c: [0.0, 1.0] for c in ("X", "Y1", "Y2", "Y3")})
+        with pytest.raises(NotImplementedError, match=r"Y2 ~ Y1") as exc:
+            pathmc.model(
+                "Y1 ~ X\nY2 ~ Y1\nY3 ~ Y2\nY1 ~~ Y2\nY2 ~~ Y3",
+                data=data,
+            )
+        assert "Y3 ~ Y2" in str(exc.value)
+        assert "Drop the within-block path" in str(exc.value)
 
     def test_predictive_within_block_keeps_upstream_residual(self):
-        n = 80
-        data = pd.DataFrame({c: np.zeros(n) for c in ("X", "Y1", "Y2", "Y3")})
-        model = self._point_model(
-            "Y1 ~ X\nY2 ~ Y1\nY3 ~ Y2\nY1 ~~ Y2\nY2 ~~ Y3",
-            data,
-            {
-                "beta_Y1": 0.0,
-                "beta_Y2": 2.0,
-                "beta_Y3": 2.0,
-                # Packed lower Cholesky of I_3: each member has residual sd 1.
-                "chol_Y1_Y2_Y3": np.array([1.0, 0.0, 1.0, 0.0, 0.0, 1.0]),
-            },
-        )
-        draws = model.do(kind="predictive")
-        var_y2 = float(np.var(draws.dataset["Y2"].to_numpy()))
-        var_y3 = float(np.var(draws.dataset["Y3"].to_numpy()))
-        # Y2 = 2*Y1 + e2 => 5. Wiring through mu only leaves Var(e2) ≈ 1.
-        assert var_y2 > 3.0, var_y2
-        # Y3 = 2*Y2 + e3 => 21. The same miss leaves ≈ 1.
-        assert var_y3 > 10.0, var_y3
-
-        intervened = model.do(set={"Y1": 0.0}, kind="predictive")
-        fixed_y2 = float(np.var(intervened.dataset["Y2"].to_numpy()))
-        fixed_y3 = float(np.var(intervened.dataset["Y3"].to_numpy()))
-        # Fixing Y1 removes its residual. Y2 keeps e2; Y3 still sees e2.
-        assert fixed_y2 < 2.0, fixed_y2
-        assert fixed_y3 > 3.0, fixed_y3
+        data = pd.DataFrame({c: [0.0, 1.0] for c in ("X", "Y1", "Y2", "Y3")})
+        with pytest.raises(NotImplementedError, match="residual-covariance block"):
+            pathmc.model(
+                "Y1 ~ X\nY2 ~ Y1\nY3 ~ Y2\nY1 ~~ Y2\nY2 ~~ Y3",
+                data=data,
+            )
 
     def test_predictive_latent_reads_sampled_parent_joint(self):
         n = 40
@@ -553,6 +508,76 @@ class TestScanPanelResidualCovRejection:
         model = pathmc.model("Y1 ~ X\nY2 ~ X\nY1 ~~ Y2", data=df, panel=PANEL)
         free_rv_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert "chol_Y1_Y2" in free_rv_names
+
+
+class TestWithinBlockDirectedEdgeRefusal:
+    """model() must refuse the density simulate() already refuses.
+
+    A candidate that still centers ``mu_Y2`` on ``mu_Y1`` compiles these
+    specs and fails here. A blanket ``~~`` refusal fails the clean-block case.
+    """
+
+    def test_model_and_simulate_refuse_within_block_edge(self):
+        data = pd.DataFrame({
+            "X": [0.0, 1.0, 2.0],
+            "Y1": [0.2, -0.4, 0.1],
+            "Y2": [0.0, 1.0, -1.0],
+        })
+        spec = "Y1 ~ X\nY2 ~ Y1\nY1 ~~ Y2"
+        for caller in (
+            lambda: pathmc.model(spec, data=data),
+            lambda: pathmc.model(spec),
+            lambda: pathmc.simulate(
+                spec,
+                data=data[["X"]],
+                params={
+                    "beta_Y1": [0.0, 1.0],
+                    "beta_Y2": [0.0, 1.5],
+                    "chol_Y1_Y2": [1.0, 0.0, 1.0],
+                },
+            ),
+            lambda: pathmc.simulate_params_template(spec, data=data),
+        ):
+            with pytest.raises(NotImplementedError, match=r"Y2 ~ Y1") as exc:
+                caller()
+            message = str(exc.value)
+            assert "residual-covariance block" in message
+            assert "Drop the within-block path or the ~~ clause." in message
+
+    def test_interaction_and_transform_are_the_same_refusal(self):
+        data = pd.DataFrame({
+            "X": [0.0, 1.0, 2.0],
+            "Y1": [0.2, -0.4, 0.1],
+            "Y2": [0.0, 1.0, -1.0],
+        })
+        with pytest.raises(NotImplementedError, match=r"Y2 ~ Y1"):
+            pathmc.model("Y1 ~ X\nY2 ~ Y1:X\nY1 ~~ Y2", data=data)
+        with pytest.raises(NotImplementedError, match=r"Y2 ~ Y1"):
+            pathmc.model(
+                "Y1 ~ X\nY2 ~ adstock(Y1, decay=theta)\nY1 ~~ Y2",
+                data=data,
+            )
+
+    def test_clean_residual_block_still_compiles(self):
+        data = pd.DataFrame({
+            "X": [0.0, 1.0, 2.0],
+            "Y1": [0.2, -0.4, 0.1],
+            "Y2": [0.0, 1.0, -1.0],
+            "Z": [1.0, 0.0, 1.0],
+        })
+        model = pathmc.model("Y1 ~ X\nY2 ~ X\nZ ~ Y1\nY1 ~~ Y2", data=data)
+        assert "chol_Y1_Y2" in {rv.name for rv in model.pymc_model.free_RVs}
+        drawn = pathmc.simulate(
+            "Y1 ~ X\nY2 ~ X\nY1 ~~ Y2",
+            data=data[["X"]],
+            params={
+                "beta_Y1": [0.0, 0.5],
+                "beta_Y2": [0.0, -0.5],
+                "chol_Y1_Y2": [1.0, 0.0, 1.0],
+            },
+            random_seed=0,
+        )
+        assert {"Y1", "Y2"} <= set(drawn.columns)
 
 
 def _compiled_sd_logp(

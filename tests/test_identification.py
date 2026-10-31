@@ -220,6 +220,11 @@ class TestResidualCovarianceIdentification:
         assert is_identifiable(g, "T", "Y")
 
     def test_model_method_reports_not_identifiable(self):
+        """A within-block directed edge is refused before identification.
+
+        Graph-level helpers still report that ``T ~~ Y`` blocks identification.
+        Compiling the same spec is not supported.
+        """
         rng = np.random.default_rng(0)
         n = 50
         df = pd.DataFrame({
@@ -227,8 +232,11 @@ class TestResidualCovarianceIdentification:
             "T": rng.normal(size=n),
             "Y": rng.normal(size=n),
         })
-        model = pathmc.model(self.IV_SPEC, data=df)
-        assert not model.is_identifiable("T", "Y")
+        with pytest.raises(NotImplementedError, match=r"Y ~ T") as exc:
+            pathmc.model(self.IV_SPEC, data=df)
+        message = str(exc.value)
+        assert "~~" in message
+        assert "Drop the within-block path" in message
 
 
 class TestResidualCovarianceColliderConsistency:

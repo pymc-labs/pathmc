@@ -117,11 +117,14 @@ class TestMultipleMinimalSets:
 
 class TestUnidentifiedQuery:
     def test_raises_without_compiling_inner_model(self, rng):
-        spec = "T ~ Z\nY ~ T\nT ~~ Y"
+        # Y ~ T inside T ~~ Y is refused by model(). Residual confounding
+        # through a mediator outside the block is still unidentifiable.
+        spec = "T ~ Z\nM ~ T\nY ~ M\nT ~~ Y"
         df = pd.DataFrame({
             "T": rng.normal(size=80),
             "Y": rng.normal(size=80),
             "Z": rng.normal(size=80),
+            "M": rng.normal(size=80),
         })
         model = pathmc.model(spec, data=df)
         with pytest.raises(ValueError, match="not identifiable"):
@@ -775,14 +778,16 @@ class TestResidualBlockValidation:
     """``is_valid_adjustment_set`` must honor ``~~`` blocks like ``adjustment_sets``."""
 
     IV_SPEC = "T ~ Z\nY ~ T\nT ~~ Y"
+    COMPILABLE_SPEC = "T ~ Z\nM ~ T\nY ~ M\nT ~~ Y"
 
     def test_explicit_set_rejected_when_unidentifiable(self, rng):
         df = pd.DataFrame({
             "T": rng.normal(size=80),
             "Y": rng.normal(size=80),
             "Z": rng.normal(size=80),
+            "M": rng.normal(size=80),
         })
-        model = pathmc.model(self.IV_SPEC, data=df)
+        model = pathmc.model(self.COMPILABLE_SPEC, data=df)
         with pytest.raises(ValueError, match="not identifiable"):
             model.adjustment_model("T -> Y")
 

@@ -480,11 +480,12 @@ class TestIdentifiable:
         n = 80
         z = rng.normal(size=n)
         t = 0.5 * z + rng.normal(scale=0.1, size=n)
-        y = 0.4 * t + rng.normal(scale=0.1, size=n)
-        df = pd.DataFrame({"Z": z, "T": t, "Y": y})
-        m = pathmc.model("T ~ Z\nY ~ T\nT ~~ Y", data=df)
-        m.fit(draws=20, tune=20, chains=1, random_seed=0)
-        comp = m.comparisons("Y", "T", average_by=None)
+        m = 0.4 * t + rng.normal(scale=0.1, size=n)
+        y = 0.4 * m + rng.normal(scale=0.1, size=n)
+        df = pd.DataFrame({"Z": z, "T": t, "M": m, "Y": y})
+        built = pathmc.model("T ~ Z\nM ~ T\nY ~ M\nT ~~ Y", data=df)
+        built.fit(draws=20, tune=20, chains=1, random_seed=0)
+        comp = built.comparisons("Y", "T", average_by=None)
         assert comp.identifiable is False
 
 
