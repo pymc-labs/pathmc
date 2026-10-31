@@ -63,6 +63,7 @@ class BasisCapabilities:
     supports_endogenous: bool = True
     terminal: bool = True
     requires_raw_input_units: bool = False
+    requires_intercept: bool = False
 
 
 @dataclass(frozen=True)
@@ -217,17 +218,17 @@ class FourierBasis(Basis):
 
     def n_basis(self, call: Call) -> int:
         """Return two columns for each requested harmonic."""
-        assert isinstance(call, BasisCall)
-        return 2 * int(call.params["n"])
+        n, _period = self._numbers(call)
+        return 2 * n
 
     def build_data(
         self, x: np.ndarray, call: Call, *, state: Any | None = None
     ) -> tuple[np.ndarray, None]:
         """Materialize Fourier columns for observed data without fitted state."""
-        assert isinstance(call, BasisCall)
+        n, period = self._numbers(call)
         values = np.asarray(x, dtype=float).reshape(-1, 1)
-        harmonics = np.arange(1, int(call.params["n"]) + 1, dtype=float)
-        angles = 2 * np.pi * values * harmonics / float(call.params["period"])
+        harmonics = np.arange(1, n + 1, dtype=float)
+        angles = 2 * np.pi * values * harmonics / period
         return np.concatenate((np.sin(angles), np.cos(angles)), axis=1), None
 
     def build_graph(
@@ -240,11 +241,23 @@ class FourierBasis(Basis):
         state: Any | None = None,
     ) -> tuple[Any, None]:
         """Build Fourier columns symbolically so they update under ``do()``."""
-        assert isinstance(call, BasisCall)
+        n, period = self._numbers(call)
         values = pt.as_tensor_variable(x).reshape((-1, 1))
-        harmonics = pt.arange(1, int(call.params["n"]) + 1, dtype=values.dtype)
-        angles = 2 * np.pi * values * harmonics / float(call.params["period"])
+        harmonics = pt.arange(1, n + 1, dtype=values.dtype)
+        angles = 2 * np.pi * values * harmonics / period
         return pt.concatenate((pt.sin(angles), pt.cos(angles)), axis=1), None
+
+    @staticmethod
+    def _numbers(call: Call) -> tuple[int, float]:
+        if not isinstance(call, BasisCall):
+            raise TypeError(
+                f"fourier() expected a BasisCall, got {type(call).__name__}."
+            )
+        n = call.params["n"]
+        period = call.params["period"]
+        if isinstance(n, tuple) or isinstance(period, tuple):
+            raise TypeError("fourier() n and period must be numbers, not tuples.")
+        return int(n), float(period)
 
 
 REGISTRY: dict[str, Basis] = {"fourier": FourierBasis()}
@@ -283,3 +296,18 @@ def replay_data_bases(
         )
         updates[data_name] = columns
     return updates
+
+
+def _register_builtin_splines() -> None:
+    """Register bs/ns/ps once Basis is defined.
+
+    Importing splines at the top of this module would cycle: the spline
+    classes subclass Basis. Registration at the bottom makes the DSL names
+    available as soon as the package imports this module.
+    """
+    from pathmc.splines import register_splines
+
+    register_splines()
+
+
+_register_builtin_splines()
