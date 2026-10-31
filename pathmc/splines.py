@@ -30,14 +30,18 @@ import pytensor.tensor as pt
 from scipy.interpolate import BSpline
 
 from pathmc.basis import Basis, BasisCapabilities, Call, register_basis
-from pathmc.parse import BasisCall, spline_call_problem
+from pathmc.parse import BasisCall
+from pathmc.spline_policy import (
+    DEFAULT_DEGREE,
+    DEFAULT_ORDER,
+    SPLINE_NAMES,
+    implied_df,
+    spline_call_problem,
+)
 
-DEFAULT_DEGREE = 3
-DEFAULT_ORDER = 2
 NULL_SPACE_SCALE = 10.0
 UNPENALIZED_SIGMA = 10.0
 DEFAULT_TAU_SIGMA = 2.0
-_SPLINE_NAMES = frozenset({"bs", "ns", "ps"})
 
 
 @dataclass(frozen=True)
@@ -89,28 +93,11 @@ def spline_order(call: Call) -> int:
     return int(_number(_basis_call(call), "order", DEFAULT_ORDER))
 
 
-def minimum_df(name: str, degree: int, order: int) -> int:
-    """Return the smallest ``df`` that keeps the basis and the penalty full rank."""
-    if name == "ns":
-        return 2
-    if name == "ps":
-        return max(degree, order + 1)
-    return degree
-
-
 def n_interior_knots(name: str, call: Call) -> int:
     """Return how many interior knots a ``df`` call places."""
     df = int(_number(_basis_call(call), "df"))
-    if name == "ns":
-        return df - 1
-    return df - spline_degree(call)
-
-
-def implied_df(name: str, n_knots: int, degree: int) -> int:
-    """Return the coefficient count implied by an explicit knot tuple."""
-    if name == "ns":
-        return n_knots + 1
-    return n_knots + degree
+    # implied_df(name, n, degree) == df, so n is df minus the zero-knot count.
+    return df - implied_df(name, 0, spline_degree(call))
 
 
 def random_walk_map(n: int, order: int) -> np.ndarray:
@@ -215,9 +202,9 @@ class SplineBasis(Basis):
     """
 
     def __init__(self, name: str) -> None:
-        if name not in _SPLINE_NAMES:
+        if name not in SPLINE_NAMES:
             raise ValueError(
-                f"Unknown spline '{name}'. Expected one of {sorted(_SPLINE_NAMES)}."
+                f"Unknown spline '{name}'. Expected one of {sorted(SPLINE_NAMES)}."
             )
         self.name = name
         self.capabilities = BasisCapabilities(
@@ -357,7 +344,7 @@ class SplineBasis(Basis):
     def _require_call(self, call: Call) -> BasisCall:
         if not isinstance(call, BasisCall):
             raise TypeError(f"{self.name}() expected a BasisCall, got {type(call)!r}.")
-        problem = spline_call_problem(call)
+        problem = spline_call_problem(call.name, call.variable, call.params)
         if problem is not None:
             raise ValueError(problem)
         if call.name != self.name:

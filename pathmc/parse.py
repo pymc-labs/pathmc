@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pathmc.exceptions import DuplicateEquationError, ParseError
+from pathmc.spline_policy import SPLINE_NAMES, spanned_degree, spline_call_problem
 
 __all__: list[str] = []
 
@@ -242,6 +243,7 @@ def parse_spec(spec_string: str) -> Spec:
             residual_covs.append(_parse_residual_cov(stmt))
         elif "~" in stmt:
             reg = _parse_regression(stmt)
+            _reject_unidentified_splines(reg)
             _assign_basis_identifiers(reg)
             if reg.lhs in seen_lhs:
                 raise DuplicateEquationError(
@@ -349,43 +351,27 @@ def _reject_defined_param_label_collisions(
     )
 
 
-def _polynomial_degree_in_span(term: Term) -> int:
-    """Highest power of the spline input already in the basis.
+def _reject_unidentified_splines(reg: Regression) -> None:
+    """Reject a free column already spanned by a spline on the same input.
 
-    A B-spline or P-spline of degree ``d``, plus the intercept, spans
-    polynomials through degree ``d``. A natural spline spans only the
-    line. Omitted ``degree`` means cubic.
+    A centered spline includes a straight line. A B-spline or P-spline also
+    spans powers through its degree; a natural spline spans only the line.
+    A second spline on the same column is the same hole. Fixed offsets stay.
     """
-    basis = term.basis
-    assert isinstance(basis, BasisCall)
-    if basis.name == "ns":
-        return 1
-    degree = basis.params.get("degree", 3)
-    assert isinstance(degree, int)
-    return degree
-
-
-def _assign_basis_identifiers(reg: Regression) -> None:
-    """Disambiguate basis calls sharing one equation input."""
-    grouped: dict[str, list[Term]] = {}
+    by_input: dict[str, list[BasisCall]] = {}
     for term in reg.terms:
-        if term.basis is not None:
-            grouped.setdefault(term.basis.variable, []).append(term)
-    for variable, terms in grouped.items():
-        spline_terms = [
-            term
-            for term in terms
-            if term.basis is not None and term.basis.name in _SPLINE_NAMES
-        ]
-        if len(spline_terms) > 1:
-            names = ", ".join(
-                term.basis.name for term in spline_terms if term.basis is not None
-            )
+        basis = term.basis
+        if isinstance(basis, BasisCall) and basis.name in SPLINE_NAMES:
+            by_input.setdefault(basis.variable, []).append(basis)
+    for variable, calls in by_input.items():
+        if len(calls) > 1:
+            names = ", ".join(call.name for call in calls)
             raise ParseError(
                 f"'{reg.lhs}' has more than one spline on '{variable}' ({names}). "
                 "Use one spline term per input; a second spline on the same "
                 "column is not identified."
             )
+        call = calls[0]
         plain_on_input = [
             term
             for term in reg.terms
@@ -396,40 +382,47 @@ def _assign_basis_identifiers(reg: Regression) -> None:
             and term.fixed_value is None
             and term.variable == variable
         ]
-        if spline_terms and plain_on_input:
+        if plain_on_input:
             raise ParseError(
                 f"'{reg.lhs}' has a spline and a plain term on '{variable}'. "
                 "The spline already spans that column, including a straight "
                 "line, so the two coefficients are not identified. Drop the "
                 "plain term."
             )
-        if spline_terms:
-            spanned = _polynomial_degree_in_span(spline_terms[0])
-            self_powers = [
-                term
-                for term in reg.terms
-                if term.interaction_of is not None
-                and term.fixed_value is None
-                and all(part == variable for part in term.interaction_of)
-                and len(term.interaction_of) <= spanned
-            ]
-            if self_powers:
-                shown = ", ".join(f"'{term.variable}'" for term in self_powers)
-                basis = spline_terms[0].basis
-                assert isinstance(basis, BasisCall)
-                name = basis.name
-                raise ParseError(
-                    f"'{reg.lhs}' has a {name} spline and {shown} on "
-                    f"'{variable}'. A degree-{spanned} {name} spline already "
-                    f"spans powers of '{variable}' through degree {spanned}, "
-                    "so those coefficients are not identified. Drop the "
-                    "self-product."
-                )
+        spanned = spanned_degree(call.name, call.params)
+        self_powers = [
+            term
+            for term in reg.terms
+            if term.interaction_of is not None
+            and term.fixed_value is None
+            and all(part == variable for part in term.interaction_of)
+            and len(term.interaction_of) <= spanned
+        ]
+        if self_powers:
+            shown = ", ".join(f"'{term.variable}'" for term in self_powers)
+            raise ParseError(
+                f"'{reg.lhs}' has a {call.name} spline and {shown} on "
+                f"'{variable}'. A degree-{spanned} {call.name} spline already "
+                f"spans powers of '{variable}' through degree {spanned}, "
+                "so those coefficients are not identified. Drop the "
+                "self-product."
+            )
+
+
+def _assign_basis_identifiers(reg: Regression) -> None:
+    """Disambiguate basis calls sharing one equation input."""
+    grouped: dict[str, list[Term]] = {}
+    for term in reg.terms:
+        if term.basis is not None:
+            grouped.setdefault(term.basis.variable, []).append(term)
+    for terms in grouped.values():
         if len(terms) < 2 or all(isinstance(term.basis, HSGPCall) for term in terms):
             continue
         for index, term in enumerate(terms, start=1):
-            assert term.basis is not None
-            term.basis.identifier = str(index)
+            basis = term.basis
+            if basis is None:
+                continue
+            basis.identifier = str(index)
 
 
 # ---------------------------------------------------------------------------
@@ -619,7 +612,7 @@ def _parse_term(raw: str) -> Term:
                 )
             basis_call = _parse_fourier_expr(raw)
             return Term(variable=basis_call.variable, basis=basis_call)
-        if func_name in _SPLINE_NAMES:
+        if func_name in SPLINE_NAMES:
             if label is not None or fixed_value is not None:
                 raise ParseError(
                     f"{func_name}(...) cannot take a coefficient prefix; the "
@@ -627,11 +620,13 @@ def _parse_term(raw: str) -> Term:
                     "'label*' prefix."
                 )
             basis_call = _parse_spline_expr(raw)
-            problem = spline_call_problem(basis_call)
+            problem = spline_call_problem(
+                basis_call.name, basis_call.variable, basis_call.params
+            )
             if problem is not None:
                 raise ParseError(problem)
             return Term(variable=basis_call.variable, basis=basis_call)
-        if any(part.strip().lower() in _SPLINE_NAMES for part in func_name.split(":")):
+        if any(part.strip().lower() in SPLINE_NAMES for part in func_name.split(":")):
             raise ParseError(
                 f"{raw} is not a standalone spline term. Use bs(), ns(), or ps() "
                 "directly on one variable, e.g. 'y ~ bs(x, df=5)'."
@@ -842,7 +837,7 @@ def _parse_transform_expr(raw: str) -> TransformCall:
 
     if "(" in input_raw:
         input_name = input_raw[: input_raw.index("(")].strip()
-        if input_name in {"hsgp", "fourier", *_SPLINE_NAMES} or _is_registered_basis(
+        if input_name in {"hsgp", "fourier", *SPLINE_NAMES} or _is_registered_basis(
             input_name
         ):
             raise ParseError(
@@ -1092,7 +1087,6 @@ def _parse_fourier_expr(raw: str) -> BasisCall:
     )
 
 
-_SPLINE_NAMES = frozenset({"bs", "ns", "ps"})
 _SPLINE_SCALAR_KEYS = frozenset({"df", "degree", "order"})
 
 
@@ -1154,113 +1148,6 @@ def _parse_spline_expr(raw: str) -> BasisCall:
             parsed = int(parsed)
         params[key] = parsed
     return BasisCall(name=name, variable=variable, params=params)
-
-
-def spline_call_problem(call: BasisCall) -> str | None:
-    """Return a fix-oriented error for an unusable spline call, or ``None``.
-
-    Kept here so formula parsing can reject the call without importing
-    ``pathmc.splines`` (that import cycles through ``pathmc.basis``).
-    """
-    name = call.name
-    params = call.params
-    example = f"{name}({call.variable}, df=5)"
-    if "df" in params and "knots" in params:
-        return (
-            f"{name}() accepts either df= or knots=, not both. "
-            f"Use df= to place quantile knots, or knots= to set them yourself. "
-            f"Example: {example}."
-        )
-    if "df" not in params and "knots" not in params:
-        return f"{name}() needs df=<integer> or knots=(...). Example: {example}."
-    degree_raw = params.get("degree", 3)
-    if isinstance(degree_raw, bool) or not isinstance(degree_raw, int):
-        return (
-            f"{name}() degree must be an integer >= 1, got {degree_raw!r}. "
-            "Omit degree= for a cubic basis."
-        )
-    if degree_raw < 1:
-        return (
-            f"{name}() degree must be an integer >= 1, got {degree_raw}. "
-            "Omit degree= for a cubic basis."
-        )
-    if name == "ns" and degree_raw != 3:
-        return (
-            "ns() is a cubic natural spline, so degree must be omitted or 3, "
-            f"got {degree_raw}. Use bs() for another polynomial degree."
-        )
-    if "order" in params and name != "ps":
-        return (
-            "order= is the P-spline penalty and is only valid on ps(). "
-            f"Remove it from {name}(), or write "
-            f"ps({call.variable}, df=5, order=1)."
-        )
-    order = 2
-    if name == "ps" and "order" in params:
-        order_raw = params["order"]
-        if isinstance(order_raw, bool) or not isinstance(order_raw, int):
-            return (
-                "ps() order must be 1 or 2, got "
-                f"{order_raw!r}. Use order=1, or omit order= for the "
-                "default second-order penalty."
-            )
-        if order_raw not in (1, 2):
-            return (
-                f"ps() order must be 1 or 2, got {order_raw}. Use order=1, "
-                "or omit order= for the default second-order penalty."
-            )
-        order = order_raw
-    if name == "ns":
-        minimum = 2
-    elif name == "ps":
-        minimum = max(degree_raw, order + 1)
-    else:
-        minimum = degree_raw
-    if "df" in params:
-        df = params["df"]
-        if isinstance(df, bool) or not isinstance(df, int):
-            return (
-                f"{name}() df must be an integer >= {minimum}, got {df!r}. "
-                f"Example: {example}."
-            )
-        if df < minimum:
-            return (
-                f"{name}() df must be an integer >= {minimum}, got {df}. "
-                "Raise df, or lower degree=."
-            )
-        return None
-    knots = params["knots"]
-    if not isinstance(knots, tuple) or not knots:
-        return (
-            f"{name}() knots must be a non-empty tuple of finite numbers. "
-            "Example: knots=(0.2, 0.5, 0.8)."
-        )
-    if any(
-        isinstance(knot, bool) or not isinstance(knot, int | float) for knot in knots
-    ):
-        return (
-            f"{name}() knots must contain only numbers. Example: knots=(0.2, 0.5, 0.8)."
-        )
-    if any(not math.isfinite(float(knot)) for knot in knots):
-        return (
-            f"{name}() knots must be finite, got {knots}. "
-            "Pass finite numbers strictly inside the observed range."
-        )
-    if any(
-        float(right) <= float(left)
-        for left, right in zip(knots, knots[1:], strict=False)
-    ):
-        return (
-            f"{name}() knots must be strictly increasing, got {knots}. "
-            "Sort them and drop duplicates."
-        )
-    implied = (len(knots) + 1) if name == "ns" else (len(knots) + degree_raw)
-    if implied < minimum:
-        return (
-            f"{name}() with these knots has {implied} coefficients, but needs "
-            f"at least {minimum}. Add knots, or lower degree= or order=."
-        )
-    return None
 
 
 def _parse_knot_tuple(name: str, value: str) -> tuple[float, ...]:
