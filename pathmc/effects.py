@@ -58,6 +58,56 @@ def _broadcast_samples(left: np.ndarray, right: np.ndarray) -> np.ndarray:
     return left * right
 
 
+def _population_slope_addition(
+    idata: xr.DataTree,
+    lhs: str,
+    variable: str,
+) -> tuple[np.ndarray | None, str | None]:
+    """Additive population slope for one edge, if the compiler emitted one.
+
+    Random slopes enter the linear predictor as ``slope_{lhs}_{var}[unit] * x``
+    on top of the flat coefficient. The population structural coefficient is
+    that flat coefficient plus ``mu_slope_{lhs}_{var}``. When the hierarchical
+    mean is absent, the addition is the mean of the unit slopes and the
+    returned warning says so.
+    """
+    from pathmc.idata import posterior
+
+    post = posterior(idata)
+    mu_name = f"mu_slope_{lhs}_{variable}"
+    slope_name = f"slope_{lhs}_{variable}"
+    if mu_name in post:
+        return np.asarray(post[mu_name]).reshape(-1), None
+    if slope_name not in post:
+        return None, None
+    slope = post[slope_name]
+    extra = [dim for dim in slope.dims if dim not in ("chain", "draw")]
+    reduced = slope.mean(dim=extra) if extra else slope
+    warning = (
+        f"Edge '{variable} -> {lhs}' has unit slopes '{slope_name}' but no "
+        f"hierarchical mean '{mu_name}'. effect() adds the mean of those "
+        f"unit slopes to the flat coefficient. That value is the mean across "
+        f"units, not a unit-specific effect."
+    )
+    return np.asarray(reduced).reshape(-1), warning
+
+
+def _add_sample_vector(draws: np.ndarray, addition: np.ndarray) -> np.ndarray:
+    """Add a per-draw vector on the leading sample axis. Do not add a unit axis."""
+    draws = np.asarray(draws, dtype=float)
+    addition = np.asarray(addition, dtype=float).reshape(-1)
+    if draws.ndim == 0:
+        return draws + addition
+    if draws.shape[0] == 1 and addition.shape[0] != 1:
+        draws = np.broadcast_to(
+            draws, (addition.shape[0],) + tuple(draws.shape[1:])
+        ).copy()
+    elif addition.shape[0] == 1 and draws.shape[0] != 1:
+        addition = np.broadcast_to(addition, (draws.shape[0],))
+    extra = (1,) * (draws.ndim - 1)
+    return draws + addition.reshape((-1,) + extra)
+
+
 class _SampleDraws(np.ndarray):
     """Posterior draws whose arithmetic broadcasts extra axes after samples."""
 
@@ -714,10 +764,16 @@ def compute_path_effect(
     mediated effect.
 
     Each edge's contribution is the linear (main-effect) regression
-    coefficient of the source variable on the target; the path effect is
-    the product of these coefficients (Wright's tracing rule). A fixed
-    coefficient is that term: its known constant enters the product, and
-    no free ``beta`` RV is looked up for it. This is
+    coefficient of the source variable on the target, plus the population
+    random slope on that edge when the compiler emitted one. A hierarchical
+    random slope is ``beta + mu_slope_{outcome}_{predictor}``: the flat
+    coefficient plus the hierarchical mean of the additive unit slope. The
+    result stays one path coefficient, not a per-unit array. If unit slopes
+    are present without ``mu_slope``, the addition is the mean of those unit
+    slopes and a ``UserWarning`` says the value is that mean, not a
+    unit-specific effect. The path effect is the product of these
+    coefficients (Wright's tracing rule). A fixed coefficient is that term
+    plus the same population slope when one exists. This is
     exact for linear-Gaussian structural models. If the target's
     regression also contains an interaction term involving the source
     variable (e.g. ``Y ~ b*M + g*M:X``), the interaction's contribution is
@@ -826,6 +882,13 @@ def compute_path_effect(
                 coordinate=predictor_coordinate(reg, coef_term),
                 fixed=coef_term.fixed_value is not None,
             )
+        slope_addition, slope_warning = _population_slope_addition(
+            idata, target, source
+        )
+        if slope_addition is not None:
+            draws = _add_sample_vector(draws, slope_addition)
+        if slope_warning is not None:
+            warnings.warn(slope_warning, UserWarning, stacklevel=2)
 
         if scaling_factors is not None and data is not None:
             draws = np.asarray(
