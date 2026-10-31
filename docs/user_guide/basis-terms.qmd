@@ -9,6 +9,9 @@ A basis term expands one predictor into several columns and gives that expansion
 | --- | --- | --- | --- |
 | HSGP | `hsgp(x, m=20, c=1.5)` | Kernel-scaled basis weights | Cross-sectional, exogenous 1-D input |
 | Fourier | `fourier(week, n=3, period=52)` | `2n` independent harmonic weights | Cross-sectional; observed or latent 1-D input |
+| B-spline | `bs(x, df=5)` | Owned `beta_bs_*`; cubic by default | Cross-sectional, exogenous 1-D input; polynomial tails |
+| Natural spline | `ns(x, df=4)` | Owned `beta_ns_*`; linear tails | Cross-sectional, exogenous 1-D input |
+| P-spline | `ps(x, df=6)` | Owned `beta_ps_*` plus `tau_ps_*` | Cross-sectional, exogenous 1-D input; random-walk penalty |
 
 For example, a weekly seasonal pattern with three harmonics is a Fourier basis; the [Fourier seasonality example](/docs/examples/basis-terms/fourier_seasonality.html) shows a complete workflow:
 
@@ -32,5 +35,11 @@ model = pathmc.model(
 ```
 
 `hsgp()` uses the same owned-coefficient mechanism but has a kernel-informed prior and a boundary frozen from the fitted data. Its default lengthscale prior is `InverseGamma(3, beta)`, with `beta` equal to the span of the compiled input column (mean half that span). That is the observed span when the column is unscaled, and the internal span after `scaling=` has rewritten it. Without data, or when the input is constant or non-finite, `beta` stays 1. `do()` interventions must remain inside the fitted boundary; see the [HSGP worked example](/docs/examples/basis-terms/hsgp_1d.html). Fourier has no fitted support boundary, so it remains well-defined outside the observed range.
+
+`bs()`, `ns()`, and `ps()` are data bases: knots and column means are frozen from the training input and replayed by `predict()` and `do()`, so a new dose does not move the basis. Pass `df=` or `knots=`, not both. `df` counts free coefficients, not interior knots. `bs` and `ps` default to degree 3; `ns` is cubic only. `ps` is a B-spline plus a random-walk prior on adjacent coefficients. `order=2` (the default) leaves a level and a slope unpenalized; `order=1` penalizes slope as well. `order` is rejected on `bs` and `ns`.
+
+Columns are centered at the training means, so the intercept remains the mean response and a `0 +` formula is rejected. The term owns its coefficients and does not take a prefix such as `b*bs(x, df=5)`. The default `tau` prior is `HalfNormal(sigma=2)`. On a non-unit-scale input its median effective degrees of freedom sit strictly between 2 and `df - 0.5`, so the penalty is a partial smooth rather than a wiggly interpolant or a straight line. Null-space coefficients keep `Normal(mu=0, sigma=10)` and are not scaled by `tau`.
+
+Outside the boundary knots, `bs` and `ps` continue as a cubic polynomial and `ns` continues as a line. `do()` warns when an intervention leaves the observed range. Use `ns()` when that extrapolation should stay linear. Use `hsgp()` when you want a kernel lengthscale and a hard support boundary instead of polynomial tails. Spline inputs stay in declared units under `scaling=`, with a warning, because knots are placed on those units. The [spline example](/docs/examples/basis-terms/splines.html) fits a P-spline on a non-unit dose scale and extrapolates with the frozen knots.
 
 Basis terms currently cannot be used in panel/scan models, inside residual-covariance blocks, or nested in transforms. These limits are checked before compilation and name the equation or variable that needs changing.

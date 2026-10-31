@@ -2012,6 +2012,13 @@ def _validate_basis_capabilities(spec: Spec, panel_info: PanelInfo | None) -> No
                     f"{basis.name}() is not supported in panel models yet. "
                     "Fit a cross-sectional model or remove the basis term."
                 )
+            if basis.capabilities.requires_intercept and not reg.has_intercept:
+                raise ValueError(
+                    f"{basis.name}() in the '{reg.lhs}' equation is centered, so "
+                    "its contribution has mean zero and cannot carry the response "
+                    f"mean. Drop the '0 +' prefix so '{reg.lhs} ~ {basis.name}(...)' "
+                    "keeps an intercept."
+                )
             if term.basis.variable in endogenous:
                 if not basis.capabilities.supports_endogenous:
                     raise NotImplementedError(

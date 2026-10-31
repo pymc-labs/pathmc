@@ -98,7 +98,7 @@ class BasisCall:
 
     name: str
     variable: str
-    params: dict[str, int | float]
+    params: dict[str, int | float | tuple[float, ...]]
     identifier: str | None = None
 
 
@@ -355,7 +355,21 @@ def _assign_basis_identifiers(reg: Regression) -> None:
     for term in reg.terms:
         if term.basis is not None:
             grouped.setdefault(term.basis.variable, []).append(term)
-    for terms in grouped.values():
+    for variable, terms in grouped.items():
+        spline_terms = [
+            term
+            for term in terms
+            if term.basis is not None and term.basis.name in _SPLINE_NAMES
+        ]
+        if len(spline_terms) > 1:
+            names = ", ".join(
+                term.basis.name for term in spline_terms if term.basis is not None
+            )
+            raise ParseError(
+                f"'{reg.lhs}' has more than one spline on '{variable}' ({names}). "
+                "Use one spline term per input; a second spline on the same "
+                "column is not identified."
+            )
         if len(terms) < 2 or all(isinstance(term.basis, HSGPCall) for term in terms):
             continue
         for index, term in enumerate(terms, start=1):
@@ -550,6 +564,23 @@ def _parse_term(raw: str) -> Term:
                 )
             basis_call = _parse_fourier_expr(raw)
             return Term(variable=basis_call.variable, basis=basis_call)
+        if func_name in _SPLINE_NAMES:
+            if label is not None or fixed_value is not None:
+                raise ParseError(
+                    f"{func_name}(...) cannot take a coefficient prefix; the "
+                    "spline carries its own weights. Remove the 'k*' or "
+                    "'label*' prefix."
+                )
+            basis_call = _parse_spline_expr(raw)
+            problem = spline_call_problem(basis_call)
+            if problem is not None:
+                raise ParseError(problem)
+            return Term(variable=basis_call.variable, basis=basis_call)
+        if any(part.strip().lower() in _SPLINE_NAMES for part in func_name.split(":")):
+            raise ParseError(
+                f"{raw} is not a standalone spline term. Use bs(), ns(), or ps() "
+                "directly on one variable, e.g. 'y ~ bs(x, df=5)'."
+            )
         if _is_registered_basis(func_name):
             if label is not None or fixed_value is not None:
                 raise ParseError(
@@ -756,7 +787,9 @@ def _parse_transform_expr(raw: str) -> TransformCall:
 
     if "(" in input_raw:
         input_name = input_raw[: input_raw.index("(")].strip()
-        if input_name in {"hsgp", "fourier"} or _is_registered_basis(input_name):
+        if input_name in {"hsgp", "fourier", *_SPLINE_NAMES} or _is_registered_basis(
+            input_name
+        ):
             raise ParseError(
                 f"Basis expression '{input_raw}' cannot be nested inside "
                 f"transform '{raw}'. Apply {input_name}(...) directly to a "
@@ -1004,6 +1037,198 @@ def _parse_fourier_expr(raw: str) -> BasisCall:
     )
 
 
+_SPLINE_NAMES = frozenset({"bs", "ns", "ps"})
+_SPLINE_SCALAR_KEYS = frozenset({"df", "degree", "order"})
+
+
+def _parse_spline_expr(raw: str) -> BasisCall:
+    """Parse ``bs``, ``ns``, or ``ps`` into a generic basis call."""
+    if raw[-1] != ")":
+        raise ParseError(
+            f"Unclosed parenthesis in spline term: '{raw}'. Add a closing ')'."
+        )
+    name = raw[: raw.index("(")].strip()
+    inner = raw[raw.index("(") + 1 : -1].strip()
+    args = _split_top_level_args(inner)
+    if not args or not args[0].strip() or "=" in args[0]:
+        raise ParseError(
+            f"{name}(...) requires an input variable as its first argument. "
+            f"Example: {name}(x, df=5)."
+        )
+    variable = args[0].strip()
+    if not re.match(r"^[A-Za-z_]\w*$", variable):
+        raise ParseError(
+            f"{name}(...) input must be a plain variable name, got '{variable}'."
+        )
+    params: dict[str, int | float | tuple[float, ...]] = {}
+    for arg in args[1:]:
+        if "=" not in arg:
+            raise ParseError(
+                f"{name}(...) expects keyword parameters, got '{arg.strip()}'."
+            )
+        key, _, value = arg.partition("=")
+        key, value = key.strip(), value.strip()
+        if not key or not value or key in params:
+            raise ParseError(
+                f"Malformed or duplicate parameter '{arg}' in {name}(...)."
+            )
+        if key == "knots":
+            params[key] = _parse_knot_tuple(name, value)
+            continue
+        if key not in _SPLINE_SCALAR_KEYS:
+            raise ParseError(
+                f"Unknown {name}(...) parameter '{key}'. Valid parameters are "
+                "'df', 'degree', 'knots', and 'order' (ps only)."
+            )
+        try:
+            parsed = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            raise ParseError(
+                f"{name}(...) parameter '{key}' must be a number, got '{value}'."
+            ) from None
+        if isinstance(parsed, bool) or not isinstance(parsed, int | float):
+            raise ParseError(
+                f"{name}(...) parameter '{key}' must be a number, got '{value}'."
+            )
+        if isinstance(parsed, float) and parsed.is_integer():
+            parsed = int(parsed)
+        params[key] = parsed
+    return BasisCall(name=name, variable=variable, params=params)
+
+
+def spline_call_problem(call: BasisCall) -> str | None:
+    """Return a fix-oriented error for an unusable spline call, or ``None``.
+
+    Kept here so formula parsing can reject the call without importing
+    ``pathmc.splines`` (that import cycles through ``pathmc.basis``).
+    """
+    name = call.name
+    params = call.params
+    example = f"{name}({call.variable}, df=5)"
+    if "df" in params and "knots" in params:
+        return (
+            f"{name}() accepts either df= or knots=, not both. "
+            f"Use df= to place quantile knots, or knots= to set them yourself. "
+            f"Example: {example}."
+        )
+    if "df" not in params and "knots" not in params:
+        return f"{name}() needs df=<integer> or knots=(...). Example: {example}."
+    degree_raw = params.get("degree", 3)
+    if isinstance(degree_raw, bool) or not isinstance(degree_raw, int):
+        return (
+            f"{name}() degree must be an integer >= 1, got {degree_raw!r}. "
+            "Omit degree= for a cubic basis."
+        )
+    if degree_raw < 1:
+        return (
+            f"{name}() degree must be an integer >= 1, got {degree_raw}. "
+            "Omit degree= for a cubic basis."
+        )
+    if name == "ns" and degree_raw != 3:
+        return (
+            "ns() is a cubic natural spline, so degree must be omitted or 3, "
+            f"got {degree_raw}. Use bs() for another polynomial degree."
+        )
+    if "order" in params and name != "ps":
+        return (
+            "order= is the P-spline penalty and is only valid on ps(). "
+            f"Remove it from {name}(), or write "
+            f"ps({call.variable}, df=5, order=1)."
+        )
+    order = 2
+    if name == "ps" and "order" in params:
+        order_raw = params["order"]
+        if isinstance(order_raw, bool) or not isinstance(order_raw, int):
+            return (
+                "ps() order must be 1 or 2, got "
+                f"{order_raw!r}. Use order=1, or omit order= for the "
+                "default second-order penalty."
+            )
+        if order_raw not in (1, 2):
+            return (
+                f"ps() order must be 1 or 2, got {order_raw}. Use order=1, "
+                "or omit order= for the default second-order penalty."
+            )
+        order = order_raw
+    if name == "ns":
+        minimum = 2
+    elif name == "ps":
+        minimum = max(degree_raw, order + 1)
+    else:
+        minimum = degree_raw
+    if "df" in params:
+        df = params["df"]
+        if isinstance(df, bool) or not isinstance(df, int):
+            return (
+                f"{name}() df must be an integer >= {minimum}, got {df!r}. "
+                f"Example: {example}."
+            )
+        if df < minimum:
+            return (
+                f"{name}() df must be an integer >= {minimum}, got {df}. "
+                "Raise df, or lower degree=."
+            )
+        return None
+    knots = params["knots"]
+    if not isinstance(knots, tuple) or not knots:
+        return (
+            f"{name}() knots must be a non-empty tuple of finite numbers. "
+            "Example: knots=(0.2, 0.5, 0.8)."
+        )
+    if any(
+        isinstance(knot, bool) or not isinstance(knot, int | float) for knot in knots
+    ):
+        return (
+            f"{name}() knots must contain only numbers. Example: knots=(0.2, 0.5, 0.8)."
+        )
+    if any(not math.isfinite(float(knot)) for knot in knots):
+        return (
+            f"{name}() knots must be finite, got {knots}. "
+            "Pass finite numbers strictly inside the observed range."
+        )
+    if any(
+        float(right) <= float(left)
+        for left, right in zip(knots, knots[1:], strict=False)
+    ):
+        return (
+            f"{name}() knots must be strictly increasing, got {knots}. "
+            "Sort them and drop duplicates."
+        )
+    implied = (len(knots) + 1) if name == "ns" else (len(knots) + degree_raw)
+    if implied < minimum:
+        return (
+            f"{name}() with these knots has {implied} coefficients, but needs "
+            f"at least {minimum}. Add knots, or lower degree= or order=."
+        )
+    return None
+
+
+def _parse_knot_tuple(name: str, value: str) -> tuple[float, ...]:
+    """Parse a parenthesized knot tuple, including a one-element tuple."""
+    try:
+        parsed = ast.literal_eval(value)
+    except (ValueError, SyntaxError):
+        raise ParseError(
+            f"{name}(...) knots must be a parenthesized tuple of numbers, "
+            f"got '{value}'. Example: knots=(0.2, 0.5, 0.8)."
+        ) from None
+    if isinstance(parsed, int | float) and not isinstance(parsed, bool):
+        parsed = (parsed,)
+    if not isinstance(parsed, tuple) or not parsed:
+        raise ParseError(
+            f"{name}(...) knots must be a non-empty parenthesized tuple of "
+            f"numbers, got '{value}'."
+        )
+    knots: list[float] = []
+    for item in parsed:
+        if isinstance(item, bool) or not isinstance(item, int | float):
+            raise ParseError(
+                f"{name}(...) knots must contain only numbers, got '{value}'."
+            )
+        knots.append(float(item))
+    return tuple(knots)
+
+
 def _is_registered_basis(name: str) -> bool:
     """Return whether *name* is currently registered as a custom basis."""
     from pathmc.basis import get_basis
@@ -1029,7 +1254,7 @@ def _parse_registered_basis_expr(raw: str) -> BasisCall:
         raise ParseError(
             f"{name}(...) input must be a plain variable name, got '{variable}'."
         )
-    params: dict[str, int | float] = {}
+    params: dict[str, int | float | tuple[float, ...]] = {}
     for arg in args[1:]:
         if "=" not in arg:
             raise ParseError(
