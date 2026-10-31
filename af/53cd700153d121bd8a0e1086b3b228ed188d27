@@ -1,0 +1,34 @@
+_freeze/docs/examples/basis-terms/splines/execute-results/html.json
+  h_63db634213747e 1-19
+docs/examples/02-basis-terms/fourier_seasonality.qmd
+  h_63db634213747e 246
+docs/examples/02-basis-terms/hsgp_1d.qmd
+  h_63db634213747e 244
+docs/examples/02-basis-terms/splines.qmd
+  h_63db634213747e 1-246
+docs/user_guide/02-comparison.qmd
+  h_63db634213747e 38,107,123,136
+docs/user_guide/basis-terms.qmd
+  h_63db634213747e 12-14,39-44
+pathmc/basis.py
+  h_63db634213747e 66,221-222,228,230-231,244,246-247,250-261,299-313
+pathmc/compile.py
+  h_63db634213747e 2015-2021
+pathmc/parse.py
+  h_63db634213747e 101,358-372,567-583,790-792,1040-1231,1257
+pathmc/splines.py
+  h_63db634213747e 1-607
+tests/test_splines.py
+  h_63db634213747e 1-292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "af53cd700153d121bd8a0e1086b3b228ed188d27",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
