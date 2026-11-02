@@ -54,6 +54,7 @@ Contributing = "https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md"
 [dependency-groups]
 dev = [
     "build",
+    "hypothesis>=6.170.14",
     "ipykernel",
     "mypy",
     "pandas-stubs==3.0.3.260530",
@@ -99,7 +100,7 @@ addopts = [
 ]
 markers = [
     "slow: marks tests that require MCMC sampling (deselect with '-m \"not slow\"')",
-    "nightly: Tier 5 MCMC recovery and SBC; not on the per-commit path (issue #326)",
+    "nightly: Tier 5 MCMC recovery and SBC, plus the larger Hypothesis fuzz budget; not on the per-commit path (issues #326, #414)",
 ]
 
 [tool.coverage.run]

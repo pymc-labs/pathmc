@@ -15,11 +15,12 @@
 
 from __future__ import annotations
 
+import ast
 import sys
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING, overload
 
 import arviz as az
 import graphviz
@@ -36,12 +37,15 @@ from pathmc.compile import (
     _build_lag_map,
     _has_temporal_deps,
     _identify_residual_blocks,
+    _scan_discrete_sample_vars,
     _scan_term_base_vars,
-    _term_base_vars,
     build_design_matrix,
     compile_to_pymc,
     get_predictor_columns,
+    lag_base_kinds,
+    required_initial_keys,
     validate_panel_scan_shape,
+    _warn_scan_rate_clip_at_fixed_coefficients,
 )
 from pathmc.effects import (
     EffectResult,
@@ -78,10 +82,13 @@ from pathmc.interpret import (
     slopes as _interpret_slopes,
 )
 from pathmc.panel import (
+    InitialBaseline,
     PanelInfo,
     attach_composite_unit,
     build_panel_info,
     drop_composite_unit,
+    freeze_baseline,
+    normalize_initial_states,
     observed_means_by_time,
 )
 from pathmc.parse import Spec, parse_spec
@@ -97,15 +104,20 @@ from pathmc.scaling import (
 from pathmc.simulate import (
     DoResult,
     EstimandResult,
+    _forced_generative_carry,
     _to_business_units,
     _unscale_do_dataset,
     run_counterfactual,
     run_do_panel_unified,
+    run_do_static_panel,
     run_do_pymc,
+    _stack_sample,
 )
 
 if TYPE_CHECKING:
     from pathmc.adjustment import AdjustmentModel
+    from pathmc.policy import TreatmentPolicy
+    from pathmc.policy_result import PolicyRun
 
 __all__ = ["DoResult", "EstimandResult", "PathModel", "model", "simulate"]
 
@@ -173,10 +185,12 @@ def _scale_set_for_bounds(
 ) -> Mapping[str, float | np.ndarray]:
     """Convert user-facing (business-unit) interventions to internal units.
 
-    Bounds and extrapolation checks run against already-scaled ``_data``,
-    so the values they see must be in the same units the model compiled.
-    Non-numeric values, including categorical labels, have no scale factor
-    and are left out so a mixed intervention map can be passed through.
+    HSGP boundary checks run against already-scaled ``_data``, so the values
+    they see must be in the same units the model compiled. The extrapolation
+    warning does not: it compares the business-unit query to the business-unit
+    observed column. Non-numeric values, including categorical labels, have no
+    scale factor and are left out so a mixed intervention map can be passed
+    through.
     """
     if factors is None:
         return interventions
@@ -200,6 +214,23 @@ def _scale_set_for_bounds(
             )
         ).ravel()
     return out
+
+
+def _business_observation_frame(
+    data: nw.DataFrame,
+    factors: ScalingFactors | None,
+) -> nw.DataFrame:
+    """Observed columns in the units interventional queries are specified in."""
+    if factors is None or not factors:
+        return data
+    columns = factors.columns_present_in(data.columns)
+    if not columns:
+        return data
+    return factors.to_business(
+        data,
+        kind="regressor",
+        dims=ScaleContext(columns=columns),
+    )
 
 
 def _layout_unscaled_column(
@@ -388,6 +419,68 @@ def _warn_extrapolation(
             )
 
 
+def _expr_names(expr: str) -> set[str]:
+    """Identifiers in a ``prob`` expression, excluding the ``np`` helper."""
+    tree = ast.parse(expr, mode="eval")
+    return {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and node.id != "np"
+    }
+
+
+def _per_unit_intervention(val: float | np.ndarray) -> bool:
+    """True when an intervention is stored on a ``unit`` axis.
+
+    Matches ``_broadcast_intervention``: a constant vector collapses to a
+    scalar and is not a per-unit axis.
+    """
+    try:
+        values = np.asarray(val, dtype=float).ravel()
+    except (TypeError, ValueError):
+        return False
+    return values.size > 1 and int(np.unique(values).size) > 1
+
+
+def _aligned_draw_namespace(result: DoResult, names: set[str]) -> dict[str, np.ndarray]:
+    """Draws for *names* stacked on the same ``(chain, draw[, unit])`` axis.
+
+    A variable with no ``unit`` dim is a constant across units (scalar
+    intervention or exogenous fill). It is repeated onto ``unit`` so the
+    comparison is elementwise. This must not be used to repeat an outcome
+    that was averaged over units; callers request unit-level means first.
+    """
+    arrays: dict[str, xr.DataArray] = {}
+    for name in names:
+        if name not in result.dataset:
+            continue
+        da = result.dataset[name]
+        if "time" in da.dims:
+            da = da.mean(dim="time")
+        arrays[name] = da
+    if not arrays:
+        return {}
+    if not any("unit" in da.dims for da in arrays.values()):
+        return {name: _stack_sample(da) for name, da in arrays.items()}
+
+    ref = next(da for da in arrays.values() if "unit" in da.dims)
+    unit = ref.coords["unit"]
+    expanded: list[xr.DataArray] = []
+    order: list[str] = []
+    for name, da in arrays.items():
+        if "unit" not in da.dims:
+            da = da.expand_dims(unit=unit)
+        expanded.append(da)
+        order.append(name)
+    aligned = xr.align(*expanded, join="exact")
+    out: dict[str, np.ndarray] = {}
+    for name, da in zip(order, aligned, strict=True):
+        stack_dims = [dim for dim in ("chain", "draw", "unit") if dim in da.dims]
+        stacked = da.stack(sample=stack_dims).transpose("sample")
+        out[name] = np.asarray(stacked.values)
+    return out
+
+
 class PathModel:
     """A compiled Bayesian path model.
 
@@ -435,6 +528,9 @@ class PathModel:
         latent: set[str] | None = None,
         priors: dict[str, Any] | None = None,
         scaling_factors: ScalingFactors | None = None,
+        *,
+        initial_internal: Mapping[str, np.ndarray] | None = None,
+        initial_explicit: bool = False,
     ) -> None:
         from pathmc.priors import default_priors, merge_priors
 
@@ -455,7 +551,20 @@ class PathModel:
         # re-fit on perturbed data. Set by model(); None for direct
         # construction (in which case refute_placebo raises).
         self._scaling_factors = scaling_factors
+        self._initial_internal = (
+            None
+            if initial_internal is None
+            else {
+                name: np.asarray(values, dtype=float)
+                for name, values in initial_internal.items()
+            }
+        )
+        self._initial_explicit = initial_explicit
+        self._initial_baseline: InitialBaseline | None = None
         self._construction: dict[str, Any] | None = None
+        # Fit-time data-basis state. Later compiles (predictions, set_priors)
+        # replay it so knots are not recomputed on a query frame.
+        self._frozen_basis_states: dict[Any, Any] | None = None
 
         defaults = default_priors(
             spec,
@@ -463,6 +572,7 @@ class PathModel:
             pooling=pooling,
             latent=self._latent,
             panel_info=panel_info,
+            data=data,
         )
         self._priors = merge_priors(defaults, priors)
 
@@ -522,6 +632,9 @@ class PathModel:
     def _compile(self) -> None:
         """Compile the generative PyMC model and attach observations."""
         assert self._data is not None
+        _reject_within_block_directed_edges(self._spec, caller="model")
+        # Drop any generative sibling; it must be rebuilt against this compile.
+        self._residual_predictive_model = None
         self._gen_model = compile_to_pymc(
             self._spec,
             self._data,
@@ -532,6 +645,8 @@ class PathModel:
             latent=self._latent,
             graph_info=self._graph_info,
             priors=self._priors,
+            initial=self._initial_internal,
+            replay_states=self._frozen_basis_states,
         )
 
         block_vars = (
@@ -573,6 +688,8 @@ class PathModel:
         self._pymc_model._pathmc_basis_states = getattr(
             self._gen_model, "_pathmc_basis_states", {}
         )
+        if self._frozen_basis_states is None:
+            self._frozen_basis_states = self._pymc_model._pathmc_basis_states
 
         # Enable the observed carry unconditionally, not only when
         # ``observations`` is non-empty. A variable with any NaN is skipped
@@ -585,7 +702,56 @@ class PathModel:
         if _OBSERVED_CARRY_FLAG in self._pymc_model.named_vars:
             with self._pymc_model:
                 pm.set_data({_OBSERVED_CARRY_FLAG: np.array(1, dtype="int8")})
+        if (
+            scan_info is not None
+            and not self._latent
+            and all(
+                self._families.get(r.lhs, "gaussian") == "gaussian"
+                for r in self._spec.regressions
+            )
+        ):
+            legacy_model = self._gen_model
+            self._gen_model = compile_to_pymc(
+                self._spec,
+                self._data,
+                self._design_matrices,
+                families=self._families,
+                panel_info=self._panel_info,
+                pooling=self._pooling,
+                latent=self._latent,
+                graph_info=self._graph_info,
+                priors=self._priors,
+                generative=True,
+                initial=self._initial_internal,
+            )
+            self._gen_model._pathmc_legacy_model = legacy_model
+            if not observations:
+                # Preserve the legacy flag-restoration contract for sparse
+                # outcomes; coherent states do not read this compatibility flag.
+                self._gen_model[_OBSERVED_CARRY_FLAG].set_value(
+                    np.array(1, dtype="int8")
+                )
         self._idata = None
+        self._record_initial_baseline()
+
+    def _record_initial_baseline(self) -> None:
+        """Store the pre-sample states the scan actually compiled."""
+        assert self._gen_model is not None
+        scan = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        if scan is None or not scan.initial_values:
+            self._initial_baseline = None
+            return
+        values = {
+            name: xr.DataArray(
+                np.array(arr, dtype=float, copy=True),
+                dims=("unit",),
+                coords={"unit": list(scan.unit_labels)},
+            )
+            for name, arr in scan.initial_values.items()
+        }
+        self._initial_baseline = freeze_baseline(
+            explicit=self._initial_explicit, values=values
+        )
 
     @property
     def fitted_scaling(self) -> ScalingFactors | None:
@@ -595,6 +761,26 @@ class PathModel:
         to reuse the exact estimation-time scales.
         """
         return self._scaling_factors
+
+    @property
+    def initial_baseline(self) -> InitialBaseline | None:
+        """Pre-sample lag states in model units, or None without a lag scan.
+
+        The first fitted time uses these values as the ``lag()`` input.
+        They are not an extra period in ``do()`` or ``predict()``
+        summaries. ``explicit`` is False when the values were inferred.
+        An endogenous base then uses that unit's first observed value.
+        An exogenous base uses a matching ``<variable>_lag1`` column when
+        present, otherwise the first observed row, otherwise zeros.
+        A ``do(initial=)`` override does not change this record. The returned
+        arrays are a snapshot; editing them does not alter model execution.
+        """
+        if self._initial_baseline is None:
+            return None
+        return freeze_baseline(
+            explicit=self._initial_baseline.explicit,
+            values=self._initial_baseline.values,
+        )
 
     @property
     def pymc_model(self) -> pm.Model:
@@ -830,6 +1016,10 @@ class PathModel:
         RuntimeError
             If the model was created without data, or called before
             ``.fit()``.
+        DuplicateEquationError
+            If a defined parameter uses a coefficient label's name. The
+            summary reports each labeled coefficient and each defined
+            parameter, so the defined parameter must not occupy the label.
         """
         idata = self._require_fitted("effects_summary")
         if not _has_labeled_terms(self._spec) and not self._spec.defined_params:
@@ -853,6 +1043,11 @@ class PathModel:
 
         Each coefficient is standardized as ``coef * sd(X) / sd(Y)``,
         giving the expected change in Y (in SD units) per SD change in X.
+        ``coef`` is the business-unit coefficient reported by
+        ``effects_summary()``. ``sd(X)`` and ``sd(Y)`` are the observed
+        marginal SDs of the data passed to ``model()``, including on a
+        scaled model whose internal columns were divided by per-unit factors.
+        Binary 0/1 predictors are omitted: their SD depends on the base rate.
 
         Returns
         -------
@@ -882,6 +1077,7 @@ class PathModel:
             self._data,
             latent=self._latent,
             families=self._families,
+            scaling_factors=self._scaling_factors,
         )
 
     def effect(self, path: str) -> EffectResult:
@@ -909,7 +1105,10 @@ class PathModel:
             If the model was created without data, or called before
             ``.fit()``.
         ValueError
-            If a node is not endogenous or an edge does not exist.
+            If a node is not endogenous, an edge does not exist, or a drawn
+            edge exists only as an interaction constituent. In that last case
+            the error names the interaction term (for example ``X:Z``)
+            instead of claiming the edge is absent.
         NotImplementedError
             If a multi-edge path includes a non-Gaussian edge target
             whose coefficient would be multiplied across link scales.
@@ -1031,7 +1230,37 @@ class PathModel:
             validate_panel_scan_shape(self._pymc_model, scan_info)
         with self._prediction_data(data) as prediction_data:
             with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
-                pp = pm.sample_posterior_predictive(idata, **kwargs)
+                if (
+                    scan_info is not None
+                    and scan_info.gaussian_states
+                    and not one_step_ahead
+                ):
+                    assert self._gen_model is not None
+                    if kwargs.get("var_names") is None:
+                        kwargs["var_names"] = list(scan_info.gaussian_states)
+                    requested = kwargs.pop("sample_vars", []) or []
+                    if isinstance(requested, str):
+                        requested = [requested]
+                    kwargs["sample_vars"] = sorted(
+                        set(requested)
+                        | {
+                            f"carry_innovations_{var}"
+                            for var in scan_info.gaussian_states
+                        }
+                    )
+                    with _forced_generative_carry(self._gen_model):
+                        prediction_model = pm.do(
+                            self._gen_model,
+                            {
+                                name: self._pymc_model[name].get_value()
+                                for name in scan_info.exogenous
+                            },
+                        )
+                        pp = pm.sample_posterior_predictive(
+                            idata, model=prediction_model, **kwargs
+                        )
+                else:
+                    pp = pm.sample_posterior_predictive(idata, **kwargs)
         result = pp if not kwargs["extend_inferencedata"] else idata
         if self._scaling_factors is not None and prediction_data is not None:
             assert self._data is not None
@@ -1482,9 +1711,20 @@ class PathModel:
 
         A significant result flags a *violation*: the data show an
         association that the DAG says should not exist, suggesting a
-        missing edge or incorrect structure.
+        missing edge or incorrect structure. Each row also reports
+        ``requested_k``, ``effective_k``, ``rank_collapsed``, and ``df``.
+        When a conditioner is constant, duplicated, collinear with the
+        others, or a single-level categorical that contributed no columns,
+        ``rank_collapsed`` is set, ``significant`` is false, and a warning
+        is emitted. The p-value still refers to the columns that entered,
+        not the independence implied by the DAG. ``n_violations`` equals
+        ``results["significant"].sum()``. The display does not mark that
+        row pass or fail. Drop the redundant variable and re-test.
 
-        Uses the observed data, not the posterior.
+        Uses the observed data, not the posterior. Statements that name
+        a latent or any other column absent from the data are skipped;
+        ``implied_independences()`` may still list them. Only observable
+        implications are returned.
 
         Parameters
         ----------
@@ -1507,12 +1747,67 @@ class PathModel:
             categorical_vars=self._categorical_vars,
         )
 
+    def _sync_predictive_shared(self, sibling: pm.Model) -> None:
+        """Copy estimation-model shared values onto the generative sibling.
+
+        ``do()`` rewrites categorical bases on the estimation model before
+        sampling. The sibling is compiled once and must see those values,
+        plus any other shared data, or predictive draws use the pre-intervention
+        design.
+        """
+        assert self._gen_model is not None
+        for name, var in self._gen_model.named_vars.items():
+            getter = getattr(var, "get_value", None)
+            if getter is None:
+                continue
+            other = sibling.named_vars.get(name)
+            setter = getattr(other, "set_value", None)
+            if setter is None:
+                continue
+            value = np.array(getter(borrow=True), copy=True)
+            dtype = getattr(other, "dtype", None)
+            if dtype is not None:
+                value = value.astype(dtype, copy=False)
+            setter(value)
+
+    def _predictive_gen_model(self) -> pm.Model:
+        """Return the model predictive ``do()`` should sample.
+
+        Residual-block members are observed on the estimation model, so its
+        free RVs are noise-free and descendant predictive draws omit upstream
+        residual noise. A generative sibling keeps those members as slices of
+        a free joint. Models without ``~~`` keep using the estimation model.
+        """
+        assert self._gen_model is not None
+        assert self._data is not None
+        if not self._graph_info.residual_blocks:
+            return self._gen_model
+        sibling = getattr(self, "_residual_predictive_model", None)
+        if sibling is None:
+            sibling = compile_to_pymc(
+                self._spec,
+                self._data,
+                self._design_matrices,
+                families=self._families,
+                panel_info=self._panel_info,
+                pooling=self._pooling,
+                latent=self._latent,
+                graph_info=self._graph_info,
+                priors=self._priors,
+                generative=True,
+            )
+            self._residual_predictive_model = sibling
+        self._sync_predictive_shared(sibling)
+        return sibling
+
     def _run_do(
         self,
         set: dict[str, float | np.ndarray] | None,
         kind: str,
         *,
         subgroup_indices: np.ndarray | None = None,
+        average_units: bool = True,
+        random_seed: int | None = None,
     ) -> DoResult:
         """Run a cross-sectional do() via graph surgery on instance state.
 
@@ -1523,8 +1818,11 @@ class PathModel:
         assert self._gen_model is not None
         assert self._data is not None
         assert self._idata is not None
+        gen_model = (
+            self._predictive_gen_model() if kind == "predictive" else self._gen_model
+        )
         return run_do_pymc(
-            gen_model=self._gen_model,
+            gen_model=gen_model,
             graph_info=self._graph_info,
             idata=self._idata,
             data=self._data,
@@ -1534,6 +1832,8 @@ class PathModel:
             subgroup_indices=subgroup_indices,
             scaling_factors=self._scaling_factors,
             categorical_vars=self._categorical_vars,
+            average_units=average_units,
+            random_seed=random_seed,
         )
 
     @contextmanager
@@ -1660,6 +1960,18 @@ class PathModel:
         :meth:`test_implications`. Because that test is linear, purely
         nonlinear dependencies are not detected, so a "not rejected"
         verdict is only as strong as the linear-Gaussian assumption.
+        ``local_violations`` includes ``requested_k``, ``effective_k``,
+        ``rank_collapsed``, and ``df`` for each test on this DAG. A
+        rank-deficient parent set (a constant, duplicate, or collinear
+        parent) sets ``rank_collapsed`` and warns. That row stays in the
+        frame, but ``given_lmc_violations``, ``n_lmc_tests``,
+        ``violations``, and the permutation fraction all exclude it.
+        A permuted DAG that produced no written parental test is omitted
+        from that fraction, not scored as zero violations. If every drawn
+        permutation is omitted, ``falsified`` is unset and the summary,
+        compact repr, and HTML say the LMC comparison was not run. The
+        summary names the collapsed count separately. If every requested
+        test collapses, the DAG cannot be evaluated.
 
         Uses the observed data, not the posterior, and works before
         sampling. Models with residual covariances (``~~``) are not
@@ -1746,6 +2058,11 @@ class PathModel:
             # columns, so the refit happens in the same internal units as
             # the original fit; re-fitting factors from permuted data
             # would change the scale mid-refutation.
+            # Explicit initials are already in model units. Inferred
+            # initials are re-read from the clone's (already scaled) frame.
+            _initial_internal=(
+                self._initial_internal if self._initial_explicit else None
+            ),
         )
         # The per-fold seed is owned here so every fold is independent and the
         # whole refutation is reproducible; a random_seed in sample_kwargs would
@@ -1839,13 +2156,120 @@ class PathModel:
             random_seed=random_seed,
         )
 
+    def _normalize_query_initial(
+        self,
+        initial: Mapping[str, Any] | None,
+        simulate_over: str | None,
+    ) -> dict[str, xr.DataArray] | None:
+        """Validate a query override before any execution model is built."""
+        if initial is None:
+            return None
+        if self._data is None or self._panel_info is None:
+            raise ValueError(
+                "initial= cannot be aligned without data and a panel. "
+                "Pass data= and panel= to model() so each unit label and "
+                "scale can be resolved."
+            )
+        if simulate_over != "time":
+            raise ValueError(
+                "initial= is only used by time-forward panel simulation. "
+                "Pass simulate_over='time', or omit initial=."
+            )
+        bases = required_initial_keys(self._spec, None, latent=set(self._latent))
+        if not bases:
+            raise ValueError(
+                "initial= applies to observed lag() bases, and this model "
+                "has none. Omit initial=. Adstock carry is not set through "
+                "initial=."
+            )
+        return normalize_initial_states(
+            initial,
+            required=bases,
+            unit_labels=self._panel_info.unit_labels,
+            data=self._data,
+            panel_info=self._panel_info,
+            scaling_factors=self._scaling_factors,
+            kinds=lag_base_kinds(self._spec, bases),
+            latent=tuple(sorted(self._latent)),
+        )
+
+    def _compile_initial_override(
+        self, normalized: Mapping[str, xr.DataArray]
+    ) -> pm.Model:
+        """Compile a throwaway scan model with overridden pre-sample states.
+
+        The stored model and posterior are left untouched. Gaussian
+        predictive queries do not use this path; they replace the coherent
+        model's initial nodes through the execution seam.
+        """
+        assert self._data is not None
+        arrays = {
+            name: np.asarray(value.values, dtype=float)
+            for name, value in normalized.items()
+        }
+        return compile_to_pymc(
+            self._spec,
+            self._data,
+            self._design_matrices,
+            families=self._families,
+            panel_info=self._panel_info,
+            pooling=self._pooling,
+            latent=self._latent,
+            graph_info=self._graph_info,
+            priors=self._priors,
+            generative=False,
+            initial=arrays,
+        )
+
+    @overload
     def do(
         self,
         set: dict[str, Any] | None = None,
         shift: dict[str, float] | None = None,
         kind: str = "mean",
         simulate_over: str | None = None,
-    ) -> DoResult:
+        random_seed: int | None = None,
+        *,
+        average_units: bool = True,
+        initial: Mapping[str, Any] | None = None,
+        policy: None = None,
+        horizon: None = None,
+        n_simulations: None = None,
+        keep_trajectories: None = None,
+    ) -> DoResult: ...
+
+    @overload
+    def do(
+        self,
+        set: dict[str, Any] | None = None,
+        shift: dict[str, float] | None = None,
+        kind: str = "mean",
+        simulate_over: str | None = None,
+        random_seed: int | None = None,
+        *,
+        average_units: bool = True,
+        initial: Mapping[str, Any] | None = None,
+        policy: TreatmentPolicy,
+        horizon: int | None = None,
+        n_simulations: int | None = None,
+        keep_trajectories: bool | None = None,
+    ) -> PolicyRun: ...
+
+    def do(
+        self,
+        set: dict[str, Any] | None = None,
+        shift: dict[str, float] | None = None,
+        kind: str = "mean",
+        simulate_over: str | None = None,
+        random_seed: int | None = None,
+        *,
+        average_units: bool = True,
+        initial: Mapping[str, Any] | None = None,
+        policy: Any | None = None,
+        horizon: int | None = None,
+        n_simulations: int | None = None,
+        keep_trajectories: bool | None = None,
+    ) -> Any:
         """Simulate an intervention using the do-operator.
 
         Uses PyMC-native graph surgery: ``pm.do()`` on the generative model
@@ -1859,7 +2283,12 @@ class PathModel:
             Variables to fix at specific values (hard intervention).
             For panel models with ``simulate_over="time"``, values can
             be arrays of shape ``(n_times,)`` for time-varying
-            interventions (e.g., a temporary spend increase).
+            interventions (e.g., a temporary spend increase). A NaN in
+            that array releases the step of an endogenous variable: the
+            scan runs the variable's own equation there, and the reported
+            path keeps the finite held values elsewhere. NaN does not
+            release an exogenous input, which has no equation to fall
+            back on.
             On a model compiled with ``scaling=``, values are in
             *business* units: pathmc divides by the fitted factor before
             graph surgery so ``do(set={"tv": 500})`` means 500 of the
@@ -1868,24 +2297,57 @@ class PathModel:
             Not implemented; raises :exc:`NotImplementedError` if given.
         kind : str
             ``"mean"`` for deterministic propagation via mu Deterministics,
-            ``"predictive"`` to include residual noise.
+            ``"predictive"`` to include residual noise. Residual-covariance
+            blocks are sampled from a generative sibling so that noise reaches
+            descendants; the estimation likelihood is unchanged.
         simulate_over : str | None
             ``"time"`` to activate time-forward panel simulation. Required
             for models with ``lag()`` or ``adstock()``, which also require
             the model to have been fitted with ``panel=``.
+        average_units : bool
+            When ``True`` (default), ``kind="mean"`` averages response means
+            over observation rows. ``prob`` sets this to ``False`` when the
+            expression names both an endogenous variable and a per-unit
+            intervention, so the comparison uses unit-level means.
+
+        random_seed : int | None
+            Seed for reproducible predictive process noise. Does not change
+            stored posterior draws. Ignored for deterministic mean queries.
+        initial : Mapping[str, Any] | None
+            Pre-sample state for every observed ``lag()`` base, in business
+            units. A scalar broadcasts to every fitted unit; a mapping must
+            contain exactly the fitted unit labels. ``None`` reuses
+            :attr:`initial_baseline`. An override is local to this call: it
+            governs both mean and predictive recursion and does not refit
+            the model or change the stored baseline. The values are the
+            state before the first fitted time, not an extra outcome period.
+        policy : TreatmentPolicy | None
+            History-dependent treatment assigned inside the panel scan.
+            Requires an explicit pre-sample baseline, ``simulate_over='time'``,
+            and a Gaussian lag model. ``kind='predictive'`` is rejected:
+            the policy path always integrates process noise.
+        horizon : int | None
+            Required. Must equal the fitted time count. Do not omit it.
+        n_simulations : int | None
+            Stochastic histories per posterior draw. Default 256. Minimum 2.
+        keep_trajectories : bool | None
+            Retain unit-level paths. Default False for a policy query.
+
 
         Returns
         -------
-        DoResult
-            Container with ``.mean(var)``, ``.hdi(var)``, and
-            contrast arithmetic via ``__sub__``.
+        DoResult | PolicyRun
+            A ``set=`` or ``shift=`` query returns a ``DoResult``. A
+            ``policy=`` query returns a ``PolicyRun``. The two are not one
+            type and cannot be subtracted.
 
         Raises
         ------
         RuntimeError
             If called before ``.fit()``.
         ValueError
-            If ``simulate_over="time"`` without panel, or if an intervention
+            If ``kind`` is not ``"mean"`` or ``"predictive"``. Also if
+            ``simulate_over="time"`` without panel, or if an intervention
             on an ``hsgp()`` input falls outside the basis boundary
             ``[mid - L, mid + L]`` frozen from the fitted data (beyond it
             the basis aliases instead of extrapolating), or if a temporal
@@ -1900,8 +2362,34 @@ class PathModel:
                 "do(shift=...) is not yet implemented. Use do(set=...) for hard "
                 "interventions."
             )
+        if (
+            policy is not None
+            or horizon is not None
+            or n_simulations is not None
+            or keep_trajectories is not None
+        ):
+            if policy is None:
+                raise ValueError(
+                    "horizon=, n_simulations=, and keep_trajectories= require "
+                    "policy=. Pass a TreatmentPolicy, or omit those arguments."
+                )
+            from pathmc.policy_exec import run_policy_evaluation
+
+            return run_policy_evaluation(
+                self,
+                policy,
+                set_values=set,
+                initial=initial,
+                horizon=horizon,
+                n_simulations=n_simulations,
+                keep_trajectories=keep_trajectories,
+                random_seed=random_seed,
+                kind=kind,
+                simulate_over=simulate_over,
+            )
 
         scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
+        normalized_initial = self._normalize_query_initial(initial, simulate_over)
         if scan_info is not None and simulate_over != "time":
             raise ValueError(
                 "This model has temporal dependencies (lag() or adstock()), so "
@@ -1925,7 +2413,10 @@ class PathModel:
                 numeric_set, self._scaling_factors, self._data
             )
             _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_set)
-            _warn_extrapolation(self._data, scaled_set)
+            _warn_extrapolation(
+                _business_observation_frame(self._data, self._scaling_factors),
+                numeric_set,
+            )
 
         if simulate_over == "time":
             if self._panel_info is None:
@@ -1960,24 +2451,64 @@ class PathModel:
                     self._panel_info,
                     time_idx,
                     list(self._graph_info.topological_order),
+                    scaling_factors=self._scaling_factors,
                 )
+                exec_model = self._gen_model
+                exec_scan = scan_info
+                seam_initial = None
+                if normalized_initial is not None:
+                    if scan_info.gaussian_states and kind == "predictive":
+                        seam_initial = normalized_initial
+                    else:
+                        exec_model = self._compile_initial_override(normalized_initial)
+                        exec_scan = exec_model._pathmc_panel_scan
                 return run_do_panel_unified(
-                    gen_model=self._gen_model,
+                    gen_model=exec_model,
                     graph_info=self._graph_info,
                     idata=idata,
                     panel_info=self._panel_info,
-                    scan_info=scan_info,
+                    scan_info=exec_scan,
                     set=numeric_set,
                     kind=kind,
                     families=self._families,
+                    random_seed=random_seed,
                     observed_by_time=observed_by_time,
                     data=self._data,
                     scaling_factors=self._scaling_factors,
+                    initial=seam_initial,
                 )
-            # Non-scan panel models fall through to the cross-sectional path.
+            with self._categorical_intervention(categorical_set):
+                time_idx = np.asarray(
+                    sorted(self._data[self._panel_info.time].unique().to_list())
+                )
+                observed_by_time = observed_means_by_time(
+                    self._data,
+                    self._panel_info,
+                    time_idx,
+                    list(self._graph_info.topological_order),
+                )
+                return run_do_static_panel(
+                    gen_model=self._gen_model,
+                    graph_info=self._graph_info,
+                    idata=idata,
+                    data=self._data,
+                    panel_info=self._panel_info,
+                    set=numeric_set,
+                    kind=kind,
+                    families=self._families,
+                    scaling_factors=self._scaling_factors,
+                    categorical_vars=self._categorical_vars,
+                    observed_by_time=observed_by_time,
+                    random_seed=random_seed,
+                )
 
         with self._categorical_intervention(categorical_set):
-            return self._run_do(numeric_set, kind)
+            return self._run_do(
+                numeric_set,
+                kind,
+                average_units=average_units,
+                random_seed=random_seed,
+            )
 
     def counterfactual(
         self,
@@ -2044,7 +2575,10 @@ class PathModel:
         # below skip them, so this method does not grow a private pre-filter.
         scaled_do = _scale_set_for_bounds(do, self._scaling_factors, self._data)
         _reject_hsgp_out_of_bounds(self._spec, self._data, scaled_do)
-        _warn_extrapolation(self._data, scaled_do)
+        _warn_extrapolation(
+            _business_observation_frame(self._data, self._scaling_factors),
+            do,
+        )
         if self._scaling_factors is not None:
             do = {
                 var: (
@@ -2416,23 +2950,59 @@ class PathModel:
         Returns
         -------
         float
-            Estimated probability (fraction of draws satisfying *expr*).
+            Fraction of aligned comparisons that satisfy *expr*. For
+            ``kind="mean"``, a per-unit intervention is compared to
+            unit-level means, not to the outcome averaged over units.
         """
         self._require_data("prob")
-        result = self.do(set=set, kind=kind, **do_kwargs)
-        namespace: dict[str, Any] = {
-            str(var): result.draws(str(var)) for var in result.dataset.data_vars
-        }
+        names = _expr_names(expr)
+        unit_level = (
+            kind == "mean"
+            and do_kwargs.get("simulate_over") != "time"
+            and self._mean_expr_needs_unit_means(names, set)
+        )
+        result = self.do(
+            set=set,
+            kind=kind,
+            average_units=not unit_level,
+            **do_kwargs,
+        )
+        if unit_level:
+            namespace: dict[str, Any] = _aligned_draw_namespace(result, names)
+        else:
+            namespace = {
+                str(var): result.draws(str(var)) for var in result.dataset.data_vars
+            }
         namespace["np"] = np
         namespace["__builtins__"] = {}
         mask = eval(expr, namespace)  # noqa: S307
         return float(np.mean(mask))
 
+    def _mean_expr_needs_unit_means(
+        self,
+        names: set[str],
+        set: dict[str, float | np.ndarray] | None,
+    ) -> bool:
+        """Whether ``kind="mean"`` must keep unit-level outcome means.
+
+        Averaging the outcome and then comparing it to a per-unit
+        intervention broadcasts that average. The probability is the
+        fraction of aligned unit-level comparisons instead.
+        """
+        unit_vars = {
+            var
+            for var, val in (set or {}).items()
+            if _per_unit_intervention(val) and var in names
+        }
+        if not unit_vars:
+            return False
+        return bool(names & self._graph_info.endogenous)
+
     def predictions(
         self,
         outcome: str,
         *,
-        set: dict[str, float | np.ndarray] | None = None,
+        set: dict[str, float | np.ndarray | str] | None = None,
         newdata: IntoFrame | None = None,
     ) -> InterpretResult:
         """Interventional or associational response-mean predictions.
@@ -2441,9 +3011,9 @@ class PathModel:
         ----------
         outcome : str
             Outcome variable name.
-        set : dict[str, float] or None
-            Intervention values. When omitted, predictions are
-            associational (no graph surgery).
+        set : dict[str, float | str] or None
+            Intervention values. A categorical predictor takes a fitted
+            level label. When omitted, predictions are associational.
         newdata : IntoFrame or None
             Covariate grid or frame to predict on, in *business* units.
             Defaults to the fitted data. On a scaled model the grid is
@@ -2465,7 +3035,7 @@ class PathModel:
         *,
         contrast: tuple[float, float] = (0.0, 1.0),
         comparison: Literal["diff", "ratio", "lift"] = "diff",
-        conditional: dict[str, float] | None = None,
+        conditional: dict[str, float | str] | None = None,
         average_by: Literal["all"] | None = "all",
     ) -> EstimandResult | InterpretResult:
         """Interventional contrasts between two values of a variable.
@@ -2483,8 +3053,9 @@ class PathModel:
             ``(lo, hi)`` intervention values.
         comparison : str
             ``"diff"``, ``"ratio"``, or ``"lift"``.
-        conditional : dict[str, float] or None
-            Additional variables held fixed at scalar values.
+        conditional : dict[str, float | str] or None
+            Additional variables held fixed at scalar values. A categorical
+            predictor takes a fitted level label.
         average_by : str or None
             ``"all"`` collapses to :class:`EstimandResult`; ``None`` keeps
             unit-level :class:`InterpretResult` draws.
@@ -2511,7 +3082,7 @@ class PathModel:
         *,
         slope: Literal["dydx", "eyex", "eydx", "dyex"] = "dydx",
         eps: float = 1e-4,
-        conditional: dict[str, float] | None = None,
+        conditional: dict[str, float | str] | None = None,
         average_by: Literal["all"] | None = "all",
     ) -> EstimandResult | InterpretResult:
         """Finite-difference interventional slopes.
@@ -2526,8 +3097,9 @@ class PathModel:
             Slope type: ``"dydx"``, ``"eyex"``, ``"eydx"``, or ``"dyex"``.
         eps : float
             Finite-difference step size.
-        conditional : dict[str, float] or None
-            Additional variables held fixed at scalar values.
+        conditional : dict[str, float | str] or None
+            Additional variables held fixed at scalar values. A categorical
+            predictor takes a fitted level label.
         average_by : str or None
             ``"all"`` collapses to :class:`EstimandResult`; ``None`` keeps
             unit-level draws.
@@ -2586,6 +3158,44 @@ class PathModel:
         return grid
 
 
+def _within_block_directed_edges(spec: Spec) -> list[str]:
+    """Return ``lhs ~ member`` edges inside one residual-covariance block."""
+    block_var_set, blocks = _identify_residual_blocks(spec)
+    if not block_var_set:
+        return []
+    var_to_block = {v: block for block in blocks for v in block}
+    edges: list[str] = []
+    for reg in spec.regressions:
+        if reg.lhs not in var_to_block:
+            continue
+        own_block = var_to_block[reg.lhs]
+        seen: set[str] = set()
+        for term in reg.terms:
+            for var in _scan_term_base_vars(term):
+                if var in own_block and var != reg.lhs and var not in seen:
+                    seen.add(var)
+                    edges.append(f"{reg.lhs} ~ {var}")
+    return edges
+
+
+def _reject_within_block_directed_edges(spec: Spec, *, caller: str) -> None:
+    """Refuse a directed edge inside a ``~~`` block before compiling its density.
+
+    The residual-block likelihood centers every member on its structural mean.
+    A within-block regression needs the realized parent, which is not implemented.
+    """
+    edges = _within_block_directed_edges(spec)
+    if not edges:
+        return
+    shown = ", ".join(sorted(set(edges)))
+    raise NotImplementedError(
+        f"{caller}() cannot yet compile a directed edge inside a "
+        f"residual-covariance block ({shown}): a residual-covariance block "
+        "member reads another member of the same ~~ block. Drop the "
+        "within-block path or the ~~ clause."
+    )
+
+
 def model(
     spec_string: str,
     data: IntoFrame | None = None,
@@ -2595,6 +3205,9 @@ def model(
     latent: list[str] | None = None,
     priors: dict[str, Any] | None = None,
     scaling: Scaling | ScalingFactors | None = None,
+    *,
+    initial: Mapping[str, Any] | None = None,
+    _initial_internal: Mapping[str, np.ndarray] | None = None,
     **kwargs: Any,
 ) -> PathModel:
     """Parse a specification and compile a Bayesian path model.
@@ -2617,7 +3230,8 @@ def model(
         Per-variable distribution families (default ``"gaussian"``).
     panel : dict[str, str] | None
         Panel structure with ``"unit"`` and ``"time"`` keys mapping to
-        column names. Activates panel mode.
+        column names. Activates panel mode. Convolution adstock compiled
+        without it treats row order as one series and warns.
     pooling : str | dict | None
         ``"partial"`` for random intercepts per unit. A dict like
         ``{"intercept": True, "slopes": ["var"]}`` enables random slopes.
@@ -2665,6 +3279,26 @@ def model(
            columns; ``model.fitted_scaling`` exposes the divisors for
            :func:`simulate` and manual transforms.
 
+    initial : Mapping[str, Any] | None
+        Pre-sample state for every observed ``lag()`` base, in business
+        units. A key is the base variable named by ``lag()``, not a
+        generated column. A value is a finite number broadcast to every
+        fitted unit, or a mapping of exactly the fitted unit labels.
+        These values are the state immediately before the first fitted
+        time — not the first observed row, and not an extra outcome
+        period. ``None`` keeps the legacy fill: an endogenous base uses
+        that unit's first observed value; an exogenous base uses a
+        ``<variable>_lag1`` column when present, otherwise the first
+        observed row, otherwise zeros. Explicit values replace that fill
+        for fitting and for ``do()``. Latent lag bases stay on their
+        ``init_{variable}`` prior. The normalized model-unit record is
+        :attr:`PathModel.initial_baseline`.
+
+    _initial_internal
+        Private. Refit passes already-normalized model-unit arrays when
+        the working frame is already scaled. Do not combine with
+        ``initial=``.
+
     Returns
     -------
     PathModel
@@ -2676,8 +3310,26 @@ def model(
     ValueError
         If a latent variable is not endogenous, or an observed endogenous
         variable is missing from data.
+    NotImplementedError
+        If a directed edge lies inside a ``~~`` block (``Y2 ~ Y1`` together
+        with ``Y1 ~~ Y2``). Drop the within-block path or the ``~~`` clause.
+        The same refusal applies with or without data.
     """
+    if initial is not None and _initial_internal is not None:
+        raise ValueError("Pass initial= or already-normalized refit arrays, not both.")
+    if initial is not None and data is None:
+        raise ValueError(
+            "initial= cannot be aligned without data. Pass data= to model() "
+            "so each unit's scale and label can be resolved."
+        )
+    if initial is not None and panel is None:
+        raise ValueError(
+            "initial= requires a panel model with lag() terms. Pass "
+            "panel={'unit': ..., 'time': ...} and include lag() in the "
+            "formula, or omit initial=."
+        )
     spec = parse_spec(spec_string)
+    _reject_within_block_directed_edges(spec, caller="model")
     latent_set = set(latent) if latent is not None else set()
 
     nw_data = nw.from_native(data, eager_only=True) if data is not None else None
@@ -2735,7 +3387,7 @@ def model(
         term_vars: set[str] = set()
         for reg in spec.regressions:
             for t in reg.terms:
-                term_vars.update(_term_base_vars(t))
+                term_vars.update(_scan_term_base_vars(t))
         target_columns = endogenous_lhs - latent_set
         channel_columns = term_vars - endogenous_lhs
         scaling, excluded = _exclude_scaled_basis_inputs(
@@ -2756,6 +3408,31 @@ def model(
         )
         nw_data = scaling_factors.transform(nw_data)
 
+    compiled_initial: Mapping[str, np.ndarray] | None = _initial_internal
+    if initial is not None:
+        assert nw_data is not None and panel_info is not None
+        bases = required_initial_keys(spec, None, latent=latent_set)
+        if not bases:
+            raise ValueError(
+                "initial= applies to observed lag() bases, and this model "
+                "has none. Omit initial=. Adstock carry is not set through "
+                "initial=."
+            )
+        normalized = normalize_initial_states(
+            initial,
+            required=bases,
+            unit_labels=panel_info.unit_labels,
+            data=nw_data,
+            panel_info=panel_info,
+            scaling_factors=scaling_factors,
+            kinds=lag_base_kinds(spec, bases),
+            latent=tuple(sorted(latent_set)),
+        )
+        compiled_initial = {
+            name: np.asarray(value.values, dtype=float)
+            for name, value in normalized.items()
+        }
+
     path_model = PathModel(
         spec=spec,
         graph_info=graph_info,
@@ -2766,6 +3443,8 @@ def model(
         latent=latent_set,
         priors=priors,
         scaling_factors=scaling_factors,
+        initial_internal=compiled_initial,
+        initial_explicit=initial is not None or _initial_internal is not None,
     )
     path_model._construction = {
         "spec_string": spec_string,
@@ -2774,6 +3453,7 @@ def model(
         "pooling": pooling,
         "latent": latent,
         "scaling": scaling,
+        "initial": initial,
         # Recorded for completeness only. _refit_permuted intentionally
         # rebuilds with the current merged self._priors (not this original
         # arg) so priors changed via set_priors() are honored on refit.
@@ -2812,6 +3492,58 @@ def _prepare_simulation_frame(
     if scaling_factors is not None:
         data_sim = scaling_factors.transform(data_sim)
     return data_sim
+
+
+def _noncentered_mapping(gen_model: pm.Model) -> dict[str, tuple[str, str, str]]:
+    return getattr(gen_model, "_pathmc_noncentered", {})
+
+
+def _public_param_name(gen_model: pm.Model, name: str) -> str:
+    for centered, (offset_name, _, _) in _noncentered_mapping(gen_model).items():
+        if name == offset_name:
+            return centered
+    return name
+
+
+def _realize_noncentered_params(
+    gen_model: pm.Model, params: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Turn centered unit effects into the unit-normal offsets ``pm.do`` sets.
+
+    Hierarchical intercepts and slopes are sampled as
+    ``name_offset ~ N(0, 1)`` with ``name = mu + sigma * offset``. Callers
+    still pass the centered vector. A scale at or below 1e-12 cannot
+    represent a centered vector that differs from ``mu`` through that
+    product, so those values are applied to the centered Deterministic
+    itself. The offset is still fixed, at 0, so the free RV has a value.
+    """
+    mapping = _noncentered_mapping(gen_model)
+    if not mapping:
+        return params, {}
+    params = dict(params)
+    singular_values: dict[str, Any] = {}
+    for centered, (offset_name, mu_name, sigma_name) in mapping.items():
+        if centered not in params:
+            continue
+        if offset_name in params:
+            raise ValueError(
+                f"Pass '{centered}' or '{offset_name}', not both. "
+                f"simulate() takes the centered '{centered}' unit vector."
+            )
+        if mu_name not in params or sigma_name not in params:
+            raise ValueError(
+                f"'{centered}' needs '{mu_name}' and '{sigma_name}' so "
+                "simulate() can recover the unit-normal offset. Pass all three."
+            )
+        mu = np.asarray(params[mu_name], dtype=float)
+        sigma = np.asarray(params[sigma_name], dtype=float)
+        value = np.asarray(params.pop(centered), dtype=float)
+        safe = np.where(np.abs(sigma) > 1e-12, sigma, 1.0)
+        offset = (value - mu) / safe
+        params[offset_name] = np.where(np.abs(sigma) > 1e-12, offset, 0.0)
+        if np.any(np.abs(sigma) <= 1e-12):
+            singular_values[centered] = value
+    return params, singular_values
 
 
 def simulate(
@@ -2853,15 +3585,25 @@ def simulate(
     params : dict[str, Any]
         True parameter values keyed by PyMC variable name. Typical
         keys are ``"beta_{var}"`` (coefficient vector) and
-        ``"sigma_{var}"`` (residual std). For residual covariances
+        ``"sigma_{var}"``. For a Gaussian outcome, ``sigma_{var}`` is
+        the residual standard deviation, which equals the distribution
+        scale. For StudentT, ``sigma_{var}`` is the scale, not the
+        residual standard deviation. ``simulate()`` leaves that supplied
+        value unchanged so a posterior round-trip is not converted twice.
+        Cross-sectional draws use that scale with ``nu_{var}``. Scan
+        lag-carry reconstructs each state as ``mu + sigma_{var} * e``,
+        where ``e`` is a unit normal innovation, so the innovation scale
+        is ``sigma_{var}`` and ``nu`` is not used. For residual covariances
         (``~~``), supply ``"chol_{block_name}"`` as the packed
         lower-triangular Cholesky vector of length ``k(k+1)/2``
         (PyMC ``LKJCholeskyCov`` packing); block members' simulated
         columns share the correlated residuals. Descendants of block
         members receive the realized noisy draws. Within-block directed
         edges (one member regressing on another) still raise
-        ``NotImplementedError``.
-        For ``hsgp()``
+        ``NotImplementedError``. Hierarchical unit effects
+        (``alpha_{var}``, ``slope_{lhs}_{var}``) are passed as the
+        centered unit vectors, not the ``*_offset`` free parameters
+        the sampler uses. For ``hsgp()``
         terms, supply ``"ell_{lhs}_{var}"``, ``"eta_{lhs}_{var}"``, and
         ``"beta_hsgp_{lhs}_{var}"`` (length ``m``). Transform
         parameters are keyed by their user-chosen DSL names, e.g.
@@ -2887,6 +3629,8 @@ def simulate(
         :func:`model`). With *panel*, temporal state starts cold:
         lagged endogenous terms and adstock carry begin at zero at each
         unit's first time step, matching the compiler's init semantics.
+        Convolution adstock compiled without *panel* treats row order as
+        one series and warns.
     pooling : str | dict | None
         Pooling configuration forwarded to the compiler, identical to
         :func:`model`: ``"partial"`` for random intercepts per unit
@@ -2924,6 +3668,9 @@ def simulate(
         If required parameter values are missing from *params*, if a
         parameter array has the wrong shape, or if the spec contains
         ``lag()`` terms but ``panel=`` was omitted.
+    NotImplementedError
+        If a directed edge lies inside a ``~~`` block. Drop the
+        within-block path or the ``~~`` clause.
 
     Examples
     --------
@@ -2943,32 +3690,13 @@ def simulate(
     """
     spec = parse_spec(spec_string)
     latent_set = set(latent) if latent else set()
-    block_var_set, blocks = _identify_residual_blocks(spec)
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
 
     if spec.residual_covs and panel is not None and _has_temporal_deps(spec):
         raise NotImplementedError(_SCAN_PANEL_RESIDUAL_COV_MSG)
 
-    if block_var_set:
-        var_to_block = {v: block for block in blocks for v in block}
-        within_block_readers: dict[str, set[str]] = {}
-        for reg in spec.regressions:
-            if reg.lhs not in var_to_block:
-                continue
-            own_block = var_to_block[reg.lhs]
-            read_vars = {v for term in reg.terms for v in _scan_term_base_vars(term)}
-            block_deps = (own_block & read_vars) - {reg.lhs}
-            if block_deps:
-                within_block_readers[reg.lhs] = block_deps
-        if within_block_readers:
-            block_deps = set().union(*within_block_readers.values())
-            raise NotImplementedError(
-                f"simulate() cannot yet generate {sorted(within_block_readers)}: "
-                "a residual-covariance block member reads another member of "
-                f"the same ~~ block ({sorted(block_deps)}). Drop the "
-                "within-block path or the ~~ clause."
-            )
+    _reject_within_block_directed_edges(spec, caller="simulate")
 
     nw_data = nw.from_native(data, eager_only=True)
     from pathmc.categorical import fit_categorical_terms
@@ -2986,8 +3714,12 @@ def simulate(
         term_vars: set[str] = set()
         for reg in spec.regressions:
             for t in reg.terms:
-                term_vars.update(_term_base_vars(t))
-        target_columns = endo_set - latent_set
+                term_vars.update(_scan_term_base_vars(t))
+        # Latent mediators are generated endogenous columns. They are absent
+        # from the input frame, but a grid target spec still fits their factor
+        # so the inverse scale lands them in business units with the other
+        # generated columns.
+        target_columns = endo_set
         channel_columns = term_vars - endo_set
         scaling, excluded = _exclude_scaled_basis_inputs(
             scaling,
@@ -3047,6 +3779,7 @@ def simulate(
         v for v in latent_set if families_eff.get(v, "gaussian") == "latent_normal"
     }
     stochastic_carry_vars: set[str] = set()
+    discrete_draw_vars: set[str] = set()
     innovation_rv_names: set[str] = set()
     if scan_info is not None:
         endo_lag_bases = {
@@ -3058,9 +3791,22 @@ def simulate(
             if v not in latent_set
             and families_eff.get(v, "gaussian") in ("gaussian", "studentt")
         }
+        discrete_draw_vars = _scan_discrete_sample_vars(spec, families_eff, latent_set)
+        if scan_info.gaussian_states:
+            stochastic_carry_vars = set(scan_info.gaussian_states)
         innovation_rv_names = {f"innovations_{v}" for v in stochastic_latent_vars} | {
             f"carry_innovations_{v}" for v in stochastic_carry_vars
         }
+        # Per-time uniforms drive Poisson/NegativeBinomial structural draws.
+        # They are simulation noise, like carry innovations, unless the caller
+        # pins them. Bernoulli uniforms stay required parameters.
+        count_uniform_names = {
+            f"discrete_uniforms_{v}"
+            for v in discrete_draw_vars
+            if families_eff.get(v, "gaussian") in ("poisson", "negbinomial")
+        }
+        supplied_count_uniforms = count_uniform_names & set(params)
+        innovation_rv_names |= count_uniform_names - supplied_count_uniforms
 
     # Innovation sequences drive the scan recursion itself; they are
     # simulation noise, not user-supplied parameters.
@@ -3068,19 +3814,26 @@ def simulate(
         all_rv_names - endo_rv_names - innovation_rv_names - block_joint_rvs
     )
 
+    params, singular_values = _realize_noncentered_params(gen_model, params)
+
     missing = param_rv_names - set(params.keys())
     if missing:
+        public_missing = sorted(_public_param_name(gen_model, n) for n in missing)
+        public_expected = sorted(
+            _public_param_name(gen_model, n) for n in param_rv_names
+        )
         raise ValueError(
-            f"Missing parameter values for: {sorted(missing)}. "
+            f"Missing parameter values for: {public_missing}. "
             f"All model parameters must be provided. "
-            f"Expected: {sorted(param_rv_names)}"
+            f"Expected: {public_expected}"
         )
 
     extra = set(params.keys()) - param_rv_names
     if extra:
         warnings.warn(
             f"Ignoring unknown parameter names: {sorted(extra)}. "
-            f"Expected parameter names: {sorted(param_rv_names)}",
+            f"Expected parameter names: "
+            f"{sorted(_public_param_name(gen_model, n) for n in param_rv_names)}",
             UserWarning,
             stacklevel=2,
         )
@@ -3094,6 +3847,23 @@ def simulate(
             if arr.ndim == 0:
                 arr = np.full(shape, arr)
             else:
+                public = _public_param_name(gen_model, name)
+                raise ValueError(
+                    f"Parameter '{public}' has shape {arr.shape}, but the model "
+                    f"requires {shape}. Scalar values are broadcast to the "
+                    "required shape; arrays must match it exactly. Use "
+                    "pathmc.simulate_params_template() to discover names and "
+                    "shapes."
+                )
+        do_dict[name] = arr.astype(rv.dtype)
+    for name, value in singular_values.items():
+        rv = gen_model[name]
+        arr = np.asarray(value)
+        shape = tuple(int(d) for d in rv.shape.eval())
+        if arr.shape != shape:
+            if arr.ndim == 0:
+                arr = np.full(shape, arr)
+            else:
                 raise ValueError(
                     f"Parameter '{name}' has shape {arr.shape}, but the model "
                     f"requires {shape}. Scalar values are broadcast to the "
@@ -3102,8 +3872,12 @@ def simulate(
                     "shapes."
                 )
         do_dict[name] = arr.astype(rv.dtype)
-    fixed_model = pm.do(gen_model, do_dict)
 
+    fixed_model = pm.do(gen_model, do_dict)
+    # Coefficients are numeric only after they are bound. Evaluate the scan
+    # linear predictor here so a large intercept warns even when the outcome
+    # column is absent and observed counts cannot.
+    _warn_scan_rate_clip_at_fixed_coefficients(gen_model, do_dict)
     if scan_info is not None:
         # Scan-compiled panel model: draw the temporal recursion in one pass.
         # The recursion consumes its own ``carry_innovations`` sequences, so
@@ -3124,6 +3898,8 @@ def simulate(
                     entries.append(("latent", var, [fixed_model[var]]))
                 else:
                     entries.append(("mu", var, [fixed_model[f"mu_{var}"]]))
+            elif scan_info.gaussian_states:
+                entries.append(("state", var, [fixed_model[var]]))
             elif var in stochastic_carry_vars:
                 # The realized state that fed downstream equations is
                 # mu + sigma * carry_innovations; reconstruct it from the
@@ -3137,6 +3913,10 @@ def simulate(
                         fixed_model[f"carry_innovations_{var}"],
                     ],
                 ))
+            elif var in discrete_draw_vars:
+                # Observation RVs are a second draw. Children already
+                # consumed ``_scan_draw_{var}`` inside the scan.
+                entries.append(("state", var, [fixed_model[f"_scan_draw_{var}"]]))
             else:
                 entries.append(("obs", var, [fixed_model[var]]))
 
@@ -3286,6 +4066,9 @@ def simulate_params_template(
     ValueError
         If the spec contains ``lag()`` terms but ``panel=`` was omitted,
         or if required exogenous columns are missing from *data*.
+    NotImplementedError
+        If a directed edge lies inside a ``~~`` block. Drop the
+        within-block path or the ``~~`` clause.
 
     Examples
     --------
@@ -3301,6 +4084,7 @@ def simulate_params_template(
     {'kind': 'vector', 'shape': (3,), 'dtype': 'float64'}
     """
     spec = parse_spec(spec_string)
+    _reject_within_block_directed_edges(spec, caller="simulate_params_template")
     validate_scaling_config(scaling)
     latent_set = set(latent) if latent else set()
 
@@ -3346,22 +4130,17 @@ def simulate_params_template(
 
     block_joint_rvs: set[str] = getattr(gen_model, "_pathmc_block_joint_rvs", set())
 
+    mapping = _noncentered_mapping(gen_model)
+    offset_names = {offset for offset, _, _ in mapping.values()}
     template: dict[str, Any] = {}
-    for rv in gen_model.free_RVs:
-        # Stochastic endogenous RVs (observed outcomes / stochastic
-        # latents) are simulation outputs, not params entries. The
-        # ``innovations_*`` / ``carry_innovations_*`` sequences drive the
-        # scan recursion itself: simulate() draws them internally.
-        # Residual-block joint RVs are realized noise, not user params.
-        if (
-            rv.name in endo_set
-            or rv.name in block_joint_rvs
-            or rv.name.startswith((
-                "innovations_",
-                "carry_innovations_",
-            ))
-        ):
-            continue
+    families_eff = families or {}
+    count_uniform_names = {
+        f"discrete_uniforms_{v}"
+        for v in _scan_discrete_sample_vars(spec, families_eff, latent_set)
+        if families_eff.get(v, "gaussian") in ("poisson", "negbinomial")
+    }
+
+    def _record(name: str, rv: Any) -> None:
         shape = tuple(int(d) for d in rv.shape.eval())
         if len(shape) == 0:
             kind = "scalar"
@@ -3371,9 +4150,34 @@ def simulate_params_template(
             kind = "matrix"
         else:
             kind = f"{len(shape)}-d array"
-        template[rv.name] = {
+        template[name] = {
             "kind": kind,
             "shape": shape,
             "dtype": str(rv.dtype),
         }
+
+    for rv in gen_model.free_RVs:
+        # Stochastic endogenous RVs (observed outcomes / stochastic
+        # latents) are simulation outputs, not params entries. The
+        # ``innovations_*`` / ``carry_innovations_*`` sequences drive the
+        # scan recursion itself: simulate() draws them internally.
+        # Residual-block joint RVs are realized noise, not user params.
+        # Poisson/NegativeBinomial per-time uniforms are the same kind of
+        # noise. Bernoulli uniforms stay required parameters.
+        # Hierarchical offsets are an internal sampler detail; the template
+        # lists the centered unit effect instead.
+        if (
+            rv.name in endo_set
+            or rv.name in block_joint_rvs
+            or rv.name in count_uniform_names
+            or rv.name in offset_names
+            or rv.name.startswith((
+                "innovations_",
+                "carry_innovations_",
+            ))
+        ):
+            continue
+        _record(rv.name, rv)
+    for centered in mapping:
+        _record(centered, gen_model[centered])
     return template

@@ -46,7 +46,8 @@ class TestRandomSlopeCompilation:
             pooling={"intercept": True, "slopes": ["X"]},
         )
         rv_names = {rv.name for rv in model.pymc_model.free_RVs}
-        assert "slope_Y_X" in rv_names
+        assert "slope_Y_X" in model.pymc_model.named_vars
+        assert "slope_Y_X_offset" in rv_names
         assert "mu_slope_Y_X" in rv_names
         assert "sigma_slope_Y_X" in rv_names
 
@@ -58,7 +59,8 @@ class TestRandomSlopeCompilation:
             pooling={"intercept": True, "slopes": ["X"]},
         )
         rv_names = {rv.name for rv in model.pymc_model.free_RVs}
-        assert "slope_Y_X" in rv_names
+        assert "slope_Y_X" in model.pymc_model.named_vars
+        assert "slope_Y_X_offset" in rv_names
         coords = model.pymc_model.coords
         assert "unit" in coords
 
@@ -70,7 +72,8 @@ class TestRandomSlopeCompilation:
             pooling={"intercept": True, "slopes": ["X"]},
         )
         rv_names = {rv.name for rv in model.pymc_model.free_RVs}
-        assert "alpha_Y" in rv_names
+        assert "alpha_Y" in model.pymc_model.named_vars
+        assert "alpha_Y_offset" in rv_names
 
     def test_fixed_coefficients_unchanged(self, panel_data):
         """Beta for X still exists as a fixed effect."""
@@ -96,8 +99,10 @@ class TestRandomSlopeCompilation:
             pooling={"intercept": True, "slopes": ["X"]},
         )
         rv_names = {rv.name for rv in model.pymc_model.free_RVs}
-        assert "slope_Y_X" in rv_names
+        assert "slope_Y_X" in model.pymc_model.named_vars
+        assert "slope_Y_X_offset" in rv_names
         assert "slope_Y_Z" not in rv_names
+        assert "slope_Y_Z_offset" not in rv_names
 
 
 class TestRandomSlopePriors:

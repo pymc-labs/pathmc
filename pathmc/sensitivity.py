@@ -70,8 +70,9 @@ class SensitivityResult(ResultReprMixin):
         Mean bias-adjusted ATE at each grid point,
         shape ``(n_gamma, n_delta)``.
     prob_sign_change : np.ndarray
-        Posterior probability that the ATE sign flips at each grid
-        point, shape ``(n_gamma, n_delta)``.
+        Fraction of draws whose bias-adjusted ATE does not have the
+        observed mean's sign, at each grid point. An adjusted value of
+        exactly 0 counts as a change. Shape ``(n_gamma, n_delta)``.
     """
 
     outcome: str
@@ -112,8 +113,14 @@ class SensitivityResult(ResultReprMixin):
 
     def _repr_spec(self) -> ReprSpec:
         hdi_vals = self.observed_ate_hdi
-        tp = abs(self.tipping_point)
-        sym = float(np.sqrt(tp)) if tp > 0 else 0.0
+        gamma, delta = _symmetric_nullifying_pair(self.tipping_point)
+        # adjusted ATE = observed ATE − γ × δ. A same-sign pair for a
+        # negative tipping point is off by about 2|ATE|; a correctly
+        # signed pair is off by at most a few ulps. Only the latter is 0.
+        adjusted = self.observed_ate - gamma * delta
+        scale = abs(self.tipping_point)
+        nullifies = abs(adjusted) <= 8 * np.spacing(scale if scale else 1.0)
+        claim = " would nullify the effect" if nullifies else ""
         label = hdi_label()
         return ReprSpec(
             title=f"Sensitivity Analysis — {self.treatment} → {self.outcome}",
@@ -125,7 +132,7 @@ class SensitivityResult(ResultReprMixin):
                 ["Tipping point", f"γ × δ = {self.tipping_point:.4f}"],
                 [
                     "Symmetric example",
-                    f"γ = {sym:.4f}, δ = {sym:.4f} would nullify the effect",
+                    f"γ = {gamma:.4f}, δ = {delta:.4f}{claim}",
                 ],
             ],
             footer="Methods: .plot() &nbsp;·&nbsp; Attributes: .tipping_point .observed_ate_hdi",
@@ -215,6 +222,22 @@ class SensitivityResult(ResultReprMixin):
         return fig
 
 
+def _symmetric_nullifying_pair(tipping_point: float) -> tuple[float, float]:
+    """Return equal-magnitude (γ, δ) whose product is ``tipping_point``.
+
+    A positive tipping point keeps both coordinates positive, so the
+    displayed line is unchanged. A negative tipping point puts the sign
+    on δ so the product has the tipping point's sign. Division by γ
+    keeps that product within a few ulps, which is what the summary
+    treats as a nullifying pair.
+    """
+    if tipping_point == 0.0:
+        return 0.0, 0.0
+    gamma = float(np.sqrt(abs(tipping_point)))
+    delta = float(tipping_point / gamma)
+    return gamma, delta
+
+
 def compute_sensitivity(
     observed_ate_draws: np.ndarray,
     outcome: str,
@@ -268,14 +291,19 @@ def compute_sensitivity(
     n_draws = len(sorted_draws)
     flat_bias = bias_grid.ravel()
 
-    if abs(observed_mean) < 1e-15:
-        prob_sign_flat = np.full(flat_bias.shape, 0.5, dtype=float)
-    elif observed_mean > 0:
-        idx = np.searchsorted(sorted_draws, flat_bias).astype(float)
+    # Fraction of draws whose adjusted ATE (draw − bias) does not have
+    # the observed mean's sign. Exactly 0 counts as a change. The mean's
+    # sign is used as-is: a near-zero mean is not replaced by 0.5.
+    if observed_mean > 0.0:
+        # adjusted <= 0 iff draw <= bias
+        idx = np.searchsorted(sorted_draws, flat_bias, side="right")
         prob_sign_flat = idx / n_draws
-    else:
-        idx = np.searchsorted(sorted_draws, flat_bias, side="right").astype(float)
+    elif observed_mean < 0.0:
+        # adjusted >= 0 iff draw >= bias
+        idx = np.searchsorted(sorted_draws, flat_bias, side="left")
         prob_sign_flat = 1.0 - idx / n_draws
+    else:
+        prob_sign_flat = np.ones(flat_bias.shape, dtype=float)
 
     prob_sign = prob_sign_flat.reshape(G.shape)
 

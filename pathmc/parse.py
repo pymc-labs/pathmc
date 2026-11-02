@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pathmc.exceptions import DuplicateEquationError, ParseError
+from pathmc.spline_policy import SPLINE_NAMES, spanned_degree, spline_call_problem
 
 __all__: list[str] = []
 
@@ -98,7 +99,7 @@ class BasisCall:
 
     name: str
     variable: str
-    params: dict[str, int | float]
+    params: dict[str, int | float | tuple[float, ...]]
     identifier: str | None = None
 
 
@@ -216,8 +217,9 @@ def parse_spec(spec_string: str) -> Spec:
     ParseError
         On malformed syntax (missing RHS, invalid operators, etc.).
     DuplicateEquationError
-        If two regressions share the same LHS variable, or a coefficient
-        label is reused across equations.
+        If two regressions share the same LHS variable, a coefficient
+        label is reused across equations, or a defined parameter (``:=``)
+        uses a coefficient label's name.
     """
     spec_string = _join_continuation_lines(spec_string)
     raw_statements = re.split(r"[;\n]", spec_string)
@@ -241,6 +243,7 @@ def parse_spec(spec_string: str) -> Spec:
             residual_covs.append(_parse_residual_cov(stmt))
         elif "~" in stmt:
             reg = _parse_regression(stmt)
+            _reject_unidentified_splines(reg)
             _assign_basis_identifiers(reg)
             if reg.lhs in seen_lhs:
                 raise DuplicateEquationError(
@@ -275,11 +278,135 @@ def parse_spec(spec_string: str) -> Spec:
                 "or defined parameter (:=)."
             )
 
-    return Spec(
+    spec = Spec(
         regressions=regressions,
         residual_covs=residual_covs,
         defined_params=defined_params,
     )
+    _reject_defined_param_label_collisions(spec, seen_labels)
+    return spec
+
+
+def _format_transform_call(tc: TransformCall) -> str:
+    """Render a transform call, including a nested input."""
+    inner = (
+        _format_transform_call(tc.input_expr)
+        if isinstance(tc.input_expr, TransformCall)
+        else tc.input_expr
+    )
+    if not tc.params:
+        return f"{tc.name}({inner})"
+    args = ", ".join(f"{key}={value}" for key, value in tc.params.items())
+    return f"{tc.name}({inner}, {args})"
+
+
+def _label_owner(reg: Regression, term: Term) -> str:
+    """Name the term that owns a label when no source statement is available."""
+    if term.transform is not None:
+        predictor = _format_transform_call(term.transform)
+    elif term.basis is not None:
+        predictor = f"{term.basis.name}({term.basis.variable})"
+    else:
+        predictor = term.variable
+    return f"{reg.lhs} ~ {term.label}*{predictor}"
+
+
+def _reject_defined_param_label_collisions(
+    spec: Spec,
+    label_statements: dict[str, str] | None = None,
+) -> None:
+    """Reject a ``:=`` name that would replace a coefficient label.
+
+    ``effects_summary()`` reports each labeled coefficient and each defined
+    parameter. Merging those draws by name lets the defined parameter occupy
+    the label, so the collision is rejected instead of overwritten.
+
+    ``label_statements`` maps a label to the source statement. Parsed specs
+    pass that map so the error cites the equation the user wrote, including
+    transforms. A hand-built ``Spec`` falls back to the term itself.
+    """
+    statements = label_statements or {}
+    label_sites: dict[str, str] = {}
+    for reg in spec.regressions:
+        for term in reg.terms:
+            if term.label is None or term.label in label_sites:
+                continue
+            label_sites[term.label] = statements.get(term.label) or _label_owner(
+                reg, term
+            )
+    clashes: list[str] = []
+    for dp in spec.defined_params:
+        if dp.name in label_sites and dp.name not in clashes:
+            clashes.append(dp.name)
+    if not clashes:
+        return
+    details = "; ".join(
+        f"'{name}' is already the coefficient label in '{label_sites[name]}'"
+        for name in clashes
+    )
+    raise DuplicateEquationError(
+        "Defined parameter name collides with a coefficient label: "
+        f"{details}. A defined parameter must not occupy a label's name. "
+        "Use a distinct name for the defined parameter."
+    )
+
+
+def _reject_unidentified_splines(reg: Regression) -> None:
+    """Reject a free column already spanned by a spline on the same input.
+
+    A centered spline includes a straight line. A B-spline or P-spline also
+    spans powers through its degree; a natural spline spans only the line.
+    A second spline on the same column is the same hole. Fixed offsets stay.
+    """
+    by_input: dict[str, list[BasisCall]] = {}
+    for term in reg.terms:
+        basis = term.basis
+        if isinstance(basis, BasisCall) and basis.name in SPLINE_NAMES:
+            by_input.setdefault(basis.variable, []).append(basis)
+    for variable, calls in by_input.items():
+        if len(calls) > 1:
+            names = ", ".join(call.name for call in calls)
+            raise ParseError(
+                f"'{reg.lhs}' has more than one spline on '{variable}' ({names}). "
+                "Use one spline term per input; a second spline on the same "
+                "column is not identified."
+            )
+        call = calls[0]
+        plain_on_input = [
+            term
+            for term in reg.terms
+            if term.basis is None
+            and term.categorical is None
+            and term.transform is None
+            and term.lag_of is None
+            and term.fixed_value is None
+            and term.variable == variable
+        ]
+        if plain_on_input:
+            raise ParseError(
+                f"'{reg.lhs}' has a spline and a plain term on '{variable}'. "
+                "The spline already spans that column, including a straight "
+                "line, so the two coefficients are not identified. Drop the "
+                "plain term."
+            )
+        spanned = spanned_degree(call.name, call.params)
+        self_powers = [
+            term
+            for term in reg.terms
+            if term.interaction_of is not None
+            and term.fixed_value is None
+            and all(part == variable for part in term.interaction_of)
+            and len(term.interaction_of) <= spanned
+        ]
+        if self_powers:
+            shown = ", ".join(f"'{term.variable}'" for term in self_powers)
+            raise ParseError(
+                f"'{reg.lhs}' has a {call.name} spline and {shown} on "
+                f"'{variable}'. A degree-{spanned} {call.name} spline already "
+                f"spans powers of '{variable}' through degree {spanned}, "
+                "so those coefficients are not identified. Drop the "
+                "self-product."
+            )
 
 
 def _assign_basis_identifiers(reg: Regression) -> None:
@@ -292,8 +419,10 @@ def _assign_basis_identifiers(reg: Regression) -> None:
         if len(terms) < 2 or all(isinstance(term.basis, HSGPCall) for term in terms):
             continue
         for index, term in enumerate(terms, start=1):
-            assert term.basis is not None
-            term.basis.identifier = str(index)
+            basis = term.basis
+            if basis is None:
+                continue
+            basis.identifier = str(index)
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +612,25 @@ def _parse_term(raw: str) -> Term:
                 )
             basis_call = _parse_fourier_expr(raw)
             return Term(variable=basis_call.variable, basis=basis_call)
+        if func_name in SPLINE_NAMES:
+            if label is not None or fixed_value is not None:
+                raise ParseError(
+                    f"{func_name}(...) cannot take a coefficient prefix; the "
+                    "spline carries its own weights. Remove the 'k*' or "
+                    "'label*' prefix."
+                )
+            basis_call = _parse_spline_expr(raw)
+            problem = spline_call_problem(
+                basis_call.name, basis_call.variable, basis_call.params
+            )
+            if problem is not None:
+                raise ParseError(problem)
+            return Term(variable=basis_call.variable, basis=basis_call)
+        if any(part.strip().lower() in SPLINE_NAMES for part in func_name.split(":")):
+            raise ParseError(
+                f"{raw} is not a standalone spline term. Use bs(), ns(), or ps() "
+                "directly on one variable, e.g. 'y ~ bs(x, df=5)'."
+            )
         if _is_registered_basis(func_name):
             if label is not None or fixed_value is not None:
                 raise ParseError(
@@ -689,7 +837,9 @@ def _parse_transform_expr(raw: str) -> TransformCall:
 
     if "(" in input_raw:
         input_name = input_raw[: input_raw.index("(")].strip()
-        if input_name in {"hsgp", "fourier"} or _is_registered_basis(input_name):
+        if input_name in {"hsgp", "fourier", *SPLINE_NAMES} or _is_registered_basis(
+            input_name
+        ):
             raise ParseError(
                 f"Basis expression '{input_raw}' cannot be nested inside "
                 f"transform '{raw}'. Apply {input_name}(...) directly to a "
@@ -937,6 +1087,95 @@ def _parse_fourier_expr(raw: str) -> BasisCall:
     )
 
 
+_SPLINE_SCALAR_KEYS = frozenset({"df", "degree", "order"})
+
+
+def _parse_spline_expr(raw: str) -> BasisCall:
+    """Parse ``bs``, ``ns``, or ``ps`` into a generic basis call."""
+    if _find_top_level_colon(raw) is not None:
+        raise ParseError(
+            f"{raw} is not a standalone spline term. Use bs(), ns(), or ps() "
+            "directly on one variable, e.g. 'y ~ bs(x, df=5)'."
+        )
+    if raw[-1] != ")":
+        raise ParseError(
+            f"Unclosed parenthesis in spline term: '{raw}'. Add a closing ')'."
+        )
+    name = raw[: raw.index("(")].strip()
+    inner = raw[raw.index("(") + 1 : -1].strip()
+    args = _split_top_level_args(inner)
+    if not args or not args[0].strip() or "=" in args[0]:
+        raise ParseError(
+            f"{name}(...) requires an input variable as its first argument. "
+            f"Example: {name}(x, df=5)."
+        )
+    variable = args[0].strip()
+    if not re.match(r"^[A-Za-z_]\w*$", variable):
+        raise ParseError(
+            f"{name}(...) input must be a plain variable name, got '{variable}'."
+        )
+    params: dict[str, int | float | tuple[float, ...]] = {}
+    for arg in args[1:]:
+        if "=" not in arg:
+            raise ParseError(
+                f"{name}(...) expects keyword parameters, got '{arg.strip()}'."
+            )
+        key, _, value = arg.partition("=")
+        key, value = key.strip(), value.strip()
+        if not key or not value or key in params:
+            raise ParseError(
+                f"Malformed or duplicate parameter '{arg}' in {name}(...)."
+            )
+        if key == "knots":
+            params[key] = _parse_knot_tuple(name, value)
+            continue
+        if key not in _SPLINE_SCALAR_KEYS:
+            raise ParseError(
+                f"Unknown {name}(...) parameter '{key}'. Valid parameters are "
+                "'df', 'degree', 'knots', and 'order' (ps only)."
+            )
+        try:
+            parsed = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            raise ParseError(
+                f"{name}(...) parameter '{key}' must be a number, got '{value}'."
+            ) from None
+        if isinstance(parsed, bool) or not isinstance(parsed, int | float):
+            raise ParseError(
+                f"{name}(...) parameter '{key}' must be a number, got '{value}'."
+            )
+        if isinstance(parsed, float) and parsed.is_integer():
+            parsed = int(parsed)
+        params[key] = parsed
+    return BasisCall(name=name, variable=variable, params=params)
+
+
+def _parse_knot_tuple(name: str, value: str) -> tuple[float, ...]:
+    """Parse a parenthesized knot tuple, including a one-element tuple."""
+    try:
+        parsed = ast.literal_eval(value)
+    except (ValueError, SyntaxError):
+        raise ParseError(
+            f"{name}(...) knots must be a parenthesized tuple of numbers, "
+            f"got '{value}'. Example: knots=(0.2, 0.5, 0.8)."
+        ) from None
+    if isinstance(parsed, int | float) and not isinstance(parsed, bool):
+        parsed = (parsed,)
+    if not isinstance(parsed, tuple) or not parsed:
+        raise ParseError(
+            f"{name}(...) knots must be a non-empty parenthesized tuple of "
+            f"numbers, got '{value}'."
+        )
+    knots: list[float] = []
+    for item in parsed:
+        if isinstance(item, bool) or not isinstance(item, int | float):
+            raise ParseError(
+                f"{name}(...) knots must contain only numbers, got '{value}'."
+            )
+        knots.append(float(item))
+    return tuple(knots)
+
+
 def _is_registered_basis(name: str) -> bool:
     """Return whether *name* is currently registered as a custom basis."""
     from pathmc.basis import get_basis
@@ -962,7 +1201,7 @@ def _parse_registered_basis_expr(raw: str) -> BasisCall:
         raise ParseError(
             f"{name}(...) input must be a plain variable name, got '{variable}'."
         )
-    params: dict[str, int | float] = {}
+    params: dict[str, int | float | tuple[float, ...]] = {}
     for arg in args[1:]:
         if "=" not in arg:
             raise ParseError(

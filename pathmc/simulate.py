@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import builtins
 import warnings
-from collections.abc import Iterator, Mapping
+from collections.abc import Collection, Hashable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
@@ -63,6 +63,9 @@ __all__ = ["DoResult", "EstimandResult"]
 #: (rather than importing from ``pathmc._model``) to avoid a circular import,
 #: since ``_model.py`` imports this module.
 _OBSERVED_CARRY_FLAG = "_use_observed_carry"
+#: Set only while ``kind="mean"`` so a discrete scan predictor carries its
+#: response-scale mean instead of a sampled integer. See ``compile.py``.
+_MEAN_CARRY_FLAG = "_use_mean_carry"
 
 
 @contextmanager
@@ -129,6 +132,28 @@ def _forced_generative_carry(model: pm.Model) -> Iterator[None]:
     flag = model[_OBSERVED_CARRY_FLAG]
     previous = flag.get_value()
     flag.set_value(np.array(0, dtype="int8"))
+    try:
+        yield
+    finally:
+        flag.set_value(previous)
+
+
+@contextmanager
+def _forced_mean_carry(model: pm.Model) -> Iterator[None]:
+    """Carry discrete scan predictors at their response-scale mean.
+
+    ``kind="mean"`` is noise-free propagation. A Bernoulli, Poisson, or
+    NegativeBinomial node used as a lag or contemporaneous predictor otherwise
+    feeds a sampled integer into the next step. The flag is a no-op on models
+    that do not have one (Gaussian scan panels, cross-sectional models).
+    """
+    if _MEAN_CARRY_FLAG not in model.named_vars:
+        yield
+        return
+
+    flag = model[_MEAN_CARRY_FLAG]
+    previous = flag.get_value()
+    flag.set_value(np.array(1, dtype="int8"))
     try:
         yield
     finally:
@@ -244,6 +269,17 @@ def _spread_over_time(
     return (ones * per_time).transpose("time", "chain", "draw")
 
 
+def _overlay_held(
+    path: xr.DataArray,
+    ones: xr.DataArray,
+    value: float | np.ndarray,
+    time_index: np.ndarray,
+) -> xr.DataArray:
+    """Report a NaN-padded intervention: held values, the scan path elsewhere."""
+    held = _spread_over_time(ones, value, time_index)
+    return xr.where(held.isnull(), path, held).transpose("time", "chain", "draw")
+
+
 def _panel_unit_mean(da: xr.DataArray, time_index: np.ndarray) -> xr.DataArray:
     """Average over units, returning labelled ``(time, chain, draw)`` draws.
 
@@ -258,6 +294,117 @@ def _panel_unit_mean(da: xr.DataArray, time_index: np.ndarray) -> xr.DataArray:
     return da.transpose("time", "chain", "draw").assign_coords(
         time=np.asarray(time_index)
     )
+
+
+def _static_panel_time_index(data: nw.DataFrame, time_col: str) -> np.ndarray:
+    """Sorted unique time labels, matching scan compilation order."""
+    return np.asarray(sorted(data[time_col].unique().to_list()))
+
+
+def _align_static_panel_intervention(
+    var: str,
+    val: float | np.ndarray,
+    row_times: np.ndarray,
+    time_index: np.ndarray,
+) -> float | np.ndarray:
+    """Map a scalar or length-``n_times`` intervention onto frame rows.
+
+    A length-``n_times`` vector is in time order, not row order. Each row
+    receives the value for its own time label.
+    """
+    arr = np.asarray(val)
+    if arr.ndim == 0:
+        return float(arr)
+    flat = np.asarray(arr, dtype=float).reshape(-1)
+    n_times = len(time_index)
+    if arr.ndim != 1 or flat.size != n_times:
+        raise ValueError(
+            f"Intervention array for '{var}' has length {flat.size}, expected "
+            f"{n_times} (one per time step)."
+        )
+    aligned = np.full(len(row_times), np.nan, dtype=float)
+    for value, label in zip(flat, time_index, strict=True):
+        aligned[row_times == label] = value
+    if np.isnan(aligned).any():
+        raise ValueError(
+            f"Intervention for '{var}' could not be aligned to every panel row."
+        )
+    return aligned
+
+
+def _fold_rows_to_time(
+    da: xr.DataArray,
+    row_times: np.ndarray,
+    time_index: np.ndarray,
+) -> xr.DataArray:
+    """Average row-ordered draws within each time label.
+
+    Cross-sectional propagation stores one value per frame row on ``unit``.
+    Panel ``simulate_over="time"`` reports the unit mean at each time, in
+    time order, so a shuffled frame cannot be mistaken for the trajectory.
+    """
+    if "unit" not in da.dims:
+        folded = da.expand_dims(time=np.asarray(time_index))
+    else:
+        pieces = []
+        for label in time_index:
+            rows = np.flatnonzero(row_times == label)
+            pieces.append(da.isel(unit=rows).mean("unit"))
+        folded = xr.concat(pieces, dim="time")
+    return folded.transpose("time", "chain", "draw").assign_coords(
+        time=np.asarray(time_index)
+    )
+
+
+def run_do_static_panel(
+    gen_model: pm.Model,
+    graph_info: GraphInfo,
+    idata: xr.DataTree,
+    data: nw.DataFrame,
+    panel_info: PanelInfo,
+    set: dict[str, float | np.ndarray] | None = None,
+    kind: str = "mean",
+    families: dict[str, str] | None = None,
+    scaling_factors: ScalingFactors | None = None,
+    categorical_vars: set[str] | None = None,
+    observed_by_time: Mapping[str, np.ndarray] | None = None,
+    random_seed: int | None = None,
+) -> DoResult:
+    """Time-aligned ``do`` for a panel model that was not scan-compiled.
+
+    Models without ``lag()`` or ``adstock()`` still have a time axis. A
+    length-``n_times`` intervention is applied to the matching time of every
+    unit, then averaged within time. The result carries a ``time`` dim so
+    :meth:`DoResult.by_time` works. It is not the row-order average from
+    cross-sectional ``do``.
+    """
+    if set is None:
+        set = {}
+    time_col = panel_info.time
+    row_times = np.asarray(data[time_col].to_numpy())
+    time_index = _static_panel_time_index(data, time_col)
+    aligned = {
+        var: _align_static_panel_intervention(var, val, row_times, time_index)
+        for var, val in set.items()
+    }
+    result = run_do_pymc(
+        gen_model=gen_model,
+        graph_info=graph_info,
+        idata=idata,
+        data=data,
+        set=aligned,
+        kind=kind,
+        families=families,
+        average_units=False,
+        scaling_factors=scaling_factors,
+        categorical_vars=categorical_vars,
+        random_seed=random_seed,
+    )
+    folded = {
+        name: _fold_rows_to_time(da, row_times, time_index)
+        for name, da in result.dataset.data_vars.items()
+    }
+    return DoResult(ds=xr.Dataset(folded), observed_by_time=observed_by_time)
 
 
 def _fill_missing_posterior_rvs(
@@ -355,6 +502,56 @@ class _DrawStorageMixin:
                 "Use do(simulate_over='time') to get per-time results."
             )
         return self._draw_by_time(var)
+
+
+def plot_panel_trajectory(
+    var: str,
+    draws: np.ndarray,
+    time_coords: np.ndarray,
+    *,
+    overlay: np.ndarray | None = None,
+    ax: matplotlib.axes.Axes | None = None,
+    prob: float = DEFAULT_HDI_PROB,
+) -> matplotlib.figure.Figure:
+    """Draw a per-time mean and HDI band.
+
+    Callers validate that *draws* is ``(n_times, n_samples)`` and that
+    *time_coords* matches that length. This is the shared drawer for
+    :class:`DoResult` and policy results; it does not construct either type.
+    """
+    import matplotlib.pyplot as plt
+
+    n_times = draws.shape[0]
+    means = np.mean(draws, axis=1)
+    hdi_band = compute_hdi(draws, prob=prob)
+    if hdi_band.ndim == 1 and hdi_band.shape[0] == 2:
+        lo = np.full(n_times, float(hdi_band[0]))
+        hi = np.full(n_times, float(hdi_band[1]))
+    else:
+        lo = hdi_band[:, 0]
+        hi = hdi_band[:, 1]
+    if overlay is not None and overlay.shape[0] != n_times:
+        raise ValueError(
+            f"observed must have length {n_times} (one per time step), "
+            f"got {overlay.shape[0]}."
+        )
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 4))
+    else:
+        fig = cast("matplotlib.figure.Figure", ax.get_figure())
+    x = np.arange(n_times)
+    ax.fill_between(x, lo, hi, alpha=0.3, label=hdi_label(prob))
+    ax.plot(x, means, color="C0", label="Counterfactual")
+    if overlay is not None:
+        ax.plot(x, overlay, color="C1", linestyle="--", label="Observed")
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(t) for t in time_coords], rotation=45, ha="right")
+    ax.set_xlabel("time")
+    ax.set_ylabel(var)
+    ax.legend(loc="best")
+    ax.set_title(var)
+    fig.tight_layout()
+    return fig
 
 
 class DoResult(_DrawStorageMixin, ResultReprMixin):
@@ -516,7 +713,6 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             ``vs="observed"`` is requested without a series, or if
             ``observed`` has the wrong length.
         """
-        import matplotlib.pyplot as plt
 
         if var not in self._ds.data_vars:
             available = sorted(str(v) for v in self._ds.data_vars)
@@ -540,15 +736,6 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
 
         draws = self._by_time_draws(var)
         n_times = draws.shape[0]
-        means = np.mean(draws, axis=1)
-        hdi_band = compute_hdi(draws, prob=prob)
-        if hdi_band.ndim == 1 and hdi_band.shape[0] == 2:
-            lo = np.full(n_times, float(hdi_band[0]))
-            hi = np.full(n_times, float(hdi_band[1]))
-        else:
-            lo = hdi_band[:, 0]
-            hi = hdi_band[:, 1]
-
         overlay: np.ndarray | None = None
         if observed is not None:
             overlay = np.asarray(observed, dtype=float)
@@ -563,35 +750,19 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             raise ValueError(
                 f"Unknown vs='{vs}'. Supported values: 'observed' or omit vs."
             )
-
-        if overlay is not None:
-            if overlay.shape[0] != n_times:
-                raise ValueError(
-                    f"observed must have length {n_times} (one per time step), "
-                    f"got {overlay.shape[0]}."
-                )
-
-        if ax is None:
-            fig, ax = plt.subplots(figsize=(8, 4))
-        else:
-            fig = cast("matplotlib.figure.Figure", ax.get_figure())
-
-        x = np.arange(n_times)
-        ax.fill_between(x, lo, hi, alpha=0.3, label=hdi_label(prob))
-        ax.plot(x, means, color="C0", label="Counterfactual")
-        if overlay is not None:
-            ax.plot(x, overlay, color="C1", linestyle="--", label="Observed")
-        ax.set_xticks(x)
-        ax.set_xticklabels([str(t) for t in time_coords], rotation=45, ha="right")
-        ax.set_xlabel("time")
-        ax.set_ylabel(var)
-        ax.legend(loc="best")
-        ax.set_title(var)
-        fig.tight_layout()
-        return fig
+        return plot_panel_trajectory(
+            var,
+            draws,
+            time_coords,
+            overlay=overlay,
+            ax=ax,
+            prob=prob,
+        )
 
     def __sub__(self, other: DoResult) -> DoResult:
         """Element-wise contrast between two DoResults."""
+        if not isinstance(other, DoResult):
+            return NotImplemented
         if self._scenario != other._scenario:
             raise ValueError(
                 "Cannot contrast a counterfactual result with a do() result. "
@@ -952,15 +1123,19 @@ def _apply_inverse_link(mu_vals: Any, family: str) -> Any:
 
 
 def _replace_graph(expr: Any, replacements: dict[Any, Any]) -> Any:
-    """Clone *expr* with only the replacements that appear in its graph."""
+    """Clone *expr* with only the replacements that appear in its graph.
+
+    One ``graph_replace`` call is required. Replacing keys one at a time
+    clones the graph, so a later key is no longer the node in the clone
+    and a downstream mediator is left as a free random variable.
+    """
     if not replacements:
         return expr
-    result = expr
-    for var, replacement in replacements.items():
-        graph_vars = set(ancestors([result]))
-        if var in graph_vars:
-            result = graph_replace(result, replace={var: replacement}, strict=False)
-    return result
+    present = set(ancestors([expr]))
+    relevant = {var: repl for var, repl in replacements.items() if var in present}
+    if not relevant:
+        return expr
+    return graph_replace(expr, replace=relevant, strict=False)
 
 
 def _float_descendants_of(source_var: Any, exprs: list[Any]) -> list[Any]:
@@ -1381,6 +1556,147 @@ def _business_exog_value(
     return _exogenous_fill(values)
 
 
+def _residual_predictive_sample_kwargs(
+    gen_model: pm.Model,
+    do_model: pm.Model,
+    graph_info: GraphInfo,
+    intervened: dict[str, float | np.ndarray],
+) -> dict[str, Any]:
+    """Resample residual-block joints and keep noisy descendant draws.
+
+    The estimation model observes block members, so predictive ``do()``
+    samples a generative sibling. Those joints, and any non-intervened
+    endogenous free RVs, must be listed in ``sample_vars``: a posterior
+    that already contains them would otherwise freeze the estimation draws.
+    ``var_names`` keeps the noisy block slices in the posterior predictive.
+    """
+    joint_names = set(getattr(gen_model, "_pathmc_block_joint_rvs", ()))
+    if not joint_names:
+        return {}
+    free_names = {rv.name for rv in do_model.free_RVs}
+    resample = [
+        name
+        for name in sorted(free_names)
+        if name in joint_names or name in graph_info.endogenous
+    ]
+    # The sibling owns its own data nodes, so PyMC treats posterior
+    # coefficients as stale unless they are explicitly frozen.
+    freeze = [
+        name
+        for name in sorted(free_names)
+        if name not in joint_names and name not in graph_info.endogenous
+    ]
+    var_names = []
+    for var in graph_info.topological_order:
+        if var not in graph_info.endogenous or var in intervened:
+            continue
+        if var in do_model.named_vars:
+            var_names.append(var)
+            continue
+        # A deterministic latent is only ``mu_{var}``. Computing it later
+        # from a zero-filled posterior drops the sampled parent joint.
+        mu_name = f"mu_{var}"
+        if mu_name in do_model.named_vars:
+            var_names.append(mu_name)
+    kwargs: dict[str, Any] = {}
+    if resample:
+        kwargs["sample_vars"] = resample
+    if freeze:
+        kwargs["freeze_vars"] = freeze
+    if var_names:
+        kwargs["var_names"] = var_names
+    return kwargs
+
+
+def _observed_endogenous_binding(
+    data: nw.DataFrame,
+    var: str,
+    model_var: Any,
+    mu_source_exprs: list[Any],
+) -> dict[Any, Any]:
+    """Map a free endogenous RV to its observed numeric column, if any.
+
+    Used when associational predictions must evaluate downstream equations
+    at the observed mediator instead of substituting its structural mean.
+    Non-numeric columns are left unbound so categorical encodings keep the
+    structural-mean path.
+    """
+    if var not in data.columns:
+        return {}
+    raw = np.asarray(data[var].to_numpy())
+    if raw.dtype.kind not in "iufc":
+        return {}
+    observed_values = np.asarray(raw, dtype=float)
+    if not np.isfinite(observed_values).all():
+        return {}
+    observed = pt.as_tensor_variable(observed_values)
+    if str(getattr(model_var, "dtype", "")).startswith("float"):
+        return {model_var: observed}
+    return {key: observed for key in _float_descendants_of(model_var, mu_source_exprs)}
+
+
+def _endogenous_ancestors(graph_info: GraphInfo, outcome: str) -> set[str]:
+    """Strict endogenous ancestors of *outcome*, excluding latents.
+
+    Associational predictions hold these mediators at observed values.
+    The outcome itself is predicted, not required as a column. Off-path
+    endogenous variables must not abort the query. Latents stay structural.
+    """
+    if outcome not in graph_info._dag:
+        return set()
+    seen: set[str] = set()
+    stack = list(graph_info._dag.predecessors(outcome))
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        stack.extend(graph_info._dag.predecessors(node))
+    return (seen & graph_info.endogenous) - graph_info.latent
+
+
+def _name_in_graph(name: str, exprs: list[Any]) -> bool:
+    """Whether *name* is a node in any of *exprs*."""
+    for expr in exprs:
+        for node in ancestors([expr]):
+            if getattr(node, "name", None) == name:
+                return True
+    return False
+
+
+def _panel_unspecified_exog(
+    var: str,
+    ones: xr.DataArray,
+    data: nw.DataFrame | None,
+    scaling_factors: ScalingFactors | None,
+) -> xr.DataArray | None:
+    """Broadcast the business-unit empirical fill used by the structural mean.
+
+    Matches the cross-sectional result: ``(chain, draw)`` of the fitted-column
+    mean after converting each row back to business units. A derived exogenous
+    name with no fitted column (for example ``lag(Y)``) is omitted rather than
+    reported as 0, because that 0 was never the value the scan used.
+    """
+    if data is None or var not in data.columns:
+        return None
+    try:
+        fill = _business_exog_value(var, data, None, scaling_factors)
+    except (TypeError, ValueError):
+        # String and categorical labels are not a numeric fill. Derived names
+        # with no fitted column are already omitted above.
+        return None
+    return ones * fill
+
+
+_DO_KINDS = ("mean", "predictive")
+
+
+def _require_do_kind(kind: str) -> None:
+    """Reject a ``kind`` that would otherwise sample posterior predictive."""
+    if kind not in _DO_KINDS:
+        raise ValueError(f"kind must be 'mean' or 'predictive', got {kind!r}.")
+
+
 def run_do_pymc(
     gen_model: pm.Model,
     graph_info: GraphInfo,
@@ -1393,12 +1709,19 @@ def run_do_pymc(
     average_units: bool = True,
     scaling_factors: ScalingFactors | None = None,
     categorical_vars: set[str] | None = None,
+    random_seed: int | None = None,
+    *,
+    observed_endogenous: bool = False,
+    observed_outcome: str | None = None,
 ) -> DoResult:
     """Run the do-operator using PyMC-native graph surgery.
 
     For ``kind="predictive"``: uses ``pm.do()`` on the generative model
     followed by ``pm.sample_posterior_predictive()`` to forward-sample
-    through the causal chain with residual noise.
+    through the causal chain with residual noise. Residual-block models
+    pass a generative sibling whose block members are named Deterministics
+    of a free joint, so a hard intervention replaces that Deterministic
+    and descendants read the intervened value plus their own noise.
 
     For ``kind="mean"``: uses ``pm.do()`` for interventions, then computes
     cloned mu Deterministics with upstream endogenous variables replaced by
@@ -1416,6 +1739,7 @@ def run_do_pymc(
         Observed data (used for sizing intervention arrays).
     set : dict[str, float] | None
         Variables to intervene on, with their fixed values.
+        ``observed_endogenous`` is ignored when this is non-empty.
     kind : str
         ``"mean"`` for deterministic propagation, ``"predictive"`` to
         include residual noise at each step.
@@ -1434,6 +1758,17 @@ def run_do_pymc(
         Fitted scale factors. When given, ``set`` values for scaled
         columns are treated as business units and divided by the
         per-row factor before graph surgery.
+    observed_endogenous : bool
+        When ``True`` and ``set`` is empty, downstream equations use the
+        observed numeric values of endogenous covariates instead of those
+        variables' structural means. Associational ``predictions()`` sets
+        this so an omitted ``set`` does no graph surgery. ``do()`` leaves
+        it false and still propagates structural means.
+    observed_outcome : str | None
+        Outcome whose strict endogenous ancestors must be fully observed
+        when ``observed_endogenous`` is set. Residual-block members are
+        bound through ``mu_{var}`` because they are not named RVs.
+        ``None`` keeps the older any-successor guard.
 
     Returns
     -------
@@ -1441,6 +1776,7 @@ def run_do_pymc(
         Propagated posterior draws for every endogenous variable.
     """
 
+    _require_do_kind(kind)
     if set is None:
         set = {}
     if families is None:
@@ -1454,14 +1790,30 @@ def run_do_pymc(
     block_vars = {v for block in graph_info.residual_blocks for v in block}
 
     replacements: dict[str, Any] = {}
+    scaled_interventions: dict[str, np.ndarray] = {}
     data_basis_bindings = getattr(gen_model, "_pathmc_data_bases", {})
     for var, val in set.items():
-        key = f"mu_{var}" if (var in latent or var in block_vars) else var
+        # Generative siblings name the block member itself. Descendants
+        # read that realized value, so replacing it drops the intervened
+        # parent's residual and leaves the descendant's own joint slice.
+        # Block members read the structural mean, so the mean walk below
+        # also substitutes ``mu_{var}`` or ``pathmc_resp_{var}``.
+        keys: list[str] = []
+        if var in block_vars and var in gen_model.named_vars:
+            keys.append(var)
+            mu_name = f"mu_{var}"
+            if mu_name in gen_model.named_vars:
+                keys.append(mu_name)
+        elif var in latent or var in block_vars:
+            keys.append(f"mu_{var}")
+        else:
+            keys.append(var)
         arr = _scale_cross_section_intervention(
             var, _intervention_array(val, N), data, scaling_factors
         )
-        target_dtype = gen_model[key].dtype
-        replacements[key] = arr.astype(target_dtype)
+        scaled_interventions[var] = arr
+        for key in keys:
+            replacements[key] = arr.astype(gen_model[key].dtype)
         if data_basis_bindings:
             from pathmc.basis import replay_data_bases
 
@@ -1476,6 +1828,21 @@ def run_do_pymc(
 
         mean_det_names: dict[str, str] = {}
         expr_replacements: dict[Any, Any] = {}
+        # Block members read the parent's structural mean, not its free RV.
+        # pm.do already replaced the RV, which non-block equations read.
+        for var, arr in scaled_interventions.items():
+            if var in block_vars or var in latent:
+                continue
+            family = families.get(var, "")
+            node_name = (
+                f"pathmc_resp_{var}"
+                if family in ("bernoulli", "poisson", "negbinomial")
+                else f"mu_{var}"
+            )
+            if node_name not in do_model.named_vars:
+                continue
+            node = do_model[node_name]
+            expr_replacements[node] = pt.as_tensor_variable(arr).astype(node.dtype)
         mu_source_exprs = [
             do_model[f"mu_{var}"] * 1
             for var in graph_info.topological_order
@@ -1483,6 +1850,11 @@ def run_do_pymc(
             and var not in set
             and f"mu_{var}" in do_model.named_vars
         ]
+        required_observed = (
+            _endogenous_ancestors(graph_info, observed_outcome)
+            if observed_endogenous and not set and observed_outcome is not None
+            else None
+        )
         with do_model:
             for var in graph_info.topological_order:
                 if var in graph_info.endogenous and var not in set:
@@ -1493,7 +1865,40 @@ def run_do_pymc(
                     mean_det_names[var] = mean_name
 
                     response_expr = _apply_inverse_link(mu_expr, families.get(var, ""))
-                    if var in do_model.named_vars:
+                    binding: dict[Any, Any] = {}
+                    if observed_endogenous and not set and var not in graph_info.latent:
+                        if required_observed is not None:
+                            must_bind = var in required_observed
+                        else:
+                            must_bind = var in do_model.named_vars and (
+                                _name_in_graph(var, mu_source_exprs)
+                                or any(graph_info._dag.successors(var))
+                            )
+                        # Residual-block members are not named RVs. Descendants
+                        # read mu_{var}, so bind that node instead of falling
+                        # through to the structural mean.
+                        if must_bind or var in do_model.named_vars:
+                            if var in do_model.named_vars:
+                                target = do_model[var]
+                            elif mu_name in do_model.named_vars:
+                                target = do_model[mu_name]
+                            else:
+                                target = None
+                            if target is not None:
+                                binding = _observed_endogenous_binding(
+                                    data, var, target, mu_source_exprs
+                                )
+                        if must_bind and not binding:
+                            raise ValueError(
+                                f"predictions() without set= needs a fully observed "
+                                f"numeric column '{var}' in the query frame. The "
+                                "column is missing, not numeric, or has a non-finite "
+                                "value, so the mediator cannot be held at its observed "
+                                "value. Include it, or pass set= to intervene."
+                            )
+                    if binding:
+                        expr_replacements.update(binding)
+                    elif var in do_model.named_vars:
                         model_var = do_model[var]
                         if model_var.dtype.startswith("float"):
                             expr_replacements[model_var] = response_expr
@@ -1547,8 +1952,13 @@ def run_do_pymc(
         warnings.filterwarnings(
             "ignore", message="Could not extract data from symbolic observation"
         )
+        ppc_kwargs = _residual_predictive_sample_kwargs(
+            gen_model, do_model, graph_info, set
+        )
         with do_model:
-            ppc = pm.sample_posterior_predictive(idata, progressbar=False)
+            ppc = pm.sample_posterior_predictive(
+                idata, progressbar=False, random_seed=random_seed, **ppc_kwargs
+            )
 
     extra_det_names = [
         f"mu_{var}"
@@ -1594,6 +2004,7 @@ def _panel_predictive_sample_kwargs(
     do_model: pm.Model,
     graph_info: GraphInfo,
     set: dict[str, float | np.ndarray],
+    released: Collection[str] = (),
 ) -> dict[str, Any]:
     """Keyword args for ``sample_posterior_predictive`` on intervened scan panels.
 
@@ -1605,8 +2016,9 @@ def _panel_predictive_sample_kwargs(
     predictive draws stay consistent with the intervened generative graph.
     Requesting only ``sample_vars`` drops the merged outcome from
     ``posterior_predictive``, so ``var_names`` must name the non-latent
-    endogenous variables we still read from the PPC output. Latents not
-    in ``set`` are excluded from ``var_names`` and recovered through
+    endogenous variables we still read from the PPC output, including any
+    ``released`` intervention (NaN-padded, so read on its released steps).
+    Latents not in ``set`` are excluded from ``var_names`` and recovered through
     ``compute_deterministics`` with the fitted posterior (including
     ``innovations_{var}`` for stochastic latents), not fresh process noise.
     """
@@ -1619,7 +2031,7 @@ def _panel_predictive_sample_kwargs(
         var
         for var in graph_info.topological_order
         if var in graph_info.endogenous
-        and var not in set
+        and (var not in set or var in released)
         and var not in graph_info.latent
     ]
     if not var_names:
@@ -1627,11 +2039,292 @@ def _panel_predictive_sample_kwargs(
     return {"sample_vars": unobs, "var_names": var_names}
 
 
+def _simulation_labels(innovations: xr.Dataset | None) -> tuple[Any, ...] | None:
+    """Return simulation labels when every innovation shares that dimension."""
+    if innovations is None or not innovations.data_vars:
+        return None
+    labelled = [
+        name
+        for name, value in innovations.data_vars.items()
+        if "simulation" in value.dims
+    ]
+    if not labelled:
+        return None
+    if len(labelled) != len(innovations.data_vars):
+        raise ValueError(
+            "Innovations must all include a simulation dimension, or none of them. "
+            f"Missing it: {sorted(str(name) for name in set(innovations.data_vars) - set(labelled))}."
+        )
+    reference = innovations[labelled[0]]
+    if "simulation" not in reference.coords:
+        raise ValueError(
+            f"innovations[{labelled[0]!r}] has a simulation dimension but no coordinate."
+        )
+    labels = tuple(reference.coords["simulation"].values.tolist())
+    for name in labelled[1:]:
+        value = innovations[name]
+        if "simulation" not in value.coords:
+            raise ValueError(
+                f"innovations[{name!r}] has a simulation dimension but no coordinate."
+            )
+        other = tuple(value.coords["simulation"].values.tolist())
+        if other != labels:
+            raise ValueError(
+                "Innovation simulation coordinates must match exactly. "
+                f"{labelled[0]!r} has {list(labels)}, {name!r} has {list(other)}."
+            )
+    return labels
+
+
+def _repeat_draw_axis(trace: xr.Dataset, n_sim: int) -> xr.Dataset:
+    """Repeat each posterior draw ``n_sim`` times along ``draw``.
+
+    The repeated axis is draw-major: simulation varies fastest, matching the
+    stacked noise layout ``di * n_sim + si``.
+    """
+    n_draw = int(trace.sizes["draw"])
+    data_vars: dict[
+        Hashable, xr.DataArray | tuple[tuple[Hashable, ...], np.ndarray]
+    ] = {}
+    for name, value in trace.data_vars.items():
+        if "draw" not in value.dims:
+            data_vars[name] = value
+            continue
+        axis = value.dims.index("draw")
+        data_vars[name] = (
+            value.dims,
+            np.repeat(np.asarray(value.values), n_sim, axis=axis),
+        )
+    coords: dict[Hashable, Any] = {}
+    for name, coord in trace.coords.items():
+        if name == "draw":
+            coords[name] = np.arange(n_draw * n_sim)
+        elif "draw" in coord.dims:
+            axis = coord.dims.index("draw")
+            coords[name] = (
+                coord.dims,
+                np.repeat(np.asarray(coord.values), n_sim, axis=axis),
+            )
+        else:
+            coords[name] = coord
+    return xr.Dataset(data_vars, coords=coords)
+
+
+def _unpack_simulation(
+    result: Any,
+    names: list[str],
+    n_draw: int,
+    sim_labels: tuple[Any, ...],
+    coords: dict[str, Any],
+) -> xr.Dataset:
+    """Reshape stacked draws back to ``(chain, draw, simulation, unit, time)``."""
+    if hasattr(result, "posterior"):
+        result = result.posterior
+    n_sim = len(sim_labels)
+    data_vars = {}
+    for name in names:
+        values = np.asarray(result[name].values)
+        expected = (values.shape[0], n_draw * n_sim, values.shape[-2], values.shape[-1])
+        if values.shape != expected:
+            raise RuntimeError(
+                f"Executor output {name!r} has shape {values.shape}, expected {expected}. "
+                "This is an internal error."
+            )
+        restored = values.reshape(
+            values.shape[0], n_draw, n_sim, values.shape[-2], values.shape[-1]
+        ).transpose(0, 1, 2, 4, 3)
+        data_vars[name] = (("chain", "draw", "simulation", "unit", "time"), restored)
+    return xr.Dataset(
+        data_vars,
+        coords={
+            "chain": coords["chain"],
+            "draw": coords["draw"],
+            "simulation": list(sim_labels),
+            "unit": coords["unit"],
+            "time": coords["time"],
+        },
+    )
+
+
+def _execute_gaussian_panel(
+    gen_model: pm.Model,
+    posterior: xr.Dataset,
+    scan_info: Any,
+    *,
+    initial: Mapping[str, xr.DataArray] | None = None,
+    innovations: xr.Dataset | None = None,
+    interventions: Mapping[str, xr.DataArray] | None = None,
+    random_seed: int | None = None,
+) -> xr.Dataset:
+    """Execute coherent Gaussian states before aggregation, in model units.
+
+    Initial states cover all structural lag bases with ``(unit,)`` arrays.
+    Interventions use ``(unit, time)`` arrays. An endogenous intervention
+    may hold NaN on steps it releases: the scan runs that state's own
+    equation there, and the returned state is the realized path. Supplied
+    innovations cover all endogenous variables with standard-Normal epsilon
+    arrays of dimensions ``(chain, draw, unit, time)``. When every innovation
+    also carries a
+    ``simulation`` dimension, posterior draws are repeated along ``draw`` by
+    that count and the noise is stacked into the same axis. The returned
+    states then include ``simulation`` and, when the scan recorded one, the
+    policy action. Omitted innovations are explicitly refreshed, independently
+    of auxiliary draws in the posterior.
+    """
+    states = scan_info.gaussian_states
+    if not states:
+        raise ValueError("Coherent execution requires an observed Gaussian scan model.")
+    coords = {
+        "chain": posterior.coords["chain"].values,
+        "draw": posterior.coords["draw"].values,
+        "unit": scan_info.unit_labels,
+        "time": scan_info.time_values,
+    }
+
+    def checked(
+        value: xr.DataArray,
+        dims: tuple[str, ...],
+        name: str,
+        expected=None,
+        *,
+        allow_nan: bool = False,
+    ) -> np.ndarray:
+        reference = coords if expected is None else expected
+        if value.dims != dims or any(
+            d not in value.coords or not np.array_equal(value.coords[d], reference[d])
+            for d in dims
+        ):
+            raise ValueError(
+                f"{name} must have dimensions {dims} and exactly matching coordinates; "
+                "align it to the fitted unit/time and posterior chain/draw labels."
+            )
+        array = np.asarray(value, dtype=float)
+        bad = np.isinf(array) if allow_nan else ~np.isfinite(array)
+        if bad.any():
+            raise ValueError(f"{name} contains nonfinite values; supply finite values.")
+        return array
+
+    replacements: dict[str, Any] = {}
+    if initial is not None:
+        if initial.keys() != scan_info.initial_nodes.keys():
+            raise ValueError(
+                f"initial must cover exactly {sorted(scan_info.initial_nodes)}; "
+                "supply every structural lag base and remove other keys."
+            )
+        for var, value in initial.items():
+            replacements[scan_info.initial_nodes[var]] = checked(value, ("unit",), var)
+    for var, value in (interventions or {}).items():
+        if var not in (*states, *scan_info.exogenous):
+            raise ValueError(
+                f"Unknown intervention {var!r}; use an endogenous or exogenous base variable."
+            )
+        key = f"_do_intervene_{var}" if var in states else var
+        # NaN is the scan's release sentinel on ``_do_intervene_{var}`` only.
+        # An exogenous input has no equation to fall back on.
+        replacements[key] = checked(
+            value, ("unit", "time"), var, allow_nan=var in states
+        ).T
+
+    # Only structural draws may bind the execution graph. In particular, stored
+    # deterministics/imputations must not short-circuit a supplied-noise replay.
+    noise_names = {f"carry_innovations_{var}" for var in states}
+    parameter_names = [
+        rv.name for rv in gen_model.free_RVs if rv.name not in noise_names
+    ]
+    missing = set(parameter_names) - set(posterior.data_vars)
+    if missing:
+        raise ValueError(
+            f"Posterior is missing structural parameters {sorted(missing)}; "
+            "supply fitted draws for every structural parameter."
+        )
+    trace = posterior[parameter_names].copy()
+    sim_labels = _simulation_labels(innovations)
+    action_name = getattr(scan_info, "policy_action", None)
+    if innovations is not None:
+        if set(innovations.data_vars) != set(states):
+            raise ValueError(
+                f"innovations must cover exactly {sorted(states)}; supply one array per state."
+            )
+        if sim_labels is None:
+            for var in states:
+                values = checked(
+                    innovations[var], ("chain", "draw", "unit", "time"), var
+                )
+                trace[f"carry_innovations_{var}"] = (
+                    ("chain", "draw", f"{var}_noise_time", f"{var}_noise_unit"),
+                    values.transpose(0, 1, 3, 2),
+                )
+
+    with _forced_generative_carry(gen_model):
+        execution_model = pm.do(gen_model, replacements)
+        if innovations is None:
+            result = pm.sample_posterior_predictive(
+                trace,
+                model=execution_model,
+                var_names=list(states),
+                sample_vars=sorted(noise_names),
+                random_seed=random_seed,
+                progressbar=False,
+            ).posterior_predictive.dataset
+        elif sim_labels is None:
+            result = pm.compute_deterministics(
+                trace,
+                model=execution_model,
+                var_names=list(states),
+                progressbar=False,
+            )
+        else:
+            n_sim = len(sim_labels)
+            repeated = _repeat_draw_axis(trace, n_sim)
+            noise_coords = {**coords, "simulation": list(sim_labels)}
+            for var in states:
+                values = checked(
+                    innovations[var],
+                    ("chain", "draw", "simulation", "unit", "time"),
+                    var,
+                    noise_coords,
+                )
+                stacked = values.transpose(0, 1, 2, 4, 3).reshape(
+                    values.shape[0],
+                    values.shape[1] * n_sim,
+                    values.shape[4],
+                    values.shape[3],
+                )
+                repeated[f"carry_innovations_{var}"] = (
+                    ("chain", "draw", f"{var}_noise_time", f"{var}_noise_unit"),
+                    stacked,
+                )
+            names = list(states)
+            if action_name:
+                names.append(action_name)
+            simulated = pm.compute_deterministics(
+                repeated,
+                model=execution_model,
+                var_names=names,
+                progressbar=False,
+            )
+            return _unpack_simulation(
+                simulated,
+                names,
+                int(posterior.sizes["draw"]),
+                sim_labels,
+                coords,
+            )
+    return xr.Dataset({
+        var: xr.DataArray(
+            result[var].values.transpose(0, 1, 3, 2),
+            dims=("chain", "draw", "unit", "time"),
+            coords=coords,
+        )
+        for var in states
+    })
+
+
 def run_do_panel_unified(
     gen_model: pm.Model,
     graph_info: GraphInfo,
     idata: xr.DataTree,
-    panel_info: PanelInfo,
+    panel_info: PanelInfo | None,
     scan_info: Any,
     set: dict[str, float | np.ndarray] | None = None,
     kind: str = "mean",
@@ -1639,6 +2332,8 @@ def run_do_panel_unified(
     observed_by_time: Mapping[str, np.ndarray] | None = None,
     data: nw.DataFrame | None = None,
     scaling_factors: ScalingFactors | None = None,
+    random_seed: int | None = None,
+    initial: Mapping[str, xr.DataArray] | None = None,
 ) -> DoResult:
     """Run the do-operator on a scan-compiled panel model.
 
@@ -1675,6 +2370,30 @@ def run_do_panel_unified(
         columns are treated as business units and divided by the
         scan-aligned factor before graph surgery.
     """
+    _require_do_kind(kind)
+    legacy = getattr(gen_model, "_pathmc_legacy_model", gen_model)
+    if kind == "mean" and legacy is not gen_model:
+        with _forced_generative_carry(gen_model):
+            return run_do_panel_unified(
+                legacy,
+                graph_info,
+                idata,
+                panel_info,
+                legacy._pathmc_panel_scan,
+                set=set,
+                kind=kind,
+                families=families,
+                observed_by_time=observed_by_time,
+                data=data,
+                scaling_factors=scaling_factors,
+                random_seed=random_seed,
+                initial=initial,
+            )
+    if initial is not None and not (scan_info.gaussian_states and kind == "predictive"):
+        raise RuntimeError(
+            "A non-seam initial override must be compiled into the execution "
+            "model before run_do_panel_unified. This is an internal error."
+        )
     if set is None:
         set = {}
     if families is None:
@@ -1688,8 +2407,19 @@ def run_do_panel_unified(
         v for v in latent if families.get(v, "gaussian") == "latent_normal"
     }
 
+    # NaN steps in an endogenous intervention release it: the scan's
+    # ``_do_intervene`` switch runs the structural equation there. Such a
+    # variable is severed inside the scan only, and is reported like an
+    # unintervened one with the held values laid over its path.
+    released = {
+        var
+        for var, val in set.items()
+        if var in graph_info.endogenous and np.isnan(np.asarray(val, dtype=float)).any()
+    }
+
     replacements: dict[str, Any] = {}
     scan_intervene_updates: dict[str, np.ndarray] = {}
+    scaled: dict[str, np.ndarray] = {}
     for var, val in set.items():
         if isinstance(val, np.ndarray):
             mat = np.broadcast_to(val[:, None], (n_times, n_units)).copy()
@@ -1702,16 +2432,19 @@ def run_do_panel_unified(
                     "can be aligned to the scan layout."
                 )
             mat = _scale_scan_intervention(var, mat, data, scan_info, scaling_factors)
+        scaled[var] = mat
         # Outer graph-surgery replacement, as before: needed so the
         # intervened var is no longer a free RV that compute_deterministics /
         # sample_posterior_predictive must bind from the posterior (the
         # fitted idata never sampled it -- it is observed during fit()).
+        # A released var keeps its outer node: on released steps that node
+        # is the path we report.
         if var in latent and var not in stochastic_latent:
             key = f"mu_{var}"
         else:
             key = var
-        target_dtype = gen_model[key].dtype
-        replacements[key] = mat.astype(target_dtype)
+        if var not in released:
+            replacements[key] = mat.astype(gen_model[key].dtype)
         if var in graph_info.endogenous:
             # Endogenous vars (incl. latent) *also* participate in the
             # scan's own temporal recursion: lag()/contemporaneous
@@ -1724,29 +2457,96 @@ def run_do_panel_unified(
             node_name = f"_do_intervene_{var}"
             scan_intervene_updates[node_name] = mat.astype(gen_model[node_name].dtype)
 
-    if kind == "mean":
-        for var in graph_info.topological_order:
-            if var in graph_info.endogenous and var not in set and var not in latent:
-                replacements[var] = gen_model[f"mu_{var}"] * 1
+    if scan_info.gaussian_states and kind == "predictive":
+        interventions = {
+            var: xr.DataArray(
+                scaled[var].T,
+                dims=("unit", "time"),
+                coords={"unit": scan_info.unit_labels, "time": scan_info.time_values},
+            )
+            for var in set
+        }
+        states = _execute_gaussian_panel(
+            gen_model,
+            posterior(idata),
+            scan_info,
+            interventions=interventions,
+            initial=initial,
+            random_seed=random_seed,
+        )
+        variables = {}
+        for var in scan_info.gaussian_states:
+            raw = states[var].transpose("chain", "draw", "time", "unit")
+            raw = _to_business_units(var, raw, data, scaling_factors, scan_info)
+            variables[var] = _panel_unit_mean(raw, np.asarray(scan_info.time_values))
+        ones = _chain_draw_ones(posterior(idata))
+        for var in graph_info.exogenous:
+            if var in set:
+                variables[var] = _spread_over_time(
+                    ones, set[var], np.asarray(scan_info.time_values)
+                )
+            else:
+                filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
+                if filled is not None:
+                    variables[var] = filled
+        return DoResult(ds=xr.Dataset(variables), observed_by_time=observed_by_time)
 
-        det_names = []
-        for var in graph_info.topological_order:
-            if var in graph_info.endogenous and var not in set:
-                if var in stochastic_latent:
-                    det_names.append(var)
-                else:
-                    det_names.append(f"mu_{var}")
+    unheld = [
+        var
+        for var in graph_info.topological_order
+        if var in graph_info.endogenous and (var not in set or var in released)
+    ]
+
+    if kind == "mean":
+        for var in unheld:
+            if var not in latent:
+                # Scan ``mu_{var}`` for a discrete outcome is already the
+                # response-scale mean (rate or probability). ``pm.do`` cannot
+                # substitute that float for the integer outcome RV; the mean
+                # trajectory is the ``mu_{var}`` deterministic computed below.
+                # Float outcomes still replace the observation RV so
+                # propagation stays noise-free.
+                outcome = gen_model[var]
+                if not str(outcome.dtype).startswith("float"):
+                    continue
+                replacements[var] = gen_model[f"mu_{var}"] * 1
+        # A lagged Gaussian or Student-t outcome carries ``mu + sigma *
+        # carry_innovations`` into the next step. Wherever the outcome was
+        # observed, fitting read the observed lag instead, so the posterior of
+        # those innovations is just their N(0, 1) prior. Binding them from the
+        # trace would feed sampled noise into the mean path.
+        for var in graph_info.endogenous:
+            name = f"carry_innovations_{var}"
+            if name in gen_model.named_vars:
+                replacements[name] = np.zeros(
+                    (n_times, n_units), dtype=gen_model[name].dtype
+                )
+
+        det_names = [var if var in stochastic_latent else f"mu_{var}" for var in unheld]
 
         with (
             _forced_generative_carry(gen_model),
+            _forced_mean_carry(gen_model),
             _scan_do_intervention(gen_model, scan_intervene_updates),
         ):
             do_model = pm.do(gen_model, replacements)
+            posterior_ds = _fill_missing_posterior_rvs(
+                posterior(idata), do_model, n_times * n_units
+            )
+            # Poisson/NegativeBinomial scan carries draw inside the step.
+            # That random op is still in the scan graph (the mean flag only
+            # switches away from it). Numba cannot compile it; the C backend
+            # can. Bernoulli carries use a Uniform free RV and do not need this.
+            discrete_rate = any(
+                families.get(var, "gaussian") in ("poisson", "negbinomial")
+                for var in graph_info.endogenous
+            )
             det = pm.compute_deterministics(
-                posterior(idata),
+                posterior_ds,
                 model=do_model,
                 var_names=det_names,
                 progressbar=False,
+                backend="c" if discrete_rate else None,
             )
 
         ones = _chain_draw_ones(posterior(idata))
@@ -1758,10 +2558,12 @@ def run_do_panel_unified(
         data_vars: dict[str, xr.DataArray] = {}
 
         for var in graph_info.topological_order:
-            if var in set:
+            if var in set and var not in released:
                 data_vars[var] = _spread_over_time(ones, set[var], time_idx)
             elif var in graph_info.exogenous:
-                data_vars[var] = ones * 0.0
+                filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
+                if filled is not None:
+                    data_vars[var] = filled
             elif var in graph_info.endogenous:
                 det_key = var if var in stochastic_latent else f"mu_{var}"
                 raw = _to_business_units(
@@ -1772,17 +2574,22 @@ def run_do_panel_unified(
                     scan_info,
                 )
                 data_vars[var] = _panel_unit_mean(raw, time_idx)
+                if var in released:
+                    data_vars[var] = _overlay_held(
+                        data_vars[var], ones, set[var], time_idx
+                    )
 
         return DoResult(
             ds=xr.Dataset(data_vars),
             observed_by_time=observed_by_time,
         )
 
-    # kind == "predictive"
-    latent_det_names = []
-    for var in graph_info.topological_order:
-        if var in latent and var not in set:
-            latent_det_names.append(var if var in stochastic_latent else f"mu_{var}")
+    # kind == "predictive" (other values already raised)
+    latent_det_names = [
+        var if var in stochastic_latent else f"mu_{var}"
+        for var in unheld
+        if var in latent
+    ]
 
     with (
         _forced_generative_carry(gen_model),
@@ -1797,12 +2604,20 @@ def run_do_panel_unified(
                 ppc = pm.sample_posterior_predictive(
                     idata,
                     progressbar=False,
-                    **_panel_predictive_sample_kwargs(do_model, graph_info, set),
+                    random_seed=random_seed,
+                    **_panel_predictive_sample_kwargs(
+                        do_model, graph_info, set, released
+                    ),
                 )
 
         if latent_det_names:
+            # A fully observed outcome is a free RV of the generative graph
+            # with no posterior draws. Latent states sit upstream of it, so a
+            # placeholder binding cannot reach them.
             latent_det = pm.compute_deterministics(
-                posterior(idata),
+                _fill_missing_posterior_rvs(
+                    posterior(idata), do_model, n_times * n_units
+                ),
                 model=do_model,
                 var_names=latent_det_names,
                 progressbar=False,
@@ -1817,30 +2632,36 @@ def run_do_panel_unified(
     predictive_vars: dict[str, xr.DataArray] = {}
 
     for var in graph_info.topological_order:
-        if var in set:
+        recovered = None
+        if var in set and var not in released:
             predictive_vars[var] = _spread_over_time(ones, set[var], time_idx)
         elif var in graph_info.exogenous:
-            predictive_vars[var] = ones * 0.0
+            filled = _panel_unspecified_exog(var, ones, data, scaling_factors)
+            if filled is not None:
+                predictive_vars[var] = filled
         elif var in ppc.posterior_predictive:
-            raw = _to_business_units(
-                var,
-                ppc.posterior_predictive[var],
-                data,
-                scaling_factors,
-                scan_info,
-            )
-            predictive_vars[var] = _panel_unit_mean(raw, time_idx)
-        elif latent_det is not None:
+            recovered = ppc.posterior_predictive[var]
+        elif latent_det is not None and (
+            (var if var in stochastic_latent else f"mu_{var}") in latent_det
+        ):
             det_key = var if var in stochastic_latent else f"mu_{var}"
-            if det_key in latent_det:
-                raw = _to_business_units(
-                    var,
-                    latent_det[det_key],
-                    data,
-                    scaling_factors,
-                    scan_info,
-                )
-                predictive_vars[var] = _panel_unit_mean(raw, time_idx)
+            recovered = latent_det[det_key]
+        elif var in released:
+            raise ValueError(
+                f"Released intervention {var!r} has no recovered trajectory "
+                "to overlay held values on. NaN releases an endogenous "
+                "variable the scan computes; supply finite values for an "
+                "input with no equation."
+            )
+        if recovered is None:
+            continue
+        path = _panel_unit_mean(
+            _to_business_units(var, recovered, data, scaling_factors, scan_info),
+            time_idx,
+        )
+        if var in released:
+            path = _overlay_held(path, ones, set[var], time_idx)
+        predictive_vars[var] = path
 
     return DoResult(
         ds=xr.Dataset(predictive_vars),

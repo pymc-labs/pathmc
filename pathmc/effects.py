@@ -19,6 +19,8 @@ Provides the logic behind ``PathModel.effects_summary()`` and
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import re
 import warnings
 from dataclasses import dataclass
@@ -28,12 +30,162 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from pathmc.compile import predictor_coordinate
 from pathmc.idata import DEFAULT_HDI_PROB, beta_draws, hdi, hdi_label
-from pathmc.parse import Spec, Term
+from pathmc.parse import Spec, Term, _reject_defined_param_label_collisions
 from pathmc.reprs import ReprSpec, ResultReprMixin
 from pathmc.scaling import ScaleContext, ScalingFactors
 
 __all__ = ["EffectResult"]
+
+
+def _stack_samples(var) -> np.ndarray:
+    """Stack chain and draw. Keep later axes (for example ``unit``)."""
+    arr = np.asarray(var)
+    if arr.ndim < 2:
+        return arr.reshape(-1)
+    return arr.reshape(-1, *arr.shape[2:])
+
+
+def _broadcast_samples(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    """Multiply draws that share a leading sample axis, broadcasting the rest."""
+    left = np.asarray(left)
+    right = np.asarray(right)
+    while left.ndim < right.ndim:
+        left = left[..., None]
+    while right.ndim < left.ndim:
+        right = right[..., None]
+    return left * right
+
+
+def _population_slope_addition(
+    idata: xr.DataTree,
+    lhs: str,
+    variable: str,
+) -> tuple[np.ndarray | None, str | None]:
+    """Additive population slope for one edge, if the compiler emitted one.
+
+    Random slopes enter the linear predictor as ``slope_{lhs}_{var}[unit] * x``
+    on top of the flat coefficient. The population structural coefficient is
+    that flat coefficient plus ``mu_slope_{lhs}_{var}``. When the hierarchical
+    mean is absent, the addition is the mean of the unit slopes and the
+    returned warning says so.
+    """
+    from pathmc.idata import posterior
+
+    post = posterior(idata)
+    mu_name = f"mu_slope_{lhs}_{variable}"
+    slope_name = f"slope_{lhs}_{variable}"
+    if mu_name in post:
+        return np.asarray(post[mu_name]).reshape(-1), None
+    if slope_name not in post:
+        return None, None
+    slope = post[slope_name]
+    extra = [dim for dim in slope.dims if dim not in ("chain", "draw")]
+    reduced = slope.mean(dim=extra) if extra else slope
+    warning = (
+        f"Edge '{variable} -> {lhs}' has unit slopes '{slope_name}' but no "
+        f"hierarchical mean '{mu_name}'. effect() adds the mean of those "
+        f"unit slopes to the flat coefficient. That value is the mean across "
+        f"units, not a unit-specific effect."
+    )
+    return np.asarray(reduced).reshape(-1), warning
+
+
+def _add_sample_vector(draws: np.ndarray, addition: np.ndarray) -> np.ndarray:
+    """Add a per-draw vector on the leading sample axis. Do not add a unit axis."""
+    draws = np.asarray(draws, dtype=float)
+    addition = np.asarray(addition, dtype=float).reshape(-1)
+    if draws.ndim == 0:
+        return draws + addition
+    if draws.shape[0] == 1 and addition.shape[0] != 1:
+        draws = np.broadcast_to(
+            draws, (addition.shape[0],) + tuple(draws.shape[1:])
+        ).copy()
+    elif addition.shape[0] == 1 and draws.shape[0] != 1:
+        addition = np.broadcast_to(addition, (draws.shape[0],))
+    extra = (1,) * (draws.ndim - 1)
+    return draws + addition.reshape((-1,) + extra)
+
+
+class _SampleDraws(np.ndarray):
+    """Posterior draws whose arithmetic broadcasts extra axes after samples."""
+
+    def __new__(cls, array):
+        return np.asarray(array).view(cls)
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        if method != "__call__":
+            return NotImplemented
+        arrays = []
+        for item in inputs:
+            if isinstance(item, (np.ndarray, float, int, np.generic)):
+                arrays.append(np.asarray(item))
+            else:
+                return NotImplemented
+        nd = max((arr.ndim for arr in arrays), default=0)
+        aligned = []
+        for arr in arrays:
+            if arr.ndim == 0:
+                aligned.append(arr)
+                continue
+            while arr.ndim < nd:
+                arr = arr[..., None]
+            aligned.append(arr)
+        result = getattr(ufunc, method)(*aligned, **kwargs)
+        if isinstance(result, np.ndarray):
+            return result.view(_SampleDraws)
+        return result
+
+
+def _is_compiled_by_var_edge(post, variable: str, *, fixed: bool) -> bool:
+    """True when ``beta_{variable}`` is the compiler's per-cell replacement.
+
+    A same-named RV from another equation (``beta_M`` on ``M ~ X``) is not
+    that replacement. ``by_var`` emits ``beta_{variable}`` with a ``unit`` dim
+    and only for a free coefficient.
+    """
+    if fixed:
+        return False
+    beta_var = f"beta_{variable}"
+    if beta_var not in post:
+        return False
+    return "unit" in post[beta_var].dims
+
+
+def _compiled_edge_draws(
+    idata: xr.DataTree,
+    lhs: str,
+    variable: str,
+    *,
+    coordinate: str | None = None,
+    fixed: bool = False,
+) -> np.ndarray:
+    """Posterior draws for one regression edge.
+
+    A ``by_var`` predictor is compiled as its own ``beta_{variable}`` RV and
+    removed from the flat ``beta_{lhs}`` vector. Read that RV. Do not index a
+    ``beta_{lhs}`` entry the compiler dropped, and do not treat an unrelated
+    ``beta_{variable}`` as this edge.
+
+    ``coordinate`` is the flat-beta label. It differs from ``variable`` when
+    two terms share a column name and the compiler assigned a distinct
+    coordinate.
+    """
+    from pathmc.idata import posterior
+
+    coord = variable if coordinate is None else coordinate
+    post = posterior(idata)
+    beta_lhs = f"beta_{lhs}"
+    coord_name = f"{lhs}_predictors"
+    kept_in_flat = False
+    if beta_lhs in post:
+        beta = post[beta_lhs]
+        if coord_name in beta.coords:
+            kept_in_flat = coord in np.asarray(beta.coords[coord_name])
+    if not kept_in_flat and _is_compiled_by_var_edge(post, variable, fixed=fixed):
+        return _stack_samples(post[f"beta_{variable}"])
+    return beta_draws(idata, beta_lhs, coord_name, coord)
 
 
 def _has_labeled_terms(spec: Spec) -> bool:
@@ -48,6 +200,35 @@ def _interacting_vars(reg) -> set[str]:
         if t.interaction_of is not None:
             interacting.update(t.interaction_of)
     return interacting
+
+
+def _unmatched_edge_error(
+    source: str, target: str, terms: Sequence[Term]
+) -> ValueError:
+    """Error when ``source -> target`` has no main-effect term.
+
+    If ``graph()`` draws that edge only because ``source`` is a constituent
+    of an interaction, name those interaction terms. Do not claim the edge
+    is absent. A genuinely missing edge keeps the ``No direct edge`` message.
+    """
+    interactions = [
+        term
+        for term in terms
+        if term.interaction_of is not None and source in term.interaction_of
+    ]
+    if not interactions:
+        return ValueError(
+            f"No direct edge from '{source}' to '{target}' in the model. "
+            f"Check the path specification."
+        )
+    names = ", ".join(repr(term.variable) for term in interactions)
+    noun = "term" if len(interactions) == 1 else "terms"
+    example = interactions[0].variable
+    return ValueError(
+        f"'{source} -> {target}' is drawn because of interaction {noun} {names}, "
+        f"not a main-effect coefficient of '{source}'. "
+        f"Request the interaction term, for example '{example} -> {target}'."
+    )
 
 
 def _interaction_affected_labels(spec: Spec) -> dict[str, str]:
@@ -107,7 +288,7 @@ class EffectResult(ResultReprMixin):
 
     def hdi(self, prob: float = DEFAULT_HDI_PROB) -> np.ndarray:
         """Highest density interval for the effect."""
-        return hdi(self.draws, prob=prob)
+        return hdi(np.asarray(self.draws).reshape(-1), prob=prob)
 
     def _repr_compact(self) -> str:
         lo, hi = self.hdi()
@@ -119,7 +300,7 @@ class EffectResult(ResultReprMixin):
 
     def _repr_spec(self) -> ReprSpec:
         lo, hi = self.hdi()
-        n = len(self.draws)
+        n = int(np.asarray(self.draws).size)
         label = hdi_label()
         return ReprSpec(
             title=f"EffectResult — {self.name}",
@@ -153,16 +334,17 @@ def extract_labeled_draws(
         Mapping from label name to flattened posterior draws.
     """
     labeled_draws: dict[str, np.ndarray] = {}
-
     for reg in spec.regressions:
-        beta_name = f"beta_{reg.lhs}"
-        coord_name = f"{reg.lhs}_predictors"
-
         for term in reg.terms:
             if term.label is not None:
-                draws = beta_draws(idata, beta_name, coord_name, term.variable)
+                draws = _compiled_edge_draws(
+                    idata,
+                    reg.lhs,
+                    term.variable,
+                    coordinate=predictor_coordinate(reg, term),
+                    fixed=term.fixed_value is not None,
+                )
                 labeled_draws[term.label] = draws
-
     return labeled_draws
 
 
@@ -186,14 +368,11 @@ def evaluate_defined_params(
     """
     defined_draws: dict[str, np.ndarray] = {}
     affected_labels = _interaction_affected_labels(spec)
-    # Names (labels or previously-computed defined params) known to omit an
-    # interaction contribution; grows as flagged defined params are chained
-    # into later ones (e.g. total := indirect + c).
     affected_names = set(affected_labels)
 
     for dp in spec.defined_params:
-        namespace: dict = {k: v for k, v in labeled_draws.items()}
-        namespace.update(defined_draws)
+        namespace: dict = {k: _SampleDraws(v) for k, v in labeled_draws.items()}
+        namespace.update({k: _SampleDraws(v) for k, v in defined_draws.items()})
         namespace["__builtins__"] = {}
 
         tokens = set(re.findall(r"[A-Za-z_]\w*", dp.expression))
@@ -277,7 +456,14 @@ def build_effects_summary(
     -------
     pd.DataFrame
         Summary with mean, sd, hdi_3%, hdi_97% for each effect.
+
+    Raises
+    ------
+    DuplicateEquationError
+        If a defined parameter uses a coefficient label's name. The defined
+        parameter must not replace that label in the summary.
     """
+    _reject_defined_param_label_collisions(spec)
     labeled_draws = extract_labeled_draws(spec, idata)
     if scaling_factors is not None and data is not None:
         converted: dict[str, np.ndarray] = {}
@@ -299,7 +485,7 @@ def build_effects_summary(
 
     rows = []
     for name, draws in all_draws.items():
-        interval = hdi(draws)
+        interval = hdi(np.asarray(draws).reshape(-1))
         rows.append({
             "name": name,
             "mean": float(np.mean(draws)),
@@ -318,12 +504,109 @@ def build_effects_summary(
 _NON_GAUSSIAN_FAMILIES = frozenset({"bernoulli", "poisson", "negbinomial"})
 
 
+def _observed_sd(
+    data: nw.DataFrame,
+    column: str,
+    scaling_factors: ScalingFactors | None,
+) -> float | None:
+    """Sample SD of *column* on the data the caller passed.
+
+    Unscaled columns keep the frame's own SD. Scaled columns are mapped
+    back to business units first, so a heterogeneous divisor is not
+    replaced by the SD of the internally divided column.
+    """
+    if scaling_factors is not None and scaling_factors.has_factor(column):
+        observed = np.asarray(
+            scaling_factors.to_business(
+                np.asarray(data[column].to_numpy(), dtype=float),
+                kind="outcome",
+                dims=ScaleContext(term=column, data=data),
+            ),
+            dtype=float,
+        )
+        sd = pd.Series(observed).std()
+    else:
+        sd = data[column].std()
+    if sd is None or not np.isfinite(float(sd)) or float(sd) == 0:
+        return None
+    return float(sd)
+
+
+def _is_binary_01(column: nw.Series) -> bool:
+    """Return whether observed values are only 0 and 1.
+
+    STDYX for a 0/1 column depends on the base rate, not the scale of the
+    effect, so those predictors are skipped. Non-numeric values are not
+    treated as binary here.
+    """
+    values = column.drop_nulls().unique().to_list()
+    if not values:
+        return False
+    observed: set[float] = set()
+    for value in values:
+        if isinstance(value, bool):
+            observed.add(float(value))
+            continue
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            number = float(value)
+        else:
+            return False
+        if not np.isfinite(number):
+            return False
+        observed.add(number)
+    return observed <= {0.0, 1.0}
+
+
+def _values_are_binary_01(values: np.ndarray, *, atol: float = 0.0) -> bool:
+    """Return whether finite observed numbers are only 0 and 1.
+
+    ``atol`` covers a rounding ulp when a channel scale is inverted. It is
+    not used for the stored column, so a near-0/1 continuous column is kept.
+    """
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return False
+    if atol == 0.0:
+        return set(np.unique(finite).tolist()) <= {0.0, 1.0}
+    close_0 = np.isclose(finite, 0.0, rtol=0.0, atol=atol)
+    close_1 = np.isclose(finite, 1.0, rtol=0.0, atol=atol)
+    return bool(np.any(close_0) and np.any(close_1) and np.all(close_0 | close_1))
+
+
+def _predictor_is_binary_01(
+    data: nw.DataFrame,
+    variable: str,
+    scaling_factors: ScalingFactors | None,
+) -> bool:
+    """Return whether the predictor is 0/1 in business units.
+
+    Scaled frames store ``value / factor``. Classify the unscaled column so a
+    0/1 treatment is still skipped after a channel scale.
+    """
+    column = data[variable]
+    if scaling_factors is not None and scaling_factors.has_factor(variable):
+        try:
+            business = np.asarray(
+                scaling_factors.to_business(
+                    np.asarray(column.to_numpy(), dtype=float),
+                    kind="regressor",
+                    dims=ScaleContext(term=variable, data=data),
+                ),
+                dtype=float,
+            )
+        except (TypeError, ValueError):
+            return _is_binary_01(column)
+        return _values_are_binary_01(business, atol=16 * float(np.spacing(1.0)))
+    return _is_binary_01(column)
+
+
 def build_standardized_effects(
     spec: Spec,
     idata: xr.DataTree,
     data: nw.DataFrame,
     latent: set[str] | None = None,
     families: dict[str, str] | None = None,
+    scaling_factors: ScalingFactors | None = None,
 ) -> pd.DataFrame:
     """Compute stdyx-standardized coefficients from posterior draws.
 
@@ -331,9 +614,14 @@ def build_standardized_effects(
 
         stdyx = coef * sd(X) / sd(Y)
 
-    This gives the expected change in Y (in SD units) per SD change in X.
-    Edges involving latent variables (no observed SD) or non-Gaussian outcomes
-    are skipped.
+    ``coef`` is the business-unit coefficient (the same scale
+    ``effects_summary()`` reports). ``sd(X)`` and ``sd(Y)`` are the
+    observed marginal SDs of the data the caller passed, not the SDs of
+    internally divided columns. This gives the expected change in Y (in
+    SD units) per SD change in X. Edges involving latent variables (no
+    observed SD), binary 0/1 predictors, or non-Gaussian outcomes are
+    skipped. A 0/1 predictor is skipped because its SD depends on the
+    base rate, not the scale of the effect.
 
     Parameters
     ----------
@@ -348,6 +636,9 @@ def build_standardized_effects(
     families : dict[str, str] | None
         Per-variable distribution families. Non-Gaussian outcomes are
         skipped with a warning.
+    scaling_factors : ScalingFactors | None
+        Fitted scale factors. Used only to recover business-unit 0/1 codings.
+        The stdyx formula still uses the observed SDs of ``data``.
 
     Returns
     -------
@@ -371,12 +662,9 @@ def build_standardized_effects(
         if families.get(lhs, "gaussian") in _NON_GAUSSIAN_FAMILIES:
             skipped_non_gaussian.append(lhs)
             continue
-        # narwhals Series.std() returns None for an all-null column; treat that
-        # (and a zero-variance column) as non-standardizable and skip.
-        _sd_y = data[lhs].std()
-        if _sd_y is None or float(_sd_y) == 0:
+        sd_y = _observed_sd(data, lhs, scaling_factors)
+        if sd_y is None:
             continue
-        sd_y = float(_sd_y)
 
         for term in reg.terms:
             if term.label is None or term.label not in labeled_draws:
@@ -388,14 +676,25 @@ def build_standardized_effects(
             var = term.variable
             if var in latent or var not in data.columns:
                 continue
-            _sd_x = data[var].std()
-            if _sd_x is None or float(_sd_x) == 0:
+            # A 0/1 column's SD is the base rate, not a measurement scale.
+            # Classify business units so a channel scale does not hide the coding.
+            if _predictor_is_binary_01(data, var, scaling_factors):
                 continue
-            sd_x = float(_sd_x)
+            sd_x = _observed_sd(data, var, scaling_factors)
+            if sd_x is None:
+                continue
 
             raw_draws = labeled_draws[term.label]
+            if scaling_factors is not None:
+                raw_draws = np.asarray(
+                    scaling_factors.to_business(
+                        raw_draws,
+                        kind="coefficient",
+                        dims=ScaleContext(term=term, outcome=lhs, data=data),
+                    )
+                )
             std_draws = raw_draws * sd_x / sd_y
-            interval = hdi(std_draws)
+            interval = hdi(np.asarray(std_draws).reshape(-1))
             rows.append({
                 "name": term.label,
                 "predictor": var,
@@ -465,8 +764,16 @@ def compute_path_effect(
     mediated effect.
 
     Each edge's contribution is the linear (main-effect) regression
-    coefficient of the source variable on the target; the path effect is
-    the product of these coefficients (Wright's tracing rule). This is
+    coefficient of the source variable on the target, plus the population
+    random slope on that edge when the compiler emitted one. A hierarchical
+    random slope is ``beta + mu_slope_{outcome}_{predictor}``: the flat
+    coefficient plus the hierarchical mean of the additive unit slope. The
+    result stays one path coefficient, not a per-unit array. If unit slopes
+    are present without ``mu_slope``, the addition is the mean of those unit
+    slopes and a ``UserWarning`` says the value is that mean, not a
+    unit-specific effect. The path effect is the product of these
+    coefficients (Wright's tracing rule). A fixed coefficient is that term
+    plus the same population slope when one exists. This is
     exact for linear-Gaussian structural models. If the target's
     regression also contains an interaction term involving the source
     variable (e.g. ``Y ~ b*M + g*M:X``), the interaction's contribution is
@@ -494,7 +801,11 @@ def compute_path_effect(
     Raises
     ------
     ValueError
-        If a node in the path is not endogenous or an edge does not exist.
+        If a node in the path is not endogenous, or an edge does not exist.
+        If the graph draws the edge only because the source is a constituent
+        of an interaction (for example ``Y ~ X:Z`` and ``"X -> Y"``), the
+        error names that interaction term instead of claiming the edge is
+        absent.
     NotImplementedError
         If a multi-edge path includes a non-Gaussian edge target whose
         coefficient would be multiplied across link scales.
@@ -521,10 +832,7 @@ def compute_path_effect(
                 break
 
         if matched_term is None:
-            raise ValueError(
-                f"No direct edge from '{source}' to '{target}' in the model. "
-                f"Check the path specification."
-            )
+            raise _unmatched_edge_error(source, target, reg.terms)
 
         interaction_terms = [
             t
@@ -547,12 +855,40 @@ def compute_path_effect(
                 stacklevel=2,
             )
 
-        if matched_term.label is not None and matched_term.label in labeled_draws:
-            draws = labeled_draws[matched_term.label]
+        # A leading fixed term (``1*X``) is not a posterior column. When a
+        # later free term shares that variable, select that free column.
+        # Selecting the fixed term's coordinate raises KeyError once the
+        # two terms no longer share the label ``X``.
+        coef_term = matched_term
+        if not (matched_term.label is not None and matched_term.label in labeled_draws):
+            for term in reg.terms:
+                if (
+                    term.variable == source
+                    and term.fixed_value is None
+                    and term.basis is None
+                    and term.categorical is None
+                ):
+                    coef_term = term
+                    break
+        if coef_term.fixed_value is not None:
+            draws = np.asarray([float(coef_term.fixed_value)])
+        elif coef_term.label is not None and coef_term.label in labeled_draws:
+            draws = labeled_draws[coef_term.label]
         else:
-            beta_name = f"beta_{target}"
-            coord_name = f"{target}_predictors"
-            draws = beta_draws(idata, beta_name, coord_name, source)
+            draws = _compiled_edge_draws(
+                idata,
+                target,
+                source,
+                coordinate=predictor_coordinate(reg, coef_term),
+                fixed=coef_term.fixed_value is not None,
+            )
+        slope_addition, slope_warning = _population_slope_addition(
+            idata, target, source
+        )
+        if slope_addition is not None:
+            draws = _add_sample_vector(draws, slope_addition)
+        if slope_warning is not None:
+            warnings.warn(slope_warning, UserWarning, stacklevel=2)
 
         if scaling_factors is not None and data is not None:
             draws = np.asarray(
@@ -560,7 +896,7 @@ def compute_path_effect(
                     draws,
                     kind="coefficient",
                     dims=ScaleContext(
-                        term=matched_term,
+                        term=coef_term,
                         outcome=target,
                         data=data,
                     ),
@@ -570,6 +906,6 @@ def compute_path_effect(
 
     result_draws = edge_draws[0]
     for d in edge_draws[1:]:
-        result_draws = result_draws * d
+        result_draws = _broadcast_samples(result_draws, d)
 
     return EffectResult(name=path, draws=result_draws)

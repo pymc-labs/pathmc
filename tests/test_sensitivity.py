@@ -134,6 +134,65 @@ class TestComputeSensitivity:
         assert result.adjusted_ate_mean[0, 0] < 0
         assert result.prob_sign_change[0, 0] < 0.01
 
+    def test_prob_sign_change_counts_zero_and_keeps_tiny_mean_sign(self):
+        """Near-zero means keep their sign; an adjusted ATE of 0 is a change."""
+        tiny = compute_sensitivity(
+            np.array([1e-16, 1e-16, 1e-16]),
+            "Y",
+            "T",
+            gamma_range=(0.0, 1.0),
+            delta_range=(0.0, 1.0),
+            n_grid=3,
+        )
+        assert tiny.prob_sign_change[0, 0] == 0.0
+        assert tiny.prob_sign_change[-1, -1] == 1.0
+        assert not np.any(tiny.prob_sign_change == 0.5)
+
+        # Same class on the other side of zero, not only the cited magnitude.
+        tiny_neg = compute_sensitivity(
+            np.array([-1e-16, -1e-16]),
+            "Y",
+            "T",
+            gamma_range=(-1.0, 0.0),
+            delta_range=(0.0, 1.0),
+            n_grid=3,
+        )
+        assert tiny_neg.prob_sign_change[-1, 0] == 0.0  # bias 0
+        assert tiny_neg.prob_sign_change[0, -1] == 1.0  # bias -1
+
+        pos = compute_sensitivity(
+            np.array([2.0]),
+            "Y",
+            "T",
+            gamma_range=(0.0, 2.0),
+            delta_range=(0.0, 2.0),
+            n_grid=3,
+        )
+        # γ=2, δ=1 → bias=2, adjusted=0
+        assert pos.prob_sign_change[2, 1] == 1.0
+
+        neg = compute_sensitivity(
+            np.array([-3.0]),
+            "Y",
+            "T",
+            gamma_range=(-3.0, 0.0),
+            delta_range=(0.0, 1.0),
+            n_grid=2,
+        )
+        # γ=-3, δ=1 → bias=-3, adjusted=0
+        assert neg.prob_sign_change[0, 1] == 1.0
+
+        mixed = compute_sensitivity(
+            np.array([1.0, 2.0, 4.0]),
+            "Y",
+            "T",
+            gamma_range=(0.0, 2.0),
+            delta_range=(0.0, 1.0),
+            n_grid=2,
+        )
+        # bias=2: draws 1 and 2 have changed (2−2=0); draw 4 has not.
+        assert mixed.prob_sign_change[1, 1] == pytest.approx(2.0 / 3.0)
+
 
 class TestSensitivityResult:
     """Test the SensitivityResult dataclass."""
@@ -169,6 +228,43 @@ class TestSensitivityResult:
         assert "Observed ATE" in html
         assert "Tipping point" in html
         assert "<table" in html
+
+    def test_symmetric_example_matches_tipping_point_sign(self):
+        """The displayed pair multiplies to the tipping point, including sign.
+
+        A same-sign pair for a negative ATE must not be labeled as nullifying.
+        The positive-ATE line stays both coordinates positive.
+        """
+        cited = compute_sensitivity(np.array([-2.0]), "Y", "T", (-2, 2), (-2, 2), 5)
+        cited_text = dict(cited._repr_spec().rows)["Symmetric example"]
+        assert cited_text == ("γ = 1.4142, δ = -1.4142 would nullify the effect")
+        positive = compute_sensitivity(np.array([2.0]), "Y", "T", (-2, 2), (-2, 2), 5)
+        positive_text = dict(positive._repr_spec().rows)["Symmetric example"]
+        assert positive_text == ("γ = 1.4142, δ = 1.4142 would nullify the effect")
+
+        draws_cases = [
+            np.array([-2.0]),
+            np.array([2.0]),
+            np.array([0.0]),
+            np.array([-9.0, -9.0, -1.0]),
+            np.array([0.25, 0.5, 0.75]),
+            np.random.default_rng(1).normal(loc=-0.37, scale=0.05, size=40),
+            np.random.default_rng(2).normal(loc=1.7, scale=0.1, size=30),
+            np.random.default_rng(3).normal(loc=-4.5, scale=0.2, size=20),
+        ]
+        for draws in draws_cases:
+            result = compute_sensitivity(draws, "Y", "T", (-3.0, 3.0), (-3.0, 3.0), 7)
+            tipping = result.tipping_point
+            magnitude = 0.0 if tipping == 0.0 else float(np.sqrt(abs(tipping)))
+            gamma = magnitude
+            delta = 0.0 if tipping == 0.0 else float(np.copysign(magnitude, tipping))
+            text = dict(result._repr_spec().rows)["Symmetric example"]
+            assert text == (
+                f"γ = {gamma:.4f}, δ = {delta:.4f} would nullify the effect"
+            ), text
+            # expected formats the equal-magnitude pair whose product is the
+            # tipping point. The previous summary used +sqrt(|ATE|) for both
+            # coordinates, so a negative ATE failed this string.
 
     def test_observed_ate_hdi(self):
         draws = np.random.default_rng(0).normal(loc=0.5, scale=0.1, size=1000)

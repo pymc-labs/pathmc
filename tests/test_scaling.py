@@ -398,6 +398,29 @@ class TestModelWiring:
         )
         np.testing.assert_allclose(m._data["X"].to_numpy(), raw["X"].to_numpy() / 2.0)
 
+    def test_lag_only_channel_is_divided_before_compile(self):
+        """A column used only as lag(X) is still that channel."""
+        raw = pd.DataFrame({
+            "geo": ["a", "a", "b", "b"],
+            "week": [0, 1, 0, 1],
+            "X": [8.0, 4.0, 2.0, 6.0],
+            "Z": [10.0, 20.0, 30.0, 40.0],
+            "Y": [1.0, 1.0, 1.0, 1.0],
+        })
+        scaling = Scaling(
+            target={"method": "fixed", "value": 10.0},
+            channel={"method": "fixed", "value": 2.0},
+        )
+        fitted = pathmc.model(
+            "Y ~ lag(X) + Z",
+            data=raw,
+            panel=PANEL,
+            scaling=scaling,
+        )
+        assert fitted._data is not None
+        np.testing.assert_allclose(fitted._data["X"].to_numpy(), raw["X"] / 2.0)
+        np.testing.assert_allclose(fitted._data["Z"].to_numpy(), raw["Z"] / 2.0)
+
     def test_refit_permuted_reaches_model_construction(self, monkeypatch):
         """_refit_permuted must find every _construction key it reads.
 
@@ -455,6 +478,57 @@ class TestSimulateRoundTrip:
         expected = (beta[0] + beta[1] * raw["X"] / p) * t
         np.testing.assert_allclose(out["Y"].to_numpy(), expected, atol=1e-2)
 
+    def test_lag_only_channel_divided_before_lag(self):
+        """Divide a lag-only channel before the lag, then restore the target.
+
+        The cited probe is channel factor 4 and target factor 10. A second
+        series with different factors rejects a special case for those
+        numbers, and a contemporaneous companion column must still be divided.
+        """
+        df = pd.DataFrame({
+            "geo": ["a"] * 4,
+            "week": [0, 1, 2, 3],
+            "X": [4.0, 2.0, 6.0, 0.0],
+        })
+        scale = Scaling(
+            target={"method": "fixed", "value": 10.0},
+            channel={"method": "fixed", "value": 4.0},
+        )
+        params = {"beta_Y": [0.0, 3.0], "sigma_Y": 0.0}
+        lag_only = pathmc.simulate(
+            "Y ~ lag(X)",
+            data=df,
+            params=params,
+            panel=PANEL,
+            scaling=scale,
+            random_seed=1,
+        )
+        # First row repeats, then the lag sees X / 4, then * 10.
+        np.testing.assert_allclose(lag_only["Y"].to_numpy(), [30.0, 30.0, 15.0, 45.0])
+
+        other = pd.DataFrame({
+            "geo": ["a", "a", "a"],
+            "week": [0, 1, 2],
+            "X": [6.0, 3.0, 9.0],
+            "Z": [8.0, 4.0, 2.0],
+        })
+        other_scale = Scaling(
+            target={"method": "fixed", "value": 5.0},
+            channel={"method": "fixed", "value": 2.0},
+        )
+        mixed = pathmc.simulate(
+            "Y ~ lag(X) + Z",
+            data=other,
+            params={"beta_Y": [0.0, 1.0, 1.0], "sigma_Y": 0.0},
+            panel=PANEL,
+            scaling=other_scale,
+            random_seed=1,
+        )
+        # lag(X/2) repeats 3 then shifts; Z/2 is contemporaneous; * 5.
+        np.testing.assert_allclose(mixed["Y"].to_numpy(), [35.0, 25.0, 12.5])
+        np.testing.assert_allclose(mixed["X"].to_numpy(), other["X"].to_numpy())
+        np.testing.assert_allclose(mixed["Z"].to_numpy(), other["Z"].to_numpy())
+
     def test_without_scaling_params_stay_in_raw_units(self):
         raw = make_panel()
         out = pathmc.simulate(SPEC, data=raw, params=self.PARAMS, panel=PANEL)
@@ -510,6 +584,88 @@ class TestSimulateRoundTrip:
                 panel=PANEL,
                 scaling=Scaling(target={"method": "max"}),
             )
+
+
+class TestSimulateLatentBusinessUnits:
+    """Latent generated columns are inverse-scaled with the other outcomes."""
+
+    def test_latent_mediator_matches_observed_business_units(self):
+        """A latent mediator uses the target factor, not internal units.
+
+        Nearby to the reported probe (channel 4 / target 10 / unit slopes):
+        different factors and slopes, so a special case for those inputs fails.
+        """
+        data = pd.DataFrame({"X": [1.0, 0.0, 3.0, 2.0]})
+        scaling = Scaling(
+            target={"method": "fixed", "value": 5.0},
+            channel={"method": "fixed", "value": 2.0},
+        )
+        spec = "M ~ 0 + X\nY ~ 0 + M"
+        params = {"beta_M": [2.0], "beta_Y": [3.0], "sigma_Y": 0.0}
+        observed = pathmc.simulate(
+            spec,
+            data=data,
+            params={**params, "sigma_M": 0.0},
+            scaling=scaling,
+            random_seed=0,
+        )
+        latent = pathmc.simulate(
+            spec,
+            data=data,
+            params=params,
+            scaling=scaling,
+            latent=["M"],
+            random_seed=0,
+        )
+        # Internal M is 2 * (X / 2) = X; business M is 5 * X.
+        # Internal Y is 3 * M_internal; business Y is 15 * X.
+        expected_m = np.array([5.0, 0.0, 15.0, 10.0])
+        expected_y = np.array([15.0, 0.0, 45.0, 30.0])
+        np.testing.assert_allclose(observed["M"].to_numpy(), expected_m)
+        np.testing.assert_allclose(observed["Y"].to_numpy(), expected_y)
+        np.testing.assert_allclose(latent["M"].to_numpy(), expected_m)
+        np.testing.assert_allclose(latent["Y"].to_numpy(), expected_y)
+        np.testing.assert_allclose(latent["M"].to_numpy(), observed["M"].to_numpy())
+
+    def test_only_latent_endogenous_column_is_inverse_scaled(self):
+        """Dropping every latent from target columns leaves this column unscaled."""
+        data = pd.DataFrame({"X": [4.0, 8.0, 0.0]})
+        out = pathmc.simulate(
+            "L ~ 0 + X",
+            data=data,
+            params={"beta_L": [1.0]},
+            scaling=Scaling(
+                target={"method": "fixed", "value": 10.0},
+                channel={"method": "fixed", "value": 4.0},
+            ),
+            latent=["L"],
+            random_seed=1,
+        )
+        np.testing.assert_allclose(out["L"].to_numpy(), [10.0, 20.0, 0.0])
+
+    def test_stochastic_latent_draw_is_inverse_scaled(self):
+        """A zero-noise latent_normal draw is still a generated endogenous column."""
+        data = pd.DataFrame({"X": [2.0, 6.0]})
+        out = pathmc.simulate(
+            "M ~ 0 + X\nY ~ 0 + M",
+            data=data,
+            params={
+                "beta_M": [1.0],
+                "sigma_M": 0.0,
+                "beta_Y": [1.0],
+                "sigma_Y": 0.0,
+            },
+            families={"M": "latent_normal"},
+            scaling=Scaling(
+                target={"method": "fixed", "value": 3.0},
+                channel={"method": "fixed", "value": 2.0},
+            ),
+            latent=["M"],
+            random_seed=2,
+        )
+        # Internal M = X / 2; business M = 1.5 * X. Y uses that internal M.
+        np.testing.assert_allclose(out["M"].to_numpy(), [3.0, 9.0])
+        np.testing.assert_allclose(out["Y"].to_numpy(), [3.0, 9.0])
 
 
 # ---------------------------------------------------------------------------

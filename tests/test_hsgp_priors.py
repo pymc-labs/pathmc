@@ -15,8 +15,11 @@
 
 from __future__ import annotations
 
+import numpy as np
+import pandas as pd
 import pytest
 
+import pathmc
 from pathmc import Prior
 from pathmc.parse import parse_spec
 from pathmc.priors import default_priors, merge_priors
@@ -69,3 +72,47 @@ def test_unknown_hsgp_prior_key_raises():
     defaults = default_priors(spec)
     with pytest.raises(ValueError, match="Unknown prior key"):
         merge_priors(defaults, {"ell_Y_z": Prior("HalfNormal", sigma=1)})
+
+
+def test_data_free_lengthscale_stays_unit_scale():
+    spec = parse_spec("Y ~ hsgp(x, m=12, c=1.5)")
+    priors = default_priors(spec)
+    assert priors["ell_Y_x"].parameters["alpha"] == 3
+    assert priors["ell_Y_x"].parameters["beta"] == 1
+
+
+def test_lengthscale_beta_tracks_input_span():
+    spec = parse_spec("Y ~ hsgp(x, m=12, c=1.5)")
+    df = pd.DataFrame({"x": np.linspace(0.0, 10.0, 11), "Y": np.zeros(11)})
+    priors = default_priors(spec, data=df)
+    assert priors["ell_Y_x"].parameters["beta"] == 10.0
+
+
+def test_constant_or_missing_input_keeps_unit_lengthscale():
+    spec = parse_spec("Y ~ hsgp(x, m=12, c=1.5)")
+    constant = pd.DataFrame({"x": np.ones(5), "Y": np.zeros(5)})
+    missing = pd.DataFrame({"Y": np.zeros(5)})
+    nans = pd.DataFrame({"x": np.full(5, np.nan), "Y": np.zeros(5)})
+    assert default_priors(spec, data=constant)["ell_Y_x"].parameters["beta"] == 1
+    assert default_priors(spec, data=missing)["ell_Y_x"].parameters["beta"] == 1
+    assert default_priors(spec, data=nans)["ell_Y_x"].parameters["beta"] == 1
+
+
+def test_nonfinite_input_does_not_scale_to_the_finite_subset():
+    spec = parse_spec("Y ~ hsgp(x, m=12, c=1.5)")
+    mixed_inf = pd.DataFrame({"x": [0.0, 10.0, np.inf], "Y": np.zeros(3)})
+    mixed_nan = pd.DataFrame({"x": [0.0, 10.0, np.nan], "Y": np.zeros(3)})
+    assert default_priors(spec, data=mixed_inf)["ell_Y_x"].parameters["beta"] == 1
+    assert default_priors(spec, data=mixed_nan)["ell_Y_x"].parameters["beta"] == 1
+
+
+def test_model_priors_show_the_scaled_lengthscale():
+    df = pd.DataFrame({"x": np.linspace(0.0, 10.0, 11), "Y": np.zeros(11)})
+    model = pathmc.model("Y ~ hsgp(x, m=8, c=1.5)", data=df)
+    assert "beta=10.0" in str(model.priors())
+    overridden = pathmc.model(
+        "Y ~ hsgp(x, m=8, c=1.5)",
+        data=df,
+        priors={"ell_Y_x": Prior("InverseGamma", alpha=3, beta=4)},
+    )
+    assert "beta=4" in str(overridden.priors())

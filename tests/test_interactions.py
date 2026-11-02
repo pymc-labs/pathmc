@@ -17,6 +17,9 @@ Covers parsing, graph building, design matrix construction, compilation,
 introspection, do() propagation, and effects extraction.
 """
 
+import warnings
+
+import arviz as az
 import numpy as np
 import pandas as pd
 import pymc as pm
@@ -321,3 +324,99 @@ class TestInteractionSampling:
             f"Moderation effect too small: diff_high={diff_high:.2f}, "
             f"diff_low={diff_low:.2f}"
         )
+
+
+def _tiny_frame(*names: str) -> pd.DataFrame:
+    return pd.DataFrame({
+        name: np.linspace(-1, 1, 8) + offset for offset, name in enumerate(names)
+    })
+
+
+def _inject_posterior(model, coefficients: dict[str, dict[str, float]]) -> None:
+    """Pin posterior means for ``{outcome: {predictor: value}}``."""
+    posterior = {}
+    coords = {}
+    dims = {}
+    for outcome, values in coefficients.items():
+        coord = f"{outcome}_predictors"
+        order = [str(value) for value in model.pymc_model.coords[coord]]
+        vector = [float(values.get(name, 0.0)) for name in order]
+        posterior[f"beta_{outcome}"] = np.tile(vector, (1, 4, 1))
+        coords[coord] = order
+        dims[f"beta_{outcome}"] = [coord]
+    model._idata = az.from_dict(
+        {"posterior": posterior},
+        coords=coords,
+        dims=dims,
+    )
+
+
+def _assert_names_interaction(model, path: str, *terms: str) -> None:
+    with pytest.raises(ValueError) as exc_info:
+        model.effect(path)
+    message = str(exc_info.value)
+    for term in terms:
+        assert term in message
+    assert "No direct edge" not in message
+    assert "does not exist" not in message
+    assert "absent" not in message
+
+
+class TestInteractionOnlyEffectAgreesWithGraph:
+    """A drawn interaction constituent is not a missing edge.
+
+    ``graph()`` draws ``X -> Y`` for ``Y ~ X:Z``. ``effect("X -> Y")`` must
+    name that interaction term instead of claiming the edge is absent.
+    ``effect("X:Z -> Y")`` still returns the interaction coefficient.
+    """
+
+    def test_endpoint_query_names_interaction_term(self):
+        model = pathmc.model("Y ~ g*X:Z", data=_tiny_frame("X", "Z", "Y"))
+        source = model.graph().source
+        assert "X -> Y" in source
+        assert "Z -> Y" in source
+        _inject_posterior(model, {"Y": {"X:Z": 1.7}})
+
+        assert model.effect("X:Z -> Y").mean == pytest.approx(1.7)
+        _assert_names_interaction(model, "X -> Y", "X:Z")
+        _assert_names_interaction(model, "Z -> Y", "X:Z")
+        _assert_names_interaction(model, "X->Y", "X:Z")
+
+    def test_three_way_names_full_interaction(self):
+        model = pathmc.model("D ~ A:B:C", data=_tiny_frame("A", "B", "C", "D"))
+        assert "B -> D" in model.graph().source
+        _inject_posterior(model, {"D": {"A:B:C": -0.4}})
+
+        assert model.effect("A:B:C -> D").mean == pytest.approx(-0.4)
+        _assert_names_interaction(model, "B -> D", "A:B:C")
+        _assert_names_interaction(model, "C -> D", "A:B:C")
+
+    def test_names_every_interaction_involving_the_source(self):
+        model = pathmc.model("Y ~ X:Z + X:W", data=_tiny_frame("X", "Z", "W", "Y"))
+        _inject_posterior(model, {"Y": {"X:Z": 2.25, "X:W": 0.5}})
+
+        assert model.effect("X:W -> Y").mean == pytest.approx(0.5)
+        _assert_names_interaction(model, "X -> Y", "X:Z", "X:W")
+
+    def test_missing_edge_still_reports_absence(self):
+        model = pathmc.model("Y ~ X:Z", data=_tiny_frame("X", "Z", "Y", "W"))
+        _inject_posterior(model, {"Y": {"X:Z": 1.0}})
+        with pytest.raises(ValueError, match="No direct edge from 'W' to 'Y'"):
+            model.effect("W -> Y")
+
+    def test_main_effect_plus_interaction_still_returns_main_coefficient(self):
+        model = pathmc.model("Y ~ X + X:Z", data=_tiny_frame("X", "Z", "Y"))
+        _inject_posterior(model, {"Y": {"X": 0.3, "X:Z": 1.7}})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            assert model.effect("X -> Y").mean == pytest.approx(0.3)
+        assert model.effect("X:Z -> Y").mean == pytest.approx(1.7)
+
+    def test_multi_edge_path_names_interaction_on_that_edge(self):
+        model = pathmc.model("M ~ X\nY ~ M:Z", data=_tiny_frame("X", "M", "Z", "Y"))
+        assert "M -> Y" in model.graph().source
+        _inject_posterior(model, {"M": {"X": 0.5}, "Y": {"M:Z": 1.1}})
+
+        _assert_names_interaction(model, "X -> M -> Y", "M:Z")
+        assert model.effect("X -> M").mean == pytest.approx(0.5)
+        assert model.effect("M:Z -> Y").mean == pytest.approx(1.1)

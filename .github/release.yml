@@ -24,6 +24,10 @@ changelog:
     - title: Refactoring 🧹
       labels:
         - Refactor
+    # Above `*`: GitHub assigns each pull request to the first matching category.
+    - title: Agents 🤖
+      labels:
+        - agents
     - title: Maintenance 🔧
       labels:
         - "*"

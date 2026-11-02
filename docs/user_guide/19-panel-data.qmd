@@ -6,6 +6,50 @@ guide-section: "Panel Data"
 pathmc supports **panel (longitudinal) data** — repeated observations of multiple units over time.
 Panel structure enables modeling temporal effects like carry-over and lagged dependencies, and borrowing strength across units via hierarchical pooling.
 
+## What `panel=` does to the frame
+
+`panel=` is not a boolean. The values are column names:
+
+```python
+panel = {"unit": "geo", "time": "week"}
+```
+
+`geo` and `week` are coordinates. `X` and `sales` stay measurements. The frame you hold stays long: one row is one unit at one time.
+
+For carry-over, pathmc sorts by unit, then time, and reshapes each measurement column into a dense grid of shape `(n_times, n_units)`. A cell is that column's value for one unit at one time. The result is written back in the original row order. `geo` and `week` are not extra axes of that grid. They only place the rows.
+
+This long frame is already in that sort order:
+
+| geo | week | X |
+| --- | --- | --- |
+| A | 0 | 0 |
+| A | 1 | 1 |
+| B | 0 | 0 |
+| B | 1 | 0 |
+
+It becomes this grid for `X`. Rows are time steps. Columns are units. `week` is not a column of the grid.
+
+| time step | A | B |
+| --- | --- | --- |
+| 0 | 0 | 0 |
+| 1 | 1 | 0 |
+
+`unit` may be several columns, as in `panel={"unit": ["geo", "brand"], "time": "week"}`. Those columns are joined into one unit id (`"North|Acme"`). The carry-over grid is still time by unit, not one axis per source column. See [Multi-dimensional units](#multi-dimensional-units).
+
+The dense grid is required for carry-over, not only for `lag()`:
+
+- `lag()` compiles to a panel scan. The lag of a unit is the previous time step of that same unit, which only exists once the rows are on the `(n_times, n_units)` grid. The scan state at each step is a vector of length `n_units`.
+- Geometric `adstock()` with `panel=` uses that same scan. The recursion `y_t = x_t + decay * y_{t-1}` runs inside each unit, including past lag 12.
+- `delayed_adstock()` and `weibull_adstock()` do not use the scan. They still sort, reshape to the same grid, and convolve down the time axis only. Their kernels stay finite.
+
+A panel with no `lag()` and no convolution adstock (`adstock()`, `delayed_adstock()`, or `weibull_adstock()`) does not take this reshape. Random intercepts, random slopes, and a trend stay row-wise. `model()` accepts that frame without a dense rectangle. `simulate()` still requires every unit to share the same times.
+
+On a scan model, the dense grid is a compile-time shape. `n_units` and `n_times` are baked in. `pm.set_data()` itself does not reject a different shape. `predict()` rejects a scan model whose 2-D data no longer has that `(n_times, n_units)` shape, rather than silently mis-reshaping. Build a new model on the new frame instead.
+
+`do()` keeps the compiled horizon. It is not a shape check. `pm.set_data()` on `pymc_model` reaches `do(kind="mean")` when no outcome was observed: a latent model, or a model whose every outcome column has a missing value. A longer grid is then truncated. If any outcome column is complete, that call does not reach `do()`. `do(kind="predictive")` on an observed Gaussian model does not read the resized array.
+
+Without `panel=`, convolution adstock treats row order as one series (the [non-panel warning in #655](https://github.com/pymc-labs/pathmc/issues/655)).
+
 ## Temporal dependencies with `lag()`
 
 Use the `lag(var)` term directly in your formula to include lag-1 values within each unit:
@@ -20,7 +64,7 @@ model = pathmc.model(
 
 The `lag()` term is a structural part of the formula, not a data preprocessing step.
 pathmc computes lag-1 values from the previous time step *within the same unit* — never from a different unit.
-The first time step of each unit has no valid lag and is dropped.
+The first time step of each unit is retained. It is scored with a pre-sample lag, not dropped.
 
 When you call `model.graph()`, lagged terms appear as **dashed edges** labeled with their coefficient and **(t−1)**.
 A self-lag like `lag(Y)` in `Y ~ lag(Y)` renders as a dashed self-loop on Y.
@@ -55,6 +99,24 @@ digraph {
 }
 ```
 
+## Pre-sample initial state
+
+The first fitted time uses a pre-sample state as its `lag()` input. That state is not an extra outcome period. Omitting `initial` keeps the legacy fill: an endogenous lag reads that unit's first observed value; an exogenous lag reads a `<variable>_lag1` column when one is present, otherwise the first observed row, otherwise zeros. Those fills are asymmetric, so an adaptive policy should pass the same explicit baseline to `model()` and to `do()`.
+
+`initial` names the base variable used by `lag()`, not a generated column. A value is a finite number broadcast to every fitted unit, or a mapping of exactly the fitted unit labels. pathmc aligns the mapping by label, not by row order, and scales business units once with the fitted factor. Latent lag bases stay on their `init_{variable}` prior and are excluded. `model.initial_baseline` records the normalized model-unit values and whether the fill was explicit. `do(initial=)` overrides that baseline for one call. It does not refit the model and does not change the stored record. `do()` without `initial` reuses the compiled baseline.
+
+```python
+initial = {"spend": {"North": 120.0, "South": 80.0}}
+model = pathmc.model(
+    "sales ~ lag(spend) + trend",
+    data=df,
+    panel={"unit": "region", "time": "week"},
+    initial=initial,
+)
+model.do(set={"spend": 0.0}, simulate_over="time", initial=initial)
+```
+
+
 ## Fitting with random intercepts
 
 Partial pooling adds a hierarchical intercept per unit, borrowing strength across units. The compiler already drops the fixed intercept. Write `0 +` so `equations()` does not print a phantom `1 +` intercept that is not in the design matrix:
@@ -68,7 +130,7 @@ model = pathmc.model(
 )
 ```
 
-Each region gets its own intercept, drawn from a shared distribution: `alpha_region ~ Normal(mu_alpha, sigma_alpha)`.
+Each region gets its own intercept, drawn from a shared distribution: `alpha_{outcome} ~ Normal(mu_alpha, sigma_alpha)`. Sampling uses a unit-normal offset, `alpha_{outcome}_offset`, so the sampler does not walk the centered funnel. Posterior tables still report the centered `alpha_{outcome}`. `simulate()` takes that centered vector, not the offset.
 
 ## Random slopes
 
@@ -83,6 +145,8 @@ model = pathmc.model(
 )
 ```
 
+Random slopes use the same non-centered form: `slope_{outcome}_{var}` is the centered effect, and `slope_{outcome}_{var}_offset` is the unit-normal free parameter.
+
 ## Multi-dimensional units
 
 Marketing and longitudinal data often have more than one identifier per row — geo × brand, country × channel, store × product. Pass a list of columns as `unit` and pathmc pools over their Cartesian product:
@@ -96,7 +160,7 @@ model = pathmc.model(
 )
 ```
 
-The data must be rectangular: every `geo × brand` combination shares the same set of `week` values. Non-rectangular panels raise an error naming the offending combinations. Under the hood the composite key (`"North|Acme"` style labels) becomes the unit coordinate, so each cell gets its own random intercept under `pooling="partial"` — the same machinery as single-column panels. Because `|` separates the source labels, values in multi-dimensional unit columns cannot themselves contain `|`; recode those values before building the model. Per-dimension coords such as `geo` keep their native dtype (numeric columns stay numeric), while the composite `unit` labels are strings — cast when joining lookups across the two.
+That adstock formula takes the carry-over reshape, so the frame must be rectangular: every `geo × brand` combination shares the same set of `week` values. A non-rectangular panel raises an error naming the offending combinations. Under the hood the composite key (`"North|Acme"` style labels) becomes the unit coordinate, so each cell gets its own random intercept under `pooling="partial"` — the same machinery as single-column panels. Because `|` separates the source labels, values in multi-dimensional unit columns cannot themselves contain `|`; recode those values before building the model. Per-dimension coords such as `geo` keep their native dtype (numeric columns stay numeric), while the composite `unit` labels are strings — cast when joining lookups across the two.
 
 ## Structured pooling with `by_var`
 
@@ -170,6 +234,8 @@ result = model.do(
 )
 ```
 
+A `NaN` in an endogenous array releases that step. The scan runs the variable's own equation there, and the reported trajectory keeps the finite held values on the other steps, so a temporary hold is "set it, then let it go". `NaN` does not release an exogenous input: an input has no equation to fall back on, and those values must be finite.
+
 ### Per-time-step results
 
 Panel `do()` results include per-time-step data accessible via `.by_time()`:
@@ -188,6 +254,58 @@ Not always! If your panel model has only random intercepts, random slopes, or tr
 :::
 
 See the [Panel Data Models](../docs/examples/panel-time/panel_data.qmd), [Difference-in-Differences](../docs/examples/panel-time/did.qmd), and [Media Mix Models](../docs/examples/applied-models/mmm.qmd) examples for panel mode in action.
+
+## History-dependent treatment policies
+
+A static `set=` schedule is fixed before the simulation starts. A treatment policy is a rule evaluated inside the panel scan, so the action at time *t* can depend on that unit's simulated history. That is the g-computation path for dynamic regimes: the same posterior draws and the same process noise are reused across rules, and the result keeps the posterior dimension instead of collapsing to a noise-free mean.
+
+This example uses the fitted greenhouse model from [Water on a schedule—or when plants need it?](../docs/examples/panel-time/history_dependent_policies.qmd), with equations `stress ~ lag(stress) + lag(water) + heat` and `growth ~ stress + water + stress:water`. Its pre-sample states are stress and water; growth has no lag and needs no initial value. Here `data` is the pandas frame used to fit `model`.
+
+```python
+from pathmc import TimeSchedule, TreatmentPolicy, previous, where
+
+n_times = data["time"].nunique()
+every_third = TreatmentPolicy(
+    "every_third",
+    "water",
+    TimeSchedule(tuple(1.0 if i % 3 == 0 else 0.0 for i in range(n_times))),
+)
+responsive = TreatmentPolicy(
+    "responsive",
+    "water",
+    where(previous("stress") > 0.5, 1.0, 0.0),
+)
+baseline = {"water": 0.0, "stress": 0.0}
+
+fixed = model.do(
+    policy=every_third,
+    simulate_over="time",
+    horizon=n_times,
+    initial=baseline,
+    random_seed=7,
+)
+adaptive = model.do(
+    policy=responsive,
+    simulate_over="time",
+    horizon=n_times,
+    initial=baseline,
+    random_seed=7,
+)
+contrast = adaptive - fixed
+growth = contrast.aggregate_time("growth", reduction="sum")
+water = contrast.aggregate_time("water", reduction="sum")
+```
+
+Rules are expressions, not Python callbacks. `current(name)` reads the simulated value at the decision time and is legal only when that measurement is available before the action. `previous(name)` reads the preceding period, which at the first fitted time is the explicit pre-sample state. `where(condition, yes, no)` is the threshold. Comparisons follow the operator exactly: `>` is false at the threshold. Python `if`, `and`, `or`, and `not` are rejected.
+
+`policy=` requires a Gaussian lag panel, `simulate_over="time"`, and an explicit pre-sample baseline covering every observed lag base plus any previous reference the rule reads. `do(policy=...)` returns a `PolicyRun`, not a `DoResult`. `kind="predictive"` is rejected because the policy path always integrates process noise; omitting `random_seed` records the seed that was used. `horizon` is required and must equal the fitted time count; it is not inferred. `n_simulations` defaults to 256 and must be at least 2. Unit paths are omitted unless `keep_trajectories=True`. Retained paths use dims `(chain, draw, simulation, unit, time)`.
+
+A fixed `TimeSchedule` with no residual noise matches `do(set=..., kind="mean")`. With noise, a threshold on a stochastic state does not match that noise-free path: the reported mean is the average over posterior draws and simulations. Contrast two results only when they share the posterior, the baseline, the seed, the horizon, and the simulation count. The contrast is the difference; it does not pick a winner. `simulation_mcse(var)` is the per-posterior-draw Monte Carlo standard error. A time-indexed result keeps `time`; call `aggregate_time` first for a cumulative or terminal estimand. The chain and draw dimensions are not averaged away.
+
+Latent variables, non-Gaussian families, adstock and other transforms, categoricals, and residual covariance are rejected rather than evaluated by a weaker executor. `simulation_info()` records the target, the fitted horizon, the unit population, and the seed.
+
+The [reference page](21-history-dependent-policies.qmd) states the contract. [Water on a schedule—or when plants need it?](../docs/examples/panel-time/history_dependent_policies.qmd) fits the greenhouse panel and contrasts watering every third period with thresholds 0 and 0.5. A causal reading needs sequential exchangeability, consistency, treatment support over relevant histories, model adequacy, and no cross-unit interference. Static backdoor checks do not prove longitudinal identification. A marginal min/max warning does not establish sequential positivity.
+
 
 ## Scaling heterogeneous units
 

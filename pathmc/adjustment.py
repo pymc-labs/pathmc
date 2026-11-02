@@ -27,7 +27,11 @@ from narwhals.stable.v1.typing import IntoFrame
 
 from pathmc.compile import _collect_transform_param_names, _term_base_vars
 from pathmc.graph import GraphInfo
-from pathmc.identify import adjustment_sets, is_valid_adjustment_set
+from pathmc.identify import (
+    adjustment_sets,
+    is_identifiable,
+    is_valid_adjustment_set,
+)
 from pathmc.interpret import InterpretResult
 from pathmc.introspect import build_dag_viz
 from pathmc.parse import Spec, parse_spec
@@ -103,40 +107,52 @@ def _resolve_treatment_outcome(
     return treatment, outcome
 
 
+def _unidentifiable_via_backdoor(treatment: str, outcome: str) -> ValueError:
+    """Error when no backdoor set exists for the query."""
+    return ValueError(
+        f"No valid backdoor adjustment set for the effect of "
+        f"'{treatment}' on '{outcome}'. The effect is not identifiable "
+        f"via the backdoor criterion. Call adjustment_sets() or "
+        f"is_identifiable() on the structural model, or revise the "
+        f"DAG. Do not fit an associational model when identification "
+        f"fails."
+    )
+
+
 def _select_adjustment_set(
     graph_info: GraphInfo,
     treatment: str,
     outcome: str,
     adjustment_set: set[str] | None,
 ) -> frozenset[str]:
-    """Resolve and validate the backdoor adjustment set."""
+    """Resolve and validate the backdoor adjustment set.
+
+    An explicit ``adjustment_set`` is validated directly. Listing every
+    minimal set is exponential in the output size, so it runs only when
+    pathmc must choose or report the alternatives.
+    """
+    if adjustment_set is not None:
+        if not is_identifiable(graph_info, treatment, outcome):
+            raise _unidentifiable_via_backdoor(treatment, outcome)
+        z = set(adjustment_set)
+        is_valid_adjustment_set(graph_info, treatment, outcome, z)
+        return frozenset(z)
+
     sets = adjustment_sets(graph_info, treatment, outcome)
     if not sets:
-        raise ValueError(
-            f"No valid backdoor adjustment set for the effect of "
-            f"'{treatment}' on '{outcome}'. The effect is not identifiable "
-            f"via the backdoor criterion. Call adjustment_sets() or "
-            f"is_identifiable() on the structural model, or revise the "
-            f"DAG. Do not fit an associational model when identification "
-            f"fails."
+        raise _unidentifiable_via_backdoor(treatment, outcome)
+
+    if len(sets) > 1:
+        formatted = ", ".join(
+            f"{{{', '.join(sorted(s))}}}" if s else "{}" for s in sets
         )
-
-    if adjustment_set is None:
-        if len(sets) > 1:
-            formatted = ", ".join(
-                f"{{{', '.join(sorted(s))}}}" if s else "{}" for s in sets
-            )
-            raise ValueError(
-                f"Several minimal backdoor adjustment sets exist for "
-                f"'{treatment}' -> '{outcome}': {formatted}. Pass "
-                f"adjustment_set= explicitly — pathmc does not choose among "
-                f"valid sets automatically."
-            )
-        return frozenset(sets[0])
-
-    z = set(adjustment_set)
-    is_valid_adjustment_set(graph_info, treatment, outcome, z)
-    return frozenset(z)
+        raise ValueError(
+            f"Several minimal backdoor adjustment sets exist for "
+            f"'{treatment}' -> '{outcome}': {formatted}. Pass "
+            f"adjustment_set= explicitly — pathmc does not choose among "
+            f"valid sets automatically."
+        )
+    return frozenset(sets[0])
 
 
 def _default_formula(
@@ -145,6 +161,27 @@ def _default_formula(
     """Build the default reduced regression formula."""
     predictors = [treatment] + sorted(adjustment_set)
     return f"{outcome} ~ " + " + ".join(predictors)
+
+
+def _business_frame(frame: nw.DataFrame, factors: Any) -> nw.DataFrame:
+    """Return *frame* with fitted columns in business units.
+
+    ``PathModel._data`` is already divided by the fitted factors. Rebuilding
+    the reduced model must start from business units so ``scaling=`` applies
+    those factors once, instead of dividing an already-scaled frame again.
+    """
+    if factors is None or not factors:
+        return frame
+    from pathmc.scaling import ScaleContext
+
+    columns = factors.columns_present_in(frame.columns)
+    if not columns:
+        return frame
+    return factors.to_business(
+        frame,
+        kind="regressor",
+        dims=ScaleContext(columns=columns),
+    )
 
 
 def _validate_reduced_spec(
@@ -431,10 +468,13 @@ class AdjustmentModel:
             adjustment_set,
         )
 
+        parent_factors = getattr(parent, "fitted_scaling", None)
         if data is not None:
+            # Caller-supplied frames use the same business-unit contract as
+            # pathmc.model(data=, scaling=).
             nw_data = nw.from_native(data, eager_only=True)
         elif parent._data is not None:
-            nw_data = parent._data
+            nw_data = _business_frame(parent._data, parent_factors)
         else:
             raise ValueError(
                 "data= is required when the structural model has no data. "
@@ -470,6 +510,7 @@ class AdjustmentModel:
             pooling=parent._pooling,
             latent=parent._latent,
             panel_info=parent._panel_info,
+            data=parent._data,
         )
         # Resolve inferred categoricals before choosing priors. The default
         # reduced formula names confounders as bare variables, so a string
@@ -480,6 +521,7 @@ class AdjustmentModel:
         reduced_defaults = default_priors(
             reduced_spec,
             families=outcome_families or None,
+            data=nw_data,
         )
         inherited_priors = _resolve_reduced_priors(
             parent._priors,
@@ -498,6 +540,7 @@ class AdjustmentModel:
             data=nw_data.to_native(),
             families=outcome_families or None,
             priors=merged_priors,
+            scaling=parent_factors,
         )
 
         return cls(

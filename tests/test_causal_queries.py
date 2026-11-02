@@ -13,6 +13,7 @@
 #   limitations under the License.
 """Gate tests for M28: Causal query sugar (ate, cate, prob)."""
 
+import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
@@ -119,6 +120,46 @@ class TestProb:
     def test_prob_always_false(self, fork_model):
         p = fork_model.prob("Y > 1000", set={"X": 0.0})
         assert p == 0.0
+
+
+def _idata_with_beta(model, beta: np.ndarray, *, n_draws: int) -> None:
+    names = list(model.pymc_model.coords["Y_predictors"])
+    model._idata = az.from_dict(
+        {
+            "posterior": {
+                "beta_Y": np.broadcast_to(beta, (1, n_draws, beta.shape[-1])).copy(),
+                "sigma_Y": np.ones((1, n_draws)),
+            }
+        },
+        coords={"Y_predictors": names},
+        dims={"beta_Y": ["Y_predictors"]},
+    )
+
+
+class TestProbMeanUnitAlignment:
+    """``kind="mean"`` must not broadcast an averaged outcome onto a per-unit intervention."""
+
+    def test_aligned_unit_means_not_broadcast_average(self):
+        x = np.array([-5.0, -1.0, 4.0])
+        model = pathmc.model("Y ~ X", data=pd.DataFrame({"X": x, "Y": x + 1.0}))
+        _idata_with_beta(model, np.array([1.0, 1.0]), n_draws=1)
+        # Every unit has Y_i = 1 + X_i, so the aligned fraction is 1, not mean(E[Y] > x_i).
+        assert model.prob("Y > X", set={"X": x}, kind="mean") == 1.0
+
+        _idata_with_beta(model, np.array([1.0, 1.0]), n_draws=20)
+        assert model.prob("Y > X", set={"X": x}, kind="mean") == 1.0
+        assert model.prob("Y > 0", set={"X": x}, kind="mean") == 1.0
+
+        # Nearby input: unit-level fraction is 2/3. Broadcasting E[Y] or averaging
+        # both sides would return 1.0. An expression that does not name the
+        # intervention still uses the averaged outcome.
+        x2 = np.array([-2.0, 0.0, 3.0])
+        model2 = pathmc.model("Y ~ X", data=pd.DataFrame({"X": x2, "Y": 5.0 - x2}))
+        _idata_with_beta(model2, np.array([5.0, -1.0]), n_draws=20)
+        assert model2.prob("Y > X", set={"X": x2}, kind="mean") == pytest.approx(
+            2.0 / 3.0
+        )
+        assert model2.prob("Y > 0", set={"X": x2}, kind="mean") == 1.0
 
 
 class TestDrawCount:

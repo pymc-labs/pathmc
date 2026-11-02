@@ -56,7 +56,7 @@ COLOR_INDIRECT = "#756bb1"
 Two empirical regularities shape how advertising affects sales:
 
 1. **Adstock**: effects carry over across time periods — a TV ad this week still influences next week's sales. Geometric carry-over: $y_t = x_t + \text{decay} \cdot y_{t-1}$.
-2. **Logistic saturation**: each additional unit of spend produces less incremental effect. $y = 1 - \exp(-\lambda \cdot x)$.
+2. **Logistic saturation**: each additional unit of spend produces less incremental effect. $y = (1 - \exp(-\lambda \cdot x)) / (1 + \exp(-\lambda \cdot x))$, which is $\tanh(\lambda x / 2)$.
 
 This model captures both transforms in a panel of 4 regions over 30 weeks.
 
@@ -98,8 +98,12 @@ for region in regions:
         digital = rng.uniform(5, 30)
         adstocked_tv = tv + true_decay_tv * adstocked_tv
         adstocked_dig = digital + true_decay_dig * adstocked_dig
-        sat_tv = 1 - np.exp(-true_lam_tv * adstocked_tv)
-        sat_dig = 1 - np.exp(-true_lam_dig * adstocked_dig)
+        sat_tv = (1 - np.exp(-true_lam_tv * adstocked_tv)) / (
+            1 + np.exp(-true_lam_tv * adstocked_tv)
+        )
+        sat_dig = (1 - np.exp(-true_lam_dig * adstocked_dig)) / (
+            1 + np.exp(-true_lam_dig * adstocked_dig)
+        )
         sales = (
             true_intercepts[region]
             + true_b_tv * sat_tv
@@ -1052,7 +1056,7 @@ pm.model_to_graphviz(model.pymc_model)
 
 ### Sample
 
-This fit pins `nuts_sampler="nutpie"`. PyMC's own NUTS (`nuts_sampler="pymc"`) reports well over a thousand divergences here, and the nutpie summary below is still not converged. See [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
+This fit pins `nuts_sampler="nutpie"`, which is the sampler that produced the published sample. Unit intercepts and slopes are sampled as a unit-normal offset, so a full `model.summary()` leads with the free `*_offset` rows and truncates the centered slopes. The nutpie run below has not converged; the centered digital-slope table in the results section is the one with the poor diagnostics.
 
 ```{python}
 idata = model.fit(
@@ -1076,7 +1080,13 @@ dig_mu_mean = float(dig_sum.loc["mu_slope_sales_digital", "mean"])
 
 #### Population-level coefficients
 
-The visible `mu_slope_sales_digital` and `slope_sales_digital` rows have r-hat up to `{python} f"{dig_rhat:.2f}"` and ESS down to `{python} f"{dig_ess:.0f}"`. Those rows are not geo-level digital effects, and a mean of `{python} f"{dig_mu_mean:.2f}"` is not digital effectiveness. The violins and the digital ATE below are the sums of the fixed digital coefficient and the region slope. See [issue #538](https://github.com/pymc-labs/pathmc/issues/538).
+The centered `mu_slope_sales_digital` and `slope_sales_digital` rows in the table below have r-hat up to `{python} f"{dig_rhat:.2f}"` and ESS down to `{python} f"{dig_ess:.0f}"`. Those rows are not geo-level digital effects, and a mean of `{python} f"{dig_mu_mean:.2f}"` is not digital effectiveness. The violins and the digital ATE below are the sums of the fixed digital coefficient and the region slope, not these rows and not the free offset rows.
+
+```{python}
+dig_sum
+```
+
+A full `model.summary()` leads with the free `*_offset` rows. The centered slopes above are Deterministics, so that truncation omits them.
 
 ```{python}
 model.summary()
@@ -1131,7 +1141,7 @@ Black diamonds show the true geo-level effects used in the DGP.
 
 ```{python}
 # | label: fig-m3-digital-effects
-# | fig-cap: "Posterior of each region's digital effect, the sum of the fixed digital coefficient and the region slope, against planted values (black diamonds). These sums are not the `slope_sales_digital` rows in the summary table."
+# | fig-cap: "Posterior of each region's digital effect, the sum of the fixed digital coefficient and the region slope, against planted values (black diamonds). These sums are not the centered `slope_sales_digital` rows in the table above."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT * 1.2))

@@ -179,4 +179,5 @@ class TestPanelAdstockCompilation:
         assert isinstance(model.pymc_model, pm.Model)
         rv_names = {rv.name for rv in model.pymc_model.free_RVs}
         assert "theta" in rv_names
-        assert "alpha_Y" in rv_names
+        assert "alpha_Y" in model.pymc_model.named_vars
+        assert "alpha_Y_offset" in rv_names

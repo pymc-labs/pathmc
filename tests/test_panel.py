@@ -64,7 +64,8 @@ class TestPanelCompilation:
             pooling="partial",
         )
         rv_names = {rv.name for rv in model.pymc_model.free_RVs}
-        assert "alpha_Y" in rv_names
+        assert "alpha_Y" in model.pymc_model.named_vars
+        assert "alpha_Y_offset" in rv_names
         assert "mu_alpha_Y" in rv_names
         assert "sigma_alpha_Y" in rv_names
 
@@ -171,8 +172,10 @@ class TestMultipleEndogenous:
             pooling="partial",
         )
         rv_names = {rv.name for rv in model.pymc_model.free_RVs}
-        assert "alpha_M" in rv_names
-        assert "alpha_Y" in rv_names
+        assert "alpha_M" in model.pymc_model.named_vars
+        assert "alpha_Y" in model.pymc_model.named_vars
+        assert "alpha_M_offset" in rv_names
+        assert "alpha_Y_offset" in rv_names
 
 
 @pytest.fixture(scope="module")

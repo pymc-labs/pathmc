@@ -72,8 +72,10 @@ def panel_lag_model(panel_lag_data, mock_pymc_sample_module):
     posterior = model._idata["posterior"].dataset.copy(deep=True)
     posterior["beta_sales"].loc[{"sales_predictors": "lag(spend)"}] = 0.5
     posterior["mu_alpha_sales"] = posterior["mu_alpha_sales"] * 0.0 + 5.0
-    posterior["alpha_sales"] = posterior["alpha_sales"] * 0.0
     posterior["sigma_alpha_sales"] = posterior["sigma_alpha_sales"] * 0.0 + 0.1
+    shift = (0.0 - posterior["mu_alpha_sales"]) / posterior["sigma_alpha_sales"]
+    posterior["alpha_sales_offset"] = posterior["alpha_sales_offset"] * 0.0 + shift
+    posterior["alpha_sales"] = posterior["alpha_sales"] * 0.0
     posterior["sigma_sales"] = posterior["sigma_sales"] * 0.0 + 0.5
     model._idata["posterior"] = xr.DataTree(posterior)
     return model

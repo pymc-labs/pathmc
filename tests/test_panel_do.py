@@ -66,8 +66,12 @@ def panel_lag_model(panel_lag_data, mock_pymc_sample_module):
     posterior = model._idata["posterior"].dataset.copy(deep=True)
     posterior["beta_sales"].loc[{"sales_predictors": "lag(spend)"}] = 0.5
     posterior["mu_alpha_sales"] = posterior["mu_alpha_sales"] * 0.0 + 5.0
-    posterior["alpha_sales"] = posterior["alpha_sales"] * 0.0
     posterior["sigma_alpha_sales"] = posterior["sigma_alpha_sales"] * 0.0 + 0.1
+    # alpha is a deterministic of the unit-normal offset. Pin the offset so
+    # recomputed alpha stays at the oracle value of 0.
+    shift = (0.0 - posterior["mu_alpha_sales"]) / posterior["sigma_alpha_sales"]
+    posterior["alpha_sales_offset"] = posterior["alpha_sales_offset"] * 0.0 + shift
+    posterior["alpha_sales"] = posterior["alpha_sales"] * 0.0
     posterior["sigma_sales"] = posterior["sigma_sales"] * 0.0 + 0.5
     model._idata["posterior"] = xr.DataTree(posterior)
     return model
@@ -84,7 +88,8 @@ def test_panel_lag_compile_drops_intercept_and_keeps_mu_alpha(panel_lag_data):
     free_rv_names = {rv.name for rv in model.pymc_model.free_RVs}
     assert "Intercept" not in model.pymc_model.coords["sales_predictors"]
     assert "mu_alpha_sales" in free_rv_names
-    assert "alpha_sales" in free_rv_names
+    assert "alpha_sales" in model.pymc_model.named_vars
+    assert "alpha_sales_offset" in free_rv_names
 
 
 class TestPanelDoAPI:
