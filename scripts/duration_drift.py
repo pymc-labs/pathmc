@@ -14,23 +14,28 @@
 """Decide whether refreshed pytest-split timings should open a pull request.
 
 The weekly job records a full per-commit run into a new durations file. This
-script compares that file with the committed one. It opens a pull request only
-when the slowest group's estimated time would move by at least two minutes.
-A missing timing is treated as the average, matching pytest-split, so a new
-test is still assigned. Exit 0 means open a pull request. Exit 3 means the
-move is below the bar. Exit 1 means the recording is not safe to publish.
+script collects the same ``-m "not nightly"`` items CI runs and asks
+pytest-split how those items pack under the old and new timings. It opens a
+pull request only when the slowest group's estimated time would move by at
+least two minutes. A missing timing is treated as the average, matching
+pytest-split, so a new test is still assigned. Exit 0 means open a pull
+request. Exit 3 means the move is below the bar. Exit 1 means the recording
+is not safe to publish.
 """
 
 from __future__ import annotations
 
 import argparse
-import heapq
+import contextlib
+import io
 import json
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any
 
-SPLITS = 4
+from pytest_split.algorithms import LeastDurationAlgorithm
+
 THRESHOLD_SECONDS = 120.0
 EXIT_OPEN = 0
 EXIT_ERROR = 1
@@ -65,66 +70,74 @@ def junit_testcase_count(path: Path) -> int:
     return len(root.findall(".//testcase"))
 
 
-def least_duration_groups(
-    nodeids: list[str], durations: dict[str, float], splits: int
-) -> tuple[list[list[str]], list[float]]:
-    """Assign tests the way pytest-split's ``least_duration`` algorithm does.
+def collect_per_commit_items() -> list[Any]:
+    """Collect the items ``make test`` and ``make test-shard`` select.
 
-    A test with no stored duration gets the average of the stored durations
-    for this collection. With no stored durations, every test weighs 1, which
-    is pytest-split's even fallback. Returns groups in ``--group`` order and
-    each group's estimated seconds.
+    Real pytest items are required. pytest-split breaks equal durations with
+    ``str(item)``, which for a function test is ``<Function test_one>``, not
+    the nodeid. A stand-in that stringifies to the nodeid packs new tests
+    differently from CI.
     """
-    if splits < 1:
-        raise ValueError(f"splits must be at least 1, got {splits}")
-    if not nodeids:
-        raise ValueError("the timing file has no tests. A full run must record some.")
-    relevant = [durations[nodeid] for nodeid in nodeids if nodeid in durations]
-    average = sum(relevant) / len(relevant) if relevant else 1.0
-    indexed = [
-        (nodeid, durations.get(nodeid, average), index)
-        for index, nodeid in enumerate(nodeids)
-    ]
-    # Stable sorts: name first, then longest duration, matching pytest-split.
-    indexed.sort(key=lambda row: row[0])
-    indexed.sort(key=lambda row: row[1], reverse=True)
+    import pytest
 
-    selected: list[list[tuple[str, int]]] = [[] for _ in range(splits)]
-    totals = [0.0] * splits
-    heap = [(0.0, index) for index in range(splits)]
-    heapq.heapify(heap)
-    for nodeid, duration, original_index in indexed:
-        summed, group_index = heapq.heappop(heap)
-        totals[group_index] = summed + duration
-        selected[group_index].append((nodeid, original_index))
-        heapq.heappush(heap, (totals[group_index], group_index))
+    collected: list[Any] = []
 
-    groups: list[list[str]] = []
-    for group in selected:
-        group.sort(key=lambda row: row[1])
-        groups.append([nodeid for nodeid, _index in group])
-    return groups, totals
+    class _Collector:
+        def pytest_sessionfinish(self, session: Any) -> None:
+            collected.extend(session.items)
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        code = pytest.main(
+            [
+                "-m",
+                "not nightly",
+                "--collect-only",
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                "-o",
+                "addopts=",
+            ],
+            plugins=[_Collector()],
+        )
+    if code not in (0, 5) or not collected:
+        detail = stderr.getvalue().strip() or stdout.getvalue().strip()
+        tail = detail[-400:]
+        raise ValueError(
+            "Could not collect the per-commit tests"
+            + (f": {tail}" if tail else "")
+            + ". Fix the collection error; do not open a pull request."
+        )
+    return collected
 
 
 def slowest_seconds(
-    nodeids: list[str], durations: dict[str, float], splits: int
+    items: list[Any], durations: dict[str, float], splits: int
 ) -> float:
-    """Return the estimated seconds of the slowest group."""
-    _groups, totals = least_duration_groups(nodeids, durations, splits)
-    return max(totals)
+    """Return the estimated seconds of the slowest pytest-split group."""
+    if splits < 1:
+        raise ValueError(f"splits must be at least 1, got {splits}")
+    if not items:
+        raise ValueError(
+            "the per-commit selection collected no tests. A full run must record some."
+        )
+    groups = LeastDurationAlgorithm()(splits, items, durations)
+    return max(group.duration for group in groups)
 
 
 def drift_summary(
     *,
+    items: list[Any],
     old: dict[str, float],
     new: dict[str, float],
     splits: int,
     threshold: float,
 ) -> tuple[bool, str]:
     """Return whether to open a pull request, and the explanation."""
-    nodeids = list(new)
-    old_slowest = slowest_seconds(nodeids, old, splits)
-    new_slowest = slowest_seconds(nodeids, new, splits)
+    old_slowest = slowest_seconds(items, old, splits)
+    new_slowest = slowest_seconds(items, new, splits)
     delta = abs(new_slowest - old_slowest)
     minutes = threshold / 60
     explanation = (
@@ -151,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--old", type=Path, required=True)
     parser.add_argument("--new", type=Path, required=True)
     parser.add_argument("--junit", type=Path)
-    parser.add_argument("--splits", type=int, default=SPLITS)
+    parser.add_argument("--splits", type=int, required=True)
     parser.add_argument("--threshold", type=float, default=THRESHOLD_SECONDS)
     args = parser.parse_args(argv)
     try:
@@ -165,7 +178,9 @@ def main(argv: list[str] | None = None) -> int:
                     f"has {recorded}. The recording is incomplete. Do not open "
                     "a pull request."
                 )
+        items = collect_per_commit_items()
         should_open, summary = drift_summary(
+            items=items,
             old=old,
             new=new,
             splits=args.splits,

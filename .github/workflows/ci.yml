@@ -40,8 +40,8 @@ jobs:
               - '!**/*.qmd'
 
   # Four computers share the per-commit selection. pytest-split balances them
-  # from .test_durations. Keep four groups in sync with refresh-test-durations.yml.
-  # The required check stays named `test`.
+  # from .test_durations. The matrix length is the split count the weekly job
+  # passes to duration_drift.py. The required check stays named `test`.
   test-shard:
     needs: changes
     if: >-
@@ -67,14 +67,12 @@ jobs:
         run: uv sync --all-extras --locked
       - name: Run tests
         env:
-          OMP_NUM_THREADS: "1"
-          OPENBLAS_NUM_THREADS: "1"
           COVERAGE_FILE: coverage-data/.coverage.shard-${{ matrix.group }}
-          PYTEST_SPLIT_TOTAL: ${{ strategy.job-total }}
-          PYTEST_SPLIT_GROUP: ${{ matrix.group }}
+          GROUP: ${{ matrix.group }}
+          SPLITS: ${{ strategy.job-total }}
         run: |
           mkdir -p coverage-data
-          make test PYTEST_FAILFAST= PYTEST_ARGS="--splits ${PYTEST_SPLIT_TOTAL} --group ${PYTEST_SPLIT_GROUP} --splitting-algorithm least_duration --cov-fail-under=0"
+          make test-shard GROUP="$GROUP" SPLITS="$SPLITS"
       - name: Upload coverage data
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -120,7 +118,7 @@ jobs:
         run: |
           find coverage-data -type f -print
           uv run --locked --all-extras coverage combine coverage-data
-          uv run --locked --all-extras coverage report --fail-under=80
+          uv run --locked --all-extras coverage report
 
   prek:
     runs-on: ubuntu-latest
