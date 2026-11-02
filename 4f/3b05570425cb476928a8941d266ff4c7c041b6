@@ -1,0 +1,38 @@
+_freeze/docs/examples/basis-terms/splines/execute-results/html.json
+  h_63db634213747e 1-19
+docs/examples/02-basis-terms/fourier_seasonality.qmd
+  h_63db634213747e 246
+docs/examples/02-basis-terms/hsgp_1d.qmd
+  h_63db634213747e 244
+docs/examples/02-basis-terms/splines.qmd
+  h_63db634213747e 1-246
+docs/user_guide/02-comparison.qmd
+  h_63db634213747e 38,107,123,136
+docs/user_guide/basis-terms.qmd
+  h_63db634213747e 12-14,39-40,41,42-44
+pathmc/basis.py
+  h_63db634213747e 66,221-222,228,230-231,244,246-247,250-261,299-313
+pathmc/compile.py
+  h_63db634213747e 622,878-884,1989,2002-2003,2004-2007,2008-2009,2010
+pathmc/parse.py
+  h_63db634213747e 30,102,246,354-355,356,357-359,360,361,363-368,369-373,374,375-381,382,383-384,385,386-391,392-418,422-425,615,616-622,623-625,626-628,629,630-633,840,841-842,1090-1094,1095-1099,1100-1152,1153-1178,1204
+pathmc/splines.py
+  h_63db634213747e 1-32,33-40,41,42-44,45-95,96-98,99-100,101-204,205,206,207,208-346,347,348-594
+tests/test_splines.py
+  h_63db634213747e 1-82,83-85,86-88,89-93,94-174,175-188,189-205,206-263,264,265-314,315-342,343-344,345,346-350,351,352-362
+pathmc/_model.py
+  h_63db634213747e 565-567,649,691-692
+pathmc/spline_policy.py
+  h_63db634213747e 1-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4f3b05570425cb476928a8941d266ff4c7c041b6",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
