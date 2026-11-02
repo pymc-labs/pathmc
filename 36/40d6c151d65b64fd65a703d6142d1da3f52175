@@ -1,0 +1,18 @@
+CITATION.cff
+  h_63db634213747e 4-5
+pyproject.toml
+  h_63db634213747e 7
+uv.lock
+  h_63db634213747e 2355
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3640d6c151d65b64fd65a703d6142d1da3f52175",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
