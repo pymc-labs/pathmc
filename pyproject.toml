@@ -62,6 +62,7 @@ dev = [
     "prek",
     "pytest",
     "pytest-cov",
+    "pytest-split>=0.11.0",
     "pytest-xdist",
     "ruff",
 ]

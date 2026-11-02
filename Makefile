@@ -13,7 +13,7 @@ REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' !
 # COMMANDS                                                                      #
 #################################################################################
 
-.PHONY: setup lint check_lint check check-pr check-merge test-fast test test-nightly jupyter-kernel docs freeze-page refreeze-docs cleandocs build check-build help
+.PHONY: setup lint check_lint check check-pr check-merge test-fast test test-shard record-test-durations test-nightly jupyter-kernel docs freeze-page refreeze-docs cleandocs build check-build help
 
 setup: ## Set up the complete development environment (uv)
 	uv sync --all-extras
@@ -53,6 +53,14 @@ test-fast: ## Run fast tests, excluding slow MCMC tests and nightly Tier 5
 
 test: ## Run per-commit tests with coverage, including slow MCMC, excluding nightly Tier 5
 	$(TEST_ENV) $(UV_RUN) pytest -x -v -n auto --dist loadscope -m "not nightly" --cov=pathmc --cov-report=term-missing
+
+test-shard: ## Run one CI group of the per-commit selection (GROUP=1 SPLITS=4)
+# Shards record coverage and must not enforce the threshold; the combine job does.
+	@test -n "$(GROUP)" && test -n "$(SPLITS)" || { echo "Usage: make test-shard GROUP=1 SPLITS=4"; exit 1; }
+	$(TEST_ENV) $(UV_RUN) pytest -v -n auto --dist loadscope -m "not nightly" --cov=pathmc --cov-report=term-missing --cov-fail-under=0 --splits $(SPLITS) --group $(GROUP) --splitting-algorithm least_duration
+
+record-test-durations: ## Record per-commit timings for the CI split. No fail-fast.
+	$(TEST_ENV) $(UV_RUN) pytest -v -n auto --dist loadscope -m "not nightly" --cov=pathmc --cov-report=term-missing --store-durations --durations-path "$(or $(DURATIONS_PATH),fresh.test_durations)" --junitxml "$(or $(JUNIT_PATH),fresh-junit.xml)"
 
 test-nightly: ## Run Tier 5 MCMC/SBC and the larger Hypothesis fuzz budget
 	$(TEST_ENV) $(UV_RUN) pytest -x -v -n auto --dist loadscope -m nightly
