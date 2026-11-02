@@ -16,6 +16,7 @@
 from __future__ import annotations
 import importlib.util
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -135,13 +136,27 @@ def test_incomplete_recording_does_not_collect(
 
 
 def test_test_shard_requires_group_and_splits() -> None:
-    result = subprocess.run(
-        ["make", "test-shard"],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    # CI exports GROUP and SPLITS. Make imports them, so an uncleared
+    # environment runs a nested shard instead of the usage guard.
+    env = os.environ.copy()
+    env["GROUP"] = "1"
+    env["SPLITS"] = "4"
+    env.pop("GROUP")
+    env.pop("SPLITS")
+    try:
+        result = subprocess.run(
+            ["make", "test-shard"],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AssertionError(
+            "make test-shard started pytest; clear GROUP and SPLITS before the guard"
+        ) from exc
     assert result.returncode != 0
     assert "Usage: make test-shard" in result.stdout + result.stderr
     assert "pytest" not in result.stdout
