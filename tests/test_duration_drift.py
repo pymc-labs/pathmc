@@ -136,13 +136,16 @@ def test_incomplete_recording_does_not_collect(
 
 
 def test_test_shard_requires_group_and_splits() -> None:
-    # CI exports GROUP and SPLITS. Make imports them, so an uncleared
-    # environment runs a nested shard instead of the usage guard.
+    # CI runs `make test-shard GROUP=1 SPLITS=4`. Make exports those
+    # assignments in MAKEFLAGS, and a child make treats them as command-line
+    # variables even after GROUP and SPLITS themselves are unset.
     env = os.environ.copy()
     env["GROUP"] = "1"
     env["SPLITS"] = "4"
-    env.pop("GROUP")
-    env.pop("SPLITS")
+    env["MAKEFLAGS"] = "SPLITS=4 GROUP=1"
+    env.pop("GROUP", None)
+    env.pop("SPLITS", None)
+    env.pop("MAKEFLAGS", None)
     try:
         result = subprocess.run(
             ["make", "test-shard"],
@@ -155,7 +158,7 @@ def test_test_shard_requires_group_and_splits() -> None:
         )
     except subprocess.TimeoutExpired as exc:
         raise AssertionError(
-            "make test-shard started pytest; clear GROUP and SPLITS before the guard"
+            "make test-shard started pytest; clear GROUP, SPLITS, and MAKEFLAGS"
         ) from exc
     assert result.returncode != 0
     assert "Usage: make test-shard" in result.stdout + result.stderr
