@@ -1,0 +1,162 @@
+docs/examples/05-panel-time/panel_data.qmd
+  h_63db634213747e 268
+docs/examples/06-applied-models/dynamic_pricing.qmd
+  h_63db634213747e 287,303-304,329,689
+docs/user_guide/19-panel-data.qmd
+  h_63db634213747e 71,86-87
+docs/user_guide/20-panel-interventions.qmd
+  h_63db634213747e 264
+pathmc/_model.py
+  h_63db634213747e 18,40,46,106,108,180-185,211-227,414-475,551,921-924,948-952,982,1010-1013,1670,1695,2007-2008,2039-2043,2056-2057,2097-2100,2135,2150-2172,2175,2242-2245,2617-2619,2622-2639,2645-2664,2669,2678-2680,2702,2720-2722,2749,2764-2766,2974,3053-3065,3066,3067-3070,3071-3074,3075-3077,3078,3079,3080,3081-3099,3100-3102,3103-3104,3151-3154,3279-3284,3344,3356,3360-3369,3377,3378,3381-3384,3386,3388,3395-3396,3410,3412,3419-3434,3435,3437-3440,3474-3477,3687-3688,3690-3695,3696-3712,3719-3720,3721-3722,3726,3727,3734-3736
+pathmc/compile.py
+  h_63db634213747e 46,285,290,299,303-305,307,313,315,317-320,325-367,535,552,554,556,585,587-592,594-606,698,761-766,784,985-990,1259-1260,1287-1289,1298-1302,1320-1327,1331,1333-1335,1757-1783,1790-1800,1821-1825,1827-1830,2147-2155,2157-2162,2167,2405-2423,2454-2480,2484-2495,2497-2567,2580-2582,2587,2598-2599,2705,2777-2782,2820-2825,2847-2856,2864-2868,2870-2873,2960-2964,2968-2975,2987-2998,3000-3005,3007-3014,3080-3086,3125,3151,3160-3162,3168-3173,3175,3212,3245-3255,3263,3284,3286,3302,3304,3325-3329,3347-3349,3358-3360,3366-3369,3374,3378-3383,3395-3406,3433,3453-3457,3470-3473
+tests/test_noncentered_pooling.py
+  h_63db634213747e 1-80,81-102,103-148
+tests/test_panel.py
+  h_63db634213747e 67-68,175-178
+tests/test_panel_by_time.py
+  h_63db634213747e 76-78
+tests/test_panel_do.py
+  h_63db634213747e 70-74,91-92
+tests/test_random_slopes.py
+  h_63db634213747e 49-50,62-63,75-76,102-103,105
+tests/test_transforms_compile.py
+  h_63db634213747e 182-183
+_freeze/docs/examples/applied-models/dynamic_pricing/figure-html/cell-7-output-1.svg
+  h_63db634213747e 4,8-10,28,35,48,61
+_freeze/docs/examples/applied-models/dynamic_pricing/figure-html/fig-pymc-graph-output-1.svg
+  h_63db634213747e 4,7-10,18-19,23-24,26,28-32,35,37-40,41,42,43,44-46,47,48,49,50-54,55,56-60,61,62-68,69,70-74,75,76,77,78-82,84,86-88,90-96,98,99,100-102,104,105,106-110,112-116,118-124,126,127,128-132,134-138,140-147,148,149,150,151-154,156,157,158,159-160,163,165-168,171,173-176,179,181-182,184-197,199,201-204,207,209-210,212-218,220,221,222-224,226,227,228-230,232,234-240,241,242-245,246,247,248-250,251-253,255-258,261,263-264
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-22-output-1.svg
+  h_63db634213747e 4,8,9-10,15,21,28,34,41,47,65,70-71,72,79
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-24-output-1.svg
+  h_63db634213747e 4,7-8,10,13-14,18-19,23-24,26,27,28,29-32,33-34,35,36,37-40,42-44,45-46,48-54,55-56,56,57,58,58-60,62,63,64,65-68,70,71,72,73-74,77,79-82,85,87-128,103-104,106,133-136,139,141-142,144,146,147-150,151-154,155-156,157-159,161-164,167,169-170,175-178,183-184
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-47-output-1.svg
+  h_63db634213747e 4,7-8,9,10,13,14,15-17,18,19,23-24,26,27,28-32,35,37,38-54,41,56-58,59-60,62,63,64-68,70,71,72,72-74,75,76,77,78,79-81,82,83,84,86-88,90,90-92,92,96-102,99-100,104-108,109,110-116,117,118-122,123-125,124,126,127-130,132,133,134,135-138,140-142,141,143-144,146-152,154,156,156-160,162-166,171-172,173-174,174-178,176,178,180-184,186-190,191,192-196,197,198-202,203-204,204-210,206,211-214,212-216,219,221-224,229-230,232,233,234-235,236-238,239-245,246-252,247,253,254-258,259-260,261,262,263-266,268-270,271-300,275,289,303,305,306-308,311,313-314,316-321,320
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-5-output-1.svg
+  h_63db634213747e 4,8-10,28
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-7-output-1.svg
+  h_63db634213747e 4,7-8,9,10,13-14,18-19,23-24,26,28-32,34,35,36-40,42-46,48-50,51-54,55-56,57,58,59-60,61,62,63,64-68,70-74,77,79-82,85,87-88,90-104,106-113,115-118,123-126,129,130-132,133-134,135,137-140,143,145-160,162,163,164,165-168,170-172,173-174,176-190,191,192-196,198-202,204-206,207-210,212,213,214,215-216,218,219,220,221-222,224-226,227-230,232-234,235-236,239,241-244,247,249-250
+_freeze/docs/examples/panel-time/panel_data/execute-results/html.json
+  h_63db634213747e 2,5,15
+_freeze/docs/examples/panel-time/panel_data/figure-html/cell-4-output-1.svg
+  h_63db634213747e 4,46
+_freeze/docs/examples/panel-time/panel_data/figure-html/cell-9-output-1.svg
+  h_63db634213747e 4,7-10,46,53
+_freeze/user-guide/panel-interventions/execute-results/html.json
+  h_63db634213747e 2,5,15
+_freeze/docs/examples/applied-models/dynamic_pricing/execute-results/html.json
+  h_63db634213747e 2,5,15
+docs/examples/06-applied-models/mmm.qmd
+  h_63db634213747e 59,101-106,1059,1083-1089,1144
+.github/dependabot.yml
+  h_63db634213747e 9-12
+.github/workflows/nightly.yml
+  h_63db634213747e 23
+.github/workflows/zizmor.yml
+  h_63db634213747e 34
+docs/assets/contributors.json
+  h_63db634213747e 9
+docs/assets/contributors.svg
+  h_63db634213747e 2,6,11,15-19,21,30-34,36-41,45-46
+docs/user_guide/11-model-specification.qmd
+  h_63db634213747e 176-177
+pathmc/adjustment.py
+  h_63db634213747e 30-34,110-121,128-140,143-148,150-153,155,166-186,471,473-474,477,513,524,543
+pathmc/effects.py
+  h_63db634213747e 22-23,33,35,42-140,155-183,241,253,290-296,324-325,409-414,416,438,457-552,559,567-574,589-591,615-616,629-634,638-645,647,718-720,748-752,779,802-820,822-828,836,846
+pathmc/exceptions.py
+  h_63db634213747e 26
+pathmc/identify.py
+  h_63db634213747e 111-154,194-195,201-202,205-206,208-211,293,340-344
+pathmc/interpret.py
+  h_63db634213747e 20,313-317,320,327-329,391,401-421,422-423,424,561,597,605,607-608,643,651,654-655
+pathmc/introspect.py
+  h_63db634213747e 701,791-792,798-799
+pathmc/panel.py
+  h_63db634213747e 20,363-385,391,395-400,404-405,412-413,418-419,421,425,429-430
+pathmc/parse.py
+  h_63db634213747e 219-221,279,284-349
+pathmc/priors.py
+  h_63db634213747e 43-44,58-61,114-119,167-175
+pathmc/residuals.py
+  h_63db634213747e 87-248,252-256,274,279
+pathmc/sensitivity.py
+  h_63db634213747e 73-75,116-123,135,225-240,294-299,301-303,305-306
+pathmc/simulate.py
+  h_63db634213747e 66-68,141-162,288-396,1089-1094,1097-1101,1574-1629,1630-1662,1675-1677,1704,1723-1733,1741,1815-1819,1830-1863,2048,2101-2109,2122,2126-2136,2138,2142,2157-2159,2176,2218-2220
+pathmc/skills/pathmc/SKILL.md
+  h_63db634213747e 94,100,103,130-132,295
+tests/test_adjustment_scaling.py
+  h_63db634213747e 1-129
+tests/test_causal_queries.py
+  h_63db634213747e 16,125-164
+tests/test_defined_param_label_collision.py
+  h_63db634213747e 1-149
+tests/test_distinct_column_transforms.py
+  h_63db634213747e 1-144
+tests/test_do_plot.py
+  h_63db634213747e 114-239
+tests/test_do_regressions.py
+  h_63db634213747e 19,22,114-154,155-225,226-455
+tests/test_duplicate_predictor_coords.py
+  h_63db634213747e 1-76
+tests/test_fixed_coefficient_effect.py
+  h_63db634213747e 1-86
+tests/test_interactions.py
+  h_63db634213747e 20-22,327-422
+tests/test_interpret.py
+  h_63db634213747e 18,142-426,674-777
+tests/test_pooling_dims.py
+  h_63db634213747e 521-660
+tests/test_residual_cov.py
+  h_63db634213747e 556-645
+tests/test_scaling.py
+  h_63db634213747e 401-423,481-531,589-670
+tests/test_scaling_contract.py
+  h_63db634213747e 606-609
+tests/test_scan_non_gaussian_mediators.py
+  h_63db634213747e 30-34,307,356-553
+tests/test_sensitivity.py
+  h_63db634213747e 137-195,232-268
+tests/test_shared_adstock_state.py
+  h_63db634213747e 1-349
+tests/test_standardized.py
+  h_63db634213747e 16,22,93-226,236-315
+_freeze/docs/examples/applied-models/mmm/execute-results/html.json
+  h_63db634213747e 2,5,15
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-5-output-2.svg
+  h_63db634213747e 4
+_freeze/docs/examples/applied-models/mmm/figure-html/cell-7-output-2.svg
+  h_63db634213747e 1-253
+_freeze/docs/examples/basis-terms/hsgp_1d/execute-results/html.json
+  h_63db634213747e 2,5,15
+docs/examples/02-basis-terms/hsgp_1d.qmd
+  h_63db634213747e 89,244
+docs/user_guide/12-transforms.qmd
+  h_63db634213747e 15
+docs/user_guide/13-distribution-families.qmd
+  h_63db634213747e 29-30
+docs/user_guide/basis-terms.qmd
+  h_63db634213747e 34
+pathmc/hsgp.py
+  h_63db634213747e 37,54-97,153
+tests/test_hsgp_priors.py
+  h_63db634213747e 18-19,22,75-118
+tests/test_identification.py
+  h_63db634213747e 27,316-331
+tests/test_identification_scale.py
+  h_63db634213747e 1-151
+tests/test_scan_rate_clip_warning.py
+  h_63db634213747e 1-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2390c6c9aaf23d28fd2d6bdf13e4867fefe7c79a",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
