@@ -1,0 +1,16 @@
+.test_durations
+  h_63db634213747e 1-2677
+tests/test_duration_drift.py
+  h_63db634213747e 218-232
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "159b6ffb9e893cf3b1aab910f23f623b142354a9",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
