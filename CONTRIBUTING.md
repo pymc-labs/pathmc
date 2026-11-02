@@ -120,7 +120,7 @@ Run the per-commit suite, including slow integration tests and excluding nightly
 make test
 ```
 
-`make test` measures line and branch coverage of `pathmc` and fails if total coverage drops below the `fail_under` threshold in `pyproject.toml` (`[tool.coverage.report]`). The same command and gate run in CI on every pull request. Nightly Tier 5 and the larger Hypothesis fuzz budget stay on `make test-nightly`. Coverage is intentionally not collected by `make test-fast` or by single-file gate runs, so those stay fast and never trip the threshold on a partial run.
+`make test` measures line and branch coverage of `pathmc` and fails if total coverage drops below the `fail_under` threshold in `pyproject.toml` (`[tool.coverage.report]`). Locally that is one run, and it stops at the first failure. CI runs the same selection, including slow MCMC and the small fuzz budget, on four computers with [pytest-split](https://github.com/jerry-git/pytest-split). Each computer still uses the cores it has. A computer does not stop at the first failure, and it does not enforce the coverage threshold alone. The required `test` check fails if any computer fails, then combines coverage and enforces 80%. Timings live in `.test_durations`. A new test still runs if it is missing from that file; it is treated as average length. A weekly job records a fresh full run on GitHub's computer and opens a pull request only when the slowest group's estimated total test time would move by at least 2 minutes. That estimate is the sum pytest-split uses, not the wall clock. It never pushes straight to `main`. Nightly Tier 5 and the larger Hypothesis fuzz budget stay on `make test-nightly`. Coverage is intentionally not collected by `make test-fast` or by single-file gate runs, so those stay fast and never trip the threshold on a partial run.
 
 Run a targeted milestone or module test while iterating:
 
@@ -140,7 +140,7 @@ To apply automatic lint and format fixes by running the pre-commit hooks:
 make lint
 ```
 
-Ruff and mypy run from the project's locked environment in both commands and in pre-commit hooks. They do not install another set of typing dependencies in an isolated hook environment. Mypy checks the whole package even when only one source file is staged. Validation uses `uv run --locked --all-extras`, so a stale lockfile fails instead of silently selecting new tool versions. `make lint` prints the selected tool versions, and CI calls the same `make lint` and `make test` targets.
+Ruff and mypy run from the project's locked environment in both commands and in pre-commit hooks. They do not install another set of typing dependencies in an isolated hook environment. Mypy checks the whole package even when only one source file is staged. Validation uses `uv run --locked --all-extras`, so a stale lockfile fails instead of silently selecting new tool versions. `make lint` prints the selected tool versions. CI calls `make lint`, and calls `make test` on each of the four split jobs.
 
 Run both CI lint and per-commit test gates on the current checkout with:
 
@@ -165,7 +165,7 @@ This aligns source inputs, tool versions, and lint/test commands. Local platform
 - Link the issue being addressed, preferably with `Closes #<issue-number>` in the pull request description.
 - Add or update tests for user-facing behavior changes.
 - Update documentation, examples, or README content when behavior or setup instructions change.
-- Run relevant targeted tests while iterating, then `make check-pr PR=<number>` for an existing PR or `make check-merge BASE=main` for a new one. Repeat if the candidate or target branch changes. Pull requests run the same per-commit test scope, including slow MCMC and the small fuzz budget, and excluding nightly Tier 5 and the larger fuzz budget.
+- Run relevant targeted tests while iterating, then `make check-pr PR=<number>` for an existing PR or `make check-merge BASE=main` for a new one. Repeat if the candidate or target branch changes. Pull requests run the same per-commit test scope, including slow MCMC and the small fuzz budget, and excluding nightly Tier 5 and the larger fuzz budget. That scope is split across four computers; the required check still enforces the combined coverage gate.
 - Label the pull request before merge so GitHub's generated release notes place it in the correct category; use labels such as `bug`, `documentation`, or `enhancement` when they apply.
 - Use `agents` for changes to agent skills, workflows, or repository agent guidance, not merely because an agent wrote the pull request. A more specific label such as `bug` or `documentation` still takes the earlier release-note category.
 - Mark work-in-progress pull requests as drafts until the implementation and test plan are ready for review.

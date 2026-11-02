@@ -1,0 +1,83 @@
+name: refresh test durations
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sunday 06:00 UTC. The nightly Tier 5 job is 03:00 UTC every day and
+    # runs a different selection. This job times the per-commit suite.
+    - cron: "0 6 * * 0"
+
+permissions: {}
+
+concurrency:
+  group: refresh-test-durations
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: Install dependencies
+        run: uv sync --all-extras --locked
+      - name: Record timings from a full run
+        run: make record-test-durations
+      - name: Decide whether the split moved
+        id: drift
+        run: |
+          set +e
+          uv run --locked --all-extras python scripts/duration_drift.py \
+            --old .test_durations \
+            --new fresh.test_durations \
+            --junit fresh-junit.xml \
+            --splits 4 \
+            --threshold 120 \
+            > drift-summary.txt
+          code=$?
+          set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          cat drift-summary.txt
+          if [ "$code" -ne 0 ] && [ "$code" -ne 3 ]; then
+            exit "$code"
+          fi
+      - name: Open or update the timing pull request
+        if: steps.drift.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B chore/refresh-test-durations
+          cp fresh.test_durations .test_durations
+          git add .test_durations
+          if git diff --cached --quiet; then
+            echo "Timings are unchanged. No pull request."
+            exit 0
+          fi
+          git commit -m "Refresh pytest-split timings"
+          gh auth setup-git
+          if git fetch origin chore/refresh-test-durations; then
+            expected=$(git rev-parse origin/chore/refresh-test-durations)
+            git push --force-with-lease=refs/heads/chore/refresh-test-durations:"$expected" origin HEAD:chore/refresh-test-durations
+          else
+            git push origin HEAD:chore/refresh-test-durations
+          fi
+          existing=$(gh pr list --head chore/refresh-test-durations --base main --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body-file drift-summary.txt
+          else
+            gh pr create \
+              --base main \
+              --head chore/refresh-test-durations \
+              --title "Refresh pytest-split timings" \
+              --body-file drift-summary.txt
+          fi
