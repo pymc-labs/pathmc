@@ -1,0 +1,18 @@
+pathmc/compile.py
+  h_63db634213747e 2861-2868,3045-3047,3254,3258-3263
+pathmc/simulate.py
+  h_63db634213747e 66-68,141-162,2012-2020,2033,2037-2047,2049,2053
+tests/test_do_regressions.py
+  h_63db634213747e 153-223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "91ebd09fc0ffa96bb6d000a2f09f7c4daeae483e",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
