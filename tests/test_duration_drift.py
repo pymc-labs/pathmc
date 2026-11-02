@@ -215,3 +215,18 @@ def test_ci_can_run_a_shard_without_stopping_early() -> None:
     assert "--splits" in result.stdout
     assert "--cov-fail-under=0" in result.stdout
     assert "--dist loadscope" in result.stdout
+
+
+def test_timing_record_runs_the_full_selection() -> None:
+    result = subprocess.run(
+        ["make", "-n", "record-test-durations"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert " -x " not in result.stdout
+    assert "--store-durations" in result.stdout
+    assert "--junitxml" in result.stdout
+    assert "not nightly" in result.stdout
+    assert "--splits" not in result.stdout
