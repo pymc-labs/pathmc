@@ -1,0 +1,16 @@
+_freeze/docs/examples/basis-terms/splines/execute-results/html.json
+  h_63db634213747e 2,5,15
+docs/examples/02-basis-terms/splines.qmd
+  h_63db634213747e 11,13-15,17-21,41-43,47-49,53,58,60-63,79,86,88,91,95,97,99,101,104-106,110-115,120,131-137,150-155,158-163,169,173,181-183,185,187,189-195,197,200-201,206-208,212,219,225,227-241,245-263,266-268,276,278,280,282-287,289,292-312,314-315,318-319,332-334,355,359-362,365,367,370-371,392,394-404,410,414-415,418-422,424
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3c41e0347fb47033577c445e5eff030cebb7c668",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
