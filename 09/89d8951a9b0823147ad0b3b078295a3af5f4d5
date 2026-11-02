@@ -1,0 +1,18 @@
+pathmc/_model.py
+  h_63db634213747e 40,3168,3180,3184-3193,3270-3273,3484-3489,3496-3497,3501
+pathmc/compile.py
+  h_63db634213747e 2281-2299,2742-2746,2831-2837,2876,2958,2991-3001,3009,3088-3090,3099-3101,3154,3188-3191
+tests/test_scan_non_gaussian_mediators.py
+  h_63db634213747e 355-435
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0989d8951a9b0823147ad0b3b078295a3af5f4d5",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

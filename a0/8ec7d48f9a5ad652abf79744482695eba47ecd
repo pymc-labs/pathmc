@@ -1,0 +1,16 @@
+pathmc/compile.py
+  h_63db634213747e 1203-1204,1244,1246,1265-1271,1275,1278-1279,2042-2050,2052-2057,2062
+tests/test_distinct_column_transforms.py
+  h_63db634213747e 1-144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a08ec7d48f9a5ad652abf79744482695eba47ecd",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

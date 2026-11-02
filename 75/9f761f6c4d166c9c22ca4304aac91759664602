@@ -1,0 +1,26 @@
+pathmc/_model.py
+  h_63db634213747e 550
+pathmc/adjustment.py
+  h_63db634213747e 497,508
+pathmc/compile.py
+  h_63db634213747e 692,2601
+pathmc/hsgp.py
+  h_63db634213747e 37,54-58,60-61,65-72,79-80,83,86-97,153
+pathmc/priors.py
+  h_63db634213747e 43-44,58-61,167-175
+tests/test_hsgp_priors.py
+  h_63db634213747e 18-19,22,75-100,109-118
+_freeze/docs/examples/basis-terms/hsgp_1d/execute-results/html.json
+  h_63db634213747e 2,5,15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "759f761f6c4d166c9c22ca4304aac91759664602",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+pathmc/compile.py
+  h_63db634213747e 41,280,285,294,298-300,302,308,310,312-315,320-362,530,547,549,551,580,582-590,592-601,755-760,990-995,2673-2678,2716-2721,3042-3047,3049
+pathmc/effects.py
+  h_63db634213747e 33,291,296,823,828
+pathmc/introspect.py
+  h_63db634213747e 701
+pathmc/priors.py
+  h_63db634213747e 108-113
+tests/test_duplicate_predictor_coords.py
+  h_63db634213747e 1-64
+tests/test_pooling_dims.py
+  h_63db634213747e 657-660
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "89523862ab9df4240e18ec05786074098804a60a",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
