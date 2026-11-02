@@ -65,9 +65,13 @@ jobs:
           fi
           git commit -m "Refresh pytest-split timings"
           gh auth setup-git
-          if git fetch origin chore/refresh-test-durations; then
-            expected=$(git rev-parse origin/chore/refresh-test-durations)
-            git push --force-with-lease=refs/heads/chore/refresh-test-durations:"$expected" origin HEAD:chore/refresh-test-durations
+          # checkout fetches only main, so a plain fetch does not create
+          # origin/chore/refresh-test-durations. Name the destination ref.
+          remote_ref=refs/heads/chore/refresh-test-durations
+          tracking_ref=refs/remotes/origin/chore/refresh-test-durations
+          if git fetch origin "${remote_ref}:${tracking_ref}"; then
+            expected=$(git rev-parse "$tracking_ref")
+            git push --force-with-lease="${remote_ref}:${expected}" origin HEAD:chore/refresh-test-durations
           else
             git push origin HEAD:chore/refresh-test-durations
           fi
