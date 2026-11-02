@@ -440,7 +440,7 @@ def test_cdags_excludes_cyclic_orientation():
     assert '"C" -> "A"' not in surviving
 
     # Every returned DAG must be acyclic (verified two independent ways).
-    from pathmc.cpdag import _parse_dot
+    from pathmc._dot import parse_dot as _parse_dot
 
     for c in cdags:
         nodes, directed, undirected = _parse_dot(c)
