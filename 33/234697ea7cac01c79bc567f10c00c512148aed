@@ -1,7 +1,11 @@
 pathmc/effects.py
-  h_63db634213747e 41-102,109-110,116-117,129-130,311-312,425,557,717-719,737
+  h_63db634213747e 41-102,109-110,116-117,129-130,311-312,425,478,557,717-719,737
 tests/test_pooling_dims.py
   h_63db634213747e 611-658
+pathmc/_model.py
+  h_63db634213747e 976
+tests/test_standardized.py
+  h_63db634213747e 22
 ---
 {
   "schema_version": "authorship/3.0.0",
