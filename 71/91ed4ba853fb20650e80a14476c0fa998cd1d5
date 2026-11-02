@@ -1,0 +1,26 @@
+.github/workflows/ci.yml
+  h_63db634213747e 43-44,71-72,75,121
+.github/workflows/refresh-test-durations.yml
+  h_63db634213747e 38
+AGENTS.md
+  h_63db634213747e 10
+CONTRIBUTING.md
+  h_63db634213747e 123,143
+Makefile
+  h_63db634213747e 16,55-60,63
+scripts/duration_drift.py
+  h_63db634213747e 17-23,29-30,35-37,73-74,76-79,81-113,117,119-127,132,139-140,167,181,183
+tests/test_duration_drift.py
+  h_63db634213747e 14,19,40-41,43-44,46-47,49-56,60-61,63,74,76-80,105-106,108-111,130-131,137,139,143,145-157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7191ed4ba853fb20650e80a14476c0fa998cd1d5",
+  "prompts": {},
+  "humans": {
+    "h_63db634213747e": {
+      "author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
