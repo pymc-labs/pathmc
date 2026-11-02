@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -190,8 +191,18 @@ def test_assignment_matches_pytest_split(tmp_path: Path) -> None:
 
 
 def test_local_make_test_stops_at_the_first_failure() -> None:
+    # CI exports an empty PYTEST_FAILFAST. Make treats that as set, so a
+    # local default check must not inherit it.
+    env = os.environ.copy()
+    env.pop("PYTEST_FAILFAST", None)
+    env.pop("PYTEST_ARGS", None)
     result = subprocess.run(
-        ["make", "-n", "test"], cwd=ROOT, text=True, capture_output=True, check=True
+        ["make", "-n", "test"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
     )
     assert " -x " in result.stdout
     assert "--splits" not in result.stdout
