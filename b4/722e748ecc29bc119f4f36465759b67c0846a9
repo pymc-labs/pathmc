@@ -1,0 +1,39 @@
+pathmc/introspect.py
+  s_5b583b137926e8::t_738b2957dd431b 23-24,27,42-96,100-150
+  s_5b583b137926e8::t_b07b79316fb507 97,99,151-159
+  s_5b583b137926e8::t_7ff281fc5acfdc 98
+  s_5b583b137926e8::t_60e9134e2332c3 420,423-429,431-433,435-439,441,443,450,468-470,472,476-505
+  s_5b583b137926e8::t_d483c36ad525bf 160-161
+pathmc/_model.py
+  s_5b583b137926e8::t_e58180b5aed7f6 76
+  s_5b583b137926e8::t_b928db1e09b9d9 2466,2507,2509-2512,2516-2523
+  s_5b583b137926e8::t_7895230896696f 2481-2505
+  s_5b583b137926e8::t_6539bb0e72773b 2506
+docs/user_guide/14-causal-inference.qmd
+  s_5b583b137926e8::t_180b1689f1be6f 116-117,124
+tests/test_do_graph.py
+  s_5b583b137926e8::t_ed6dac34242348 116-121,155,163-167,174-179,181-182
+  s_5b583b137926e8::t_da7e810c0af983 168-173
+  s_5b583b137926e8::t_402876a3c60afc 1-76,79-100,109-115,122-154,156-162
+  s_5b583b137926e8::t_080a943acbd90f 77-78
+  s_5b583b137926e8::t_f2ebcd7ec23c1a 101-108,180,183-198
+pathmc/simulate.py
+  s_5b583b137926e8::t_fe9f292089dd1f 34,586-589
+  s_5b583b137926e8::t_aaa7dfd2a74b92 46,599-600,610-611,623-646,815
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b4722e748ecc29bc119f4f36465759b67c0846a9",
+  "prompts": {},
+  "sessions": {
+    "s_5b583b137926e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a391-1777-7e02-b386-884259cf886e",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
