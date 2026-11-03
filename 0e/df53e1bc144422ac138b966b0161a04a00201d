@@ -1,0 +1,51 @@
+pathmc/identify.py
+  s_a10cee725d93c2::t_256e4d792b79b1 420,423
+  s_a10cee725d93c2::t_338878e8b1bf0d 313-419,421-422,424-436
+tests/test_optimal_adjustment.py
+  s_a10cee725d93c2::t_a3e1ed294a2f65 76-83,148-152
+  s_a10cee725d93c2::t_256e4d792b79b1 85,107,168,216,275,309
+  s_a10cee725d93c2::t_4b044c2e09d9f9 1-75,84,86-106,108-147,153-167,169-215,217-274,276-308,310-332
+pathmc/adjustment.py
+  s_a10cee725d93c2::t_256e4d792b79b1 141,165
+  s_a10cee725d93c2::t_338878e8b1bf0d 34,127,131-132,136-140,142-144,164,166,452
+pathmc/skills/pathmc/SKILL.md
+  s_a10cee725d93c2::t_8d34bbc2e0b192 57,104,149,163,217,270,298
+docs/user_guide/17-scm-vs-adjustment.qmd
+  s_a10cee725d93c2::t_256e4d792b79b1 90
+  s_a10cee725d93c2::t_8d34bbc2e0b192 78-79,81,88-89,91-92,96-122
+  s_a10cee725d93c2::t_c97eb91f25e89c 123
+pathmc/_model.py
+  s_a10cee725d93c2::t_338878e8b1bf0d 67,1489-1528,1566,1587-1594,1630
+tests/test_identification_scale.py
+  s_a10cee725d93c2::t_256e4d792b79b1 186
+  s_a10cee725d93c2::t_eba62dd4dca84d 39,153-185,187-199
+tests/test_adjustment.py
+  s_a10cee725d93c2::t_1b151616f2919c 191
+  s_a10cee725d93c2::t_a3e1ed294a2f65 222-241
+  s_a10cee725d93c2::t_d362dff8f49563 27,106,108-111,122-184,186-190,193-220,786-803
+  s_a10cee725d93c2::t_256e4d792b79b1 185,192
+  s_a10cee725d93c2::t_938c0c397834a3 221,804
+docs/user_guide/14-causal-inference.qmd
+  s_a10cee725d93c2::t_8d34bbc2e0b192 254-262,264-280
+  s_a10cee725d93c2::t_256e4d792b79b1 263
+_freeze/user-guide/scm-vs-adjustment/execute-results/html.json
+  s_a10cee725d93c2::t_bde4f4096a3acc 2,5,15
+_freeze/user-guide/scm-vs-adjustment/figure-html/cell-3-output-1.svg
+  s_a10cee725d93c2::t_bde4f4096a3acc 4,15,21,33,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0edf53e1bc144422ac138b966b0161a04a00201d",
+  "prompts": {},
+  "sessions": {
+    "s_a10cee725d93c2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a3ac-a206-7642-90b5-804b6061f21e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
