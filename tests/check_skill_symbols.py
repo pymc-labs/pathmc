@@ -68,7 +68,7 @@ def _spans(text: str) -> list[tuple[int, int, str]]:
 
 def missing_symbols(
     text: str,
-    resolve: Callable[[str, str], bool],
+    resolve: Callable[[str, str, bool], bool],
     allowlist: Mapping[tuple[str, str], str] | None = None,
 ) -> list[Miss]:
     """Return unresolved ``pathmc.``, ``m.``, and ``adj.`` references.
@@ -78,7 +78,8 @@ def missing_symbols(
     text
         Skill markdown.
     resolve
-        ``(receiver, name) -> True`` when the attribute exists.
+        ``(receiver, name, call) -> True`` when the reference is valid.
+        A call is valid only when the attribute is callable.
     allowlist
         ``(receiver, name)`` to a non-empty reason. A blank reason is an error.
     """
@@ -91,7 +92,8 @@ def missing_symbols(
         for match in _CALL.finditer(snippet):
             receiver = match.group(1) or match.group(3)
             name = match.group(2) or match.group(4)
-            if (receiver, name) in reasons or resolve(receiver, name):
+            call = match.group(3) is not None
+            if (receiver, name) in reasons or resolve(receiver, name, call):
                 continue
             found.append(
                 Miss(
@@ -104,13 +106,27 @@ def missing_symbols(
     return found
 
 
-def live_resolve(receiver: str, name: str) -> bool:
-    """Resolve a documented attribute against the installed package."""
+def _target(receiver: str) -> object:
     import pathmc
     from pathmc import AdjustmentModel, PathModel
 
-    target = {"pathmc": pathmc, "m": PathModel, "adj": AdjustmentModel}[receiver]
-    return hasattr(target, name)
+    return {"pathmc": pathmc, "m": PathModel, "adj": AdjustmentModel}[receiver]
+
+
+def live_resolve(receiver: str, name: str, call: bool = False) -> bool:
+    """Resolve a documented attribute against the installed package.
+
+    A call has to be callable. A bare attribute only has to exist, so a
+    property used without parentheses still counts. ``hasattr`` alone
+    accepts ``pathmc.simulate`` after the function export is removed,
+    because that name is then the submodule.
+    """
+    target = _target(receiver)
+    if not hasattr(target, name):
+        return False
+    if not call:
+        return True
+    return callable(getattr(target, name))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -136,9 +152,13 @@ def main(argv: list[str] | None = None) -> int:
         file=sys.stderr,
     )
     for miss in misses:
+        present = hasattr(_target(miss.receiver), miss.name)
+        problem = (
+            "is not callable" if present and "(" in miss.snippet else "does not resolve"
+        )
         print(
             f"  line {miss.line}: {miss.receiver}.{miss.name} "
-            f"does not resolve on {TARGETS[miss.receiver]}. "
+            f"{problem} on {TARGETS[miss.receiver]}. "
             f"Snippet: {miss.snippet[:120]}",
             file=sys.stderr,
         )

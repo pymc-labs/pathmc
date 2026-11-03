@@ -25,11 +25,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "pathmc" / "skills" / "pathmc" / "SKILL.md"
 
 
-def _present(_receiver: str, _name: str) -> bool:
+def _present(_receiver: str, _name: str, _call: bool = False) -> bool:
     return True
 
 
-def _absent(receiver: str, name: str) -> bool:
+def _absent(receiver: str, name: str, _call: bool = False) -> bool:
     return not (receiver == "m" and name == "missing")
 
 
@@ -42,7 +42,7 @@ def test_fenced_call_is_checked_and_prose_is_ignored() -> None:
 
 def test_inline_backtick_outside_a_fence_is_checked() -> None:
     text = "Use `adj.missing` before the fit.\n"
-    misses = missing_symbols(text, lambda receiver, name: name != "missing")
+    misses = missing_symbols(text, lambda receiver, name, _call: name != "missing")
     assert [(miss.receiver, miss.name, miss.line) for miss in misses] == [
         ("adj", "missing", 1)
     ]
@@ -91,3 +91,25 @@ def test_hook_reports_a_package_miss_on_the_package(
     assert "pathmc.nope does not resolve on the pathmc package" in err
     assert "PathModel" not in err
     assert "ALLOWLIST" in err
+
+
+def test_a_call_shadowed_by_its_submodule_is_not_callable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import importlib
+
+    import pathmc
+
+    from check_skill_symbols import live_resolve
+
+    monkeypatch.setattr(pathmc, "simulate", importlib.import_module("pathmc.simulate"))
+    misses = missing_symbols("`pathmc.simulate(spec)`\n", live_resolve)
+    assert [(miss.receiver, miss.name) for miss in misses] == [("pathmc", "simulate")]
+    assert missing_symbols("`pathmc.simulate`\n", live_resolve) == []
+    assert missing_symbols("`adj.formula`\n", live_resolve) == []
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("`pathmc.simulate(spec)`\n", encoding="utf-8")
+    assert main(["--skill", str(skill)]) == 1
+    assert "is not callable" in capsys.readouterr().err
