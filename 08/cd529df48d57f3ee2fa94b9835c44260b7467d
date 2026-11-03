@@ -1,0 +1,22 @@
+pathmc/policy_result.py
+  s_5b583b137926e8::t_a5f3c4249d095f 24,177-183
+  s_5b583b137926e8::t_823b68393a165b 184
+tests/test_policy_result_contract.py
+  s_5b583b137926e8::t_c0d804ac89a8e7 72-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "08cd529df48d57f3ee2fa94b9835c44260b7467d",
+  "prompts": {},
+  "sessions": {
+    "s_5b583b137926e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a391-1777-7e02-b386-884259cf886e",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
