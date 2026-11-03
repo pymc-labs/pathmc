@@ -20,8 +20,11 @@ structural equations, and prior specifications. All work before sampling.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, replace
+from typing import Any
 
 import graphviz
+import numpy as np
 
 from pathmc.categorical import (
     absorbs_intercept,
@@ -34,6 +37,126 @@ from pathmc.panel import PanelInfo
 from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
 
 __all__: list[str] = []
+
+
+@dataclass(frozen=True)
+class GraphNode:
+    """A rendered structural variable, detached from the fitted model."""
+
+    name: str
+    shape: str
+    style: str | None = None
+    label: str | None = None
+
+
+@dataclass(frozen=True)
+class GraphEdge:
+    """A labeled structural relationship in a graph snapshot."""
+
+    source: str
+    target: str
+    label: str = ""
+    style: str | None = None
+    direction: str | None = None
+
+
+@dataclass(frozen=True)
+class GraphDescription:
+    """Immutable topology and rendering metadata for a structural DAG."""
+
+    nodes: tuple[GraphNode, ...]
+    edges: tuple[GraphEdge, ...]
+    interventions: tuple[tuple[str, str], ...] = ()
+    unsupported_reason: str | None = None
+
+    def intervene(self, targets: tuple[tuple[str, str], ...]) -> GraphDescription:
+        """Cut incoming structural edges and mark externally set variables."""
+        names = {name for name, _ in targets}
+        return replace(
+            self,
+            nodes=tuple(
+                replace(node, label=f"{node.name}\n(externally set)")
+                if node.name in names
+                else node
+                for node in self.nodes
+            ),
+            edges=tuple(edge for edge in self.edges if edge.target not in names),
+            interventions=targets,
+        )
+
+
+def describe_do_graph(
+    spec: Spec,
+    graph_info: GraphInfo,
+    families: dict[str, str],
+    set_values: dict[str, Any],
+    simulate_over: str | None,
+) -> GraphDescription:
+    """Snapshot a validated do-query's supported structural graph semantics."""
+    description = build_graph_description(spec, graph_info, families)
+    if graph_info.temporal_edges or any(
+        _has_adstock(term.transform) for reg in spec.regressions for term in reg.terms
+    ):
+        return replace(
+            description,
+            unsupported_reason=(
+                "DoResult.graph() does not yet represent temporal lag/adstock "
+                "edges after intervention. Use model.graph() to inspect the "
+                "original temporal structure."
+            ),
+        )
+    if spec.residual_covs:
+        return replace(
+            description,
+            unsupported_reason=(
+                "DoResult.graph() does not yet represent residual covariance "
+                "after intervention. Use model.graph() to inspect the original "
+                "structure."
+            ),
+        )
+
+    targets: list[tuple[str, str]] = []
+    for name, value in sorted(set_values.items()):
+        array = np.asarray(value)
+        if array.ndim == 0:
+            if array.dtype.kind in "biuf" and not np.isfinite(array).all():
+                return replace(
+                    description,
+                    unsupported_reason=(
+                        f"DoResult.graph() cannot represent a nonfinite set= "
+                        f"value for '{name}'. Supply a finite hard intervention."
+                    ),
+                )
+            targets.append((name, "scalar"))
+        elif simulate_over == "time" and array.ndim == 1:
+            if array.dtype.kind not in "biuf" or not np.isfinite(array).all():
+                return replace(
+                    description,
+                    unsupported_reason=(
+                        f"DoResult.graph() cannot represent a partially released "
+                        f"or nonfinite schedule for '{name}'. Supply a fully "
+                        "specified finite schedule."
+                    ),
+                )
+            targets.append((name, "schedule"))
+        else:
+            return replace(
+                description,
+                unsupported_reason=(
+                    f"DoResult.graph() does not support the shape of set= for "
+                    f"'{name}'. Use a scalar or a complete time schedule."
+                ),
+            )
+    return description.intervene(tuple(targets))
+
+
+def _has_adstock(call: TransformCall | None) -> bool:
+    """Detect temporal carry in nested transforms without compiler state."""
+    if call is None:
+        return False
+    return call.name == "adstock" or (
+        isinstance(call.input_expr, TransformCall) and _has_adstock(call.input_expr)
+    )
 
 
 def _format_categorical(reg: Regression, call: CategoricalCall) -> str:
@@ -294,34 +417,37 @@ def build_dag_viz(
         Renderable DAG for notebook display. Latent nodes are drawn
         with dashed borders to distinguish them from observed nodes.
     """
-    if families is None:
-        families = {}
+    return render_graph_description(build_graph_description(spec, graph_info, families))
 
-    dot = graphviz.Digraph(format="svg")
-    dot.attr(rankdir="LR")
 
+def build_graph_description(
+    spec: Spec,
+    graph_info: GraphInfo,
+    families: dict[str, str] | None = None,
+) -> GraphDescription:
+    """Snapshot graph topology and annotations without retaining model state."""
+    families = families or {}
     lag_nodes = {v for _, v in graph_info.temporal_edges}
-
-    for node in graph_info.topological_order:
-        if node in lag_nodes:
+    nodes: list[GraphNode] = []
+    for name in graph_info.topological_order:
+        if name in lag_nodes:
             continue
-        elif node in graph_info.latent:
-            if families.get(node) == "latent_normal":
-                dot.node(node, shape="ellipse", style="dashed,bold")
-            else:
-                dot.node(node, shape="ellipse", style="dashed")
-        elif node in graph_info.endogenous:
-            dot.node(node, shape="ellipse")
+        if name in graph_info.latent:
+            style = "dashed,bold" if families.get(name) == "latent_normal" else "dashed"
+            nodes.append(GraphNode(name, "ellipse", style=style))
+        elif name in graph_info.endogenous:
+            nodes.append(GraphNode(name, "ellipse"))
         else:
-            dot.node(node, shape="box")
+            nodes.append(GraphNode(name, "box"))
 
+    edges: list[GraphEdge] = []
     drawn_edges: set[tuple[str, str]] = set()
     for reg in spec.regressions:
         for term in reg.terms:
             if term.interaction_of is not None:
                 for var in term.interaction_of:
                     if (var, reg.lhs) not in drawn_edges:
-                        dot.edge(var, reg.lhs)
+                        edges.append(GraphEdge(var, reg.lhs))
                         drawn_edges.add((var, reg.lhs))
                 continue
             if term.fixed_value is not None:
@@ -339,13 +465,44 @@ def build_dag_viz(
                     edge_label = f"{term.label}*{edge_label}"
             if term.lag_of is not None:
                 lag_label = f"{edge_label} (t\u22121)" if edge_label else "t\u22121"
-                dot.edge(term.lag_of, reg.lhs, label=lag_label, style="dashed")
+                edges.append(
+                    GraphEdge(term.lag_of, reg.lhs, label=lag_label, style="dashed")
+                )
             else:
-                dot.edge(term.variable, reg.lhs, label=edge_label)
+                edges.append(GraphEdge(term.variable, reg.lhs, label=edge_label))
             drawn_edges.add((term.variable, reg.lhs))
 
     for rc in spec.residual_covs:
-        dot.edge(rc.var1, rc.var2, style="dashed", dir="both", label="~~")
+        edges.append(
+            GraphEdge(rc.var1, rc.var2, label="~~", style="dashed", direction="both")
+        )
+
+    return GraphDescription(tuple(nodes), tuple(edges))
+
+
+def render_graph_description(description: GraphDescription) -> graphviz.Digraph:
+    """Render a fresh Graphviz object from detached structural metadata."""
+    if description.unsupported_reason is not None:
+        raise ValueError(description.unsupported_reason)
+
+    dot = graphviz.Digraph(format="svg")
+    dot.attr(rankdir="LR")
+    for node in description.nodes:
+        attrs = {"shape": node.shape}
+        if node.style is not None:
+            attrs["style"] = node.style
+        if node.label is not None:
+            attrs["label"] = node.label
+            attrs["color"] = "#2171b5"
+            attrs["penwidth"] = "2"
+        dot.node(node.name, **attrs)
+    for edge in description.edges:
+        attrs = {"label": edge.label}
+        if edge.style is not None:
+            attrs["style"] = edge.style
+        if edge.direction is not None:
+            attrs["dir"] = edge.direction
+        dot.edge(edge.source, edge.target, **attrs)
 
     return dot
 
