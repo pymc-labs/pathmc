@@ -54,6 +54,7 @@ m.fit()                            # MCMC happens here
 m.effects_summary()                # labeled coefficients + defined params
 m.ate("Y", "X", values=(0, 1))     # average treatment effect via do()
 m.adjustment_sets("X", "Y")        # valid backdoor adjustment sets
+m.optimal_adjustment_set("X", "Y") # variance-optimal graphical O-set
 ```
 
 The DSL is lavaan-inspired:
@@ -100,6 +101,7 @@ The DSL is lavaan-inspired:
 | Counterfactual / time-forward (panel)             | `m.do(set={...}, simulate_over="time")`                |
 | History-dependent panel treatment policy          | `m.do(policy=TreatmentPolicy(...), simulate_over="time", horizon=n_times)` |
 | Adjustment sets for identification                | `m.adjustment_sets(treatment, outcome)`                |
+| Variance-optimal graphical adjustment set         | `m.optimal_adjustment_set(treatment, outcome)`        |
 | Yes/no identification check                       | `m.is_identifiable(treatment, outcome)`                |
 | Front-door identification                         | `m.frontdoor_identifiable(treatment, mediator, outcome)` |
 | Flag colliders on any path (heuristic; validity is `is_valid_adjustment_set`) | `m.collider_warnings(adjust, treatment, outcome)` |
@@ -144,7 +146,7 @@ The DSL is lavaan-inspired:
    pathmc builds the lagged design internally.
 7. **Data-free models have a partial method surface.**
    When `data=None`, `graph()`, `equations()`, `priors()`,
-   `adjustment_sets()`, `is_identifiable()`, `collider_warnings()`,
+   `adjustment_sets()`, `optimal_adjustment_set()`, `is_identifiable()`, `collider_warnings()`,
    `implied_independences()` all work. `fit()`, `do()`, `ate()`,
    `cate()`, `design()`, `sample_prior_predictive()`,
    `test_implications()`, `falsify()`, `sensitivity()`,
@@ -158,9 +160,7 @@ The DSL is lavaan-inspired:
    Inspect `adj.adjustment_set` and `adj.formula` before calling
    `adj.fit()`. An empty set `{}` is valid when no covariates are
    needed to block backdoors; if no valid set exists, construction
-   raises (effect not identifiable via backdoor). When several minimal
-   sets exist, pass `adjustment_set=` explicitly; pathmc does not pick
-   among them. Pass `data=` when the parent structural model is
+   raises (effect not identifiable via backdoor). When several minimal sets exist, pass an explicit set or opt into `adjustment_set="optimal"`; the default does not pick among minimal sets. The O-set can include precision variables that are unnecessary for identification, and its efficiency guarantee is asymptotic for adjusted OLS in causal linear models, not a general Bayesian GLM posterior-variance guarantee. A required latent O-set member and a query with no directed causal path raise explicitly. Pass `data=` when the parent structural model is
    data-free. Panel models are not supported on the adjustment path.
    A shared prior key is inherited when its shape does not follow the
    predictor set or treatment coding: outcome dispersion (`sigma_Y`,
@@ -214,7 +214,7 @@ The DSL is lavaan-inspired:
 - Run `predictions()` / `comparisons()` / `slopes()` on structural
   `PathModel` or fitted `AdjustmentModel` objects for interpret-style
   queries (check `result.causal` on adjustment models).
-- Check identification (`adjustment_sets`, `is_identifiable`,
+- Check identification (`adjustment_sets`, `optimal_adjustment_set`, `is_identifiable`,
   `frontdoor_identifiable`, `collider_warnings`).
 - Test the DAG's conditional-independence implications against data
   (`test_implications`).
@@ -267,6 +267,7 @@ m = pathmc.model("""
 m.graph()                      # DAG plot
 m.equations()                  # structural equations + priors
 m.adjustment_sets("X", "Y")    # what to adjust for
+m.optimal_adjustment_set("X", "Y")  # efficient O-set when supported
 m.is_identifiable("X", "Y")    # can we estimate the effect at all?
 ```
 
@@ -294,7 +295,7 @@ adj.comparisons(comparison="lift")             # same API as PathModel
 adj.slopes(wrt="X")                            # defaults to designated treatment
 ```
 
-When several minimal adjustment sets exist, pass `adjustment_set=` explicitly.
+When several minimal adjustment sets exist, pass an explicit `adjustment_set={...}` or opt into `adjustment_set="optimal"` after inspecting `m.optimal_adjustment_set(...)`.
 When the structural model has no data, pass `data=` to `adjustment_model()`.
 
 ### Panel model

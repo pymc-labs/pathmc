@@ -251,6 +251,33 @@ model.adjustment_sets("X", "Y")
 # [{'Z'}] — must adjust for Z to identify the causal effect of X on Y
 ```
 
+### Minimal versus variance-optimal sets
+
+`.adjustment_sets()` returns minimal identifying sets: removing any member would reopen a backdoor path.
+Minimality is an identification property, not an efficiency ranking.
+For a single observed treatment and outcome in a contemporaneous DAG, `.optimal_adjustment_set()` returns the graphical O-set: parents of nodes on proper causal paths, excluding the treatment, the causal-path nodes, and their descendants.
+It can include outcome precision predictors that no minimal set needs.
+
+```python
+dag = pathmc.model("X ~ Z1\nZ2 ~ Z1\nY ~ X + Z2")
+dag.adjustment_sets("X", "Y")  # [{"Z1"}, {"Z2"}]
+dag.optimal_adjustment_set("X", "Y")  # {"Z2"}
+
+adj = dag.adjustment_model(
+    "X -> Y",
+    adjustment_set="optimal",
+    data=df,
+)
+```
+
+The O-set minimizes asymptotic variance for adjusted OLS in causal linear models under the assumptions of Henckel, Perković, and Maathuis (2022).
+That result does not promise smaller finite-sample Bayesian posterior variance for non-Gaussian families, ATT/ATU/CATE, informative priors, or a misspecified regression.
+The interface therefore remains opt-in and the default unique-minimal-set policy is unchanged.
+
+The helper requires a directed treatment-to-outcome path; without one, the declared DAG implies a structurally zero total effect and the optimal-adjustment regression interface raises.
+It constructs the O-set in the full graph, including latent and `~~` common causes.
+A latent node elsewhere is allowed when the returned set stays observed, but a required latent member makes the observed O-set unavailable; inspect `.adjustment_sets()` and pass an explicit valid observed set instead.
+
 ### Identifiability check
 
 `.is_identifiable()` returns `True` if at least one valid backdoor adjustment set exists:

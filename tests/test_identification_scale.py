@@ -36,6 +36,7 @@ from pathmc.identify import (
     adjustment_sets,
     is_identifiable,
     is_valid_adjustment_set,
+    optimal_adjustment_set,
 )
 from pathmc.parse import parse_spec
 
@@ -149,3 +150,50 @@ def test_unidentifiable_explicit_set_keeps_the_backdoor_error(rng):
     model = pathmc.model("T ~ Z\nM ~ T\nY ~ M\nT ~~ Y", data=df)
     with pytest.raises(ValueError, match="not identifiable"):
         model.adjustment_model("T -> Y", adjustment_set={"Z"})
+
+
+class TestOptimalAdjustmentSetScale:
+    @staticmethod
+    def _forbid_enumeration(monkeypatch):
+        def fail(*_args, **_kwargs):
+            raise AssertionError("the optimal path must not enumerate sets or paths")
+
+        monkeypatch.setattr("pathmc.adjustment.adjustment_sets", fail)
+        monkeypatch.setattr("pathmc.identify.adjustment_sets", fail)
+        monkeypatch.setattr("pathmc.identify.combinations", fail)
+        monkeypatch.setattr(nx, "all_simple_paths", fail)
+
+    def test_parallel_causal_paths_do_not_enumerate_sets_or_paths(
+        self, monkeypatch, rng
+    ):
+        mediators = [f"M{i}" for i in range(12)]
+        precision = [f"Z{i}" for i in range(12)]
+        lines = [
+            f"{mediator} ~ T + {covariate}"
+            for mediator, covariate in zip(mediators, precision, strict=True)
+        ]
+        lines.append(f"Y ~ {' + '.join(mediators)} + P")
+        spec = "\n".join(lines)
+        expected = {*precision, "P"}
+        model = pathmc.model(spec)
+        data = pd.DataFrame({
+            name: rng.normal(size=24)
+            for name in ["T", "Y", "P", *mediators, *precision]
+        })
+        self._forbid_enumeration(monkeypatch)
+
+        assert optimal_adjustment_set(model._graph_info, "T", "Y") == expected
+        adjusted = model.adjustment_model("T -> Y", adjustment_set="optimal", data=data)
+
+        assert adjusted.adjustment_set == frozenset(expected)
+        assert adjusted.formula.startswith("Y ~ T + P + Z0")
+
+    def test_unavailable_o_set_failure_does_not_enumerate(self, monkeypatch):
+        model = pathmc.model(
+            "U ~ W\nX ~ Z\nY ~ X + U",
+            latent=["U"],
+        )
+        self._forbid_enumeration(monkeypatch)
+
+        with pytest.raises(ValueError, match="cannot provide an observed O-set"):
+            model.adjustment_model("X -> Y", adjustment_set="optimal")
