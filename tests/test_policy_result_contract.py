@@ -69,6 +69,21 @@ def _run(fitted, *, keep=False, **kwargs):
     )
 
 
+def test_policy_result_graph_explains_unsupported_semantics(fitted):
+    policy = pathmc.TreatmentPolicy(
+        "responsive", "water", pathmc.where(pathmc.current("stress") > 0, 1, 0)
+    )
+    result = fitted.do(
+        policy=policy,
+        simulate_over="time",
+        horizon=2,
+        n_simulations=5,
+        random_seed=7,
+    )
+    with pytest.raises(ValueError, match="policy=.*do\\(set="):
+        result.graph()
+
+
 def test_default_execution_generates_bounded_noise_and_discards_unit_paths(
     fitted, monkeypatch
 ):
