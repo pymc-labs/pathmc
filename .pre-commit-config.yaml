@@ -37,6 +37,12 @@ repos:
         language: system
         pass_filenames: false
         files: ^pathmc/
+      - id: skill-symbols
+        name: skill symbols
+        entry: uv run --locked --all-extras python tests/check_skill_symbols.py
+        language: system
+        pass_filenames: false
+        files: ^(pathmc/skills/pathmc/SKILL\.md|pathmc/[^/]+\.py|tests/check_skill_symbols\.py)$
   - repo: https://github.com/lucianopaz/head_of_apache
     rev: "0.1.1"
     hooks:
