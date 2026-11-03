@@ -416,11 +416,20 @@ def optimal_adjustment_set(
         if declared_latent:
             requirements.append(f"unobserved variable(s) {declared_latent}")
         if synthetic_latent:
-            declarations = [
-                " ~~ ".join(sorted(dag.successors(node))) for node in synthetic_latent
-            ]
-            quoted = ", ".join(f"`{declaration}`" for declaration in declarations)
-            requirements.append(f"an unobserved common cause declared by {quoted}")
+            residual_sources: list[str] = []
+            for node in synthetic_latent:
+                members = sorted(dag.successors(node))
+                if len(members) == 2:
+                    residual_sources.append(
+                        f"the `{members[0]} ~~ {members[1]}` declaration"
+                    )
+                else:
+                    residual_sources.append(
+                        f"the `~~` residual-covariance block containing {members}"
+                    )
+            requirements.append(
+                "an unobserved common cause from " + " and ".join(residual_sources)
+            )
         required = " and ".join(requirements)
         raise ValueError(
             f"The variance-optimal adjustment set for '{treatment}' -> "

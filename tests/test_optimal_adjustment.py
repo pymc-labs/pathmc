@@ -171,6 +171,16 @@ def test_residual_required_o_set_names_declaration_not_synthetic_node():
     assert "_u_resid_0_" not in str(exc_info.value)
 
 
+def test_connected_residual_block_is_not_rendered_as_chained_declaration():
+    graph = build_graph(parse_spec("M ~ X\nY ~ M\nQ ~ W\nR ~ V\nM ~~ Q\nQ ~~ R"))
+    with pytest.raises(
+        ValueError,
+        match=r"`~~` residual-covariance block containing \['M', 'Q', 'R'\]",
+    ) as exc_info:
+        optimal_adjustment_set(graph, "X", "Y")
+    assert "M ~~ Q ~~ R" not in str(exc_info.value)
+
+
 def test_latent_mediator_and_unrelated_residual_block_are_supported_data_free():
     model = pathmc.model(
         "M ~ X\nY ~ M + P\nA ~ B\nC ~ D\nA ~~ C",

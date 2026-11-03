@@ -276,7 +276,9 @@ The interface therefore remains opt-in and the default unique-minimal-set policy
 
 The helper requires a directed treatment-to-outcome path; without one, the declared DAG implies a structurally zero total effect and the optimal-adjustment regression interface raises.
 It constructs the O-set in the full graph, including latent and `~~` common causes.
-A latent node elsewhere is allowed when the returned set stays observed, but a required latent member makes the observed O-set unavailable; inspect `.adjustment_sets()` and pass an explicit valid observed set instead.
+A latent node elsewhere is allowed when the returned set stays observed.
+If no observed backdoor set exists, the effect is not identified by observed adjustment and there is no explicit-set fallback; revise the DAG or measure the required confounder.
+If observed sets do exist but the O-set itself requires a latent member, inspect `.adjustment_sets()` and pass an explicit valid observed set instead.
 
 ### Identifiability check
 

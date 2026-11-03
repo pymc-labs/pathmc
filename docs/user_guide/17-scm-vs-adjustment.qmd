@@ -119,7 +119,9 @@ precision_dag.adjustment_sets("X", "Y"), precision_dag.optimal_adjustment_set("X
 
 Pass `adjustment_set="optimal"` only when that efficiency target matches the analysis.
 The optimality theorem is asymptotic for adjusted OLS in causal linear models; it is not a general finite-sample posterior-variance guarantee for Bayesian GLMs, ATT/ATU/CATE, informative priors, or a misspecified outcome regression.
-The current interface also requires a directed causal path and an observed O-set: a latent node elsewhere is allowed, but a required latent O-set member raises and points you to the available minimal sets and an explicit valid choice.
+The current interface also requires a directed causal path and an observed O-set, although latent nodes elsewhere are allowed.
+When no observed backdoor set exists, the effect is not identified by observed adjustment and no explicit-set fallback is available.
+When an observed valid set exists but the O-set requires a latent member, the error points you to the available minimal sets and an explicit observed choice.
 
 ## Estimator A: structural SCM and g-computation
 
