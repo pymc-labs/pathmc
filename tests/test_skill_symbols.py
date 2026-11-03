@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from check_skill_symbols import missing_symbols
+from check_skill_symbols import main, missing_symbols
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "pathmc" / "skills" / "pathmc" / "SKILL.md"
@@ -75,3 +75,19 @@ def test_a_missing_method_fails_against_the_package() -> None:
     assert [(miss.receiver, miss.name) for miss in misses] == [
         ("m", "not_a_real_method")
     ]
+
+
+def test_shipped_skill_names_only_real_symbols() -> None:
+    assert main(["--skill", str(SKILL)]) == 0
+
+
+def test_hook_reports_a_package_miss_on_the_package(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("`pathmc.nope()`\n", encoding="utf-8")
+    assert main(["--skill", str(skill)]) == 1
+    err = capsys.readouterr().err
+    assert "pathmc.nope does not resolve on the pathmc package" in err
+    assert "PathModel" not in err
+    assert "ALLOWLIST" in err

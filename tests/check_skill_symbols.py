@@ -23,8 +23,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SKILL = Path("pathmc/skills/pathmc/SKILL.md")
-RECEIVERS = {
-    "pathmc": "PathModel",
+ALLOWLIST: dict[tuple[str, str], str] = {}
+TARGETS = {
+    "pathmc": "the pathmc package",
     "m": "PathModel",
     "adj": "AdjustmentModel",
 }
@@ -118,19 +119,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skill", type=Path, default=SKILL)
     args = parser.parse_args(argv)
     text = args.skill.read_text(encoding="utf-8")
-    misses = missing_symbols(text, live_resolve)
+    try:
+        misses = missing_symbols(text, live_resolve, ALLOWLIST)
+    except ValueError as exc:
+        print(
+            f"{args.skill}: {exc}. Give ALLOWLIST a non-empty reason.",
+            file=sys.stderr,
+        )
+        return 1
     if not misses:
         return 0
     print(
         f"{args.skill}: names a symbol the package does not have. "
-        "Update the skill, or add the symbol to ALLOWLIST with a reason.",
+        "Update the skill, or add the name to ALLOWLIST in "
+        "tests/check_skill_symbols.py with a non-empty reason.",
         file=sys.stderr,
     )
     for miss in misses:
-        target = RECEIVERS[miss.receiver]
         print(
             f"  line {miss.line}: {miss.receiver}.{miss.name} "
-            f"does not resolve on {target}. Snippet: {miss.snippet[:120]}",
+            f"does not resolve on {TARGETS[miss.receiver]}. "
+            f"Snippet: {miss.snippet[:120]}",
             file=sys.stderr,
         )
     return 1
