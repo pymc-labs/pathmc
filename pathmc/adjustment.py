@@ -460,6 +460,15 @@ class AdjustmentModel:
         This is the implementation behind
         :meth:`pathmc.modeling.PathModel.adjustment_model`. Prefer that
         method from user code.
+
+        Parameters
+        ----------
+        adjustment_set : set[str], {"optimal"}, or None
+            An explicit observed set to validate, ``None`` to require a unique
+            minimal set, or ``"optimal"`` to select the graphical O-set. The
+            O-set's variance-optimality result is asymptotic for adjusted OLS
+            in causal linear models; it is not a general finite-sample or
+            Bayesian GLM efficiency guarantee.
         """
         from pathmc._model import model as build_model
 
