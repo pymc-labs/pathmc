@@ -198,48 +198,57 @@ def _join_continuation_lines(spec_string: str) -> str:
     return "\n".join(merged)
 
 
-def _pipe_marks(text: str) -> bool:
-    """Whether pipe punctuation occurs outside a quoted legacy value."""
-    quote: str | None = None
-    escaped = False
-    for ch in text:
-        if quote is not None:
-            if ch == quote and not escaped:
-                quote = None
-            if ch == "\\" and not escaped:
-                escaped = True
+def _unquoted_source(text: str) -> str:
+    """Mask legacy Python string literals while preserving source offsets.
+
+    Categorical values use ``ast.literal_eval``, so boundary detection must
+    honor single and triple delimiters, escapes, and adjacent literals too.
+    Literal validation remains with the existing term parsers.
+    """
+    masked = list(text)
+    i = 0
+    while i < len(text):
+        if text[i] not in {"'", '"'}:
+            i += 1
+            continue
+        start = i
+        quote = text[i] * (3 if text.startswith(text[i] * 3, i) else 1)
+        i += len(quote)
+        while i < len(text):
+            if text[i] == "\\":
+                i += 2
+            elif text.startswith(quote, i):
+                i += len(quote)
+                break
             else:
-                escaped = False
-        elif ch in {"'", '"'}:
-            quote = ch
-        elif ch in {"|", ">"}:
-            return True
-    return False
+                i += 1
+        i = min(i, len(text))
+        masked[start:i] = " " * (i - start)
+    return "".join(masked)
+
+
+def _has_pipe(text: str) -> bool:
+    """Whether an actual pipe token occurs outside a legacy literal."""
+    return "|>" in _unquoted_source(text)
+
+
+def _pipe_marks(text: str) -> bool:
+    """Detect even malformed pipe punctuation within a predictor."""
+    return any(ch in {"|", ">"} for ch in _unquoted_source(text))
 
 
 def _prepare_pipe_lines(spec_string: str) -> str:
     """Fold physical lines inside a pipeline group, preserving statement breaks."""
     source = spec_string.replace("\r\n", "\n")
-    if not _pipe_marks(source):
+    visible = _unquoted_source(source)
+    if "|>" not in visible:
         return source
     out: list[str] = []
     groups: list[bool] = []
-    quote: str | None = None
-    escaped = False
-    for i, ch in enumerate(source):
-        if quote is not None:
-            out.append(ch)
-            if ch == quote and not escaped:
-                quote = None
-            if ch == "\\" and not escaped:
-                escaped = True
-            else:
-                escaped = False
-            continue
-        if ch in {"'", '"'}:
-            quote = ch
-        elif ch == "(":
-            previous = next((item for item in reversed(out) if not item.isspace()), "")
+    for i, ch in enumerate(visible):
+        original = source[i]
+        if ch == "(":
+            previous = visible[:i].rstrip()[-1:]
             groups.append(previous in {"", "~", "+", "*"})
         elif ch == ")" and groups:
             groups.pop()
@@ -249,25 +258,25 @@ def _prepare_pipe_lines(spec_string: str) -> str:
                 "starting another statement, for example 'Y ~ (x |> f()); Z ~ z'."
             )
         elif ch == "\n":
-            next_line = source[i + 1 :].split("\n", 1)[0].strip()
+            next_line = visible[i + 1 :].split("\n", 1)[0].strip()
             if any(groups):
                 if re.match(r"^[A-Za-z_]\w*\s*(?:~~|:=|~)", next_line):
                     raise ParseError(
                         "Unclosed pipeline group before another equation. "
                         "Close ')' before starting the next statement."
                     )
-                ch = " "
-            elif next_line.startswith("|>") or "".join(out).rstrip().endswith("|>"):
+                original = " "
+            elif next_line.startswith("|>") or visible[:i].rstrip().endswith("|>"):
                 raise ParseError(
                     "An ungrouped pipeline cannot span lines. "
                     "Write '(x |> f())' to continue a pipeline across lines."
                 )
-            elif groups and _pipe_marks("".join(out).split("\n")[-1]):
+            elif groups and "|>" in visible[:i].split("\n")[-1]:
                 raise ParseError(
                     "An ungrouped pipeline cannot span lines. "
                     "Write '(x |> f())' to continue a pipeline across lines."
                 )
-        out.append(ch)
+        out.append(original)
     return "".join(out)
 
 
@@ -276,19 +285,8 @@ def _split_pipe_terms(rhs: str) -> list[str]:
     terms: list[str] = []
     start = 0
     depth = 0
-    quote: str | None = None
-    escaped = False
-    for i, ch in enumerate(rhs):
-        if quote is not None:
-            if ch == quote and not escaped:
-                quote = None
-            if ch == "\\" and not escaped:
-                escaped = True
-            else:
-                escaped = False
-        elif ch in {"'", '"'}:
-            quote = ch
-        elif ch == "(":
+    for i, ch in enumerate(_unquoted_source(rhs)):
+        if ch == "(":
             depth += 1
         elif ch == ")":
             depth -= 1
@@ -347,7 +345,7 @@ def parse_spec(spec_string: str) -> Spec:
     seen_labels: dict[str, str] = {}
 
     for stmt in statements:
-        if _pipe_marks(stmt) and (":=" in stmt or "~~" in stmt or "~" not in stmt):
+        if _has_pipe(stmt) and (":=" in stmt or "~~" in stmt or "~" not in stmt):
             raise ParseError(
                 f"Pipeline syntax is only valid in a regression predictor: '{stmt}'. "
                 "Use a plain variable or coefficient expression here."

@@ -23,6 +23,7 @@ import pathmc
 from pathmc.basis import REGISTRY as BASIS_REGISTRY
 from pathmc.basis import Basis, register_basis
 from pathmc.exceptions import DuplicateEquationError, ParseError
+from pathmc.effects import evaluate_defined_params
 from pathmc.parse import parse_spec
 from pathmc.scaling import Scaling
 from pathmc.transforms import REGISTRY as TRANSFORM_REGISTRY
@@ -128,6 +129,40 @@ def test_escaped_quote_in_legacy_term_survives_adjacent_pipe_term():
     pipe = r"Y ~ C(group, reference='a\')b') + x |> f()"
     nested = r"Y ~ C(group, reference='a\')b') + f(x)"
     assert parse_spec(pipe) == parse_spec(nested)
+
+
+@pytest.mark.parametrize(
+    "literal",
+    [
+        "'''a'b'''",
+        "'''a\"b'''",
+        '"""a"b"""',
+        "'''a') |> (b'''",
+        r"'''a\'''b'''",
+        r"r'a\')b'",
+        "'a' 'b'",
+    ],
+)
+@pytest.mark.parametrize("multiline", [False, True])
+def test_legacy_literals_survive_adjacent_pipe(literal, multiline):
+    nested = f"Y ~ C(group, reference={literal}) + f(x) + z"
+    pipe = "(x\n |> f())" if multiline else "(x |> f())"
+    assert parse_spec(f"Y ~ C(group, reference={literal}) + {pipe} + z") == (
+        parse_spec(nested)
+    )
+
+
+@pytest.mark.parametrize(
+    ("operator", "expected"),
+    [(">", [False, False, True]), (">=", [False, True, True])],
+)
+@pytest.mark.parametrize("predictor", ["x", "(x |> f())"])
+def test_defined_comparisons_remain_usable(operator, expected, predictor):
+    spec = parse_spec(f"Y ~ a*{predictor}; positive := a {operator} 0")
+    assert spec.defined_params[0].expression == f"a {operator} 0"
+    draws = xr.DataArray([-1.0, 0.0, 1.0], dims="draw")
+    result = evaluate_defined_params(spec, {"a": draws})
+    np.testing.assert_array_equal(result["positive"], expected)
 
 
 class _Identity(Transform):
