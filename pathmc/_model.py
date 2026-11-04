@@ -31,8 +31,8 @@ import pymc as pm
 import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
-from pathmc._query import QueryCache, mean_scenarios
-from pathmc._query import prediction_model as _prepared_prediction_model
+from pathmc._query import QueryCache, mean_scenarios, current_data
+from pathmc._query import run_prediction as _run_prepared_prediction
 from pathmc.compile import (
     _requires_rectangular_panel,
     _SCAN_PANEL_RESIDUAL_COV_MSG,
@@ -1265,8 +1265,7 @@ class PathModel:
                             idata, model=prediction_model, **kwargs
                         )
                 else:
-                    with _prepared_prediction_model(self, kwargs):
-                        pp = pm.sample_posterior_predictive(idata, **kwargs)
+                    pp = _run_prepared_prediction(self, kwargs)
         result = pp if not kwargs["extend_inferencedata"] else idata
         if self._scaling_factors is not None and prediction_data is not None:
             assert self._data is not None
@@ -1828,23 +1827,26 @@ class PathModel:
             prepared = mean_scenarios(self, [set or {}], average_units)
             if prepared is not None:
                 return prepared[0]
-        gen_model = (
-            self._predictive_gen_model() if kind == "predictive" else self._gen_model
-        )
-        return run_do_pymc(
-            gen_model=gen_model,
-            graph_info=self._graph_info,
-            idata=self._idata,
-            data=self._data,
-            set=set,
-            kind=kind,
-            families=self._families,
-            subgroup_indices=subgroup_indices,
-            scaling_factors=self._scaling_factors,
-            categorical_vars=self._categorical_vars,
-            average_units=average_units,
-            random_seed=random_seed,
-        )
+        with self._query_cache.lock, current_data(self):
+            gen_model = (
+                self._predictive_gen_model()
+                if kind == "predictive"
+                else self._gen_model
+            )
+            return run_do_pymc(
+                gen_model=gen_model,
+                graph_info=self._graph_info,
+                idata=self._idata,
+                data=self._data,
+                set=set,
+                kind=kind,
+                families=self._families,
+                subgroup_indices=subgroup_indices,
+                scaling_factors=self._scaling_factors,
+                categorical_vars=self._categorical_vars,
+                average_units=average_units,
+                random_seed=random_seed,
+            )
 
     @contextmanager
     def _categorical_intervention(self, values: Mapping[str, Any]) -> Iterator[None]:

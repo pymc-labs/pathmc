@@ -215,6 +215,20 @@ def fixture(workload: str, large: bool) -> tuple[PathModel, float, dict[str, int
         "posterior": posterior,
         "observed_data": observed,
     })
+    if workload == "linear":
+        for name, values in (
+            ("M", 1 + 2 * data.X.to_numpy()),
+            ("Y", 3 + 4 * data.X.to_numpy() + 5 * data.M.to_numpy()),
+        ):
+            posterior[f"mu_{name}"] = (
+                ("chain", "draw", "obs"),
+                np.broadcast_to(values, (*shape, len(data))),
+            )
+        model._idata = xr.DataTree.from_dict({
+            "posterior": posterior,
+            "observed_data": observed,
+            "constant_data": xr.Dataset({"X": ("obs", data.X.to_numpy())}),
+        })
     return model, construction_seconds, {"rows": len(data), "samples": draws}
 
 
@@ -276,6 +290,16 @@ def worker(args: argparse.Namespace) -> dict[str, Any]:
             )
         }
     if args.workload == "linear":
+        from itertools import cycle
+
+        frame = model._data.to_pandas()
+        changes = cycle((0.0, 1.0, 2.0, 0.0))
+        requests["predict_changed_data"] = lambda: model.predict(
+            data=frame.assign(X=frame.X + next(changes)),
+            extend_inferencedata=False,
+            progressbar=False,
+            random_seed=526,
+        )
         scenarios = [{"X": float(x)} for x in np.linspace(0, 1, args.scenarios)]
         requests["scenarios"] = lambda: (
             query.mean_scenarios(model, scenarios)

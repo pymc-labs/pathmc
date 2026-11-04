@@ -58,6 +58,20 @@ def fitted():
             },
         )
     })
+    post = model._idata.posterior.to_dataset()
+    x = frame.X.to_numpy()
+    post["mu_M"] = (("chain", "draw", "obs"), bm[..., 0, None] + bm[..., 1, None] * x)
+    post["mu_Y"] = (
+        ("chain", "draw", "obs"),
+        by[..., 0, None] + by[..., 1, None] * x + by[..., 2, None] * frame.M.to_numpy(),
+    )
+    model._idata = xr.DataTree.from_dict({
+        "posterior": post,
+        "constant_data": xr.Dataset({"X": ("obs", x)}),
+        "observed_data": xr.Dataset({
+            name: ("obs", frame[name].to_numpy()) for name in ("M", "Y")
+        }),
+    })
     return model
 
 
@@ -291,8 +305,13 @@ def test_prediction_runtime_posterior_values_and_output_selection(fitted):
     options = dict(extend_inferencedata=False, progressbar=False, random_seed=123)
     before = fitted.predict(**options).posterior_predictive.to_dataset()
     fitted._idata.posterior["beta_Y"] = fitted._idata.posterior.beta_Y + [1.0, 0.0, 0.0]
+    fitted._idata.posterior["beta_M"] = fitted._idata.posterior.beta_M + [1.0, 0.0]
     after = fitted.predict(**options).posterior_predictive.to_dataset()
-    np.testing.assert_allclose(after.Y - before.Y, 1.0, rtol=1e-8, atol=1e-10)
+    np.testing.assert_allclose(after.M - before.M, 1.0, rtol=1e-8, atol=1e-10)
+    expected = 1 + fitted._idata.posterior.beta_Y.values[..., 2, None]
+    np.testing.assert_allclose(
+        after.Y - before.Y, np.broadcast_to(expected, (2, 3, 4)), rtol=1e-8, atol=1e-10
+    )
     subset = fitted.predict(
         var_names=["Y"], **options
     ).posterior_predictive.to_dataset()
@@ -356,7 +375,8 @@ def test_changed_trace_outputs_use_fresh_prediction_structure(fitted):
     xr.testing.assert_equal(after, again)
 
 
-def test_float32_mean_preserves_legacy_output_dtype():
+@pytest.mark.parametrize("posterior_dtype", ["float32", "float64"])
+def test_float32_mean_preserves_legacy_output_dtype(posterior_dtype):
     with pytensor.config.change_flags(floatX="float32"):
         model = pathmc.model(
             "M ~ X\nY ~ M",
@@ -377,11 +397,11 @@ def test_float32_mean_preserves_legacy_output_dtype():
         for name in ("M", "Y"):
             post[f"beta_{name}"] = (
                 ("chain", "draw", f"{name}_predictors"),
-                np.array([[[1.0, 2.0], [2.0, 3.0]]], dtype="float32"),
+                np.array([[[1.0, 2.0], [2.0, 3.0]]], dtype=posterior_dtype),
             )
             post[f"sigma_{name}"] = (
                 ("chain", "draw"),
-                np.ones((1, 2), dtype="float32"),
+                np.ones((1, 2), dtype=posterior_dtype),
             )
         model._idata = xr.DataTree.from_dict({"posterior": post})
         for target, expected in (("X", [[7.0, 17.0]]), ("M", [[3.0, 5.0]])):
@@ -390,3 +410,146 @@ def test_float32_mean_preserves_legacy_output_dtype():
                 legacy = model.do(set={target: 1.0}).dataset.Y
             assert prepared.dtype == legacy.dtype
             np.testing.assert_allclose(prepared, expected, rtol=1e-6, atol=1e-7)
+
+
+@pytest.mark.parametrize("delegated", [False, True])
+def test_replacement_shape_cannot_fall_back_to_obsolete_values(delegated, monkeypatch):
+    model = pathmc.model(
+        "Y ~ X", data=pd.DataFrame({"X": [1.0, 2.0, 3.0], "Y": [0.0, 0.0, 0.0]})
+    )
+    model._idata = xr.DataTree.from_dict({
+        "posterior": xr.Dataset(
+            {
+                "beta_Y": (("chain", "draw", "Y_predictors"), [[[1.0, 2.0]]]),
+                "sigma_Y": (("chain", "draw"), [[1.0]]),
+            },
+            coords={"chain": [0], "draw": [0], "Y_predictors": ["Intercept", "X"]},
+        )
+    })
+    if delegated:
+        monkeypatch.setattr(query, "eligible", lambda model: False)
+    assert model.do().mean("Y") == 5
+    with model.pymc_model:
+        pm.set_data({"X": np.array([10.0, 20.0, 30.0])})
+    assert model.do().mean("Y") == 41
+    np.testing.assert_array_equal(model._gen_model["X"].get_value(), [1.0, 2.0, 3.0])
+    with model.pymc_model:
+        pm.set_data({"X": np.array([10.0, 20.0, 30.0, 40.0])})
+    with pytest.raises(ValueError, match="Restore.*row count|new model"):
+        model.do()
+    with model.pymc_model:
+        pm.set_data({"X": np.array([2.0, 3.0, 4.0])})
+    assert model.do().mean("Y") == 7
+
+
+def test_scenario_preparation_keeps_scalar_inputs_compact(fitted, monkeypatch):
+    scenarios = [{"X": float(value)} for value in range(25)]
+    rows = len(fitted._data)
+    query.mean_scenarios(fitted, scenarios)
+    allocations = []
+    functions = {
+        "array",
+        "asarray",
+        "stack",
+        "empty",
+        "zeros",
+        "ones",
+        "full",
+        "tile",
+        "repeat",
+        "broadcast_to",
+    }
+
+    class Allocations:
+        def __getattr__(self, name):
+            original = getattr(np, name)
+            if name not in functions:
+                return original
+
+            def call(*args, **kwargs):
+                result = original(*args, **kwargs)
+                if (
+                    args
+                    and isinstance(args[0], np.ndarray)
+                    and np.shares_memory(result, args[0])
+                ):
+                    return result
+                base = result
+                while isinstance(base.base, np.ndarray):
+                    base = base.base
+                if base.ndim >= 2 and rows in base.shape:
+                    allocations.append(base.shape)
+                    assert base.size <= rows, (
+                        f"unbounded observation expansion: {base.shape}"
+                    )
+                return result
+
+            return call
+
+    monkeypatch.setattr(query, "np", Allocations())
+    result = query.mean_scenarios(fitted, scenarios, max_elements=rows)
+    assert len(result) == 25 and allocations
+    for value, scenario in enumerate(result):
+        _, expected = oracle(fitted, float(value))
+        np.testing.assert_allclose(
+            scenario.dataset.Y, expected.mean(-1), rtol=1e-8, atol=1e-10
+        )
+
+
+@pytest.mark.parametrize("extend", [False, True])
+def test_fitted_trace_prediction_roles_remain_stable(fitted, extend):
+    if query.freeze_model is None:
+        pytest.skip(
+            "This PyMC version delegates prediction without frozen-model caching"
+        )
+    options = dict(extend_inferencedata=extend, progressbar=False, random_seed=41)
+    original = fitted._idata.posterior.to_dataset().copy(deep=True)
+    posterior_node = fitted._idata.posterior
+    frame = fitted._data.to_pandas()
+    initial = (
+        fitted.predict(**options).posterior_predictive.to_dataset().copy(deep=True)
+    )
+    with (
+        patch.object(core, "compile", wraps=core.compile) as compiler,
+        patch.object(pytensor, "function", wraps=pytensor.function) as pt_compiler,
+    ):
+        for change in (1.0, 2.0, 0.0):
+            result = fitted.predict(data=frame.assign(X=frame.X + change), **options)
+            if extend:
+                assert result is fitted._idata
+            difference = result.posterior_predictive.M - initial.M
+            expected = original.beta_M.values[..., 1, None] * change
+            np.testing.assert_allclose(
+                difference, np.broadcast_to(expected, (2, 3, 4)), rtol=1e-8, atol=1e-10
+            )
+    assert not compiler.called and not pt_compiler.called
+    xr.testing.assert_equal(fitted._idata.posterior.to_dataset(), original)
+    assert fitted._idata.posterior is posterior_node
+
+
+@pytest.mark.slow
+def test_nutpie_float32_posterior_remains_queryable():
+    pytest.importorskip("nutpie")
+    with pytensor.config.change_flags(floatX="float32"):
+        frame = pd.DataFrame({
+            "X": [-1.0, 0.0, 1.0, 2.0],
+            "Y": [-1.0, 1.0, 3.0, 5.0],
+        }).astype("float32")
+        model = pathmc.model("Y ~ X", data=frame)
+        idata = model.fit(
+            nuts_sampler="nutpie",
+            draws=10,
+            tune=10,
+            chains=1,
+            cores=1,
+            progressbar=False,
+            random_seed=31,
+            compute_log_likelihood=False,
+        )
+        beta = idata.posterior.beta_Y.values.astype("float32").astype(float)
+        np.testing.assert_allclose(
+            model.do(set={"X": 1.0}).dataset.Y,
+            beta[..., 0] + beta[..., 1],
+            rtol=1e-6,
+            atol=1e-7,
+        )

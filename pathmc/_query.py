@@ -14,7 +14,8 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import RLock
 from typing import Any, TYPE_CHECKING, cast
@@ -79,8 +80,8 @@ class QueryCache:
             return self.entries[key]
 
 
-def eligible(model: PathModel) -> bool:
-    """Limit optimization to the observed numeric linear Gaussian contract."""
+def _linear_gaussian_model(model: PathModel) -> bool:
+    """Identify the model slice independently of the selected compiler backend."""
     if (
         model._data is None
         or model._panel_info is not None
@@ -88,8 +89,6 @@ def eligible(model: PathModel) -> bool:
         or model._latent
         or model._spec.residual_covs
         or model._scaling_factors is not None
-        or str(pytensor.config.mode)
-        not in ("Mode", "FAST_RUN", "FAST_COMPILE", "CVM", "VM", "NUMBA")
     ):
         return False
     for reg in model._spec.regressions:
@@ -111,6 +110,53 @@ def eligible(model: PathModel) -> bool:
         and np.isfinite(model._data[name].to_numpy()).all()
         for name in names
     )
+
+
+def eligible(model: PathModel) -> bool:
+    """Limit optimization to the observed numeric linear Gaussian contract."""
+    return _linear_gaussian_model(model) and str(pytensor.config.mode) in (
+        "Mode",
+        "FAST_RUN",
+        "FAST_COMPILE",
+        "CVM",
+        "VM",
+        "NUMBA",
+    )
+
+
+def _current_exogenous(model: PathModel) -> dict[str, np.ndarray]:
+    """Read and validate the estimation graph's current numeric row inputs."""
+    assert model._data is not None and model._pymc_model is not None
+    rows = len(model._data)
+    values = {}
+    for name in sorted(model._graph_info.exogenous):
+        value = model._pymc_model[name].get_value()
+        if value.shape != (rows,):
+            raise ValueError(
+                f"Replacement data for '{name}' has shape {value.shape}, "
+                f"but this model requires ({rows},). Restore the fitted row "
+                "count or build a new model for the replacement data."
+            )
+        values[name] = value
+    return values
+
+
+@contextmanager
+def current_data(model: PathModel) -> Iterator[None]:
+    """Give delegated queries validated current inputs without retaining updates."""
+    if not _linear_gaussian_model(model):
+        yield
+        return
+    assert model._gen_model is not None
+    values = _current_exogenous(model)
+    previous = {name: model._gen_model[name].get_value() for name in values}
+    try:
+        for name, value in values.items():
+            model._gen_model[name].set_value(value)
+        yield
+    finally:
+        for name, value in previous.items():
+            model._gen_model[name].set_value(value)
 
 
 def signature(model: PathModel, post: xr.Dataset) -> tuple:
@@ -195,7 +241,10 @@ def prepare_mean(model: PathModel, targets: tuple[str, ...], average: bool) -> M
     if average:
         batched = [pt.mean(value, axis=-1) for value in batched]
     function = pytensor.function(
-        list(vectorized.values()), batched, on_unused_input="ignore"
+        list(vectorized.values()),
+        batched,
+        on_unused_input="ignore",
+        allow_input_downcast=True,
     )
     return MeanPlan(
         function,
@@ -231,17 +280,13 @@ def mean_scenarios(
     if not set(targets) <= known or any(tuple(sorted(s)) != targets for s in scenarios):
         return None
     rows = len(model._data)
-    for name in model._graph_info.exogenous:
-        if model._pymc_model[name].get_value().shape != (rows,):
-            return None
-    values = {
-        name: np.stack([_intervention_array(s[name], rows) for s in scenarios]).astype(
-            model._gen_model[name].dtype, copy=False
-        )
-        for name in targets
-    }
-    if any(not np.isfinite(value).all() for value in values.values()):
-        return None
+    for scenario in scenarios:
+        for name in targets:
+            values = np.asarray(scenario[name], dtype=float)
+            if values.size != 1:
+                _intervention_array(values, rows)
+            if not np.isfinite(values).all():
+                return None
     post = posterior(model._idata)
     for reg in model._spec.regressions:
         name = f"beta_{reg.lhs}"
@@ -254,6 +299,7 @@ def mean_scenarios(
             return None
     cache = model._query_cache
     with cache.lock:
+        current = _current_exogenous(model)
         key = ("mean", signature(model, post), targets, average)
         plan: MeanPlan = cache.get(key, lambda: prepare_mean(model, targets, average))
         chains, draws = post.sizes["chain"], post.sizes["draw"]
@@ -271,17 +317,19 @@ def mean_scenarios(
             post[name].values.reshape((samples, 1, *post[name].shape[2:]))
             for name in plan.parameters
         ]
-        data = [
-            np.asarray(model._pymc_model[name].get_value())[None, None, :]
-            for name in plan.exogenous
-        ]
-        for start in range(0, samples, draw_batch):
-            stop = min(samples, start + draw_batch)
-            for arm in range(0, n_scenarios, scenario_batch):
-                end = min(n_scenarios, arm + scenario_batch)
+        data = [current[name][None, None, :] for name in plan.exogenous]
+        for arm in range(0, n_scenarios, scenario_batch):
+            end = min(n_scenarios, arm + scenario_batch)
+            interventions = [
+                np.stack([
+                    _intervention_array(s[name], rows) for s in scenarios[arm:end]
+                ])[None].astype(model._gen_model[name].dtype, copy=False)
+                for name in plan.targets
+            ]
+            for start in range(0, samples, draw_batch):
+                stop = min(samples, start + draw_batch)
                 inputs = [v[start:stop] for v in parameters]
-                inputs += [values[name][None, arm:end] for name in plan.targets]
-                outputs = plan.function(*inputs, *data)
+                outputs = plan.function(*inputs, *interventions, *data)
                 for name, value in zip(plan.outputs, outputs, strict=True):
                     result[name][start:stop, arm:end] = value
         ones = _chain_draw_ones(post)
@@ -343,3 +391,29 @@ def prediction_model(model: PathModel, kwargs: Mapping[str, Any]) -> pm.Model:
                 return model._pymc_model
             target.set_value(var.get_value())
     return frozen
+
+
+def run_prediction(model: PathModel, kwargs: Mapping[str, Any]) -> Any:
+    """Evaluate prediction with stable runtime roles for response means."""
+    assert model._idata is not None and model._pymc_model is not None
+    execution_model = prediction_model(model, kwargs)
+    post = posterior(model._idata)
+    means = [
+        f"mu_{reg.lhs}" for reg in model._spec.regressions if f"mu_{reg.lhs}" in post
+    ]
+    with execution_model:
+        if execution_model is model._pymc_model or not means:
+            return pm.sample_posterior_predictive(model._idata, **kwargs)
+        # Stored response means otherwise switch between trace inputs and graph
+        # evaluation when data changes, forcing another PyMC compilation.
+        trace = model._idata.copy(deep=False)
+        trace["posterior"] = xr.DataTree(post.drop_vars(means))
+        result = pm.sample_posterior_predictive(trace, **kwargs)
+    if kwargs.get("extend_inferencedata", False):
+        model._idata.update({
+            group: result[group]
+            for group in ("posterior_predictive", "observed_data", "constant_data")
+            if group in result
+        })
+        return model._idata
+    return result
