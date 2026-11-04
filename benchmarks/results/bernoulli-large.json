@@ -1,0 +1,803 @@
+{
+  "environment": {
+    "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
+    "versions": {
+      "pathmc": "0.5.0",
+      "pymc": "6.3.2",
+      "pytensor": "3.3.6",
+      "arviz": "1.2.0",
+      "numpy": "2.4.6"
+    },
+    "optional_backend_versions": {
+      "numba": "0.65.1",
+      "jax": "0.10.1",
+      "numpyro": "0.21.0",
+      "nutpie": "0.16.10"
+    },
+    "commit": "bfff1b76a3ae04b0c6ae4e64dfdb8c624a6c7032",
+    "dirty": false,
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "logical_cpus": 10,
+    "threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1"
+    },
+    "floatX": "float64",
+    "mode": "FAST_RUN",
+    "effective_linker": "NumbaLinker",
+    "compiledir": "/Users/benjamv/.pytensor/compiledir_macOS-27.2-arm64-arm-64bit-arm-3.12.12-64",
+    "seed": 526
+  },
+  "shape": {
+    "rows": 10000,
+    "samples": 2000
+  },
+  "model_construction_seconds": 0.02201275000697933,
+  "queries": {
+    "mean_do": {
+      "status": "ok",
+      "first_request": {
+        "end_to_end_seconds": 0.5241722920036409,
+        "result_materialization_seconds": 0.00010458400356583297,
+        "output_bytes": 48000,
+        "events": {
+          "pm.do": {
+            "calls": 1,
+            "seconds": 0.0031416249985340983
+          },
+          "pytensor.function": {
+            "calls": 1,
+            "seconds": 0.22258274999330752
+          },
+          "pymc.compile": {
+            "calls": 1,
+            "seconds": 0.22277416700671893
+          },
+          "function_execution": {
+            "calls": 2000,
+            "seconds": 0.12781145003100391
+          },
+          "xarray_dataset_construction": {
+            "calls": 2,
+            "seconds": 0.0008772090077400208
+          },
+          "xarray_aggregation": {
+            "calls": 2,
+            "seconds": 0.04311133298324421
+          }
+        }
+      },
+      "warmed_requests": [
+        {
+          "end_to_end_seconds": 0.23291795799741521,
+          "result_materialization_seconds": 8.620800508651882e-05,
+          "output_bytes": 48000,
+          "events": {
+            "pm.do": {
+              "calls": 1,
+              "seconds": 0.0022235000069485977
+            },
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.016610082995612174
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.016769875001045875
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.07011585260624997
+            },
+            "xarray_dataset_construction": {
+              "calls": 2,
+              "seconds": 0.0007489999989047647
+            },
+            "xarray_aggregation": {
+              "calls": 2,
+              "seconds": 0.03917304100468755
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.27344749998883344,
+          "result_materialization_seconds": 8.512499334756285e-05,
+          "output_bytes": 48000,
+          "events": {
+            "pm.do": {
+              "calls": 1,
+              "seconds": 0.0019089999987045303
+            },
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.07869254201068543
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.0788533750019269
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.07054346603399608
+            },
+            "xarray_dataset_construction": {
+              "calls": 2,
+              "seconds": 0.0007977920031407848
+            },
+            "xarray_aggregation": {
+              "calls": 2,
+              "seconds": 0.03672708301746752
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.22571379200962838,
+          "result_materialization_seconds": 9.67920059338212e-05,
+          "output_bytes": 48000,
+          "events": {
+            "pm.do": {
+              "calls": 1,
+              "seconds": 0.001948208999237977
+            },
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.01796079199993983
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.018140333995688707
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.07165753343724646
+            },
+            "xarray_dataset_construction": {
+              "calls": 2,
+              "seconds": 0.00090637500397861
+            },
+            "xarray_aggregation": {
+              "calls": 2,
+              "seconds": 0.03870116600592155
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.21233262500027195,
+          "result_materialization_seconds": 8.658300794195384e-05,
+          "output_bytes": 48000,
+          "events": {
+            "pm.do": {
+              "calls": 1,
+              "seconds": 0.0023671249946346506
+            },
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.017657832999248058
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.017879541992442682
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.06972679881437216
+            },
+            "xarray_dataset_construction": {
+              "calls": 2,
+              "seconds": 0.0011271260009380057
+            },
+            "xarray_aggregation": {
+              "calls": 2,
+              "seconds": 0.03639475100499112
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.21223208399896976,
+          "result_materialization_seconds": 8.362499647773802e-05,
+          "output_bytes": 48000,
+          "events": {
+            "pm.do": {
+              "calls": 1,
+              "seconds": 0.0019164170080330223
+            },
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.016386583010898903
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.016545165999559686
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.06990291882539168
+            },
+            "xarray_dataset_construction": {
+              "calls": 2,
+              "seconds": 0.0007325009937630966
+            },
+            "xarray_aggregation": {
+              "calls": 2,
+              "seconds": 0.03644333301053848
+            }
+          }
+        }
+      ],
+      "warm_median_seconds": 0.22571379200962838,
+      "warm_min_seconds": 0.21223208399896976,
+      "warm_max_seconds": 0.27344749998883344
+    },
+    "ate": {
+      "status": "ok",
+      "first_request": {
+        "end_to_end_seconds": 0.42191187500429805,
+        "result_materialization_seconds": 7.933400047477335e-05,
+        "output_bytes": 48000,
+        "events": {
+          "pm.do": {
+            "calls": 2,
+            "seconds": 0.0039167909999378026
+          },
+          "pytensor.function": {
+            "calls": 2,
+            "seconds": 0.033547623999766074
+          },
+          "pymc.compile": {
+            "calls": 2,
+            "seconds": 0.033860915995319374
+          },
+          "function_execution": {
+            "calls": 4000,
+            "seconds": 0.14003151452925522
+          },
+          "xarray_dataset_construction": {
+            "calls": 4,
+            "seconds": 0.001447250004275702
+          },
+          "xarray_aggregation": {
+            "calls": 4,
+            "seconds": 0.07291362601972651
+          }
+        }
+      },
+      "warmed_requests": [
+        {
+          "end_to_end_seconds": 0.4218062080035452,
+          "result_materialization_seconds": 8.379100472666323e-05,
+          "output_bytes": 48000,
+          "events": {
+            "pm.do": {
+              "calls": 2,
+              "seconds": 0.0039308319974225014
+            },
+            "pytensor.function": {
+              "calls": 2,
+              "seconds": 0.03336850000778213
+            },
+            "pymc.compile": {
+              "calls": 2,
+              "seconds": 0.03368270899227355
+            },
+            "function_execution": {
+              "calls": 4000,
+              "seconds": 0.14056969483499415
+            },
+            "xarray_dataset_construction": {
+              "calls": 4,
+              "seconds": 0.0015234169841278344
+            },
+            "xarray_aggregation": {
+              "calls": 4,
+              "seconds": 0.07351624900184106
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.41793241699633654,
+          "result_materialization_seconds": 8.07089963927865e-05,
+          "output_bytes": 48000,
+          "events": {
+            "pm.do": {
+              "calls": 2,
+              "seconds": 0.0038927069981582463
+            },
+            "pytensor.function": {
+              "calls": 2,
+              "seconds": 0.0335708749917103
+            },
+            "pymc.compile": {
+              "calls": 2,
+              "seconds": 0.03388716600602493
+            },
+            "function_execution": {
+              "calls": 4000,
+              "seconds": 0.1397730969474651
+            },
+            "xarray_dataset_construction": {
+              "calls": 4,
+              "seconds": 0.0014562909782398492
+            },
+            "xarray_aggregation": {
+              "calls": 4,
+              "seconds": 0.0729130000108853
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.42159008399175946,
+          "result_materialization_seconds": 7.82089919084683e-05,
+          "output_bytes": 48000,
+          "events": {
+            "pm.do": {
+              "calls": 2,
+              "seconds": 0.004177375012659468
+            },
+            "pytensor.function": {
+              "calls": 2,
+              "seconds": 0.034751541999867186
+            },
+            "pymc.compile": {
+              "calls": 2,
+              "seconds": 0.035124083995469846
+            },
+            "function_execution": {
+              "calls": 4000,
+              "seconds": 0.1401022944774013
+            },
+            "xarray_dataset_construction": {
+              "calls": 4,
+              "seconds": 0.0015239590138662606
+            },
+            "xarray_aggregation": {
+              "calls": 4,
+              "seconds": 0.07314283502637409
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.420713290994172,
+          "result_materialization_seconds": 8.433299080934376e-05,
+          "output_bytes": 48000,
+          "events": {
+            "pm.do": {
+              "calls": 2,
+              "seconds": 0.003940708003938198
+            },
+            "pytensor.function": {
+              "calls": 2,
+              "seconds": 0.03432345800683834
+            },
+            "pymc.compile": {
+              "calls": 2,
+              "seconds": 0.03464037498633843
+            },
+            "function_execution": {
+              "calls": 4000,
+              "seconds": 0.14132286517997272
+            },
+            "xarray_dataset_construction": {
+              "calls": 4,
+              "seconds": 0.0015092930116225034
+            },
+            "xarray_aggregation": {
+              "calls": 4,
+              "seconds": 0.07294141798047349
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.4223966669960646,
+          "result_materialization_seconds": 7.908299448899925e-05,
+          "output_bytes": 48000,
+          "events": {
+            "pm.do": {
+              "calls": 2,
+              "seconds": 0.004148874984821305
+            },
+            "pytensor.function": {
+              "calls": 2,
+              "seconds": 0.034433292006724514
+            },
+            "pymc.compile": {
+              "calls": 2,
+              "seconds": 0.034770042009768076
+            },
+            "function_execution": {
+              "calls": 4000,
+              "seconds": 0.14092972557409666
+            },
+            "xarray_dataset_construction": {
+              "calls": 4,
+              "seconds": 0.0014701659965794533
+            },
+            "xarray_aggregation": {
+              "calls": 4,
+              "seconds": 0.07317754201358184
+            }
+          }
+        }
+      ],
+      "warm_median_seconds": 0.42159008399175946,
+      "warm_min_seconds": 0.41793241699633654,
+      "warm_max_seconds": 0.4223966669960646
+    },
+    "predictive_do": {
+      "status": "ok",
+      "first_request": {
+        "end_to_end_seconds": 0.36863741699198727,
+        "result_materialization_seconds": 7.524999091401696e-05,
+        "output_bytes": 320016000,
+        "events": {
+          "pm.do": {
+            "calls": 1,
+            "seconds": 0.0019514579907990992
+          },
+          "pytensor.function": {
+            "calls": 1,
+            "seconds": 0.020580415992299095
+          },
+          "pymc.compile": {
+            "calls": 1,
+            "seconds": 0.020795500007807277
+          },
+          "function_execution": {
+            "calls": 2000,
+            "seconds": 0.322361053826171
+          },
+          "xarray_dataset_construction": {
+            "calls": 8,
+            "seconds": 0.0010651669872459024
+          },
+          "predictive_result_conversion": {
+            "calls": 1,
+            "seconds": 0.00361391699698288
+          }
+        }
+      },
+      "warmed_requests": [
+        {
+          "end_to_end_seconds": 0.36666037498798687,
+          "result_materialization_seconds": 7.249999907799065e-05,
+          "output_bytes": 320016000,
+          "events": {
+            "pm.do": {
+              "calls": 1,
+              "seconds": 0.0021051660005468875
+            },
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.019141790995490737
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.01933962499606423
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.321538847652846
+            },
+            "xarray_dataset_construction": {
+              "calls": 8,
+              "seconds": 0.001026081998134032
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.004063792002853006
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.3638219160056906,
+          "result_materialization_seconds": 7.070800347719342e-05,
+          "output_bytes": 320016000,
+          "events": {
+            "pm.do": {
+              "calls": 1,
+              "seconds": 0.0019587499991757795
+            },
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.018887958009145223
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.019071707996772602
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.3207035520754289
+            },
+            "xarray_dataset_construction": {
+              "calls": 8,
+              "seconds": 0.0010137499630218372
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.0034343750012340024
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.3653294999967329,
+          "result_materialization_seconds": 7.304099563043565e-05,
+          "output_bytes": 320016000,
+          "events": {
+            "pm.do": {
+              "calls": 1,
+              "seconds": 0.0019288330076960847
+            },
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.0188116670033196
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.018992750003235415
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.32251201489998493
+            },
+            "xarray_dataset_construction": {
+              "calls": 8,
+              "seconds": 0.0010382920154370368
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.00357183298910968
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.36385245800192934,
+          "result_materialization_seconds": 7.30419997125864e-05,
+          "output_bytes": 320016000,
+          "events": {
+            "pm.do": {
+              "calls": 1,
+              "seconds": 0.001959790999535471
+            },
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.019630499999038875
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.019810958998277783
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.32031686609843746
+            },
+            "xarray_dataset_construction": {
+              "calls": 8,
+              "seconds": 0.0010141670209122822
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.0033767080021789297
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.364298582993797,
+          "result_materialization_seconds": 7.162499241530895e-05,
+          "output_bytes": 320016000,
+          "events": {
+            "pm.do": {
+              "calls": 1,
+              "seconds": 0.0019144169928040355
+            },
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.018498250006814487
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.018687457995838486
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.3205061619664775
+            },
+            "xarray_dataset_construction": {
+              "calls": 8,
+              "seconds": 0.0010235429799649864
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.003876665999996476
+            }
+          }
+        }
+      ],
+      "warm_median_seconds": 0.364298582993797,
+      "warm_min_seconds": 0.3638219160056906,
+      "warm_max_seconds": 0.36666037498798687
+    },
+    "predict": {
+      "status": "ok",
+      "first_request": {
+        "end_to_end_seconds": 0.40205579200119246,
+        "result_materialization_seconds": 0.0001409579999744892,
+        "output_bytes": 480000000,
+        "events": {
+          "pytensor.function": {
+            "calls": 1,
+            "seconds": 0.018736707992502488
+          },
+          "pymc.compile": {
+            "calls": 1,
+            "seconds": 0.018940500012831762
+          },
+          "function_execution": {
+            "calls": 2000,
+            "seconds": 0.3623505659925286
+          },
+          "xarray_dataset_construction": {
+            "calls": 7,
+            "seconds": 0.0007604169804835692
+          },
+          "predictive_result_conversion": {
+            "calls": 1,
+            "seconds": 0.0037772089999634773
+          }
+        }
+      },
+      "warmed_requests": [
+        {
+          "end_to_end_seconds": 0.40499045900651254,
+          "result_materialization_seconds": 0.00014641700545325875,
+          "output_bytes": 480000000,
+          "events": {
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.01890395900409203
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.019104582999716513
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.3649683492112672
+            },
+            "xarray_dataset_construction": {
+              "calls": 7,
+              "seconds": 0.0007557499775430188
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.003732750003109686
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.4907706249941839,
+          "result_materialization_seconds": 0.00014758299221284688,
+          "output_bytes": 480000000,
+          "events": {
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.10340300000098068
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.10360541699628811
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.36594270693603903
+            },
+            "xarray_dataset_construction": {
+              "calls": 7,
+              "seconds": 0.0007785010093357414
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.0038699580036336556
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.40340220800135285,
+          "result_materialization_seconds": 0.0001408749958500266,
+          "output_bytes": 480000000,
+          "events": {
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.018854915993870236
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.019061207989579998
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.36345655826153234
+            },
+            "xarray_dataset_construction": {
+              "calls": 7,
+              "seconds": 0.0007592490292154253
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.0037627080018864945
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.4048341250017984,
+          "result_materialization_seconds": 0.000143166005727835,
+          "output_bytes": 480000000,
+          "events": {
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.018736208992777392
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.01894787501078099
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.36388001825253014
+            },
+            "xarray_dataset_construction": {
+              "calls": 7,
+              "seconds": 0.0007637489907210693
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.0039027500024531037
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.40451804200711194,
+          "result_materialization_seconds": 0.00014270799874793738,
+          "output_bytes": 480000000,
+          "events": {
+            "pytensor.function": {
+              "calls": 1,
+              "seconds": 0.018965417009894736
+            },
+            "pymc.compile": {
+              "calls": 1,
+              "seconds": 0.019169125007465482
+            },
+            "function_execution": {
+              "calls": 2000,
+              "seconds": 0.3644634810916614
+            },
+            "xarray_dataset_construction": {
+              "calls": 7,
+              "seconds": 0.0007472499855794013
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.003821457998128608
+            }
+          }
+        }
+      ],
+      "warm_median_seconds": 0.4048341250017984,
+      "warm_min_seconds": 0.40340220800135285,
+      "warm_max_seconds": 0.4907706249941839
+    }
+  },
+  "peak_process_rss_bytes": 1458831360,
+  "status": "ok",
+  "cache_state": "existing-disk-cache-first-request",
+  "workload": "bernoulli",
+  "large": true,
+  "executor": "auto",
+  "scenarios": 2,
+  "simulations": 20
+}

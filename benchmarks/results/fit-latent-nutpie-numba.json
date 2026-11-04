@@ -1,0 +1,70 @@
+{
+  "status": "ok",
+  "sampler": "nutpie-numba",
+  "draws_per_chain": 200,
+  "tune_per_chain": 200,
+  "tuning_sampling_conversion_seconds": 7.020242958009476,
+  "compiler_events_inclusive": {
+    "pytensor.function": {
+      "calls": 5,
+      "seconds": 0.8180046239867806
+    },
+    "function_execution": {
+      "calls": 4,
+      "seconds": 0.0035027909907512367
+    },
+    "nutpie.compile_pymc_model": {
+      "calls": 1,
+      "seconds": 5.15393966701231
+    },
+    "xarray_dataset_construction": {
+      "calls": 13,
+      "seconds": 0.005712291997042485
+    }
+  },
+  "tuning_chain_cpu_wall_seconds": null,
+  "sampling_chain_cpu_wall_seconds": null,
+  "clock_note": "Per-chain clocks are summed when exposed; null means the backend did not expose this boundary. Total time includes compilation and result conversion.",
+  "minimum_bulk_ess": 18.0,
+  "minimum_bulk_ess_per_total_second": 2.564013825114641,
+  "maximum_rhat": 1.1,
+  "divergences": 27,
+  "environment": {
+    "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
+    "versions": {
+      "pathmc": "0.5.0",
+      "pymc": "6.3.2",
+      "pytensor": "3.3.6",
+      "arviz": "1.2.0",
+      "numpy": "2.4.6"
+    },
+    "optional_backend_versions": {
+      "numba": "0.65.1",
+      "jax": "0.10.1",
+      "numpyro": "0.21.0",
+      "nutpie": "0.16.10"
+    },
+    "commit": "bfff1b76a3ae04b0c6ae4e64dfdb8c624a6c7032",
+    "dirty": false,
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "logical_cpus": 10,
+    "threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1"
+    },
+    "floatX": "float64",
+    "mode": "FAST_RUN",
+    "effective_linker": "NumbaLinker",
+    "compiledir": "/Users/benjamv/.pytensor/compiledir_macOS-27.2-arm64-arm-64bit-arm-3.12.12-64",
+    "seed": 526
+  },
+  "experiment": "fit",
+  "workload": "latent",
+  "large": false,
+  "peak_process_rss_bytes": 513916928
+}

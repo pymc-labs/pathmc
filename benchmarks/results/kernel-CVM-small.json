@@ -1,0 +1,72 @@
+{
+  "status": "ok",
+  "work_unit": "One prepared deterministic batch, excluding labeled result assembly; not end-to-end query latency",
+  "shape": {
+    "rows": 100,
+    "samples": 100
+  },
+  "batch_draws": 100,
+  "scenarios": 2,
+  "model_construction_seconds": 0.02780858299229294,
+  "graph_and_function_preparation_seconds": 0.42307879199506715,
+  "preparation_events_inclusive": {
+    "pytensor.function": {
+      "calls": 1,
+      "seconds": 0.41959845800010953
+    },
+    "mean_plan_preparation": {
+      "calls": 1,
+      "seconds": 0.4229597079975065
+    }
+  },
+  "first_execution_and_oracle_seconds": 0.0007046249957056716,
+  "warmed_execution_seconds": [
+    0.0004128340078750625,
+    0.0004023750079795718,
+    0.0004048749979119748,
+    0.0003941670001950115,
+    0.00039229200046975166
+  ],
+  "warm_median_seconds": 0.0004023750079795718,
+  "warm_min_seconds": 0.00039229200046975166,
+  "warm_max_seconds": 0.0004128340078750625,
+  "environment": {
+    "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
+    "versions": {
+      "pathmc": "0.5.0",
+      "pymc": "6.3.2",
+      "pytensor": "3.3.6",
+      "arviz": "1.2.0",
+      "numpy": "2.4.6"
+    },
+    "optional_backend_versions": {
+      "numba": "0.65.1",
+      "jax": "0.10.1",
+      "numpyro": "0.21.0",
+      "nutpie": "0.16.10"
+    },
+    "commit": "72ec3cf048a8ad97065cca00cb6aba04c8007940",
+    "dirty": false,
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "logical_cpus": 10,
+    "threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1"
+    },
+    "floatX": "float64",
+    "mode": "CVM",
+    "effective_linker": "VMLinker",
+    "compiledir": "/Users/benjamv/.pytensor/compiledir_macOS-27.2-arm64-arm-64bit-arm-3.12.12-64",
+    "seed": 526
+  },
+  "experiment": "kernel",
+  "workload": "linear",
+  "sampler": "pymc",
+  "large": false,
+  "peak_process_rss_bytes": 284573696
+}

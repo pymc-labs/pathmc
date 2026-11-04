@@ -1,0 +1,86 @@
+{
+  "status": "ok",
+  "shape": {
+    "rows": 4000,
+    "samples": 2000
+  },
+  "construction_seconds": 0.03996608300076332,
+  "graph_and_function_compilation_seconds": 0.7815948330098763,
+  "first_execution_seconds": 0.0019218749948777258,
+  "warm_median_seconds": 0.0016090625067590736,
+  "warm_min_seconds": 0.0015907920023892075,
+  "warm_max_seconds": 0.0016953330050455406,
+  "optimized_node_count": 56,
+  "optimized_scan_ops": [
+    "Scan{scan_fn&scan_fn, while_loop=False, inplace=all}",
+    "Scan{grad_of_scan_fn, while_loop=False, inplace=[2, 3]}"
+  ],
+  "op_seconds_including_first_execution": {
+    "Scan{grad_of_scan_fn, while_loop=False, inplace=[2, 3]}": 0.10068464279174805,
+    "Scan{scan_fn&scan_fn, while_loop=False, inplace=all}": 0.05591726303100586,
+    "Composite{switch(i0, ((-0.9189385332046727 + (-0.5 * sqr(((-i3) / i2)))) - i1), -inf)}": 0.0005145072937011719,
+    "Sum{axes=None}": 0.0004401206970214844,
+    "CAReduce{Composite{(i0 + sqr(i1))}, axes=None}": 0.00039768218994140625,
+    "Composite{(((-i1) / i0) / i0)}": 0.00027489662170410156,
+    "Composite{(i0 + (i1 * i2))}": 0.00021982192993164062,
+    "IncSubtensor{i}": 0.00021386146545410156,
+    "Mul": 0.0002086162567138672,
+    "Composite{and(i0, invert(isnan(i1)))}": 0.00020766258239746094,
+    "Isnan": 0.0001614093780517578,
+    "Composite{...}": 0.00010609626770019531,
+    "Subtensor{:stop}": 7.462501525878906e-05,
+    "Join{axis=0}": 6.389617919921875e-05,
+    "Subtensor{i}": 6.0558319091796875e-05,
+    "SetSubtensor{:stop}": 4.649162292480469e-05,
+    "ExpandDims{axis=0}": 4.458427429199219e-05,
+    "AllocEmpty{dtype='float64'}": 4.220008850097656e-05,
+    "Subtensor{start::step}": 4.00543212890625e-05,
+    "SpecifyShape": 3.814697265625e-05,
+    "DeepCopyOp": 3.3855438232421875e-05,
+    "ExpandDims{axes=(0, 1)}": 3.314018249511719e-05,
+    "Neq": 2.4318695068359375e-05,
+    "Exp": 1.1920928955078125e-05,
+    "Subtensor{:stop:step}": 1.1920928955078125e-05,
+    "Subtensor{::step}": 1.0967254638671875e-05,
+    "Composite{(-3999.0 + switch(i0, (-1.0 * i1 * i1), 0.0) + ((i2 / (i1 * i1 * i1)) * i1))}": 8.821487426757812e-06
+  },
+  "environment": {
+    "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
+    "versions": {
+      "pathmc": "0.5.0",
+      "pymc": "6.3.2",
+      "pytensor": "3.3.6",
+      "arviz": "1.2.0",
+      "numpy": "2.4.6"
+    },
+    "optional_backend_versions": {
+      "numba": "0.65.1",
+      "jax": "0.10.1",
+      "numpyro": "0.21.0",
+      "nutpie": "0.16.10"
+    },
+    "commit": "bfff1b76a3ae04b0c6ae4e64dfdb8c624a6c7032",
+    "dirty": false,
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "logical_cpus": 10,
+    "threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1"
+    },
+    "floatX": "float64",
+    "mode": "CVM",
+    "effective_linker": "VMLinker",
+    "compiledir": "/Users/benjamv/.pytensor/compiledir_macOS-27.2-arm64-arm-64bit-arm-3.12.12-64",
+    "seed": 526
+  },
+  "experiment": "profile",
+  "workload": "panel_lag",
+  "sampler": "pymc",
+  "large": true,
+  "peak_process_rss_bytes": 296026112
+}

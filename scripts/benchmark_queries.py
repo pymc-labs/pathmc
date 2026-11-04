@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, nullcontext, ExitStack
 import importlib.metadata
 import json
@@ -33,19 +34,24 @@ import subprocess
 import sys
 import tempfile
 from time import perf_counter
+from types import ModuleType
+from typing import Any, TYPE_CHECKING
 from unittest.mock import patch
 
 import numpy as np
 
+if TYPE_CHECKING:
+    from pathmc._model import PathModel
 
-def query_adapter():
+
+def query_adapter() -> ModuleType | None:
     """Allow this baseline harness to run before the prepared executor exists."""
     if importlib.util.find_spec("pathmc._query") is None:
         return None
     return importlib.import_module("pathmc._query")
 
 
-def environment() -> dict:
+def environment() -> dict[str, Any]:
     """Describe the executable environment, including explicit thread settings."""
     import pytensor
     from pytensor.compile.mode import get_mode
@@ -90,7 +96,7 @@ def environment() -> dict:
 
 
 @contextmanager
-def instrumentation():
+def instrumentation() -> Iterator[dict[str, dict[str, Any]]]:
     """Count actual compiler entries, graph surgery and numeric function calls.
 
     Inclusive durations may overlap (PyMC compilation calls PyTensor); consumers
@@ -138,7 +144,7 @@ def instrumentation():
         yield events
 
 
-def fixture(workload: str, large: bool):
+def fixture(workload: str, large: bool) -> tuple[PathModel, float, dict[str, int]]:
     """Construct deterministic inputs and fixed synthetic parameter draws."""
     import pandas as pd
     import xarray as xr
@@ -212,7 +218,7 @@ def fixture(workload: str, large: bool):
     return model, construction_seconds, {"rows": len(data), "samples": draws}
 
 
-def measure_request(call) -> tuple[dict, object]:
+def measure_request(call: Callable[[], Any]) -> tuple[dict[str, Any], Any]:
     """Measure inclusive end-to-end latency and force output materialization."""
     import xarray as xr
 
@@ -236,7 +242,7 @@ def measure_request(call) -> tuple[dict, object]:
     }, dataset
 
 
-def worker(args) -> dict:
+def worker(args: argparse.Namespace) -> dict[str, Any]:
     """Run one workload in a fresh process with independently counted requests."""
     model, construction, shape = fixture(args.workload, args.large)
     query = query_adapter()

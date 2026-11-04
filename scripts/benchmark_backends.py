@@ -27,6 +27,7 @@ import resource
 import subprocess
 import sys
 from time import perf_counter
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -34,7 +35,7 @@ import numpy as np
 from benchmark_queries import environment, fixture, instrumentation
 
 
-def mean_kernel(args) -> dict:
+def mean_kernel(args: argparse.Namespace) -> dict[str, Any]:
     """Compare the same prepared deterministic graph across compiler backends."""
     import pathmc._query as query
     from pathmc.idata import posterior
@@ -83,7 +84,7 @@ def mean_kernel(args) -> dict:
     }
 
 
-def scan_profile(args) -> dict:
+def scan_profile(args: argparse.Namespace) -> dict[str, Any]:
     """Profile the actual optimized likelihood and gradient, including scan Ops."""
     fitted, construction, shape = fixture(args.workload, args.large)
     model = fitted.pymc_model
@@ -129,7 +130,7 @@ def scan_profile(args) -> dict:
     }
 
 
-def fit_probe(args) -> dict:
+def fit_probe(args: argparse.Namespace) -> dict[str, Any]:
     """Fit identical synthetic data without changing pathmc's sampler defaults."""
     import arviz as az
     import pandas as pd
