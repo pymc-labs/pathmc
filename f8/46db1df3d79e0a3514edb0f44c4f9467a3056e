@@ -1,0 +1,23 @@
+tests/test_transform_pipes.py
+  s_dc87f093ab6594::t_4e8fa6fc6b4249 190-201,203-206
+  s_dc87f093ab6594::t_0439649548ad3f 202
+pathmc/parse.py
+  s_dc87f093ab6594::t_1369e6bdbd088e 211-222,224-230
+  s_dc87f093ab6594::t_f01d8b1f399fd4 223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f846db1df3d79e0a3514edb0f44c4f9467a3056e",
+  "prompts": {},
+  "sessions": {
+    "s_dc87f093ab6594": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a863-df76-7c21-af4b-5f6f4149ac59",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
