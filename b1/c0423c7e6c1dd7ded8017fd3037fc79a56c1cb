@@ -1,0 +1,156 @@
+scripts/benchmark_backends.py
+  s_550fff03a4634a::t_57517cd196ec23 108,115,125-132,250,252,254-256,260,262,359,575-576
+  s_550fff03a4634a::t_bfc97ee5adeaed 229-231,233-234,236-241,327-330
+  s_550fff03a4634a::t_04ae2798f51a36 24,133-135,218-228,232,235,242-245,251,259,261,263-264,315,319-320,437-442
+scripts/repro_nutpie_zero_gradient.py
+  s_550fff03a4634a::t_bfc97ee5adeaed 1-49
+  s_550fff03a4634a::t_ffa38510aec591 50-56
+benchmarks/README.md
+  s_550fff03a4634a::t_b9444f7f0f0cfa 17-18,21,25-50,64
+benchmarks/results/default-initialization/initialization-probe.json
+  s_550fff03a4634a::t_f268c8a8a8d973 1-67
+benchmarks/results/default-initialization/summary.json
+  s_550fff03a4634a::t_4a7c5fcd4bb426 1-5637
+benchmarks/results/default-initialization/u1-t30-obs0.2-numpyro-cold-0.json
+  s_550fff03a4634a::t_ac2346488be768 1-237
+benchmarks/results/default-initialization/u1-t30-obs0.2-numpyro-cold-1.json
+  s_550fff03a4634a::t_04640a929a0b63 1-237
+benchmarks/results/default-initialization/u1-t30-obs0.2-numpyro-cold-2.json
+  s_550fff03a4634a::t_2b870cb6f99008 1-237
+benchmarks/results/default-initialization/u1-t30-obs0.2-numpyro-warm--1.json
+  s_550fff03a4634a::t_3207a1eec2ee71 1-237
+benchmarks/results/default-initialization/u1-t30-obs0.2-numpyro-warm-0.json
+  s_550fff03a4634a::t_2eaca3d6ba2bc4 1-237
+benchmarks/results/default-initialization/u1-t30-obs0.2-numpyro-warm-1.json
+  s_550fff03a4634a::t_c00ac5796b6b0b 1-237
+benchmarks/results/default-initialization/u1-t30-obs0.2-numpyro-warm-2.json
+  s_550fff03a4634a::t_ca7f2d65f895ae 1-237
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-jax-cold-0.json
+  s_550fff03a4634a::t_e22ab61e74738b 1-233
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-jax-cold-1.json
+  s_550fff03a4634a::t_fa7e493bf7d371 1-233
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-jax-cold-2.json
+  s_550fff03a4634a::t_e5fa152d0af1ba 1-233
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-jax-warm--1.json
+  s_550fff03a4634a::t_3b26de822ea256 1-233
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-jax-warm-0.json
+  s_550fff03a4634a::t_43434950e285f2 1-233
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-jax-warm-1.json
+  s_550fff03a4634a::t_18e9137752f556 1-233
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-jax-warm-2.json
+  s_550fff03a4634a::t_6b96c7e37384e1 1-233
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-numba-cold-0.json
+  s_550fff03a4634a::t_2a2fb9c39fda10 1-230
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-numba-cold-1.json
+  s_550fff03a4634a::t_4893a5da413727 1-230
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-numba-cold-2.json
+  s_550fff03a4634a::t_9ad5a9016e5de5 1-230
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-numba-warm--1.json
+  s_550fff03a4634a::t_7c3edefca0a9ad 1-230
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-numba-warm-0.json
+  s_550fff03a4634a::t_957d24719c201f 1-230
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-numba-warm-1.json
+  s_550fff03a4634a::t_a2851fe4157a68 1-230
+benchmarks/results/default-initialization/u1-t30-obs0.2-nutpie-numba-warm-2.json
+  s_550fff03a4634a::t_958ab28aea16f3 1-230
+benchmarks/results/default-initialization/u1-t30-obs0.2-pymc-cold-0.json
+  s_550fff03a4634a::t_8427543b3eba61 1-225
+benchmarks/results/default-initialization/u1-t30-obs0.2-pymc-cold-1.json
+  s_550fff03a4634a::t_28dd5bfa593171 1-225
+benchmarks/results/default-initialization/u1-t30-obs0.2-pymc-cold-2.json
+  s_550fff03a4634a::t_cb2744adca8fd9 1-225
+benchmarks/results/default-initialization/u1-t30-obs0.2-pymc-warm--1.json
+  s_550fff03a4634a::t_a494e6b1273503 1-225
+benchmarks/results/default-initialization/u1-t30-obs0.2-pymc-warm-0.json
+  s_550fff03a4634a::t_5c2307173f20a9 1-225
+benchmarks/results/default-initialization/u1-t30-obs0.2-pymc-warm-1.json
+  s_550fff03a4634a::t_9b3b384da8c498 1-225
+benchmarks/results/default-initialization/u1-t30-obs0.2-pymc-warm-2.json
+  s_550fff03a4634a::t_aa53916c0f782c 1-225
+benchmarks/results/default-initialization/u1-t30-obs1-numpyro-cold-0.json
+  s_550fff03a4634a::t_3db3af1a32eb29 1-237
+benchmarks/results/default-initialization/u1-t30-obs1-numpyro-cold-1.json
+  s_550fff03a4634a::t_00f9ac50a069ff 1-237
+benchmarks/results/default-initialization/u1-t30-obs1-numpyro-cold-2.json
+  s_550fff03a4634a::t_185c6c74b4f049 1-237
+benchmarks/results/default-initialization/u1-t30-obs1-numpyro-warm--1.json
+  s_550fff03a4634a::t_47eaec5f5b8d67 1-237
+benchmarks/results/default-initialization/u1-t30-obs1-numpyro-warm-0.json
+  s_550fff03a4634a::t_648f1693088598 1-237
+benchmarks/results/default-initialization/u1-t30-obs1-numpyro-warm-1.json
+  s_550fff03a4634a::t_e2d15b4e063a36 1-237
+benchmarks/results/default-initialization/u1-t30-obs1-numpyro-warm-2.json
+  s_550fff03a4634a::t_3a7e50cd9fe1ca 1-237
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-jax-cold-0.json
+  s_550fff03a4634a::t_bd23261d09dcf8 1-233
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-jax-cold-1.json
+  s_550fff03a4634a::t_ce43f0415d4e22 1-233
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-jax-cold-2.json
+  s_550fff03a4634a::t_ff6a4ec1c0c677 1-233
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-jax-warm--1.json
+  s_550fff03a4634a::t_0b7f62a2947398 1-233
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-jax-warm-0.json
+  s_550fff03a4634a::t_97f5fc69b8148e 1-233
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-jax-warm-1.json
+  s_550fff03a4634a::t_ad203ba2b79ee3 1-233
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-jax-warm-2.json
+  s_550fff03a4634a::t_f6b89883e326bf 1-233
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-numba-cold-0.json
+  s_550fff03a4634a::t_84450898ae2de6 1-230
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-numba-cold-1.json
+  s_550fff03a4634a::t_b05e66f4df31fa 1-230
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-numba-cold-2.json
+  s_550fff03a4634a::t_2cbc5ffc02e2db 1-230
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-numba-warm--1.json
+  s_550fff03a4634a::t_bc5ade7459b525 1-230
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-numba-warm-0.json
+  s_550fff03a4634a::t_b247d4cdb8e769 1-230
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-numba-warm-1.json
+  s_550fff03a4634a::t_4fb8cdc8d70561 1-230
+benchmarks/results/default-initialization/u1-t30-obs1-nutpie-numba-warm-2.json
+  s_550fff03a4634a::t_bfa1cb933b9802 1-230
+benchmarks/results/default-initialization/u1-t30-obs1-pymc-cold-0.json
+  s_550fff03a4634a::t_52cc525d19a16d 1-225
+benchmarks/results/default-initialization/u1-t30-obs1-pymc-cold-1.json
+  s_550fff03a4634a::t_8d7aa38069a551 1-225
+benchmarks/results/default-initialization/u1-t30-obs1-pymc-cold-2.json
+  s_550fff03a4634a::t_172b9034ed1fdc 1-225
+benchmarks/results/default-initialization/u1-t30-obs1-pymc-warm--1.json
+  s_550fff03a4634a::t_a0173ae4acac64 1-225
+benchmarks/results/default-initialization/u1-t30-obs1-pymc-warm-0.json
+  s_550fff03a4634a::t_d7aa1e466cc81e 1-225
+benchmarks/results/default-initialization/u1-t30-obs1-pymc-warm-1.json
+  s_550fff03a4634a::t_4c8724f5e56898 1-225
+benchmarks/results/default-initialization/u1-t30-obs1-pymc-warm-2.json
+  s_550fff03a4634a::t_63826cdc4d9366 1-225
+benchmarks/results/pilots/half-normal/summary.json
+  s_550fff03a4634a::t_f333a81d989ef8 1-205
+benchmarks/results/pilots/half-normal/u1-t30-obs1-pymc-cold-0.json
+  s_550fff03a4634a::t_1119be6a8698b5 1-292
+benchmarks/results/pilots/half-normal/u1-t30-obs1-pymc-cold-1.json
+  s_550fff03a4634a::t_dd0de1bce15553 1-292
+benchmarks/results/pilots/half-normal/u1-t30-obs1-pymc-cold-2.json
+  s_550fff03a4634a::t_b077f0e8207235 1-292
+benchmarks/results/pilots/log-normal-target-090/summary.json
+  s_550fff03a4634a::t_b04b1c963e16b0 1-97
+benchmarks/results/pilots/log-normal-target-090/u1-t30-obs1-pymc-cold-0.json
+  s_550fff03a4634a::t_9ea27845ebcf8d 1-292
+pathmc/skills/pathmc/SKILL.md
+  s_550fff03a4634a::t_55525fceb8fac3 263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b1c0423c7e6c1dd7ded8017fd3037fc79a56c1cb",
+  "prompts": {},
+  "sessions": {
+    "s_550fff03a4634a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a553-9f5d-79b2-a4f6-69a7a7a43c1d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
