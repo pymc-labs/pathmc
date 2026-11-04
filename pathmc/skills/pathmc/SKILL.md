@@ -260,7 +260,7 @@ The DSL is lavaan-inspired:
 
 Use `m.fit(nuts_sampler="pymc", ...)`, `m.fit(nuts_sampler="numpyro", ...)`, or `m.fit(nuts_sampler="nutpie", backend="numba", ...)` / `backend="jax"`. Nutpie's compiler backend and gradient backend are separate: JAX autodifferentiation uses `compile_kwargs={"gradient_backend": "jax"}`.
 
-Sparse stochastic AR(1) panels at one/three units are tested on PyMC 6.3.2, PyTensor 3.3.6, nutpie 0.16.10, NumPyro 0.21.0 and JAX 0.10.1, CPU/float64; do not repeat the obsolete blanket warning that nutpie cannot impute missing observations. Short fits establish execution, not convergence or a universal speedup. Compare multiple-chain diagnostics and end-to-end effective samples/second using `scripts/benchmark_backends.py`; see `benchmarks/README.md`. Keep the singleton unit axis and rebuild the model for changed panel shapes.
+Sparse stochastic AR(1) panels at one/three units are tested on PyMC 6.3.2, PyTensor 3.3.6, nutpie 0.16.10, NumPyro 0.21.0 and JAX 0.10.1, CPU/float64; do not repeat the obsolete blanket warning that nutpie cannot impute missing observations. Short fits establish execution, not convergence or a universal speedup. Compare multiple-chain diagnostics and end-to-end effective samples/second using the maintained [sampling benchmark](https://github.com/pymc-labs/pathmc/blob/main/benchmarks/README.md), which records explicit initialization and cache settings. Keep the singleton unit axis and rebuild the model for changed panel shapes.
 
 ### Inspect before sampling (data-free DAG exploration)
 

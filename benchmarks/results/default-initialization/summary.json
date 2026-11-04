@@ -1,0 +1,5637 @@
+{
+  "note": "Warm means primed disk caches in fresh processes, not retained compiled functions. Failures and poor mixing remain in runs; timing medians are descriptive, not speedups. Smoke results cannot support performance claims.",
+  "groups": [
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "pymc",
+      "cache": "cold",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 2,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 8.859671166996122,
+        "min": 8.821379250002792,
+        "max": 9.161922957995557
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 46.04534527218687,
+        "min": 40.070290028231405,
+        "max": 53.463706827773215
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 79.8690557446647,
+        "min": 76.97182309370966,
+        "max": 81.00861598709669
+      },
+      "peak_process_rss_bytes": {
+        "median": 471089152.0,
+        "min": 470630400,
+        "max": 471416832
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "pymc",
+      "cache": "warm",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 2,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 9.43925166700501,
+        "min": 8.970915625002817,
+        "max": 9.800436374993296
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 45.27781447539318,
+        "min": 38.89301007054068,
+        "max": 48.33160930174194
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 74.71036243117649,
+        "min": 73.232422708283,
+        "max": 78.53771683011234
+      },
+      "peak_process_rss_bytes": {
+        "median": 470269952.0,
+        "min": 469630976,
+        "max": 470843392
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-numba",
+      "cache": "cold",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 2,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 9.38981654199597,
+        "min": 8.678136457994697,
+        "max": 11.963705458998447
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 39.175039796094616,
+        "min": 32.213262011995695,
+        "max": 47.08044983587722
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 61.4792118516886,
+        "min": 48.682428531302,
+        "max": 62.77877403533692
+      },
+      "peak_process_rss_bytes": {
+        "median": 569376768.0,
+        "min": 568819712,
+        "max": 614924288
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-numba",
+      "cache": "warm",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 2,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 7.686122916988097,
+        "min": 7.324225624004612,
+        "max": 9.757134874991607
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 52.61852902537203,
+        "min": 37.70025129544354,
+        "max": 53.1569131267055
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 70.88134988579598,
+        "min": 59.16475767015129,
+        "max": 79.51997465348329
+      },
+      "peak_process_rss_bytes": {
+        "median": 571031552.0,
+        "min": 570933248,
+        "max": 572096512
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "numpyro",
+      "cache": "cold",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 1,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 10.211177375007537,
+        "min": 6.637434082993423,
+        "max": 21.623148501006654
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 45.68970071535851,
+        "min": 0.11722236049630684,
+        "max": 63.08159232540002
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 70.87590713484887,
+        "min": 0.22399088014053659,
+        "max": 106.67369964131923
+      },
+      "peak_process_rss_bytes": {
+        "median": 989396992.0,
+        "min": 982007808,
+        "max": 1019527168
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "numpyro",
+      "cache": "warm",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 1,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 9.118363041998236,
+        "min": 3.4026827500056243,
+        "max": 11.924968208011705
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 51.16550372766182,
+        "min": 0.2125554101643011,
+        "max": 123.04994078846002
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 79.37021766243512,
+        "min": 0.4061552181662009,
+        "max": 208.08276932579892
+      },
+      "peak_process_rss_bytes": {
+        "median": 933904384.0,
+        "min": 916258816,
+        "max": 935002112
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-jax",
+      "cache": "cold",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 2,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 8.96756837402063,
+        "min": 8.83822708200023,
+        "max": 12.470622208013083
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 46.62843682766606,
+        "min": 33.76296378053734,
+        "max": 56.461039927052155
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 61.281731235532106,
+        "min": 56.116533127487386,
+        "max": 76.52505719858623
+      },
+      "peak_process_rss_bytes": {
+        "median": 549355520.0,
+        "min": 548896768,
+        "max": 552943616
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-jax",
+      "cache": "warm",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 2,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 7.504798957990715,
+        "min": 7.11500029200397,
+        "max": 10.644546540992451
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 55.71684168575623,
+        "min": 39.55501197805406,
+        "max": 70.13569524684009
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 73.22622737919714,
+        "min": 65.74334393309901,
+        "max": 95.05914339093664
+      },
+      "peak_process_rss_bytes": {
+        "median": 496287744.0,
+        "min": 495960064,
+        "max": 497909760
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "pymc",
+      "cache": "cold",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 2,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 17.339452543019434,
+        "min": 16.816444249998312,
+        "max": 21.07232316599402
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 18.311730394583044,
+        "min": 16.741501435391104,
+        "max": 21.07546308538928
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 36.76726413927059,
+        "min": 23.430316280533795,
+        "max": 37.03203556827863
+      },
+      "peak_process_rss_bytes": {
+        "median": 479543296.0,
+        "min": 478953472,
+        "max": 587890688
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "pymc",
+      "cache": "warm",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 2,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 13.916315834998386,
+        "min": 13.401599833014188,
+        "max": 13.930294792007771
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 26.259607522863305,
+        "min": 21.00738188406279,
+        "max": 27.700110181774097
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 45.81127930973094,
+        "min": 35.44298264442527,
+        "max": 46.46812092268304
+      },
+      "peak_process_rss_bytes": {
+        "median": 479821824.0,
+        "min": 479182848,
+        "max": 480231424
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-numba",
+      "cache": "cold",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 1,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 51.65982533301576,
+        "min": 17.874451541996677,
+        "max": 55.18807749899861
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 0.05320625630714252,
+        "min": 0.046624704415846645,
+        "max": 21.248347033906484
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 0.1387954835530902,
+        "min": 0.09442826535014058,
+        "max": 34.57443389627748
+      },
+      "peak_process_rss_bytes": {
+        "median": 574062592.0,
+        "min": 573128704,
+        "max": 630603776
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-numba",
+      "cache": "warm",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 1,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 47.971007457977976,
+        "min": 11.622689124997123,
+        "max": 48.743518083996605
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 0.057297648165059153,
+        "min": 0.05278912769971876,
+        "max": 32.6776828770411
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 0.14946841472206035,
+        "min": 0.10691297286460195,
+        "max": 53.17177777230897
+      },
+      "peak_process_rss_bytes": {
+        "median": 582254592.0,
+        "min": 581287936,
+        "max": 582533120
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "numpyro",
+      "cache": "cold",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 1,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 13.707381208980223,
+        "min": 13.682552291997126,
+        "max": 22.558100374997593
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 25.27574079363108,
+        "min": 0.1291016917692755,
+        "max": 26.387493668615964
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 40.47404873230581,
+        "min": 0.7055279381521589,
+        "max": 42.92068606296282
+      },
+      "peak_process_rss_bytes": {
+        "median": 1121058816.0,
+        "min": 1117044736,
+        "max": 1137786880
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "numpyro",
+      "cache": "warm",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 1,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 8.345206583995605,
+        "min": 7.120980916995904,
+        "max": 22.627457418013364
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 41.51655335436762,
+        "min": 0.12870597291213506,
+        "max": 50.70204037674837
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 70.49917814428856,
+        "min": 0.7033653738546655,
+        "max": 77.76853985479269
+      },
+      "peak_process_rss_bytes": {
+        "median": 1049165824.0,
+        "min": 1048969216,
+        "max": 1051213824
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-jax",
+      "cache": "cold",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 3,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 19.52851904099225,
+        "min": 16.63608216699504,
+        "max": 19.636444917006884
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 15.76009452555939,
+        "min": 15.62108336039293,
+        "max": 16.20713093354733
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 28.489421659411317,
+        "min": 26.749360086249265,
+        "max": 29.912440838570017
+      },
+      "peak_process_rss_bytes": {
+        "median": 570720256.0,
+        "min": 570081280,
+        "max": 573308928
+      }
+    },
+    {
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-jax",
+      "cache": "warm",
+      "runs": 3,
+      "failures": 0,
+      "diagnostic_passes": 3,
+      "metric_available_runs": {
+        "end_to_end_seconds": 3,
+        "minimum_bulk_ess_per_end_to_end_second": 3,
+        "minimum_tail_ess_per_end_to_end_second": 3,
+        "peak_process_rss_bytes": 3
+      },
+      "end_to_end_seconds": {
+        "median": 14.349716084005195,
+        "min": 14.231397875002585,
+        "max": 18.696006042009685
+      },
+      "minimum_bulk_ess_per_end_to_end_second": {
+        "median": 18.789442266545876,
+        "min": 16.316673366434642,
+        "max": 21.74573648745749
+      },
+      "minimum_tail_ess_per_end_to_end_second": {
+        "median": 34.67844385858643,
+        "min": 27.940480261126687,
+        "max": 39.30962819295863
+      },
+      "peak_process_rss_bytes": {
+        "median": 508559360.0,
+        "min": 507559936,
+        "max": 509689856
+      }
+    }
+  ],
+  "runs": [
+    {
+      "file": "u1-t30-obs1-pymc-cold-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.035017333007999696,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.683623208999052,
+      "pointwise_log_likelihood_seconds": 0.1027387079957407,
+      "end_to_end_seconds": 8.821379250002792,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 1.0611709599907044
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 4.115772762161214,
+      "retained_sum_of_chain_clocks_seconds": 2.6117564429878257,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 1,
+      "maximum_rhat": 1.0084849374411735,
+      "minimum_bulk_ess": 406.1834533432834,
+      "minimum_tail_ess": 704.5552310633016,
+      "minimum_bulk_ess_per_end_to_end_second": 46.04534527218687,
+      "minimum_tail_ess_per_end_to_end_second": 79.8690557446647,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "pymc",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 10.758647833994473,
+      "peak_process_rss_bytes": 471416832,
+      "system_load_average_before": [
+        9.3447265625,
+        18.080078125,
+        64.62744140625
+      ],
+      "system_load_average_after": [
+        9.025390625,
+        17.72998046875,
+        63.95947265625
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-pymc-cold-0.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs1-pymc-cold-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03684041700034868,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.725513249999494,
+      "pointwise_log_likelihood_seconds": 0.09731749999627937,
+      "end_to_end_seconds": 8.859671166996122,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 1.071958665997954
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 3.824754047804163,
+      "retained_sum_of_chain_clocks_seconds": 2.9279108342307154,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0037542852146557,
+      "minimum_bulk_ess": 473.67086186275606,
+      "minimum_tail_ess": 717.7096993391417,
+      "minimum_bulk_ess_per_end_to_end_second": 53.463706827773215,
+      "minimum_tail_ess_per_end_to_end_second": 81.00861598709669,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "pymc",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 10.7942342919996,
+      "peak_process_rss_bytes": 470630400,
+      "system_load_average_before": [
+        9.025390625,
+        17.72998046875,
+        63.95947265625
+      ],
+      "system_load_average_after": [
+        7.72119140625,
+        17.0224609375,
+        62.89892578125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-pymc-cold-1.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-pymc-cold-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03629916699719615,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 9.023673207993852,
+      "pointwise_log_likelihood_seconds": 0.1019505830045091,
+      "end_to_end_seconds": 9.161922957995557,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 1.0639608320052503
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 3.982312768828706,
+      "retained_sum_of_chain_clocks_seconds": 3.056297127244761,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0087636905770174,
+      "minimum_bulk_ess": 367.1209101431938,
+      "minimum_tail_ess": 705.2099131210311,
+      "minimum_bulk_ess_per_end_to_end_second": 40.070290028231405,
+      "minimum_tail_ess_per_end_to_end_second": 76.97182309370966,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "pymc",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 11.034391708002659,
+      "peak_process_rss_bytes": 471089152,
+      "system_load_average_before": [
+        7.72119140625,
+        17.0224609375,
+        62.89892578125
+      ],
+      "system_load_average_after": [
+        6.7607421875,
+        16.5107421875,
+        62.18115234375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-pymc-cold-2.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs1-pymc-warm--1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03577404099632986,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.721883666003123,
+      "pointwise_log_likelihood_seconds": 0.10258541700022761,
+      "end_to_end_seconds": 8.86024312399968,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 1.062062834011158
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 4.116091092131683,
+      "retained_sum_of_chain_clocks_seconds": 2.6319374538288685,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 1,
+      "maximum_rhat": 1.0084849374411735,
+      "minimum_bulk_ess": 406.1834533432834,
+      "minimum_tail_ess": 704.5552310633016,
+      "minimum_bulk_ess_per_end_to_end_second": 45.84337558899,
+      "minimum_tail_ess_per_end_to_end_second": 79.51872439649851,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "pymc",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": -1,
+      "smoke": false,
+      "process_experiment_seconds": 10.721449459000723,
+      "peak_process_rss_bytes": 470417408,
+      "system_load_average_before": [
+        6.7607421875,
+        16.5107421875,
+        62.18115234375
+      ],
+      "system_load_average_after": [
+        6.39697265625,
+        16.1142578125,
+        61.50634765625
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-pymc-warm--1.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": -1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-pymc-warm-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03621112499968149,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.831421374998172,
+      "pointwise_log_likelihood_seconds": 0.10328312500496395,
+      "end_to_end_seconds": 8.970915625002817,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.5466304999863496
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 4.521393227594672,
+      "retained_sum_of_chain_clocks_seconds": 2.8518163228291087,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 1,
+      "maximum_rhat": 1.0084849374411735,
+      "minimum_bulk_ess": 406.1834533432834,
+      "minimum_tail_ess": 704.5552310633016,
+      "minimum_bulk_ess_per_end_to_end_second": 45.27781447539318,
+      "minimum_tail_ess_per_end_to_end_second": 78.53771683011234,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "pymc",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 10.860849084012443,
+      "peak_process_rss_bytes": 470269952,
+      "system_load_average_before": [
+        6.39697265625,
+        16.1142578125,
+        61.50634765625
+      ],
+      "system_load_average_after": [
+        5.66796875,
+        15.47216796875,
+        60.4833984375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-pymc-warm-0.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs1-pymc-warm-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03572324999549892,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 9.655126333003864,
+      "pointwise_log_likelihood_seconds": 0.10958679199393373,
+      "end_to_end_seconds": 9.800436374993296,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.6462852909899084
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 4.696702658126014,
+      "retained_sum_of_chain_clocks_seconds": 3.3111564004066167,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0037542852146557,
+      "minimum_bulk_ess": 473.67086186275606,
+      "minimum_tail_ess": 717.7096993391417,
+      "minimum_bulk_ess_per_end_to_end_second": 48.33160930174194,
+      "minimum_tail_ess_per_end_to_end_second": 73.232422708283,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "pymc",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 11.769719499992789,
+      "peak_process_rss_bytes": 469630976,
+      "system_load_average_before": [
+        5.66796875,
+        15.47216796875,
+        60.4833984375
+      ],
+      "system_load_average_after": [
+        7.3935546875,
+        15.5341796875,
+        59.98046875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-pymc-warm-1.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-pymc-warm-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04695512499893084,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 9.277547292003874,
+      "pointwise_log_likelihood_seconds": 0.11474925000220537,
+      "end_to_end_seconds": 9.43925166700501,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.6029732500028331
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 4.3130748143885285,
+      "retained_sum_of_chain_clocks_seconds": 3.318038561643334,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0087636905770174,
+      "minimum_bulk_ess": 367.1209101431938,
+      "minimum_tail_ess": 705.2099131210311,
+      "minimum_bulk_ess_per_end_to_end_second": 38.89301007054068,
+      "minimum_tail_ess_per_end_to_end_second": 74.71036243117649,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "pymc",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 11.549701791998814,
+      "peak_process_rss_bytes": 470843392,
+      "system_load_average_before": [
+        7.3935546875,
+        15.5341796875,
+        59.98046875
+      ],
+      "system_load_average_after": [
+        7.486328125,
+        15.28564453125,
+        59.37255859375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-pymc-warm-2.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-numba-cold-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.040054249999229796,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 11.813189874999807,
+      "pointwise_log_likelihood_seconds": 0.11046133399941027,
+      "end_to_end_seconds": 11.963705458998447,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 1.1425457909936085
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 8.245221624994883
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 1,
+      "maximum_rhat": 1.0037418866394523,
+      "minimum_bulk_ess": 385.3899785850602,
+      "minimum_tail_ess": 582.4222359772396,
+      "minimum_bulk_ess_per_end_to_end_second": 32.213262011995695,
+      "minimum_tail_ess_per_end_to_end_second": 48.682428531302,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-numba",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 14.089206000004197,
+      "peak_process_rss_bytes": 614924288,
+      "system_load_average_before": [
+        7.52734375,
+        15.16455078125,
+        59.0712890625
+      ],
+      "system_load_average_after": [
+        6.763671875,
+        14.74755859375,
+        58.41015625
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-numba-cold-0.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-numba-cold-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03762508298677858,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.532343375001801,
+      "pointwise_log_likelihood_seconds": 0.10816800000611693,
+      "end_to_end_seconds": 8.678136457994697,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 1.0100671669933945
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 5.267382125006407
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0032878334492419,
+      "minimum_bulk_ess": 408.5705681795165,
+      "minimum_tail_ess": 544.8027677442682,
+      "minimum_bulk_ess_per_end_to_end_second": 47.08044983587722,
+      "minimum_tail_ess_per_end_to_end_second": 62.77877403533692,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-numba",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 10.736778374994174,
+      "peak_process_rss_bytes": 568819712,
+      "system_load_average_before": [
+        7.3427734375,
+        14.73486328125,
+        58.14990234375
+      ],
+      "system_load_average_after": [
+        7.958984375,
+        14.626953125,
+        57.6044921875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-numba-cold-1.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-numba-cold-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03527241700794548,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 9.247068541997578,
+      "pointwise_log_likelihood_seconds": 0.10747558299044613,
+      "end_to_end_seconds": 9.38981654199597,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 1.0183512509975117
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 5.146958041994367
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0033315159359786,
+      "minimum_bulk_ess": 367.8464367107197,
+      "minimum_tail_ess": 577.2785204338603,
+      "minimum_bulk_ess_per_end_to_end_second": 39.175039796094616,
+      "minimum_tail_ess_per_end_to_end_second": 61.4792118516886,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-numba",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 11.41197479100083,
+      "peak_process_rss_bytes": 569376768,
+      "system_load_average_before": [
+        7.958984375,
+        14.626953125,
+        57.6044921875
+      ],
+      "system_load_average_after": [
+        7.4169921875,
+        14.29248046875,
+        56.9833984375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-numba-cold-2.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-numba-warm--1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03803816600702703,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.379307875002269,
+      "pointwise_log_likelihood_seconds": 0.1019946250016801,
+      "end_to_end_seconds": 8.519340666010976,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 1.0737596260150895
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 5.072162707991083
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 1,
+      "maximum_rhat": 1.0037418866394523,
+      "minimum_bulk_ess": 385.3899785850602,
+      "minimum_tail_ess": 582.4222359772396,
+      "minimum_bulk_ess_per_end_to_end_second": 45.23706630521584,
+      "minimum_tail_ess_per_end_to_end_second": 68.36470788178353,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-numba",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": -1,
+      "smoke": false,
+      "process_experiment_seconds": 10.513224541995442,
+      "peak_process_rss_bytes": 572375040,
+      "system_load_average_before": [
+        7.4169921875,
+        14.29248046875,
+        56.9833984375
+      ],
+      "system_load_average_after": [
+        6.50341796875,
+        13.87060546875,
+        56.3349609375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-numba-warm--1.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": -1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-numba-warm-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03654037500382401,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 7.182999165990623,
+      "pointwise_log_likelihood_seconds": 0.10468608301016502,
+      "end_to_end_seconds": 7.324225624004612,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.44519012501405086
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 4.398749083993607
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 1,
+      "maximum_rhat": 1.0037418866394523,
+      "minimum_bulk_ess": 385.3899785850602,
+      "minimum_tail_ess": 582.4222359772396,
+      "minimum_bulk_ess_per_end_to_end_second": 52.61852902537203,
+      "minimum_tail_ess_per_end_to_end_second": 79.51997465348329,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-numba",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 9.247770374990068,
+      "peak_process_rss_bytes": 570933248,
+      "system_load_average_before": [
+        6.623046875,
+        13.77294921875,
+        56.05126953125
+      ],
+      "system_load_average_after": [
+        6.25244140625,
+        13.5771484375,
+        55.734375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-numba-warm-0.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-numba-warm-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03582624999398831,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 7.5469936250010505,
+      "pointwise_log_likelihood_seconds": 0.10330304199305829,
+      "end_to_end_seconds": 7.686122916988097,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.4597097499790834
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 4.454006333005964
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0032878334492419,
+      "minimum_bulk_ess": 408.5705681795165,
+      "minimum_tail_ess": 544.8027677442682,
+      "minimum_bulk_ess_per_end_to_end_second": 53.1569131267055,
+      "minimum_tail_ess_per_end_to_end_second": 70.88134988579598,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-numba",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 9.654257666988997,
+      "peak_process_rss_bytes": 571031552,
+      "system_load_average_before": [
+        5.99169921875,
+        13.4013671875,
+        55.42529296875
+      ],
+      "system_load_average_after": [
+        5.591796875,
+        13.1953125,
+        55.10595703125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-numba-warm-1.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-numba-warm-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04110220799339004,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 9.616159917000914,
+      "pointwise_log_likelihood_seconds": 0.09987274999730289,
+      "end_to_end_seconds": 9.757134874991607,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.4991355410311371
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 4.553666708001401
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0033315159359786,
+      "minimum_bulk_ess": 367.8464367107197,
+      "minimum_tail_ess": 577.2785204338603,
+      "minimum_bulk_ess_per_end_to_end_second": 37.70025129544354,
+      "minimum_tail_ess_per_end_to_end_second": 59.16475767015129,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-numba",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 11.750170999992406,
+      "peak_process_rss_bytes": 572096512,
+      "system_load_average_before": [
+        6.0244140625,
+        13.15869140625,
+        54.84716796875
+      ],
+      "system_load_average_after": [
+        5.41162109375,
+        12.791015625,
+        54.22900390625
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-numba-warm-2.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs1-numpyro-cold-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.036893625001539476,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.952076208006474,
+      "pointwise_log_likelihood_seconds": 1.2222075419995235,
+      "end_to_end_seconds": 10.211177375007537,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.16594279200944584
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 0.567143667009077
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.06797862499661278
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 1,
+      "maximum_rhat": 1.0078488868570592,
+      "minimum_bulk_ess": 466.54563821553455,
+      "minimum_tail_ess": 723.726459368504,
+      "minimum_bulk_ess_per_end_to_end_second": 45.68970071535851,
+      "minimum_tail_ess_per_end_to_end_second": 70.87590713484887,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "numpyro",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 12.742655458001536,
+      "peak_process_rss_bytes": 1019527168,
+      "system_load_average_before": [
+        5.41162109375,
+        12.791015625,
+        54.22900390625
+      ],
+      "system_load_average_after": [
+        4.8525390625,
+        12.3095703125,
+        53.3330078125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-numpyro-cold-0.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs1-numpyro-cold-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.035928792000049725,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 21.293059042000095,
+      "pointwise_log_likelihood_seconds": 0.29416066700650845,
+      "end_to_end_seconds": 21.623148501006654,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.1647006659914041
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 0.600309000001289
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.0671054589911364
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 2.234295982506222,
+      "minimum_bulk_ess": 2.534716508650179,
+      "minimum_tail_ess": 4.8433880641500044,
+      "minimum_bulk_ess_per_end_to_end_second": 0.11722236049630684,
+      "minimum_tail_ess_per_end_to_end_second": 0.22399088014053659,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "numpyro",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 24.354955708011403,
+      "peak_process_rss_bytes": 982007808,
+      "system_load_average_before": [
+        4.8525390625,
+        12.3095703125,
+        53.3330078125
+      ],
+      "system_load_average_after": [
+        4.333984375,
+        11.5791015625,
+        51.880859375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-numpyro-cold-1.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-numpyro-cold-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03467104099399876,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 6.321674791994155,
+      "pointwise_log_likelihood_seconds": 0.2810882500052685,
+      "end_to_end_seconds": 6.637434082993423,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.17024004099948797
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 0.5873529169912217
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.06736437500512693
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0031666162271273,
+      "minimum_bulk_ess": 418.6999109101064,
+      "minimum_tail_ess": 708.0396497582955,
+      "minimum_bulk_ess_per_end_to_end_second": 63.08159232540002,
+      "minimum_tail_ess_per_end_to_end_second": 106.67369964131923,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "numpyro",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 9.16697983299673,
+      "peak_process_rss_bytes": 989396992,
+      "system_load_average_before": [
+        4.333984375,
+        11.5791015625,
+        51.880859375
+      ],
+      "system_load_average_after": [
+        5.15966796875,
+        11.52490234375,
+        51.390625
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-numpyro-cold-2.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs1-numpyro-warm--1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03395337500842288,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 9.066568750000442,
+      "pointwise_log_likelihood_seconds": 0.2915525419957703,
+      "end_to_end_seconds": 9.392074667004636,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.18106945900944993
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 0.5577413749997504
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.07139091700082645
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 1,
+      "maximum_rhat": 1.0078488868570592,
+      "minimum_bulk_ess": 466.54563821553455,
+      "minimum_tail_ess": 723.726459368504,
+      "minimum_bulk_ess_per_end_to_end_second": 49.674396207108465,
+      "minimum_tail_ess_per_end_to_end_second": 77.05714498959773,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "numpyro",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": -1,
+      "smoke": false,
+      "process_experiment_seconds": 11.980490166999516,
+      "peak_process_rss_bytes": 991313920,
+      "system_load_average_before": [
+        5.15966796875,
+        11.52490234375,
+        51.390625
+      ],
+      "system_load_average_after": [
+        4.7470703125,
+        11.22705078125,
+        50.81884765625
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-numpyro-warm--1.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": -1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-numpyro-warm-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.035532875001081266,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.788750249994337,
+      "pointwise_log_likelihood_seconds": 0.29407991700281855,
+      "end_to_end_seconds": 9.118363041998236,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.15786929200112354
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 0.03863983399060089
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.02248120799777098
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 1,
+      "maximum_rhat": 1.0078488868570592,
+      "minimum_bulk_ess": 466.54563821553455,
+      "minimum_tail_ess": 723.726459368504,
+      "minimum_bulk_ess_per_end_to_end_second": 51.16550372766182,
+      "minimum_tail_ess_per_end_to_end_second": 79.37021766243512,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "numpyro",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 11.253596499998821,
+      "peak_process_rss_bytes": 935002112,
+      "system_load_average_before": [
+        4.7470703125,
+        11.22705078125,
+        50.81884765625
+      ],
+      "system_load_average_after": [
+        3.98974609375,
+        10.7421875,
+        49.95361328125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-numpyro-warm-0.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs1-numpyro-warm-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.036308958005975,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 11.578560333000496,
+      "pointwise_log_likelihood_seconds": 0.3100989170052344,
+      "end_to_end_seconds": 11.924968208011705,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.16593895899131894
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 0.03635962500993628
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.022652500003459863
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 2.234295982506222,
+      "minimum_bulk_ess": 2.534716508650179,
+      "minimum_tail_ess": 4.8433880641500044,
+      "minimum_bulk_ess_per_end_to_end_second": 0.2125554101643011,
+      "minimum_tail_ess_per_end_to_end_second": 0.4061552181662009,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "numpyro",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 14.18112958400161,
+      "peak_process_rss_bytes": 933904384,
+      "system_load_average_before": [
+        3.98974609375,
+        10.7421875,
+        49.95361328125
+      ],
+      "system_load_average_after": [
+        4.10302734375,
+        10.42919921875,
+        49.15576171875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-numpyro-warm-1.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-numpyro-warm-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.0380390000063926,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 3.0779967499984195,
+      "pointwise_log_likelihood_seconds": 0.2866470000008121,
+      "end_to_end_seconds": 3.4026827500056243,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.17072666699823458
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 0.03898204199504107
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.020177875005174428
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0031666162271273,
+      "minimum_bulk_ess": 418.6999109101064,
+      "minimum_tail_ess": 708.0396497582955,
+      "minimum_bulk_ess_per_end_to_end_second": 123.04994078846002,
+      "minimum_tail_ess_per_end_to_end_second": 208.08276932579892,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "numpyro",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 6.325956874992698,
+      "peak_process_rss_bytes": 916258816,
+      "system_load_average_before": [
+        4.10302734375,
+        10.42919921875,
+        49.15576171875
+      ],
+      "system_load_average_after": [
+        4.0947265625,
+        10.322265625,
+        48.89111328125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-numpyro-warm-2.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-jax-cold-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03952229100104887,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.71876233301009,
+      "pointwise_log_likelihood_seconds": 0.20928375000949018,
+      "end_to_end_seconds": 8.96756837402063,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.773517666006228
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 0.9397335829999065
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0099890856497142,
+      "minimum_bulk_ess": 418.143695425797,
+      "minimum_tail_ess": 549.5481149329898,
+      "minimum_bulk_ess_per_end_to_end_second": 46.62843682766606,
+      "minimum_tail_ess_per_end_to_end_second": 61.281731235532106,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-jax",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 10.967613083004835,
+      "peak_process_rss_bytes": 552943616,
+      "system_load_average_before": [
+        4.0947265625,
+        10.322265625,
+        48.89111328125
+      ],
+      "system_load_average_after": [
+        4.53466796875,
+        10.21240234375,
+        48.4013671875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-jax-cold-0.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-jax-cold-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.043048207997344434,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.577365416000248,
+      "pointwise_log_likelihood_seconds": 0.21781345800263807,
+      "end_to_end_seconds": 8.83822708200023,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.7575186239846516
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 0.9231530830002157
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0109311479299754,
+      "minimum_bulk_ess": 499.01549216116865,
+      "minimum_tail_ess": 676.3458329841615,
+      "minimum_bulk_ess_per_end_to_end_second": 56.461039927052155,
+      "minimum_tail_ess_per_end_to_end_second": 76.52505719858623,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-jax",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 10.85766787501052,
+      "peak_process_rss_bytes": 548896768,
+      "system_load_average_before": [
+        4.53466796875,
+        10.21240234375,
+        48.4013671875
+      ],
+      "system_load_average_after": [
+        4.6484375,
+        9.95703125,
+        47.642578125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-jax-cold-1.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-jax-cold-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03997820800577756,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 12.127959332996397,
+      "pointwise_log_likelihood_seconds": 0.302684667010908,
+      "end_to_end_seconds": 12.470622208013083,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.7656308750010794
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 0.92915583300055
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0030451960865376,
+      "minimum_bulk_ess": 421.0451659299103,
+      "minimum_tail_ess": 699.8080842563461,
+      "minimum_bulk_ess_per_end_to_end_second": 33.76296378053734,
+      "minimum_tail_ess_per_end_to_end_second": 56.116533127487386,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-jax",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 14.573135791986715,
+      "peak_process_rss_bytes": 549355520,
+      "system_load_average_before": [
+        4.6484375,
+        9.95703125,
+        47.642578125
+      ],
+      "system_load_average_after": [
+        5.49072265625,
+        9.8779296875,
+        46.955078125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-jax-cold-2.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-jax-warm--1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.037012125001638196,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.608173375003389,
+      "pointwise_log_likelihood_seconds": 0.21757708299264777,
+      "end_to_end_seconds": 8.862762582997675,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.7799955010123085
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 0.9532850830000825
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0099890856497142,
+      "minimum_bulk_ess": 418.143695425797,
+      "minimum_tail_ess": 549.5481149329898,
+      "minimum_bulk_ess_per_end_to_end_second": 47.17983715686618,
+      "minimum_tail_ess_per_end_to_end_second": 62.006412762003016,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-jax",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": -1,
+      "smoke": false,
+      "process_experiment_seconds": 10.918109582999023,
+      "peak_process_rss_bytes": 553746432,
+      "system_load_average_before": [
+        5.49072265625,
+        9.8779296875,
+        46.955078125
+      ],
+      "system_load_average_after": [
+        5.783203125,
+        9.798828125,
+        46.49365234375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-jax-warm--1.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": -1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-jax-warm-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03574133299116511,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 7.267674124988844,
+      "pointwise_log_likelihood_seconds": 0.20138350001070648,
+      "end_to_end_seconds": 7.504798957990715,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.2635015829728218
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 0.33489620899490546
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0099890856497142,
+      "minimum_bulk_ess": 418.143695425797,
+      "minimum_tail_ess": 549.5481149329898,
+      "minimum_bulk_ess_per_end_to_end_second": 55.71684168575623,
+      "minimum_tail_ess_per_end_to_end_second": 73.22622737919714,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-jax",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 9.568258250001236,
+      "peak_process_rss_bytes": 495960064,
+      "system_load_average_before": [
+        5.783203125,
+        9.798828125,
+        46.49365234375
+      ],
+      "system_load_average_after": [
+        5.41552734375,
+        9.58984375,
+        45.99072265625
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-jax-warm-0.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-jax-warm-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03819308399397414,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 6.880671500010067,
+      "pointwise_log_likelihood_seconds": 0.19613570799992885,
+      "end_to_end_seconds": 7.11500029200397,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.2698594579997007
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 0.3441899590106914
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0109311479299754,
+      "minimum_bulk_ess": 499.01549216116865,
+      "minimum_tail_ess": 676.3458329841615,
+      "minimum_bulk_ess_per_end_to_end_second": 70.13569524684009,
+      "minimum_tail_ess_per_end_to_end_second": 95.05914339093664,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-jax",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 9.004827666998608,
+      "peak_process_rss_bytes": 497909760,
+      "system_load_average_before": [
+        5.41552734375,
+        9.58984375,
+        45.99072265625
+      ],
+      "system_load_average_after": [
+        5.62646484375,
+        9.50244140625,
+        45.53466796875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-jax-warm-1.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs1-nutpie-jax-warm-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03490062498894986,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 10.418348374994821,
+      "pointwise_log_likelihood_seconds": 0.19129754100868013,
+      "end_to_end_seconds": 10.644546540992451,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.26429945800919086
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 0.3312061670003459
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 36,
+      "observed_measurements": 30,
+      "imputed_measurements": 0,
+      "divergences": 0,
+      "maximum_rhat": 1.0030451960865376,
+      "minimum_bulk_ess": 421.0451659299103,
+      "minimum_tail_ess": 699.8080842563461,
+      "minimum_bulk_ess_per_end_to_end_second": 39.55501197805406,
+      "minimum_tail_ess_per_end_to_end_second": 65.74334393309901,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 1.0,
+      "sampler": "nutpie-jax",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 12.495450332993641,
+      "peak_process_rss_bytes": 496287744,
+      "system_load_average_before": [
+        5.62646484375,
+        9.50244140625,
+        45.53466796875
+      ],
+      "system_load_average_after": [
+        5.302734375,
+        9.23388671875,
+        44.80810546875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs1-nutpie-jax-warm-2.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 1.0,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-pymc-cold-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.042671957999118604,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 20.06116137499339,
+      "pointwise_log_likelihood_seconds": 0.968489833001513,
+      "end_to_end_seconds": 21.07232316599402,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 3.8888078759773634
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 6.977351305889897,
+      "retained_sum_of_chain_clocks_seconds": 4.688939526924514,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.006353076448684,
+      "minimum_bulk_ess": 385.8707006032091,
+      "minimum_tail_ess": 493.7311965448592,
+      "minimum_bulk_ess_per_end_to_end_second": 18.311730394583044,
+      "minimum_tail_ess_per_end_to_end_second": 23.430316280533795,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "pymc",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 23.222877291991608,
+      "peak_process_rss_bytes": 587890688,
+      "system_load_average_before": [
+        5.302734375,
+        9.23388671875,
+        44.80810546875
+      ],
+      "system_load_average_after": [
+        4.267578125,
+        8.74755859375,
+        43.80712890625
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-pymc-cold-0.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-pymc-cold-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04031199999735691,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 16.668490999989444,
+      "pointwise_log_likelihood_seconds": 0.10764125001151115,
+      "end_to_end_seconds": 16.816444249998312,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 3.836298626003554
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 6.841215026943246,
+      "retained_sum_of_chain_clocks_seconds": 4.693544350127922,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.0031786079978848,
+      "minimum_bulk_ess": 281.5325255495212,
+      "minimum_tail_ess": 622.7471615979122,
+      "minimum_bulk_ess_per_end_to_end_second": 16.741501435391104,
+      "minimum_tail_ess_per_end_to_end_second": 37.03203556827863,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "pymc",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 18.705023915987113,
+      "peak_process_rss_bytes": 478953472,
+      "system_load_average_before": [
+        4.0859375,
+        8.63525390625,
+        43.56201171875
+      ],
+      "system_load_average_after": [
+        3.77734375,
+        8.34228515625,
+        42.84716796875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-pymc-cold-1.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-pymc-cold-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04102216700266581,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 17.181275709008332,
+      "pointwise_log_likelihood_seconds": 0.11715466700843535,
+      "end_to_end_seconds": 17.339452543019434,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 3.7478133340046043
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 7.201068959198892,
+      "retained_sum_of_chain_clocks_seconds": 4.89464301111002,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 1,
+      "maximum_rhat": 1.0070929821620298,
+      "minimum_bulk_ess": 365.43699199126536,
+      "minimum_tail_ess": 637.5242316795426,
+      "minimum_bulk_ess_per_end_to_end_second": 21.07546308538928,
+      "minimum_tail_ess_per_end_to_end_second": 36.76726413927059,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "pymc",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 19.31651708300342,
+      "peak_process_rss_bytes": 479543296,
+      "system_load_average_before": [
+        3.77734375,
+        8.34228515625,
+        42.84716796875
+      ],
+      "system_load_average_after": [
+        4.00732421875,
+        8.1064453125,
+        41.96044921875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-pymc-cold-2.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-pymc-warm--1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.042177665993222035,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 17.084097250000923,
+      "pointwise_log_likelihood_seconds": 0.11405124999873806,
+      "end_to_end_seconds": 17.240326165992883,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 3.741202915989561
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 7.182921206054743,
+      "retained_sum_of_chain_clocks_seconds": 4.792324584137532,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.006353076448684,
+      "minimum_bulk_ess": 385.8707006032091,
+      "minimum_tail_ess": 493.7311965448592,
+      "minimum_bulk_ess_per_end_to_end_second": 22.381867772568707,
+      "minimum_tail_ess_per_end_to_end_second": 28.638158686275926,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "pymc",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": -1,
+      "smoke": false,
+      "process_experiment_seconds": 19.209826999998768,
+      "peak_process_rss_bytes": 481034240,
+      "system_load_average_before": [
+        4.00732421875,
+        8.1064453125,
+        41.96044921875
+      ],
+      "system_load_average_after": [
+        5.87548828125,
+        8.30078125,
+        41.2451171875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-pymc-warm--1.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": -1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-pymc-warm-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.0435289580054814,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 13.784088166998117,
+      "pointwise_log_likelihood_seconds": 0.10267766700417269,
+      "end_to_end_seconds": 13.930294792007771,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.7079359149938682
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 7.103869871978532,
+      "retained_sum_of_chain_clocks_seconds": 4.655025522268261,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.006353076448684,
+      "minimum_bulk_ess": 385.8707006032091,
+      "minimum_tail_ess": 493.7311965448592,
+      "minimum_bulk_ess_per_end_to_end_second": 27.700110181774097,
+      "minimum_tail_ess_per_end_to_end_second": 35.44298264442527,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "pymc",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 15.819662290989072,
+      "peak_process_rss_bytes": 480231424,
+      "system_load_average_before": [
+        5.87548828125,
+        8.30078125,
+        41.2451171875
+      ],
+      "system_load_average_after": [
+        5.40673828125,
+        8.02392578125,
+        40.37939453125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-pymc-warm-0.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-pymc-warm-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04211645800387487,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 13.252993875008542,
+      "pointwise_log_likelihood_seconds": 0.10648950000177138,
+      "end_to_end_seconds": 13.401599833014188,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.727080583004863
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 6.539688529563136,
+      "retained_sum_of_chain_clocks_seconds": 4.6293003594037145,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.0031786079978848,
+      "minimum_bulk_ess": 281.5325255495212,
+      "minimum_tail_ess": 622.7471615979122,
+      "minimum_bulk_ess_per_end_to_end_second": 21.00738188406279,
+      "minimum_tail_ess_per_end_to_end_second": 46.46812092268304,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "pymc",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 15.374487833993044,
+      "peak_process_rss_bytes": 479821824,
+      "system_load_average_before": [
+        5.40673828125,
+        8.02392578125,
+        40.37939453125
+      ],
+      "system_load_average_after": [
+        4.93994140625,
+        7.79345703125,
+        39.7314453125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-pymc-warm-1.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-pymc-warm-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04110420899814926,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 13.768561292003142,
+      "pointwise_log_likelihood_seconds": 0.106650333997095,
+      "end_to_end_seconds": 13.916315834998386,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.6949967499967897
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": 7.036256611070712,
+      "retained_sum_of_chain_clocks_seconds": 4.757126361248083,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "pymc",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        }
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 1,
+      "maximum_rhat": 1.0070929821620298,
+      "minimum_bulk_ess": 365.43699199126536,
+      "minimum_tail_ess": 637.5242316795426,
+      "minimum_bulk_ess_per_end_to_end_second": 26.259607522863305,
+      "minimum_tail_ess_per_end_to_end_second": 45.81127930973094,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "pymc",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 15.809543208000832,
+      "peak_process_rss_bytes": 479182848,
+      "system_load_average_before": [
+        4.93994140625,
+        7.79345703125,
+        39.7314453125
+      ],
+      "system_load_average_after": [
+        5.33837890625,
+        7.73876953125,
+        39.15283203125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-pymc-warm-2.json",
+        "sampler": "pymc",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-numba-cold-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04097133300092537,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 17.716207292003674,
+      "pointwise_log_likelihood_seconds": 0.11727291699207854,
+      "end_to_end_seconds": 17.874451541996677,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 3.904628499003593
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 11.120136624987936
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.0025664299556076,
+      "minimum_bulk_ess": 379.8025494050903,
+      "minimum_tail_ess": 617.9990432709792,
+      "minimum_bulk_ess_per_end_to_end_second": 21.248347033906484,
+      "minimum_tail_ess_per_end_to_end_second": 34.57443389627748,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-numba",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 19.77643545900355,
+      "peak_process_rss_bytes": 630603776,
+      "system_load_average_before": [
+        5.33837890625,
+        7.73876953125,
+        39.15283203125
+      ],
+      "system_load_average_after": [
+        7.12109375,
+        7.97021484375,
+        38.50439453125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-numba-cold-0.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-numba-cold-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.049200875000678934,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 55.0157102910016,
+      "pointwise_log_likelihood_seconds": 0.12316633299633395,
+      "end_to_end_seconds": 55.18807749899861,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 4.202018166019116
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 9.147379125002772
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 2.1825991538929346,
+      "minimum_bulk_ess": 2.5731278006696474,
+      "minimum_tail_ess": 5.211314426239563,
+      "minimum_bulk_ess_per_end_to_end_second": 0.046624704415846645,
+      "minimum_tail_ess_per_end_to_end_second": 0.09442826535014058,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-numba",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 58.14762162498664,
+      "peak_process_rss_bytes": 573128704,
+      "system_load_average_before": [
+        7.12109375,
+        7.97021484375,
+        38.50439453125
+      ],
+      "system_load_average_after": [
+        9.27490234375,
+        8.771484375,
+        36.74560546875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-numba-cold-1.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-numba-cold-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.041293417001725174,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 51.50396700001147,
+      "pointwise_log_likelihood_seconds": 0.11456491600256413,
+      "end_to_end_seconds": 51.65982533301576,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 3.8817124589841114
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 8.349542833006126
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 2.000086540333467,
+      "minimum_bulk_ess": 2.7486259074506507,
+      "minimum_tail_ess": 7.170150437364102,
+      "minimum_bulk_ess_per_end_to_end_second": 0.05320625630714252,
+      "minimum_tail_ess_per_end_to_end_second": 0.1387954835530902,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-numba",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 53.691897374999826,
+      "peak_process_rss_bytes": 574062592,
+      "system_load_average_before": [
+        9.27490234375,
+        8.771484375,
+        36.74560546875
+      ],
+      "system_load_average_after": [
+        7.2646484375,
+        8.2275390625,
+        34.78662109375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-numba-cold-2.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-numba-warm--1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03822633299569134,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 14.202146916999482,
+      "pointwise_log_likelihood_seconds": 0.10641558300994802,
+      "end_to_end_seconds": 14.346788833005121,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 3.8275224169919966
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 7.79692733399861
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.0025664299556076,
+      "minimum_bulk_ess": 379.8025494050903,
+      "minimum_tail_ess": 617.9990432709792,
+      "minimum_bulk_ess_per_end_to_end_second": 26.47300060145485,
+      "minimum_tail_ess_per_end_to_end_second": 43.0757746882883,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-numba",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": -1,
+      "smoke": false,
+      "process_experiment_seconds": 16.238443416004884,
+      "peak_process_rss_bytes": 573980672,
+      "system_load_average_before": [
+        7.2646484375,
+        8.2275390625,
+        34.78662109375
+      ],
+      "system_load_average_after": [
+        6.4111328125,
+        7.98828125,
+        34.236328125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-numba-warm--1.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": -1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-numba-warm-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.038618541992036626,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 11.34932758299692,
+      "pointwise_log_likelihood_seconds": 0.23474300000816584,
+      "end_to_end_seconds": 11.622689124997123,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.7517949160101125
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 4.889242249992094
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.0025664299556076,
+      "minimum_bulk_ess": 379.8025494050903,
+      "minimum_tail_ess": 617.9990432709792,
+      "minimum_bulk_ess_per_end_to_end_second": 32.6776828770411,
+      "minimum_tail_ess_per_end_to_end_second": 53.17177777230897,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-numba",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 13.501563124998938,
+      "peak_process_rss_bytes": 582254592,
+      "system_load_average_before": [
+        6.6181640625,
+        8.0048828125,
+        34.08837890625
+      ],
+      "system_load_average_after": [
+        7.49951171875,
+        8.1513671875,
+        33.83544921875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-numba-warm-0.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-numba-warm-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04062562499893829,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 48.46488204199704,
+      "pointwise_log_likelihood_seconds": 0.23801041700062342,
+      "end_to_end_seconds": 48.743518083996605,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.7703236249944894
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 4.983233749997453
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 2.1825991538929346,
+      "minimum_bulk_ess": 2.5731278006696474,
+      "minimum_tail_ess": 5.211314426239563,
+      "minimum_bulk_ess_per_end_to_end_second": 0.05278912769971876,
+      "minimum_tail_ess_per_end_to_end_second": 0.10691297286460195,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-numba",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 50.976462416991126,
+      "peak_process_rss_bytes": 582533120,
+      "system_load_average_before": [
+        7.49951171875,
+        8.1513671875,
+        33.83544921875
+      ],
+      "system_load_average_after": [
+        5.2578125,
+        7.49169921875,
+        31.98486328125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-numba-warm-1.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-numba-warm-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03710983299242798,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 47.69760333299928,
+      "pointwise_log_likelihood_seconds": 0.23629429198626895,
+      "end_to_end_seconds": 47.971007457977976,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.7375073750154115
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 4.8319046670076204
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "numba"
+      },
+      "gradient_backend": "pytensor",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 2.000086540333467,
+      "minimum_bulk_ess": 2.7486259074506507,
+      "minimum_tail_ess": 7.170150437364102,
+      "minimum_bulk_ess_per_end_to_end_second": 0.057297648165059153,
+      "minimum_tail_ess_per_end_to_end_second": 0.14946841472206035,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-numba",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 49.935236457997235,
+      "peak_process_rss_bytes": 581287936,
+      "system_load_average_before": [
+        5.2578125,
+        7.49169921875,
+        31.98486328125
+      ],
+      "system_load_average_after": [
+        3.671875,
+        6.73095703125,
+        30.3056640625
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-numba-warm-2.json",
+        "sampler": "nutpie-numba",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-numpyro-cold-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03669054100464564,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 21.236816249991534,
+      "pointwise_log_likelihood_seconds": 1.2845935840014135,
+      "end_to_end_seconds": 22.558100374997593,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.38736900000367314
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 3.36517529199773
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.09322654099378269
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 1,
+      "maximum_rhat": 1.8293863661700636,
+      "minimum_bulk_ess": 2.9122889215133174,
+      "minimum_tail_ess": 15.915370046201494,
+      "minimum_bulk_ess_per_end_to_end_second": 0.1291016917692755,
+      "minimum_tail_ess_per_end_to_end_second": 0.7055279381521589,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "numpyro",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 25.29006691700488,
+      "peak_process_rss_bytes": 1137786880,
+      "system_load_average_before": [
+        3.671875,
+        6.73095703125,
+        30.3056640625
+      ],
+      "system_load_average_after": [
+        6.22412109375,
+        7.0888671875,
+        29.75146484375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-numpyro-cold-0.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-numpyro-cold-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.045352332992479205,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 13.431649083999218,
+      "pointwise_log_likelihood_seconds": 0.23037979198852554,
+      "end_to_end_seconds": 13.707381208980223,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.4097677499958081
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 3.4111442919966066
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.09534129199164454
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.0071975629639822,
+      "minimum_bulk_ess": 346.4642143976735,
+      "minimum_tail_ess": 588.330205615996,
+      "minimum_bulk_ess_per_end_to_end_second": 25.27574079363108,
+      "minimum_tail_ess_per_end_to_end_second": 42.92068606296282,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "numpyro",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 16.58180329098832,
+      "peak_process_rss_bytes": 1117044736,
+      "system_load_average_before": [
+        6.22412109375,
+        7.0888671875,
+        29.75146484375
+      ],
+      "system_load_average_after": [
+        8.72265625,
+        7.56494140625,
+        29.52294921875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-numpyro-cold-1.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-numpyro-cold-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.044409542009816505,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 13.412723040994024,
+      "pointwise_log_likelihood_seconds": 0.2254197089932859,
+      "end_to_end_seconds": 13.682552291997126,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.3966545829898678
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 3.3798317079927074
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.0877347500063479
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 1,
+      "maximum_rhat": 1.0028217135025037,
+      "minimum_bulk_ess": 361.048261975581,
+      "minimum_tail_ess": 553.7882882486142,
+      "minimum_bulk_ess_per_end_to_end_second": 26.387493668615964,
+      "minimum_tail_ess_per_end_to_end_second": 40.47404873230581,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "numpyro",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 16.371120416995836,
+      "peak_process_rss_bytes": 1121058816,
+      "system_load_average_before": [
+        8.72265625,
+        7.56494140625,
+        29.52294921875
+      ],
+      "system_load_average_after": [
+        8.02783203125,
+        7.47900390625,
+        28.98095703125
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-numpyro-cold-2.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-numpyro-warm--1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.039834082999732345,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 20.1968855419982,
+      "pointwise_log_likelihood_seconds": 0.20336779100762215,
+      "end_to_end_seconds": 20.440087416005554,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.3746967910119565
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 3.386454583000159
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.08973649999825284
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 1,
+      "maximum_rhat": 1.8293863661700636,
+      "minimum_bulk_ess": 2.9122889215133174,
+      "minimum_tail_ess": 15.915370046201494,
+      "minimum_bulk_ess_per_end_to_end_second": 0.1424792791851202,
+      "minimum_tail_ess_per_end_to_end_second": 0.778635126273433,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "numpyro",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": -1,
+      "smoke": false,
+      "process_experiment_seconds": 23.1282004579989,
+      "peak_process_rss_bytes": 1105231872,
+      "system_load_average_before": [
+        8.02783203125,
+        7.47900390625,
+        28.98095703125
+      ],
+      "system_load_average_after": [
+        8.37939453125,
+        7.6005859375,
+        28.4013671875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-numpyro-warm--1.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": -1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-numpyro-warm-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.041385584001545794,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 22.37190554200788,
+      "pointwise_log_likelihood_seconds": 0.214166292003938,
+      "end_to_end_seconds": 22.627457418013364,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.38224066600378137
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 0.2908989580027992
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.02740033299778588
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 1,
+      "maximum_rhat": 1.8293863661700636,
+      "minimum_bulk_ess": 2.9122889215133174,
+      "minimum_tail_ess": 15.915370046201494,
+      "minimum_bulk_ess_per_end_to_end_second": 0.12870597291213506,
+      "minimum_tail_ess_per_end_to_end_second": 0.7033653738546655,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "numpyro",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 24.75986775000638,
+      "peak_process_rss_bytes": 1051213824,
+      "system_load_average_before": [
+        8.37939453125,
+        7.6005859375,
+        28.4013671875
+      ],
+      "system_load_average_after": [
+        8.2998046875,
+        7.62109375,
+        27.80419921875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-numpyro-warm-0.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-numpyro-warm-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.047071084001800045,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 8.076136165997013,
+      "pointwise_log_likelihood_seconds": 0.2219993339967914,
+      "end_to_end_seconds": 8.345206583995605,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.36665608300245367
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 0.3110702910053078
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.027527375001227483
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.0071975629639822,
+      "minimum_bulk_ess": 346.4642143976735,
+      "minimum_tail_ess": 588.330205615996,
+      "minimum_bulk_ess_per_end_to_end_second": 41.51655335436762,
+      "minimum_tail_ess_per_end_to_end_second": 70.49917814428856,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "numpyro",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 10.529648916999577,
+      "peak_process_rss_bytes": 1049165824,
+      "system_load_average_before": [
+        8.2998046875,
+        7.62109375,
+        27.80419921875
+      ],
+      "system_load_average_after": [
+        7.8720703125,
+        7.55078125,
+        27.54296875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-numpyro-warm-1.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-numpyro-warm-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04366312499041669,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 6.851249291998101,
+      "pointwise_log_likelihood_seconds": 0.22606850000738632,
+      "end_to_end_seconds": 7.120980916995904,
+      "compiler_and_postprocessing_events_inclusive": {
+        "jax_graph_conversion": {
+          "calls": 2,
+          "seconds": 0.38209120798273943
+        },
+        "pytensor_function_compilation": {
+          "calls": 1,
+          "seconds": 0.33027899998705834
+        },
+        "jax_posterior_postprocessing": {
+          "calls": 1,
+          "seconds": 0.02902908399119042
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "numpyro",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "nuts": {
+          "chain_method": "sequential",
+          "target_accept": 0.95
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 1,
+      "maximum_rhat": 1.0028217135025037,
+      "minimum_bulk_ess": 361.048261975581,
+      "minimum_tail_ess": 553.7882882486142,
+      "minimum_bulk_ess_per_end_to_end_second": 50.70204037674837,
+      "minimum_tail_ess_per_end_to_end_second": 77.76853985479269,
+      "diagnostics_acceptable_for_comparison": false,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "numpyro",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 9.536718957999256,
+      "peak_process_rss_bytes": 1048969216,
+      "system_load_average_before": [
+        7.8720703125,
+        7.55078125,
+        27.54296875
+      ],
+      "system_load_average_after": [
+        8.6982421875,
+        7.7314453125,
+        27.37255859375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-numpyro-warm-2.json",
+        "sampler": "numpyro",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-jax-cold-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.046676709011080675,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 16.24421108298702,
+      "pointwise_log_likelihood_seconds": 0.34519437499693595,
+      "end_to_end_seconds": 16.63608216699504,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 3.8422182089852868
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 3.93422870800714
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.005332066779669,
+      "minimum_bulk_ess": 269.6231619017404,
+      "minimum_tail_ess": 497.62582360582877,
+      "minimum_bulk_ess_per_end_to_end_second": 16.20713093354733,
+      "minimum_tail_ess_per_end_to_end_second": 29.912440838570017,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-jax",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 18.86733875000209,
+      "peak_process_rss_bytes": 573308928,
+      "system_load_average_before": [
+        8.6982421875,
+        7.7314453125,
+        27.37255859375
+      ],
+      "system_load_average_after": [
+        12.32080078125,
+        8.5966796875,
+        27.22412109375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-jax-cold-0.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-jax-cold-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04798954199941363,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 19.294146542000817,
+      "pointwise_log_likelihood_seconds": 0.294308833006653,
+      "end_to_end_seconds": 19.636444917006884,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 3.9830099590326427
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 4.077714833998471
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.0037993832263075,
+      "minimum_bulk_ess": 309.4722280379687,
+      "minimum_tail_ess": 559.4309591324131,
+      "minimum_bulk_ess_per_end_to_end_second": 15.76009452555939,
+      "minimum_tail_ess_per_end_to_end_second": 28.489421659411317,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-jax",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 21.642776832988602,
+      "peak_process_rss_bytes": 570720256,
+      "system_load_average_before": [
+        12.32080078125,
+        8.5966796875,
+        27.22412109375
+      ],
+      "system_load_average_after": [
+        13.08740234375,
+        8.98486328125,
+        26.92822265625
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-jax-cold-1.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-jax-cold-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04226237500552088,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 19.179831124987686,
+      "pointwise_log_likelihood_seconds": 0.30642554099904373,
+      "end_to_end_seconds": 19.52851904099225,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 3.6742200419976143
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 3.7643897499947343
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.0018344190607213,
+      "minimum_bulk_ess": 305.05662384436056,
+      "minimum_tail_ess": 522.3753877786769,
+      "minimum_bulk_ess_per_end_to_end_second": 15.62108336039293,
+      "minimum_tail_ess_per_end_to_end_second": 26.749360086249265,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-jax",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "cold",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 21.51227600000857,
+      "peak_process_rss_bytes": 570081280,
+      "system_load_average_before": [
+        12.359375,
+        8.90185546875,
+        26.79345703125
+      ],
+      "system_load_average_after": [
+        11.1572265625,
+        8.8310546875,
+        26.3505859375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-jax-cold-2.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "cold",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-jax-warm--1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04086320799251553,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 17.465954915998736,
+      "pointwise_log_likelihood_seconds": 0.2955602500005625,
+      "end_to_end_seconds": 17.802378373991814,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 3.6274459139967803
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 3.715920750008081
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.005332066779669,
+      "minimum_bulk_ess": 269.6231619017404,
+      "minimum_tail_ess": 497.62582360582877,
+      "minimum_bulk_ess_per_end_to_end_second": 15.145344977929653,
+      "minimum_tail_ess_per_end_to_end_second": 27.952771992130536,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-jax",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": -1,
+      "smoke": false,
+      "process_experiment_seconds": 19.731639167002868,
+      "peak_process_rss_bytes": 574210048,
+      "system_load_average_before": [
+        11.1572265625,
+        8.8310546875,
+        26.3505859375
+      ],
+      "system_load_average_after": [
+        9.17431640625,
+        8.5322265625,
+        25.8359375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-jax-warm--1.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": -1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-jax-warm-0.json",
+      "status": "ok",
+      "model_construction_seconds": 0.04072504201030824,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 14.035080250003375,
+      "pointwise_log_likelihood_seconds": 0.27391079199151136,
+      "end_to_end_seconds": 14.349716084005195,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.5351080429973081
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 0.61799941600475
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 85,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.005332066779669,
+      "minimum_bulk_ess": 269.6231619017404,
+      "minimum_tail_ess": 497.62582360582877,
+      "minimum_bulk_ess_per_end_to_end_second": 18.789442266545876,
+      "minimum_tail_ess_per_end_to_end_second": 34.67844385858643,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-jax",
+      "seed": 85,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 0,
+      "smoke": false,
+      "process_experiment_seconds": 16.182398374992772,
+      "peak_process_rss_bytes": 509689856,
+      "system_load_average_before": [
+        9.17431640625,
+        8.5322265625,
+        25.8359375
+      ],
+      "system_load_average_after": [
+        8.09521484375,
+        8.3251953125,
+        25.458984375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-jax-warm-0.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 85,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 0
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-jax-warm-1.json",
+      "status": "ok",
+      "model_construction_seconds": 0.038188292004633695,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 13.896520124995732,
+      "pointwise_log_likelihood_seconds": 0.2966894580022199,
+      "end_to_end_seconds": 14.231397875002585,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.5478487509972183
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 0.6336827080085641
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 86,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.0037993832263075,
+      "minimum_bulk_ess": 309.4722280379687,
+      "minimum_tail_ess": 559.4309591324131,
+      "minimum_bulk_ess_per_end_to_end_second": 21.74573648745749,
+      "minimum_tail_ess_per_end_to_end_second": 39.30962819295863,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-jax",
+      "seed": 86,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 1,
+      "smoke": false,
+      "process_experiment_seconds": 16.100240542000392,
+      "peak_process_rss_bytes": 507559936,
+      "system_load_average_before": [
+        8.09521484375,
+        8.3251953125,
+        25.458984375
+      ],
+      "system_load_average_after": [
+        7.2119140625,
+        8.1083984375,
+        24.982421875
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-jax-warm-1.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 86,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 1
+      }
+    },
+    {
+      "file": "u1-t30-obs0.2-nutpie-jax-warm-2.json",
+      "status": "ok",
+      "model_construction_seconds": 0.03821812500245869,
+      "fit_including_compilation_tuning_sampling_and_conversion_seconds": 18.383042041998124,
+      "pointwise_log_likelihood_seconds": 0.27474587500910275,
+      "end_to_end_seconds": 18.696006042009685,
+      "compiler_and_postprocessing_events_inclusive": {
+        "pytensor_function_compilation": {
+          "calls": 5,
+          "seconds": 0.5526622909965226
+        },
+        "nutpie_compilation": {
+          "calls": 1,
+          "seconds": 0.6394760830007726
+        }
+      },
+      "tuning_sum_of_chain_clocks_seconds": null,
+      "retained_sum_of_chain_clocks_seconds": null,
+      "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
+      "sampler_settings": {
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "cores": 1,
+        "nuts_sampler": "nutpie",
+        "random_seed": 87,
+        "progressbar": false,
+        "target_accept": 0.95,
+        "compute_convergence_checks": false,
+        "discard_tuned_samples": false,
+        "idata_kwargs": {
+          "save_warmup": true
+        },
+        "backend": "jax",
+        "compile_kwargs": {
+          "gradient_backend": "jax"
+        }
+      },
+      "gradient_backend": "jax",
+      "free_parameter_count": 60,
+      "observed_measurements": 6,
+      "imputed_measurements": 24,
+      "divergences": 0,
+      "maximum_rhat": 1.0018344190607213,
+      "minimum_bulk_ess": 305.05662384436056,
+      "minimum_tail_ess": 522.3753877786769,
+      "minimum_bulk_ess_per_end_to_end_second": 16.316673366434642,
+      "minimum_tail_ess_per_end_to_end_second": 27.940480261126687,
+      "diagnostics_acceptable_for_comparison": true,
+      "units": 1,
+      "periods": 30,
+      "observed_fraction": 0.2,
+      "sampler": "nutpie-jax",
+      "seed": 87,
+      "data_seed": 85,
+      "cache": "warm",
+      "repetition": 2,
+      "smoke": false,
+      "process_experiment_seconds": 20.674361375000444,
+      "peak_process_rss_bytes": 508559360,
+      "system_load_average_before": [
+        7.2119140625,
+        8.1083984375,
+        24.982421875
+      ],
+      "system_load_average_after": [
+        6.64404296875,
+        7.9345703125,
+        24.52880859375
+      ],
+      "requested_settings": {
+        "output": ".scratch/build-loop/issue-85/final-measurements/u1-t30-obs0.2-nutpie-jax-warm-2.json",
+        "sampler": "nutpie-jax",
+        "matrix": false,
+        "units": 1,
+        "periods": 30,
+        "observed_fraction": 0.2,
+        "draws": 1000,
+        "tune": 1000,
+        "chains": 2,
+        "target_accept": 0.95,
+        "repetitions": 3,
+        "seed": 87,
+        "data_seed": 85,
+        "cache": "warm",
+        "gradient_backend": "jax",
+        "smoke": false,
+        "worker": true,
+        "repetition": 2
+      }
+    }
+  ]
+}

@@ -21,6 +21,7 @@ Run outside pytest (whose fixture overrides the requested sampling sizes).
 from __future__ import annotations
 
 import argparse
+import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager, ExitStack
 from importlib.metadata import PackageNotFoundError, version
@@ -104,14 +105,14 @@ def environment() -> dict[str, Any]:
 
 
 @contextmanager
-def instrumentation() -> Iterator[dict[str, dict[str, float | int]]]:
+def instrumentation() -> Iterator[dict[str, dict[str, Any]]]:
     """Time real compiler/postprocessing entry points; inclusive buckets overlap."""
     import jax
     import pymc as pm
     import pytensor
     import pymc.sampling.jax as sampling_jax
 
-    events: dict[str, dict[str, float | int]] = {}
+    events: dict[str, dict[str, Any]] = {}
 
     def measured(name, original):
         def call(*args, **kwargs):
@@ -121,6 +122,17 @@ def instrumentation() -> Iterator[dict[str, dict[str, float | int]]]:
                 # JAX dispatch is asynchronous, including deterministic expansion.
                 if name == "jax_posterior_postprocessing":
                     jax.block_until_ready(result)
+                event = events.setdefault(name, {"calls": 0, "seconds": 0.0})
+                if name == "pytensor_function_compilation":
+                    linker = type(result.maker.mode.linker).__name__
+                    linkers = event.setdefault("compiled_linkers", [])
+                    if linker not in linkers:
+                        linkers.append(linker)
+                elif name == "nutpie_compilation":
+                    event["backend"] = kwargs.get("backend", "numba")
+                    event["gradient_backend"] = kwargs.get(
+                        "gradient_backend", "pytensor"
+                    )
                 return result
             finally:
                 event = events.setdefault(name, {"calls": 0, "seconds": 0.0})
@@ -203,14 +215,53 @@ def fit_probe(args: argparse.Namespace) -> dict[str, Any]:
     fitted, construction, observed = fixture(
         args.units, args.periods, args.observed_fraction, args.data_seed
     )
+    start = perf_counter()
+    initial_values = None
+    initialization: dict[str, Any] = {"mode": args.initialization}
+    if args.initialization == "stable":
+        from pymc.initial_point import make_initial_point_fn
+
+        support = make_initial_point_fn(
+            model=fitted.pymc_model, jitter_rvs=set(), return_transformed=False
+        )(0)
+        # A shared interior start avoids unstable AR jitter. A small offset also
+        # avoids exact zero-gradient coordinates rejected by tested nutpie.
+        initial_values = {
+            name: np.asarray(value) + 0.01 for name, value in support.items()
+        }
+        initialization.update(
+            offset=0.01,
+            starting_phi=float(initial_values["beta_a"][1]),
+            variables={
+                name: {
+                    "shape": list(value.shape),
+                    "sha256": hashlib.sha256(
+                        np.ascontiguousarray(value).tobytes()
+                    ).hexdigest(),
+                }
+                for name, value in initial_values.items()
+            },
+        )
+    initialization_seconds = perf_counter() - start
     sampler = "nutpie" if args.sampler.startswith("nutpie") else args.sampler
     options: dict[str, Any] = {}
     if sampler == "nutpie":
         options.update(backend=args.sampler.split("-")[1])
+        compiler_options: dict[str, Any] = {}
+        if args.initialization == "stable":
+            compiler_options["jitter_rvs"] = set()
         if args.sampler == "nutpie-jax":
-            options["compile_kwargs"] = {"gradient_backend": args.gradient_backend}
+            compiler_options["gradient_backend"] = args.gradient_backend
+        if compiler_options:
+            options["compile_kwargs"] = compiler_options
     elif sampler == "numpyro":
         options["nuts"] = {"chain_method": "sequential"}
+        if args.initialization == "stable":
+            options["nuts"]["jitter"] = False
+    elif args.initialization == "stable":
+        options["init"] = "adapt_diag"
+    if initial_values is not None:
+        options["initvals"] = initial_values
     settings = dict(
         draws=args.draws,
         tune=args.tune,
@@ -261,18 +312,22 @@ def fit_probe(args: argparse.Namespace) -> dict[str, Any]:
     bulk = float(np.min(summary.ess_bulk.to_numpy()))
     tail = float(np.min(summary.ess_tail.to_numpy()))
     rhat = float(np.max(summary.r_hat.to_numpy()))
-    total = construction + fit_seconds + loglik_seconds
+    total = construction + initialization_seconds + fit_seconds + loglik_seconds
     return {
         "status": "ok",
         "model_construction_seconds": construction,
+        "initialization_preparation_seconds": initialization_seconds,
+        "initialization": initialization,
         "fit_including_compilation_tuning_sampling_and_conversion_seconds": fit_seconds,
         "pointwise_log_likelihood_seconds": loglik_seconds,
         "end_to_end_seconds": total,
         "compiler_and_postprocessing_events_inclusive": events,
         "tuning_sum_of_chain_clocks_seconds": clock("warmup_sample_stats"),
         "retained_sum_of_chain_clocks_seconds": clock("sample_stats"),
-        "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, fit and pointwise likelihood.",
-        "sampler_settings": settings,
+        "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, initialization preparation, fit and pointwise likelihood.",
+        "sampler_settings": {
+            name: value for name, value in settings.items() if name != "initvals"
+        },
         "gradient_backend": args.gradient_backend
         if args.sampler == "nutpie-jax"
         else ("jax" if sampler == "numpyro" else "pytensor"),
@@ -301,7 +356,7 @@ def fit_probe(args: argparse.Namespace) -> dict[str, Any]:
 def _json_safe(value):
     if isinstance(value, dict):
         return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, (list, tuple, set)):
         return [_json_safe(item) for item in value]
     if isinstance(value, np.generic):
         return _json_safe(value.item())
@@ -379,6 +434,12 @@ def main() -> None:
     parser.add_argument("--tune", type=int, default=1000)
     parser.add_argument("--chains", type=int, default=2)
     parser.add_argument("--target-accept", type=float, default=0.95)
+    parser.add_argument(
+        "--initialization",
+        choices=["stable", "default"],
+        default="stable",
+        help="Use a common prior support point plus 0.01 without jitter; default retains each public fit route's initialization",
+    )
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--seed", type=int, default=85)
     parser.add_argument(
@@ -511,6 +572,8 @@ def main() -> None:
                     str(args.chains),
                     "--target-accept",
                     str(args.target_accept),
+                    "--initialization",
+                    args.initialization,
                     "--seed",
                     str(args.seed + max(0, repetition)),
                     "--data-seed",
