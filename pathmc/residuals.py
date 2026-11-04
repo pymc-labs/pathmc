@@ -38,6 +38,10 @@ class ResidualStructure(Protocol):
     linear predictor tensors and emit the joint distribution.
     """
 
+    def cholesky(self, block_vars: list[str], priors: dict[str, Any] | None) -> Any:
+        """Create the shared covariance factor, without an observation RV."""
+        ...
+
     def emit(
         self,
         block_vars: list[str],
@@ -46,6 +50,7 @@ class ResidualStructure(Protocol):
         priors: dict[str, Any] | None,
         *,
         observed: bool = True,
+        chol: Any | None = None,
     ) -> Any:
         """Create covariance priors and emit the joint distribution.
 
@@ -63,6 +68,8 @@ class ResidualStructure(Protocol):
             When True (estimation), emit an observed likelihood. When False
             (``simulate()``), emit a free joint RV whose draws are the
             realized correlated residuals.
+        chol : Any | None
+            Reuse a previously created factor instead of creating its prior.
         """
         ...
 
@@ -182,35 +189,53 @@ def residual_sd_description(
     return f"LKJCholeskyCov(eta=2, sd_dist={_format_sd_dist(specs)})"
 
 
-def _component_dist(spec: Any, var: str) -> Any:
-    params = {}
-    for name, value in spec.parameters.items():
-        if hasattr(value, "create_variable"):
-            params[name] = value.create_variable(f"{var}_{name}")
-        else:
-            params[name] = value
-    return spec.pymc_distribution.dist(**params)
-
-
 def _mixed_sd_dist(block_vars: list[str], specs: list[Any]) -> Any:
     import pytensor.tensor as pt
 
-    components = [
-        _component_dist(spec, var) for var, spec in zip(block_vars, specs, strict=True)
-    ]
+    parameters = []
+    names = []
+    for var, spec in zip(block_vars, specs, strict=True):
+        names.append(tuple(spec.parameters))
+        for name, value in spec.parameters.items():
+            parameters.append(
+                pt.as_tensor_variable(
+                    value.create_variable(f"{var}_{name}")
+                    if hasattr(value, "create_variable")
+                    else value
+                )
+            )
 
-    def dist_fn(size: Any) -> Any:
-        del size
-        return pt.stack(components)
+    def components(args: tuple[Any, ...]) -> list[Any]:
+        result = []
+        offset = 0
+        for spec, keys in zip(specs, names, strict=True):
+            params = dict(zip(keys, args[offset : offset + len(keys)], strict=True))
+            result.append(spec.pymc_distribution.dist(**params))
+            offset += len(keys)
+        return result
 
-    def logp(value: Any) -> Any:
-        return pt.stack([pm.logp(comp, value[i]) for i, comp in enumerate(components)])
+    def dist_fn(*args: Any) -> Any:
+        return pt.stack(components(args[:-1]))
 
+    def logp(value: Any, *args: Any) -> Any:
+        return pt.stack([
+            pm.logp(comp, value[i]) for i, comp in enumerate(components(args))
+        ])
+
+    # Nested scale priors must be explicit inputs. Capturing their RVs in the
+    # logp closure prevents PyMC from replacing them with sampler values.
+    signature = (
+        ",".join(
+            "(" + ",".join(f"d{i}_{j}" for j in range(param.ndim)) + ")"
+            for i, param in enumerate(parameters)
+        )
+        + "->(n)"
+    )
     return pm.CustomDist.dist(
+        *parameters,
         dist=dist_fn,
         logp=logp,
-        ndim_supp=1,
-        signature="()->(n)",
+        signature=signature,
     )
 
 
@@ -264,27 +289,31 @@ class LKJResidual:
         priors: dict[str, Any] | None,
         *,
         observed: bool = True,
+        chol: Any | None = None,
     ) -> Any:
-        """Emit LKJ Cholesky covariance + MvNormal (observed or free)."""
-        k = len(block_vars)
+        """Emit a batch-aware joint distribution, reusing ``chol`` if supplied."""
         block_name = "_".join(block_vars)
 
-        mu_stacked = pm.math.stack([mu_dict[v] for v in block_vars], axis=1)
-
-        sd_dist = residual_sd_dist(block_vars, priors)
-        chol, _, _ = pm.LKJCholeskyCov(
-            f"chol_{block_name}",
-            n=k,
-            eta=2.0,
-            sd_dist=sd_dist,
-            compute_corr=True,
-        )
+        mu_stacked = pm.math.stack([mu_dict[v] for v in block_vars], axis=-1)
+        if chol is None:
+            chol = self.cholesky(block_vars, priors)
         if observed:
-            y_stacked = np.column_stack([data_dict[v] for v in block_vars])
+            y_stacked = np.stack([data_dict[v] for v in block_vars], axis=-1)
             return pm.MvNormal(
                 f"{block_name}_obs", mu=mu_stacked, chol=chol, observed=y_stacked
             )
         return pm.MvNormal(f"{block_name}_joint", mu=mu_stacked, chol=chol)
+
+    def cholesky(self, block_vars: list[str], priors: dict[str, Any] | None) -> Any:
+        """Create one LKJ factor with the configured marginal scale priors."""
+        chol, _, _ = pm.LKJCholeskyCov(
+            f"chol_{'_'.join(block_vars)}",
+            n=len(block_vars),
+            eta=2.0,
+            sd_dist=residual_sd_dist(block_vars, priors),
+            compute_corr=True,
+        )
+        return chol
 
     def prior_keys(self, block_vars: list[str]) -> list[str]:
         """Return LKJ-specific prior keys for introspection."""

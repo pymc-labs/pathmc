@@ -33,9 +33,7 @@ from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
 from pathmc.compile import (
     _requires_rectangular_panel,
-    _SCAN_PANEL_RESIDUAL_COV_MSG,
     _build_lag_map,
-    _has_temporal_deps,
     _identify_residual_blocks,
     _scan_discrete_sample_vars,
     _scan_term_base_vars,
@@ -1195,6 +1193,11 @@ class PathModel:
             *t-1*, giving a multi-step trajectory whose uncertainty
             compounds over time. Ignored for models without a lagged
             endogenous term, where the two are identical.
+            Scan residual blocks jointly sample their original outcome names.
+            One-step means use observed current parents and lag history; free
+            trajectories propagate the same realized correlated states to
+            descendants and later lags. Scan + ``~~`` requires complete,
+            observed Gaussian equations throughout the model.
         **kwargs
             Passed directly to ``pm.sample_posterior_predictive()``.
             Pass ``extend_inferencedata=False`` to leave the stored
@@ -1260,6 +1263,20 @@ class PathModel:
                             idata, model=prediction_model, **kwargs
                         )
                 else:
+                    if scan_info is not None and self._spec.residual_covs:
+                        # Block outcomes are named slices of joint observations.
+                        # Include the slices and refresh their single joint draw.
+                        if kwargs.get("var_names") is None:
+                            kwargs["var_names"] = [
+                                r.lhs for r in self._spec.regressions
+                            ]
+                        requested = kwargs.pop("sample_vars", []) or []
+                        if isinstance(requested, str):
+                            requested = [requested]
+                        kwargs["sample_vars"] = sorted(
+                            set(requested)
+                            | {rv.name for rv in self._pymc_model.observed_RVs}
+                        )
                     pp = pm.sample_posterior_predictive(idata, **kwargs)
         result = pp if not kwargs["extend_inferencedata"] else idata
         if self._scaling_factors is not None and prediction_data is not None:
@@ -1780,7 +1797,10 @@ class PathModel:
         """
         assert self._gen_model is not None
         assert self._data is not None
-        if not self._graph_info.residual_blocks:
+        if (
+            not self._graph_info.residual_blocks
+            or getattr(self._gen_model, "_pathmc_panel_scan", None) is not None
+        ):
             return self._gen_model
         sibling = getattr(self, "_residual_predictive_model", None)
         if sibling is None:
@@ -3629,6 +3649,13 @@ def simulate(
         :func:`model`). With *panel*, temporal state starts cold:
         lagged endogenous terms and adstock carry begin at zero at each
         unit's first time step, matching the compiler's init semantics.
+        Residual blocks (``~~``) are supported for complete observed
+        Gaussian scan panels, with one globally shared covariance and
+        independent innovations across units and time before propagation.
+        Packed factors must be finite vectors with positive diagonals;
+        no separate member ``sigma`` parameter is required. Latent nodes
+        and non-Gaussian equations cannot be combined with scan + ``~~``.
+        Supplied endogenous columns are ignored, including NaN columns.
         Convolution adstock compiled without *panel* treats row order as
         one series and warns.
     pooling : str | dict | None
@@ -3692,9 +3719,6 @@ def simulate(
     latent_set = set(latent) if latent else set()
     endogenous_lhs = [reg.lhs for reg in spec.regressions]
     endo_set = set(endogenous_lhs)
-
-    if spec.residual_covs and panel is not None and _has_temporal_deps(spec):
-        raise NotImplementedError(_SCAN_PANEL_RESIDUAL_COV_MSG)
 
     _reject_within_block_directed_edges(spec, caller="simulate")
 
@@ -3843,6 +3867,21 @@ def simulate(
         rv = gen_model[name]
         arr = np.asarray(params[name])
         shape = tuple(int(d) for d in rv.shape.eval())
+        scan_blocks = getattr(gen_model, "_pathmc_scan_residual_blocks", ())
+        for block in scan_blocks:
+            if name == f"chol_{'_'.join(block)}":
+                diagonal = np.cumsum(np.arange(1, len(block) + 1)) - 1
+                if (
+                    arr.shape != shape
+                    or not np.isfinite(arr).all()
+                    or not (arr[diagonal] > 0).all()
+                ):
+                    raise ValueError(
+                        f"Parameter '{name}' must be a finite packed vector of shape "
+                        f"{shape} with strictly positive diagonal entries. Use "
+                        "pathmc.simulate_params_template() for the required shape "
+                        "and supply a nonsingular lower-triangular factor."
+                    )
         if arr.shape != shape:
             if arr.ndim == 0:
                 arr = np.full(shape, arr)
@@ -4060,6 +4099,10 @@ def simulate_params_template(
         Parameter name -> descriptor dictionary (see above). Every key
         is required by ``params`` in a subsequent :func:`simulate`
         call; no other keys are accepted.
+        For observed Gaussian scan residual blocks, includes one packed
+        ``chol_{block}`` vector in sorted member order, with length
+        ``k(k+1)/2``. Member scales and process innovations are not separate
+        simulation parameters. Factors live in model units.
 
     Raises
     ------

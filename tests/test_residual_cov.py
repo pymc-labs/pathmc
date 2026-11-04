@@ -473,35 +473,30 @@ def _panel_residual_cov_data() -> pd.DataFrame:
 PANEL = {"unit": "region", "time": "week"}
 
 
-class TestScanPanelResidualCovRejection:
-    """Scan-compiled panel models must reject ~~ before fitting independent residuals."""
+class TestScanPanelResidualCov:
+    """Temporal Gaussian panels honor the same residual block as non-scan panels."""
 
-    def test_model_lag_scan_panel_raises(self):
-        df = _panel_residual_cov_data()
-        with pytest.raises(NotImplementedError, match="(?i)residual covariances"):
-            pathmc.model(
-                "Y1 ~ X + lag(Y1)\nY2 ~ X\nY1 ~~ Y2",
-                data=df,
-                panel=PANEL,
-            )
+    @pytest.mark.parametrize("term", ["X + lag(Y1)", "adstock(X, decay=theta)"])
+    def test_model_scan_panel_has_joint_covariance(self, term):
+        model = pathmc.model(
+            f"Y1 ~ {term}\nY2 ~ X\nY1 ~~ Y2",
+            data=_panel_residual_cov_data(),
+            panel=PANEL,
+        )
+        assert "chol_Y1_Y2" in {rv.name for rv in model.pymc_model.free_RVs}
+        assert {rv.name for rv in model.pymc_model.observed_RVs} == {"Y1_Y2_obs"}
 
-    def test_model_adstock_scan_panel_raises(self):
-        df = _panel_residual_cov_data()
-        with pytest.raises(NotImplementedError, match="(?i)residual covariances"):
-            pathmc.model(
-                "Y1 ~ adstock(X, decay=theta)\nY2 ~ X\nY1 ~~ Y2",
-                data=df,
-                panel=PANEL,
-            )
-
-    def test_simulate_params_template_scan_panel_raises(self):
-        df = _panel_residual_cov_data()[["region", "week", "X"]]
-        with pytest.raises(NotImplementedError, match="(?i)residual covariances"):
-            pathmc.simulate_params_template(
-                "Y1 ~ X + lag(Y1)\nY2 ~ X\nY1 ~~ Y2",
-                data=df,
-                panel=PANEL,
-            )
+    def test_simulate_params_template_scan_panel(self):
+        template = pathmc.simulate_params_template(
+            "Y1 ~ X + lag(Y1)\nY2 ~ X\nY1 ~~ Y2",
+            data=_panel_residual_cov_data()[["region", "week", "X"]],
+            panel=PANEL,
+        )
+        assert {k: v["shape"] for k, v in template.items()} == {
+            "beta_Y1": (3,),
+            "beta_Y2": (2,),
+            "chol_Y1_Y2": (3,),
+        }
 
     def test_model_panel_without_scan_still_has_chol(self):
         df = _panel_residual_cov_data()
@@ -668,3 +663,26 @@ class TestResidualScalePriorIsCompiled:
         packed = model.pymc_model["chol_M1_M2_M3"]
         scale = np.asarray(packed.owner.inputs[3].owner.inputs[3].eval())
         np.testing.assert_allclose(scale, [1e-6, 0.5, 0.25])
+
+
+def test_nested_marginal_scale_in_mixed_block_has_bound_logp():
+    """Nested scale priors are inputs to the mixed distribution's density."""
+    data = pd.DataFrame({
+        "X": [0.0, 1.0, -1.0],
+        "a": [1.0, 2.0, 3.0],
+        "b": [-1.0, 0.0, 1.0],
+    })
+    model = pathmc.model(
+        "a ~ X\nb ~ X\na ~~ b",
+        data,
+        priors={
+            "sigma_a": pathmc.Prior(
+                "HalfNormal", sigma=pathmc.Prior("HalfNormal", sigma=0.4)
+            ),
+            "sigma_b": pathmc.Prior("Exponential", lam=2.0),
+        },
+    )
+    graph = model.pymc_model
+    assert "a_sigma" in {rv.name for rv in graph.free_RVs}
+    assert np.isfinite(graph.compile_logp()(graph.initial_point()))
+    assert np.isfinite(graph.compile_dlogp()(graph.initial_point())).all()

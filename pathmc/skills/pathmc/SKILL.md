@@ -197,6 +197,8 @@ The DSL is lavaan-inspired:
     non-Gaussian families, transforms, categoricals, and residual
     covariance are rejected rather than run on a weaker executor.
 
+13. **Residual covariance works with Gaussian panel dynamics.** Complete observed Gaussian panels support `~~` together with `lag()` and geometric `adstock()`, including nested transforms. For example, `online ~ adstock(tv, decay=theta_tv) + lag(online); store ~ adstock(tv, decay=theta_tv) + lag(store); online ~~ store` uses `beta_online=[1, 0.8, 0.4]`, `beta_store=[2, 0.5, 0.2]`, `theta_tv=0.6`, and packed `chol_online_store=[1, 0.6, 0.8]` in `simulate()`. Members sort lexicographically, with row-major lower-triangle packing and positive diagonals. Covariance is global; innovations are independent across unit/time/block before temporal propagation. The template omits member `sigma`s; configure their marginal scale priors through `sigma_{member}`. Descendants consume realized states. One-step predictions condition on observed parents/history, while prior prediction, free-running prediction, and predictive hard `do(set=...)` generate correlated trajectories. Hard holds retain unheld members' marginal noise; NaN releases resume their equations. Mean `do()` uses zero process noise. Scaling converts covariance by `D @ Sigma @ D`. Latent nodes, any non-Gaussian equation, missing fitting outcomes, within-block directed dependencies (including cross-member lags), singleton/exogenous endpoints, and `policy=` are excluded. `~~` alone does not identify causal effects.
+
 ## Capabilities and boundaries
 
 **Agents using pathmc can:**

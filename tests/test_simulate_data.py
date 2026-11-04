@@ -357,20 +357,23 @@ class TestSimulateValidation:
                 random_seed=42,
             )
 
-    def test_residual_cov_scan_panel_raises(self, panel_exog):
+    def test_residual_cov_scan_panel(self, panel_exog):
         df = panel_exog.rename(columns={"tv": "X"})
-        with pytest.raises(NotImplementedError, match="(?i)residual covariances"):
-            pathmc.simulate(
-                "Y1 ~ X + lag(Y1)\nY2 ~ X\nY1 ~~ Y2",
-                data=df,
-                panel={"unit": "region", "time": "week"},
-                params={
-                    "beta_Y1": [0.0, 0.5, 0.1],
-                    "beta_Y2": [0.0, -0.5],
-                    "chol_Y1_Y2": [1.0, 0.8, 0.6],
-                },
-                random_seed=42,
-            )
+        generated = pathmc.simulate(
+            "Y1 ~ X + lag(Y1)\nY2 ~ X\nY1 ~~ Y2",
+            data=df,
+            panel={"unit": "region", "time": "week"},
+            params={
+                "beta_Y1": [0.0, 0.5, 0.1],
+                "beta_Y2": [0.0, -0.5],
+                "chol_Y1_Y2": [1.0, 0.8, 0.6],
+            },
+            random_seed=42,
+        )
+        assert {"Y1", "Y2"} <= set(generated.columns)
+        assert np.isfinite(generated[["Y1", "Y2"]].to_numpy()).all()
+        np.testing.assert_array_equal(generated.region, df.region)
+        np.testing.assert_array_equal(generated.week, df.week)
 
     def test_endogenous_in_data_ignored(self, exog_df):
         """If the user passes Y in data, it should be ignored."""
