@@ -1,0 +1,141 @@
+/* Labs identity overlay for the great-docs chrome.
+   Tokens from labs_sphinx_theme (the skin CausalPy and pymc-marketing share).
+   Loaded after great-docs.scss, so equal-specificity rules win. !important is
+   used only where Bootstrap or the theme already forces a value.
+   Extractable: every rule is a Labs token except the pathmc logo height. */
+
+:root {
+  --labs-blue: #154A72;
+  --labs-blue-highlight: #151B72;
+  --labs-blue-dark: #4A9EDE;
+  --labs-green: #81C240;
+  --labs-green-bg: #CDDEBB;
+  --gd-link-color: var(--labs-blue);
+  --gd-active-link: var(--labs-blue);
+  --gd-navbar-bg: #FCFEFF;
+  --gd-navbar-text: var(--labs-blue);
+  --bs-link-color: var(--labs-blue);
+  --bs-link-hover-color: var(--labs-blue-highlight);
+}
+
+body.quarto-dark {
+  --gd-link-color: var(--labs-blue-dark);
+  --gd-active-link: var(--labs-blue-dark);
+  --gd-navbar-bg: #1a1a1a;
+  --gd-navbar-text: var(--labs-blue-dark);
+  --bs-link-color: var(--labs-blue-dark);
+  --bs-link-hover-color: #7cb8e8;
+}
+
+/* Quarto emits data-bs-theme="dark" on the navbar even in light mode, which
+   paints light link text and a dark bar. navbar_style is unset, so the mint
+   gradient class is not added; this still has to beat Bootstrap's variables. */
+body.quarto-light .navbar {
+  background: #FCFEFF !important;
+  background-image: none !important;
+  --bs-navbar-color: var(--labs-blue);
+  --bs-navbar-hover-color: var(--labs-blue-highlight);
+  --bs-navbar-active-color: var(--labs-blue);
+  --bs-navbar-brand-color: var(--labs-blue);
+  --bs-navbar-brand-hover-color: var(--labs-blue-highlight);
+}
+
+body.quarto-light .navbar .nav-link,
+body.quarto-light #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a,
+body.quarto-light .navbar-title {
+  color: var(--labs-blue) !important;
+}
+
+body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a,
+body.quarto-dark .navbar .nav-link {
+  color: var(--labs-blue-dark);
+}
+
+/* Theme hover is a hardcoded orange pill, in both modes. */
+body.quarto-light #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a:hover {
+  background-color: var(--labs-green-bg);
+  color: var(--labs-blue) !important;
+}
+
+body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a:hover {
+  background-color: transparent;
+  color: var(--labs-green);
+}
+
+body.quarto-light p a,
+body.quarto-light li a {
+  color: var(--labs-blue);
+}
+
+body.quarto-light p a:hover,
+body.quarto-light li a:hover {
+  color: var(--labs-blue-highlight);
+}
+
+#quarto-margin-sidebar nav ul li a.active {
+  color: var(--labs-blue);
+}
+
+/* Light-mode active sidebar is a literal orange, not --gd-active-link. */
+#quarto-sidebar a.sidebar-item-text.sidebar-link.active {
+  color: var(--labs-blue);
+  text-decoration-color: var(--labs-green);
+}
+
+body.quarto-dark #quarto-sidebar a.sidebar-item-text.sidebar-link.active {
+  color: var(--labs-blue-dark);
+  text-decoration-color: var(--labs-green);
+}
+
+/* Theme hardcodes Open Sans, which is not loaded, so the browser falls
+   through that stack anyway. Name the system stack so the declared family
+   matches Labs (Source Sans is not shipped here). */
+p,
+h1,
+h2,
+h3,
+#toc-title,
+#toc-function-reference,
+.nav-link,
+.table,
+#quarto-sidebar .sidebar-item-text,
+a.sidebar-item-text.sidebar-link.text-start > span,
+.gd-ref-sidebar #quarto-sidebar a.sidebar-item-text[href$="/"],
+table.gd-summary-table td:last-child {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Headings @extend Bootstrap .fw-medium (500 !important). Labs headings are 600. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.h1,
+.h2,
+.h3,
+.h4,
+.h5,
+.h6 {
+  font-weight: 600 !important;
+}
+
+/* Flatly hardcodes the on-this-page marker to #18bc9c !important. */
+.sidebar nav[role="doc-toc"] ul > li > a.active,
+.sidebar nav[role="doc-toc"] ul > li > ul > li > a.active {
+  color: var(--labs-blue) !important;
+  border-color: var(--labs-blue) !important;
+}
+
+body.quarto-dark .sidebar nav[role="doc-toc"] ul > li > a.active,
+body.quarto-dark .sidebar nav[role="doc-toc"] ul > li > ul > li > a.active {
+  color: var(--labs-blue-dark) !important;
+  border-color: var(--labs-blue-dark) !important;
+}
+
+/* pathmc-only. The mark is a 1024² stack, not a horizontal wordmark.
+   4rem would turn the bar into a tall diagram; 40px stays readable. */
+.navbar-logo {
+  height: 40px;
+}

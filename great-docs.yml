@@ -140,7 +140,13 @@ logo:
   light: docs/assets/logo_light.png
   dark: docs/assets/logo_dark.png
 favicon: docs/assets/favicon.png
-navbar_style: mint
+# mint is the mismatch with the Labs sites, and the preset injects an
+# !important gradient after user CSS. Leave it unset. The sidebar-pin and
+# footer-move halves of navbar-style.js (shipped only when a preset is set)
+# are inlined below so scroll layout does not regress.
+attribution: false
+site:
+  css: docs/assets/labs.css
 dark_mode_toggle: true
 # We use docs/user_guide/00-welcome.qmd as the homepage. It already has its
 # own logo/tagline/showcase, so suppress the auto-generated hero block.
@@ -197,6 +203,65 @@ include_in_header:
         height: auto;
       }
       </style>
+  - text: |
+      <script>
+      /* Non-gradient half of great-docs navbar-style.js. That file is the
+         only place these two fixes live, and great-docs emits it only when
+         navbar_style is set. Keep them so dropping the mint preset does not
+         let headroom slide the sidebars under the sticky header, or unstick
+         the sidebars when the footer starts. */
+      (function () {
+        "use strict";
+        var mql = window.matchMedia("(min-width: 992px)");
+        function fixSidebars() {
+          if (!mql.matches) return;
+          var header = document.querySelector("#quarto-header");
+          if (!header) return;
+          var h = header.offsetHeight;
+          var els = document.querySelectorAll(".sidebar, .headroom-target");
+          els.forEach(function (el) {
+            if (el.classList.contains("gd-sidebar-float")) return;
+            el.style.top = h + "px";
+            el.style.maxHeight = "calc(100vh - " + h + "px)";
+          });
+        }
+        window.addEventListener("quarto-hrChanged", fixSidebars);
+        mql.addEventListener("change", fixSidebars);
+      })();
+      (function () {
+        "use strict";
+        var mql = window.matchMedia("(min-width: 992px)");
+        var moved = false;
+        var originalParent = null;
+        var originalNext = null;
+        function update() {
+          var content = document.getElementById("quarto-content");
+          var footer = document.querySelector("footer.footer");
+          if (!content || !footer) return;
+          if (mql.matches && !moved) {
+            originalParent = footer.parentNode;
+            originalNext = footer.nextSibling;
+            footer.style.gridColumn = "1 / -1";
+            content.appendChild(footer);
+            moved = true;
+          } else if (!mql.matches && moved) {
+            footer.style.gridColumn = "";
+            if (originalNext) {
+              originalParent.insertBefore(footer, originalNext);
+            } else {
+              originalParent.appendChild(footer);
+            }
+            moved = false;
+          }
+        }
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", update);
+        } else {
+          update();
+        }
+        mql.addEventListener("change", update);
+      })();
+      </script>
 
 # SEO ------------------------------------------------------------------------
 # Public docs URL at pathmc.pymc-labs.com (matches pyproject.toml [project.urls] Documentation).
