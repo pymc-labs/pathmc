@@ -83,57 +83,61 @@ tags:
 # Public surface only: top-level constructors, PathModel methods, result/display
 # classes returned by those methods, and documented extension points.
 # Internal helpers (parse/build/compile/compute functions) are excluded.
+# title sets both the index heading and the navbar label. Labs calls that tab
+# API, not Reference.
 reference:
-  - title: Modeling
-    desc: Build, fit, and query Bayesian path models.
-    contents:
-      - modeling.model
-      - modeling.PathModel
-      - adjustment.AdjustmentModel
-      - interpret.datagrid
-  - title: Simulation
-    desc: Time-forward and counterfactual simulation helpers.
-    contents:
-      - modeling.simulate
-  - title: History-Dependent Treatment Policies
-    desc: Rules evaluated inside a Gaussian lag-panel scan.
-    contents:
-      - policy.TreatmentPolicy
-      - policy.TimeSchedule
-      - policy.current
-      - policy.previous
-      - policy.where
-      - policy_result.PolicyRun
-      - policy_result.PolicySimulationInfo
-  - title: DAG falsification
-    desc: Whole-graph validation via a permutation-based test.
-    contents:
-      - falsify.falsify_graph
-  - title: Causal discovery
-    desc: Learn candidate structure from data and turn a DAG into a model.
-    contents:
-      - discovery.TBFPC
-      - cpdag.same_markov_equivalence_class
-      - dag.dag_to_spec
-      - dag.BuildModelFromDAG
-  - title: Custom transforms
-    desc: Extend the model DSL with domain-specific transformations.
-    contents:
-      - transforms.Transform
-      - transforms.ParamSpec
-      - transforms.register_transform
-  - title: Result objects
-    desc: Result containers returned by PathModel and AdjustmentModel methods.
-    contents:
-      - simulate.DoResult
-      - simulate.EstimandResult
-      - interpret.InterpretResult
-      - effects.EffectResult
-      - identify.ImplicationTestResult
-      - sensitivity.SensitivityResult
-      - falsify.FalsificationResult
-      - refute.PlaceboRefutationResult
-      - discovery.TestResult
+  title: API
+  sections:
+    - title: Modeling
+      desc: Build, fit, and query Bayesian path models.
+      contents:
+        - modeling.model
+        - modeling.PathModel
+        - adjustment.AdjustmentModel
+        - interpret.datagrid
+    - title: Simulation
+      desc: Time-forward and counterfactual simulation helpers.
+      contents:
+        - modeling.simulate
+    - title: History-Dependent Treatment Policies
+      desc: Rules evaluated inside a Gaussian lag-panel scan.
+      contents:
+        - policy.TreatmentPolicy
+        - policy.TimeSchedule
+        - policy.current
+        - policy.previous
+        - policy.where
+        - policy_result.PolicyRun
+        - policy_result.PolicySimulationInfo
+    - title: DAG falsification
+      desc: Whole-graph validation via a permutation-based test.
+      contents:
+        - falsify.falsify_graph
+    - title: Causal discovery
+      desc: Learn candidate structure from data and turn a DAG into a model.
+      contents:
+        - discovery.TBFPC
+        - cpdag.same_markov_equivalence_class
+        - dag.dag_to_spec
+        - dag.BuildModelFromDAG
+    - title: Custom transforms
+      desc: Extend the model DSL with domain-specific transformations.
+      contents:
+        - transforms.Transform
+        - transforms.ParamSpec
+        - transforms.register_transform
+    - title: Result objects
+      desc: Result containers returned by PathModel and AdjustmentModel methods.
+      contents:
+        - simulate.DoResult
+        - simulate.EstimandResult
+        - interpret.InterpretResult
+        - effects.EffectResult
+        - identify.ImplicationTestResult
+        - sensitivity.SensitivityResult
+        - falsify.FalsificationResult
+        - refute.PlaceboRefutationResult
+        - discovery.TestResult
 
 # Site appearance ------------------------------------------------------------
 logo:

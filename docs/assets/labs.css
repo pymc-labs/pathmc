@@ -2,7 +2,8 @@
    Tokens from labs_sphinx_theme (the skin CausalPy and pymc-marketing share).
    Loaded after great-docs.scss, so equal-specificity rules win. !important is
    used only where Bootstrap or the theme already forces a value.
-   Extractable: every rule is a Labs token except the pathmc logo height. */
+   Extractable: color rules are Labs tokens. The right-aligned navbar matches
+   labs_sphinx_theme navbar_align = right. The logo height is pathmc-only. */
 
 :root {
   --labs-blue: #154A72;
@@ -60,6 +61,17 @@ body.quarto-light #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li
 body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a:hover {
   background-color: transparent;
   color: var(--labs-green);
+}
+
+/* labs_sphinx_theme navbar_align = right is ms-auto on the link group, so the
+   tabs sit against the tools. Quarto hardcodes me-auto, which pins them to the
+   logo. Override the margin only; keep the class so great-docs selectors and
+   keyboard-nav.js still match. Below lg the collapse is a full-width menu. */
+@media (min-width: 992px) {
+  #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto {
+    margin-left: auto !important;
+    margin-right: 0.75rem !important;
+  }
 }
 
 body.quarto-light p a,
