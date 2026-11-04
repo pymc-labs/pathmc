@@ -20,9 +20,9 @@ Prepared means clone the already compiled `mu_*` expressions and use symbolic po
 
 Each `PathModel` retains at most 16 execution plans in an LRU. Plans contain executable graphs and layout metadata, not results or posterior copies. Recompilation, changed priors, and refitting clear the cache; deserialization creates an empty cache with a fresh lock. The structural signature includes graph generation, posterior schema, mutable-input layout/dtype, and effective compilation settings. Numeric intervention/data/posterior values and random seeds are supplied anew. ATE evaluates its two arms against the same ordered draws; a public intervention vector continues to mean observation-row values.
 
-Draw/scenario chunks limit the observation-expanded working batch to one million elements per graph intermediate, or one observation vector when that vector already exceeds the budget. Averaging happens inside the compiled expression; retaining unit-level results still requires the requested output storage. Cached functions and prediction-data updates are serialized by an instance lock. This does not add a concurrent serving contract for arbitrary external graph or posterior mutations.
+Scalar intervention values stay compact until their scenario chunk is evaluated. Draw/scenario chunks limit the observation-expanded working batch to one million elements per graph intermediate, or one observation vector when that vector already exceeds the budget. Averaging happens inside the compiled expression; retaining unit-level results still requires the requested output storage. Changed exogenous row counts are rejected with an actionable error; delegated queries in this numeric model slice also validate and temporarily synchronize current shared inputs. The exogenous descriptive fills retain the existing fitted-data convention. Cached functions and prediction-data updates are serialized by an instance lock. This does not add a concurrent serving contract for arbitrary external graph or posterior mutations.
 
-Only the observed prediction graph is frozen. Freezing a generative graph can freeze data needed by free outcome RVs, so it is unsuitable for changing interventions. PyMC backends that detach RNG state, including JAX, use the ordinary uncached route here. Query compiler choice remains separate from sampler choice. The PyTensor version tested resolves `FAST_RUN` to `NumbaLinker`; explicit C/VM and Numba measurements are therefore reported separately.
+Only the observed prediction graph is frozen. Stored response-mean deterministics are omitted from a shallow execution trace so coefficients and current data keep stable runtime roles across data changes; the stored posterior remains untouched. Freezing a generative graph can freeze data needed by free outcome RVs, so it is unsuitable for changing interventions. PyMC backends that detach RNG state, including JAX, use the ordinary uncached route here. Query compiler choice remains separate from sampler choice. The PyTensor version tested resolves `FAST_RUN` to `NumbaLinker`; explicit C/VM and Numba measurements are therefore reported separately.
 
 ## Reproduction and measurement
 
@@ -40,7 +40,7 @@ uv run --locked --all-extras python scripts/benchmark_backends.py --workload pan
 uv run --locked --all-extras python scripts/benchmark_backends.py --experiment fit --workload latent --sampler nutpie-jax --output .scratch/fit.json
 ```
 
-The query harness runs each workload in a subprocess with fixed synthetic posterior draws and an `observed_data` group matching a fitted model's metadata. Small cross-sectional workloads have 100 rows and 100 posterior samples; large ones have 10,000 rows and 2,000 samples. Panels use 1 unit × 20 periods or 20 units × 200 periods. Fitting probes generate a separate noisy dataset and run two chains with 200 tuning and 200 retained draws; their timings do not infer sampling speed from query execution.
+The query harness runs each workload in a subprocess with fixed synthetic posterior draws and an `observed_data` group. Linear workloads also include the fitted response-mean deterministics and `constant_data`; repeated prediction-data changes exercise the same input roles as a fitted trace. Small cross-sectional workloads have 100 rows and 100 posterior samples; large ones have 10,000 rows and 2,000 samples. Panels use 1 unit × 20 periods or 20 units × 200 periods. Fitting probes generate a separate noisy dataset and run two chains with 200 tuning and 200 retained draws; their timings do not infer sampling speed from query execution.
 
 JSON files under `results/` retain the source commit, versions, effective linker, dtype, seed, hardware/platform, thread settings, cache state, first request, five warmed repetitions, median/range, output size, and peak process RSS. Each workload runs serially in its own process. First-request measurements use an existing native disk cache unless explicitly labeled isolated-empty-disk. `--cold-cache` starts with an isolated PyTensor compilation directory; it does not promise an empty operating-system or external compiler cache. ATE's first request can reuse the preceding mean-do plan, so it is not another cold-preparation measurement.
 
@@ -52,34 +52,36 @@ Measurements below are medians [minimum, maximum] in milliseconds from five warm
 
 | Size | Query | Retained executor (ms) | Prepared route (ms) | Median speedup |
 | --- | --- | ---: | ---: | ---: |
-| small | `mean_do` | 26.17 [24.96, 93.09] | 1.52 [1.49, 1.89] | 17.20× |
-| small | `ate` | 48.73 [47.82, 48.96] | 2.39 [2.34, 2.39] | 20.43× |
-| small | `predictive_do` | 35.50 [35.40, 35.96] | 35.49 [35.41, 36.56] | 1.00× |
-| small | `predict` | 36.16 [35.27, 36.61] | 9.87 [9.73, 10.02] | 3.66× |
-| large | `mean_do` | 102.10 [94.28, 161.62] | 26.76 [26.67, 27.04] | 3.81× |
-| large | `ate` | 186.92 [185.96, 191.27] | 55.32 [55.29, 55.43] | 3.38× |
-| large | `predictive_do` | 335.01 [331.17, 337.31] | 338.74 [332.11, 363.72] | 0.99× |
-| large | `predict` | 329.23 [329.02, 340.01] | 309.22 [304.82, 324.01] | 1.06× |
+| small | `mean_do` | 24.73 [24.61, 85.95] | 1.56 [1.54, 1.90] | 15.86× |
+| small | `ate` | 52.20 [50.02, 53.67] | 2.41 [2.37, 2.44] | 21.69× |
+| small | `predictive_do` | 36.34 [36.23, 37.08] | 36.49 [35.66, 40.49] | 1.00× |
+| small | `predict` | 28.71 [27.00, 110.05] | 10.89 [10.79, 11.05] | 2.64× |
+| small | `predict_changed_data` | 34.26 [31.21, 36.28] | 11.06 [10.92, 11.38] | 3.10× |
+| large | `mean_do` | 97.92 [94.13, 153.77] | 26.67 [26.61, 26.93] | 3.67× |
+| large | `ate` | 190.51 [187.13, 191.24] | 55.48 [55.41, 57.53] | 3.43× |
+| large | `predictive_do` | 333.77 [332.77, 335.85] | 336.89 [333.94, 357.49] | 0.99× |
+| large | `predict` | 330.63 [328.15, 343.81] | 311.24 [307.42, 322.96] | 1.06× |
+| large | `predict_changed_data` | 331.83 [330.63, 412.39] | 307.07 [305.53, 309.79] | 1.08× |
 
-Predictive `do` is delegated. After preparation, the retained mean and ordinary-prediction plans make zero additional PyTensor/PyMC function compilations or query-graph preparations on these warmed calls; changed values and seeds are covered separately by the numerical/lifecycle tests.
+Predictive `do` is delegated. After preparation, the retained mean and ordinary-prediction plans make zero additional PyTensor/PyMC function compilations or query-graph preparations on these warmed calls; changed numeric values and seeds are also covered by numerical/lifecycle tests. `predict_changed_data` cycles equal-length data values after the ordinary prediction plan has been prepared; the fitted-shaped trace includes response means and constant data.
 
-For the small full workload process, peak RSS was 429 MiB with the retained executor and 413 MiB with prepared queries.
-For the large full workload process, peak RSS was 1699 MiB with the retained executor and 1349 MiB with prepared queries.
+For the small full workload process, peak RSS was 442 MiB with the retained executor and 412 MiB with prepared queries.
+For the large full workload process, peak RSS was 1700 MiB with the retained executor and 1349 MiB with prepared queries.
 
 
 The largest prepared-versus-retained median ratio among the small delegated workloads was 1.081; none exceeded the proposed 1.10 regression threshold in this run. These are machine-specific observations, not timing assertions in pytest.
 
 | Rows / samples | Scenarios | Batched median [range] (ms) | Reused per-draw median [range] (ms) |
 | --- | ---: | ---: | ---: |
-| 100 / 100 | 1 | 2.07 [2.05, 2.11] | 2.42 [2.38, 2.44] |
-| 100 / 100 | 2 | 2.85 [2.85, 2.91] | 3.84 [3.83, 3.87] |
-| 100 / 100 | 25 | 17.52 [17.41, 18.49] | 32.91 [32.81, 33.09] |
-| 10000 / 2000 | 2 | 55.86 [55.78, 63.70] | 82.27 [82.14, 82.62] |
-| 10000 / 2000 | 25 | 675.22 [672.48, 685.00] | 1005.70 [1002.41, 1012.62] |
+| 100 / 100 | 1 | 2.29 [2.22, 2.38] | 2.62 [2.54, 2.95] |
+| 100 / 100 | 2 | 2.86 [2.82, 3.28] | 3.81 [3.76, 3.94] |
+| 100 / 100 | 25 | 18.09 [18.05, 18.38] | 34.77 [33.76, 36.48] |
+| 10000 / 2000 | 2 | 55.88 [55.77, 56.11] | 81.03 [80.47, 81.39] |
+| 10000 / 2000 | 25 | 679.97 [679.69, 688.98] | 992.51 [992.04, 1002.58] |
 
 The batched route is faster than the retained per-draw control on these deterministic workloads and is the selected implementation. Twenty-five scenarios reuse the same prepared graph, with bounded draw/scenario batches. Chunked and unchunked values agree in independent oracle tests.
 
-The isolated-PyTensor-cache first mean query took 4.016 seconds; inspect `linear-cold.json` alongside its construction/preparation/first-execution buckets rather than treating that number as warm latency.
+The isolated-PyTensor-cache first mean query took 4.069 seconds; inspect `linear-cold.json` alongside its construction/preparation/first-execution buckets rather than treating that number as warm latency.
 
 The delegated 20-replication feedback-policy query took 140.11 [139.59, 157.33] ms. `policy-simulations-1.json` explicitly records the existing unsupported one-replication combination.
 
@@ -104,12 +106,12 @@ The prepared-kernel experiment compiles the same symbolic linear Gaussian graph 
 
 | Size | Mode | Draws × scenarios × rows in batch | Preparation (s) | First execution/oracle (s) | Warm kernel median [range] (ms) |
 | --- | --- | --- | ---: | ---: | ---: |
-| small | CVM | 100 × 2 × 100 | 0.423 | 0.001 | 0.402 [0.392, 0.413] |
-| small | NUMBA | 100 × 2 × 100 | 0.243 | 0.130 | 0.032 [0.031, 0.055] |
-| small | JAX | 100 × 2 × 100 | 0.449 | 0.043 | 0.056 [0.049, 0.123] |
-| large | CVM | 50 × 2 × 10000 | 0.421 | 0.011 | 8.912 [8.482, 8.996] |
-| large | NUMBA | 50 × 2 × 10000 | 0.238 | 0.132 | 1.349 [1.303, 1.394] |
-| large | JAX | 50 × 2 × 10000 | 0.439 | 0.062 | 0.627 [0.620, 0.666] |
+| small | CVM | 100 × 2 × 100 | 0.355 | 0.001 | 0.375 [0.368, 0.381] |
+| small | NUMBA | 100 × 2 × 100 | 0.205 | 0.108 | 0.030 [0.030, 0.051] |
+| small | JAX | 100 × 2 × 100 | 0.405 | 0.041 | 0.063 [0.060, 0.086] |
+| large | CVM | 50 × 2 × 10000 | 0.360 | 0.010 | 8.500 [8.449, 8.836] |
+| large | NUMBA | 50 × 2 × 10000 | 0.202 | 0.111 | 1.316 [1.313, 1.348] |
+| large | JAX | 50 × 2 × 10000 | 0.423 | 0.064 | 0.483 [0.332, 0.576] |
 
 | Fitting workload | Sampler | Total time (s) | Minimum bulk ESS | Maximum R-hat | Divergences | Peak RSS (MiB) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |

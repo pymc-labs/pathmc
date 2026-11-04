@@ -14,7 +14,7 @@
       "numpyro": "0.21.0",
       "nutpie": "0.16.10"
     },
-    "commit": "760cc6502dad8be98ba169397ebe6d15a85b9c90",
+    "commit": "12e555023f8859c6fee94d5b524d1ce4e9f5b9cb",
     "dirty": false,
     "platform": "macOS-27.2-arm64-arm-64bit",
     "machine": "arm64",
@@ -37,738 +37,860 @@
     "rows": 100,
     "samples": 100
   },
-  "model_construction_seconds": 0.023181124997790903,
+  "model_construction_seconds": 0.02127916600147728,
   "queries": {
     "mean_do": {
       "status": "ok",
       "first_request": {
-        "end_to_end_seconds": 0.3654992090014275,
-        "result_materialization_seconds": 8.583400631323457e-05,
+        "end_to_end_seconds": 0.43395904199860524,
+        "result_materialization_seconds": 9.383399446960539e-05,
         "output_bytes": 2400,
         "events": {
           "pytensor.function": {
             "calls": 1,
-            "seconds": 0.35707587499928195
+            "seconds": 0.42355304199736565
           },
           "mean_plan_preparation": {
             "calls": 1,
-            "seconds": 0.36139783399994485
+            "seconds": 0.42903574999945704
           },
           "function_execution": {
             "calls": 1,
-            "seconds": 0.0002444580022711307
+            "seconds": 0.00026716600405052304
           },
           "xarray_dataset_construction": {
             "calls": 1,
-            "seconds": 0.00037362499278970063
+            "seconds": 0.00039562500023748726
           }
         }
       },
       "warmed_requests": [
         {
-          "end_to_end_seconds": 0.0022723750007571653,
-          "result_materialization_seconds": 6.0708000091835856e-05,
+          "end_to_end_seconds": 0.002565999995567836,
+          "result_materialization_seconds": 6.791698979213834e-05,
           "output_bytes": 2400,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.00020466699788812548
+              "seconds": 0.00023087499721441418
             },
             "xarray_dataset_construction": {
               "calls": 1,
-              "seconds": 0.0002942079881904647
+              "seconds": 0.00032170799386221915
             }
           }
         },
         {
-          "end_to_end_seconds": 0.0017829589924076572,
-          "result_materialization_seconds": 6.20420032646507e-05,
+          "end_to_end_seconds": 0.002035625002463348,
+          "result_materialization_seconds": 6.362500425893813e-05,
           "output_bytes": 2400,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.00020337500609457493
+              "seconds": 0.0002261660119984299
             },
             "xarray_dataset_construction": {
               "calls": 1,
-              "seconds": 0.00027916699764318764
+              "seconds": 0.0003031250089406967
             }
           }
         },
         {
-          "end_to_end_seconds": 0.0017583330045454204,
-          "result_materialization_seconds": 5.908300227019936e-05,
+          "end_to_end_seconds": 0.0020002079982077703,
+          "result_materialization_seconds": 6.329099414870143e-05,
           "output_bytes": 2400,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.00020408300042618066
+              "seconds": 0.00021570900571532547
             },
             "xarray_dataset_construction": {
               "calls": 1,
-              "seconds": 0.00028204200498294085
+              "seconds": 0.00038833300641272217
             }
           }
         },
         {
-          "end_to_end_seconds": 0.001762667001457885,
-          "result_materialization_seconds": 5.7792000006884336e-05,
+          "end_to_end_seconds": 0.0019101249927189201,
+          "result_materialization_seconds": 6.037499406374991e-05,
           "output_bytes": 2400,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.00020158299594186246
+              "seconds": 0.0002126669860444963
             },
             "xarray_dataset_construction": {
               "calls": 1,
-              "seconds": 0.0002789999998640269
+              "seconds": 0.0002953329967567697
             }
           }
         },
         {
-          "end_to_end_seconds": 0.0017399589996784925,
-          "result_materialization_seconds": 5.6083998060785234e-05,
+          "end_to_end_seconds": 0.001887417005491443,
+          "result_materialization_seconds": 6.220799696166068e-05,
           "output_bytes": 2400,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.00019920800696127117
+              "seconds": 0.0002169579965993762
             },
             "xarray_dataset_construction": {
               "calls": 1,
-              "seconds": 0.00027995900018140674
+              "seconds": 0.00029291698592714965
             }
           }
         }
       ],
-      "warm_median_seconds": 0.001762667001457885,
-      "warm_min_seconds": 0.0017399589996784925,
-      "warm_max_seconds": 0.0022723750007571653
+      "warm_median_seconds": 0.0020002079982077703,
+      "warm_min_seconds": 0.001887417005491443,
+      "warm_max_seconds": 0.002565999995567836
     },
     "ate": {
       "status": "ok",
       "first_request": {
-        "end_to_end_seconds": 0.0029485410050256178,
-        "result_materialization_seconds": 6.325000140350312e-05,
+        "end_to_end_seconds": 0.0031419169972650707,
+        "result_materialization_seconds": 6.70000008540228e-05,
         "output_bytes": 2400,
         "events": {
           "function_execution": {
             "calls": 1,
-            "seconds": 0.00039791601011529565
+            "seconds": 0.0004244169977027923
           },
           "xarray_dataset_construction": {
             "calls": 2,
-            "seconds": 0.0005921250121900812
+            "seconds": 0.0005670829996233806
           }
         }
       },
       "warmed_requests": [
         {
-          "end_to_end_seconds": 0.0028361669974401593,
-          "result_materialization_seconds": 5.874999624211341e-05,
+          "end_to_end_seconds": 0.003187499998603016,
+          "result_materialization_seconds": 6.804200529586524e-05,
           "output_bytes": 2400,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.0003830419882433489
+              "seconds": 0.00040962500497698784
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.000534999999217689
+              "seconds": 0.0005875410133739933
             }
           }
         },
         {
-          "end_to_end_seconds": 0.002803208990371786,
-          "result_materialization_seconds": 5.787498957943171e-05,
+          "end_to_end_seconds": 0.0031081250053830445,
+          "result_materialization_seconds": 6.608301191590726e-05,
           "output_bytes": 2400,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.00038462498923763633
+              "seconds": 0.00040816699038259685
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005299580079736188
+              "seconds": 0.0005568740016315132
             }
           }
         },
         {
-          "end_to_end_seconds": 0.0027867909957421944,
-          "result_materialization_seconds": 5.995799438096583e-05,
+          "end_to_end_seconds": 0.003453707991866395,
+          "result_materialization_seconds": 7.216598896775395e-05,
           "output_bytes": 2400,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.00038204199518077075
+              "seconds": 0.0004195829969830811
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005326659884303808
+              "seconds": 0.0005592510133283213
             }
           }
         },
         {
-          "end_to_end_seconds": 0.0027782079996541142,
-          "result_materialization_seconds": 5.6083008530549705e-05,
+          "end_to_end_seconds": 0.0031794170063221827,
+          "result_materialization_seconds": 6.091700925026089e-05,
           "output_bytes": 2400,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.00038070800655987114
+              "seconds": 0.00042220900650136173
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005369590071495622
+              "seconds": 0.0006122919876361266
             }
           }
         },
         {
-          "end_to_end_seconds": 0.0027713750023394823,
-          "result_materialization_seconds": 5.791599687654525e-05,
+          "end_to_end_seconds": 0.002888250004616566,
+          "result_materialization_seconds": 5.862500984221697e-05,
           "output_bytes": 2400,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.00037970799894537777
+              "seconds": 0.00038316599966492504
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005283759965095669
+              "seconds": 0.0005329999985406175
             }
           }
         }
       ],
-      "warm_median_seconds": 0.0027867909957421944,
-      "warm_min_seconds": 0.0027713750023394823,
-      "warm_max_seconds": 0.0028361669974401593
+      "warm_median_seconds": 0.0031794170063221827,
+      "warm_min_seconds": 0.002888250004616566,
+      "warm_max_seconds": 0.003453707991866395
     },
     "predictive_do": {
       "status": "ok",
       "first_request": {
-        "end_to_end_seconds": 0.042852541999309324,
-        "result_materialization_seconds": 6.949999078642577e-05,
+        "end_to_end_seconds": 0.06805166699632537,
+        "result_materialization_seconds": 7.324999023694545e-05,
         "output_bytes": 160800,
         "events": {
           "pm.do": {
             "calls": 1,
-            "seconds": 0.0025234999920940027
+            "seconds": 0.0025118749908870086
           },
           "pytensor.function": {
             "calls": 1,
-            "seconds": 0.030831041003693826
+            "seconds": 0.05473825000808574
           },
           "pymc.compile": {
             "calls": 1,
-            "seconds": 0.031090624994249083
+            "seconds": 0.054981374996714294
           },
           "function_execution": {
             "calls": 100,
-            "seconds": 0.0020261630561435595
+            "seconds": 0.002111625042743981
           },
           "xarray_dataset_construction": {
             "calls": 8,
-            "seconds": 0.0010494580346858129
+            "seconds": 0.0010234590154141188
           },
           "predictive_result_conversion": {
             "calls": 1,
-            "seconds": 0.004189541999949142
+            "seconds": 0.004272707999916747
           }
         }
       },
       "warmed_requests": [
         {
-          "end_to_end_seconds": 0.020605500001693144,
-          "result_materialization_seconds": 6.641700747422874e-05,
+          "end_to_end_seconds": 0.02414383299765177,
+          "result_materialization_seconds": 7.154099876061082e-05,
           "output_bytes": 160800,
           "events": {
             "pm.do": {
               "calls": 1,
-              "seconds": 0.0018356660002609715
+              "seconds": 0.002247791999252513
             },
             "pytensor.function": {
               "calls": 1,
-              "seconds": 0.010763333993963897
+              "seconds": 0.011897167001734488
             },
             "pymc.compile": {
               "calls": 1,
-              "seconds": 0.010941415996057913
+              "seconds": 0.01213037500565406
             },
             "function_execution": {
               "calls": 100,
-              "seconds": 0.002007957940804772
+              "seconds": 0.002197752910433337
             },
             "xarray_dataset_construction": {
               "calls": 8,
-              "seconds": 0.0009689180151326582
+              "seconds": 0.0010839170136023313
             },
             "predictive_result_conversion": {
               "calls": 1,
-              "seconds": 0.003008999992744066
+              "seconds": 0.003562666999641806
             }
           }
         },
         {
-          "end_to_end_seconds": 0.0207584159943508,
-          "result_materialization_seconds": 6.595799641218036e-05,
+          "end_to_end_seconds": 0.02338758300174959,
+          "result_materialization_seconds": 7.204199209809303e-05,
           "output_bytes": 160800,
           "events": {
             "pm.do": {
               "calls": 1,
-              "seconds": 0.0022881249897181988
+              "seconds": 0.0026060410018544644
             },
             "pytensor.function": {
               "calls": 1,
-              "seconds": 0.01064395799767226
+              "seconds": 0.011413790998631157
             },
             "pymc.compile": {
               "calls": 1,
-              "seconds": 0.010810958003276028
+              "seconds": 0.011600792000535876
             },
             "function_execution": {
               "calls": 100,
-              "seconds": 0.0020092880440643057
+              "seconds": 0.00206529296701774
             },
             "xarray_dataset_construction": {
               "calls": 8,
-              "seconds": 0.0009738330118125305
+              "seconds": 0.0010442919738125056
             },
             "predictive_result_conversion": {
               "calls": 1,
-              "seconds": 0.0029522090044338256
+              "seconds": 0.0033461660059401765
             }
           }
         },
         {
-          "end_to_end_seconds": 0.02078383299522102,
-          "result_materialization_seconds": 6.500000017695129e-05,
+          "end_to_end_seconds": 0.02335024999047164,
+          "result_materialization_seconds": 7.329099753405899e-05,
           "output_bytes": 160800,
           "events": {
             "pm.do": {
               "calls": 1,
-              "seconds": 0.0017598749982425943
+              "seconds": 0.001913458007038571
             },
             "pytensor.function": {
               "calls": 1,
-              "seconds": 0.011209584001335315
+              "seconds": 0.012129374998039566
             },
             "pymc.compile": {
               "calls": 1,
-              "seconds": 0.011377749993698671
+              "seconds": 0.012325957999564707
             },
             "function_execution": {
               "calls": 100,
-              "seconds": 0.0019977509800810367
+              "seconds": 0.0020756681042257696
             },
             "xarray_dataset_construction": {
               "calls": 8,
-              "seconds": 0.0009476690029259771
+              "seconds": 0.0010455839801579714
             },
             "predictive_result_conversion": {
               "calls": 1,
-              "seconds": 0.0029508330044336617
+              "seconds": 0.0032920829980866984
             }
           }
         },
         {
-          "end_to_end_seconds": 0.02005654200911522,
-          "result_materialization_seconds": 6.61670055706054e-05,
+          "end_to_end_seconds": 0.02273000001150649,
+          "result_materialization_seconds": 7.816700963303447e-05,
           "output_bytes": 160800,
           "events": {
             "pm.do": {
               "calls": 1,
-              "seconds": 0.0017532499914523214
+              "seconds": 0.0019403329933993518
             },
             "pytensor.function": {
               "calls": 1,
-              "seconds": 0.0105847079976229
+              "seconds": 0.011467584001366049
             },
             "pymc.compile": {
               "calls": 1,
-              "seconds": 0.010753916998510249
+              "seconds": 0.011656999995466322
             },
             "function_execution": {
               "calls": 100,
-              "seconds": 0.001990747929085046
+              "seconds": 0.002054584983852692
             },
             "xarray_dataset_construction": {
               "calls": 8,
-              "seconds": 0.0009360400144942105
+              "seconds": 0.0010573330073384568
             },
             "predictive_result_conversion": {
               "calls": 1,
-              "seconds": 0.0028662499971687794
+              "seconds": 0.0033713330049067736
             }
           }
         },
         {
-          "end_to_end_seconds": 0.02080795800429769,
-          "result_materialization_seconds": 6.616600148845464e-05,
+          "end_to_end_seconds": 0.02340437500970438,
+          "result_materialization_seconds": 7.233300129882991e-05,
           "output_bytes": 160800,
           "events": {
             "pm.do": {
               "calls": 1,
-              "seconds": 0.0017602500010980293
+              "seconds": 0.0019118749914923683
             },
             "pytensor.function": {
               "calls": 1,
-              "seconds": 0.01123649999499321
+              "seconds": 0.012239374991622753
             },
             "pymc.compile": {
               "calls": 1,
-              "seconds": 0.011407124999095686
+              "seconds": 0.012422874991898425
             },
             "function_execution": {
               "calls": 100,
-              "seconds": 0.00199274807528127
+              "seconds": 0.0020544989238260314
             },
             "xarray_dataset_construction": {
               "calls": 8,
-              "seconds": 0.0009513760160189122
+              "seconds": 0.0010087499831570312
             },
             "predictive_result_conversion": {
               "calls": 1,
-              "seconds": 0.00293108299956657
+              "seconds": 0.00332979200175032
             }
           }
         }
       ],
-      "warm_median_seconds": 0.0207584159943508,
-      "warm_min_seconds": 0.02005654200911522,
-      "warm_max_seconds": 0.02080795800429769
+      "warm_median_seconds": 0.02338758300174959,
+      "warm_min_seconds": 0.02273000001150649,
+      "warm_max_seconds": 0.02414383299765177
     },
     "predict": {
       "status": "ok",
       "first_request": {
-        "end_to_end_seconds": 0.02546404200256802,
-        "result_materialization_seconds": 0.00012841699935961515,
+        "end_to_end_seconds": 0.029579416004708037,
+        "result_materialization_seconds": 0.00015366601292043924,
         "output_bytes": 240000,
         "events": {
           "prediction_graph_preparation": {
             "calls": 1,
-            "seconds": 0.0066694580018520355
+            "seconds": 0.007364542005234398
+          },
+          "xarray_dataset_construction": {
+            "calls": 15,
+            "seconds": 0.0010602910333545879
           },
           "pytensor.function": {
             "calls": 1,
-            "seconds": 0.0110577919986099
+            "seconds": 0.012194541006465442
           },
           "pymc.compile": {
             "calls": 1,
-            "seconds": 0.011191875004442409
+            "seconds": 0.01234154099074658
           },
           "function_execution": {
             "calls": 100,
-            "seconds": 0.0019631659233709797
-          },
-          "xarray_dataset_construction": {
-            "calls": 7,
-            "seconds": 0.0007258330151671544
+            "seconds": 0.0021324559493223205
           },
           "predictive_result_conversion": {
             "calls": 1,
-            "seconds": 0.0035034580068895593
+            "seconds": 0.004094791001989506
           }
         }
       },
       "warmed_requests": [
         {
-          "end_to_end_seconds": 0.007243416999699548,
-          "result_materialization_seconds": 0.00011850000009872019,
+          "end_to_end_seconds": 0.009795833990210667,
+          "result_materialization_seconds": 0.00014199998986441642,
           "output_bytes": 240000,
           "events": {
+            "xarray_dataset_construction": {
+              "calls": 15,
+              "seconds": 0.0010812499967869371
+            },
             "function_execution": {
               "calls": 100,
-              "seconds": 0.0019614129996625707
-            },
-            "xarray_dataset_construction": {
-              "calls": 7,
-              "seconds": 0.000683540987665765
+              "seconds": 0.0021452979708556086
             },
             "predictive_result_conversion": {
               "calls": 1,
-              "seconds": 0.003329541999846697
+              "seconds": 0.004110750000108965
             }
           }
         },
         {
-          "end_to_end_seconds": 0.007239416998345405,
-          "result_materialization_seconds": 0.00011620800069067627,
+          "end_to_end_seconds": 0.009340834003523923,
+          "result_materialization_seconds": 0.00013904199295211583,
           "output_bytes": 240000,
           "events": {
+            "xarray_dataset_construction": {
+              "calls": 15,
+              "seconds": 0.0010182499827351421
+            },
             "function_execution": {
               "calls": 100,
-              "seconds": 0.001966492971405387
-            },
-            "xarray_dataset_construction": {
-              "calls": 7,
-              "seconds": 0.0006967939989408478
+              "seconds": 0.0020859590295003727
             },
             "predictive_result_conversion": {
               "calls": 1,
-              "seconds": 0.0033560830052010715
+              "seconds": 0.003912582993507385
             }
           }
         },
         {
-          "end_to_end_seconds": 0.007174667000072077,
-          "result_materialization_seconds": 0.00011433400504756719,
+          "end_to_end_seconds": 0.009361625008750707,
+          "result_materialization_seconds": 0.00013866700464859605,
           "output_bytes": 240000,
           "events": {
+            "xarray_dataset_construction": {
+              "calls": 15,
+              "seconds": 0.0010300410067429766
+            },
             "function_execution": {
               "calls": 100,
-              "seconds": 0.001965916046174243
-            },
-            "xarray_dataset_construction": {
-              "calls": 7,
-              "seconds": 0.0006954600103199482
+              "seconds": 0.0020974570215912536
             },
             "predictive_result_conversion": {
               "calls": 1,
-              "seconds": 0.003321708005387336
+              "seconds": 0.003985874995123595
             }
           }
         },
         {
-          "end_to_end_seconds": 0.007167124989791773,
-          "result_materialization_seconds": 0.00011566600005608052,
+          "end_to_end_seconds": 0.01095666701439768,
+          "result_materialization_seconds": 0.0001487500121584162,
           "output_bytes": 240000,
           "events": {
+            "xarray_dataset_construction": {
+              "calls": 15,
+              "seconds": 0.0010961649823002517
+            },
             "function_execution": {
               "calls": 100,
-              "seconds": 0.0019578369974624366
-            },
-            "xarray_dataset_construction": {
-              "calls": 7,
-              "seconds": 0.0006891249940963462
+              "seconds": 0.0021023310109740123
             },
             "predictive_result_conversion": {
               "calls": 1,
-              "seconds": 0.0033382499968865886
+              "seconds": 0.00549187499564141
             }
           }
         },
         {
-          "end_to_end_seconds": 0.007221416002721526,
-          "result_materialization_seconds": 0.00011620800069067627,
+          "end_to_end_seconds": 0.012936207989696413,
+          "result_materialization_seconds": 0.00015454099047929049,
           "output_bytes": 240000,
           "events": {
+            "xarray_dataset_construction": {
+              "calls": 15,
+              "seconds": 0.0011947509774472564
+            },
             "function_execution": {
               "calls": 100,
-              "seconds": 0.001957293032319285
-            },
-            "xarray_dataset_construction": {
-              "calls": 7,
-              "seconds": 0.0006982930208323523
+              "seconds": 0.0020447989663807675
             },
             "predictive_result_conversion": {
               "calls": 1,
-              "seconds": 0.003380542009836063
+              "seconds": 0.0058725830022012815
             }
           }
         }
       ],
-      "warm_median_seconds": 0.007221416002721526,
-      "warm_min_seconds": 0.007167124989791773,
-      "warm_max_seconds": 0.007243416999699548
+      "warm_median_seconds": 0.009795833990210667,
+      "warm_min_seconds": 0.009340834003523923,
+      "warm_max_seconds": 0.012936207989696413
+    },
+    "predict_changed_data": {
+      "status": "ok",
+      "first_request": {
+        "end_to_end_seconds": 0.011050542001612484,
+        "result_materialization_seconds": 0.00016175000928342342,
+        "output_bytes": 240000,
+        "events": {
+          "xarray_dataset_construction": {
+            "calls": 15,
+            "seconds": 0.0011333760048728436
+          },
+          "function_execution": {
+            "calls": 100,
+            "seconds": 0.002255995073937811
+          },
+          "predictive_result_conversion": {
+            "calls": 1,
+            "seconds": 0.004591208009514958
+          }
+        }
+      },
+      "warmed_requests": [
+        {
+          "end_to_end_seconds": 0.01311433399678208,
+          "result_materialization_seconds": 0.00015654200979042798,
+          "output_bytes": 240000,
+          "events": {
+            "xarray_dataset_construction": {
+              "calls": 15,
+              "seconds": 0.001141747969086282
+            },
+            "function_execution": {
+              "calls": 100,
+              "seconds": 0.0025994120951509103
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.004527375000179745
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.01077070800238289,
+          "result_materialization_seconds": 0.00015512500249315053,
+          "output_bytes": 240000,
+          "events": {
+            "xarray_dataset_construction": {
+              "calls": 15,
+              "seconds": 0.0011262519983574748
+            },
+            "function_execution": {
+              "calls": 100,
+              "seconds": 0.002189498074585572
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.004406249994644895
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.009958999988157302,
+          "result_materialization_seconds": 0.00015887498739175498,
+          "output_bytes": 240000,
+          "events": {
+            "xarray_dataset_construction": {
+              "calls": 15,
+              "seconds": 0.0010518310155021027
+            },
+            "function_execution": {
+              "calls": 100,
+              "seconds": 0.002133838090230711
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.004042000000481494
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.009934708999935538,
+          "result_materialization_seconds": 0.0001383749913657084,
+          "output_bytes": 240000,
+          "events": {
+            "xarray_dataset_construction": {
+              "calls": 15,
+              "seconds": 0.001023544988129288
+            },
+            "function_execution": {
+              "calls": 100,
+              "seconds": 0.002117288066074252
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.003935666987672448
+            }
+          }
+        },
+        {
+          "end_to_end_seconds": 0.009927166989655234,
+          "result_materialization_seconds": 0.00012483299360610545,
+          "output_bytes": 240000,
+          "events": {
+            "xarray_dataset_construction": {
+              "calls": 15,
+              "seconds": 0.0010786689963424578
+            },
+            "function_execution": {
+              "calls": 100,
+              "seconds": 0.0020404541137395427
+            },
+            "predictive_result_conversion": {
+              "calls": 1,
+              "seconds": 0.0041187919996446
+            }
+          }
+        }
+      ],
+      "warm_median_seconds": 0.009958999988157302,
+      "warm_min_seconds": 0.009927166989655234,
+      "warm_max_seconds": 0.01311433399678208
     },
     "scenarios": {
       "status": "ok",
       "first_request": {
-        "end_to_end_seconds": 0.0034635829942999408,
-        "result_materialization_seconds": 0.0007424169889418408,
+        "end_to_end_seconds": 0.0036305410030763596,
+        "result_materialization_seconds": 0.000765208009397611,
         "output_bytes": 4800,
         "events": {
           "function_execution": {
             "calls": 1,
-            "seconds": 0.0004217919922666624
+            "seconds": 0.0004220830014673993
           },
           "xarray_dataset_construction": {
             "calls": 2,
-            "seconds": 0.0005431659956229851
+            "seconds": 0.0005545419990085065
           }
         }
       },
       "warmed_requests": [
         {
-          "end_to_end_seconds": 0.0032448749989271164,
-          "result_materialization_seconds": 0.0006459579890361056,
+          "end_to_end_seconds": 0.0032470000005559996,
+          "result_materialization_seconds": 0.000629832997219637,
           "output_bytes": 4800,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.0003922909963876009
+              "seconds": 0.0003986249939771369
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005377500056056306
+              "seconds": 0.0005345420067897066
             }
           }
         },
         {
-          "end_to_end_seconds": 0.003192624993971549,
-          "result_materialization_seconds": 0.0006264169933274388,
+          "end_to_end_seconds": 0.003186374990036711,
+          "result_materialization_seconds": 0.0006095829885452986,
           "output_bytes": 4800,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.0003815829986706376
+              "seconds": 0.0003877499984810129
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005303329962771386
+              "seconds": 0.0005289580149110407
             }
           }
         },
         {
-          "end_to_end_seconds": 0.0031525420054094866,
-          "result_materialization_seconds": 0.0006192090077092871,
+          "end_to_end_seconds": 0.0042228330130456015,
+          "result_materialization_seconds": 0.0007379160088021308,
           "output_bytes": 4800,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.00037816700933035463
+              "seconds": 0.00045200000749900937
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005319589981809258
+              "seconds": 0.0006790420011384413
             }
           }
         },
         {
-          "end_to_end_seconds": 0.0032426669931737706,
-          "result_materialization_seconds": 0.0006293749902397394,
+          "end_to_end_seconds": 0.003975332991103642,
+          "result_materialization_seconds": 0.0006686249980702996,
           "output_bytes": 4800,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.00038533400220330805
+              "seconds": 0.00042508299520704895
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005956240056548268
+              "seconds": 0.0007560009980807081
             }
           }
         },
         {
-          "end_to_end_seconds": 0.0031967499962775037,
-          "result_materialization_seconds": 0.0006249580037547275,
+          "end_to_end_seconds": 0.0041889160056598485,
+          "result_materialization_seconds": 0.000815125007648021,
           "output_bytes": 4800,
           "events": {
             "function_execution": {
               "calls": 1,
-              "seconds": 0.0003819170087808743
+              "seconds": 0.0003961660113418475
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005382509989431128
+              "seconds": 0.0008160839934134856
             }
           }
         }
       ],
-      "warm_median_seconds": 0.0031967499962775037,
-      "warm_min_seconds": 0.0031525420054094866,
-      "warm_max_seconds": 0.0032448749989271164
+      "warm_median_seconds": 0.003975332991103642,
+      "warm_min_seconds": 0.003186374990036711,
+      "warm_max_seconds": 0.0042228330130456015
     },
     "prepared_per_draw": {
       "status": "ok",
       "first_request": {
-        "end_to_end_seconds": 0.005113417006214149,
-        "result_materialization_seconds": 0.0006209999992279336,
+        "end_to_end_seconds": 0.0062939170020399615,
+        "result_materialization_seconds": 0.0008512079948559403,
         "output_bytes": 4800,
         "events": {
           "function_execution": {
             "calls": 200,
-            "seconds": 0.0022343269229168072
+            "seconds": 0.0024616328737465665
           },
           "xarray_dataset_construction": {
             "calls": 2,
-            "seconds": 0.0005651250103255734
+            "seconds": 0.0006580839981324971
           }
         }
       },
       "warmed_requests": [
         {
-          "end_to_end_seconds": 0.005039875002694316,
-          "result_materialization_seconds": 0.0006162909994600341,
+          "end_to_end_seconds": 0.0058431249926798046,
+          "result_materialization_seconds": 0.0007276669930433854,
           "output_bytes": 4800,
           "events": {
             "function_execution": {
               "calls": 200,
-              "seconds": 0.002217330038547516
+              "seconds": 0.0024229179398389533
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005300009943312034
+              "seconds": 0.0006265010015340522
             }
           }
         },
         {
-          "end_to_end_seconds": 0.005050499996286817,
-          "result_materialization_seconds": 0.0006202910008141771,
+          "end_to_end_seconds": 0.006013334001181647,
+          "result_materialization_seconds": 0.0007399170135613531,
           "output_bytes": 4800,
           "events": {
             "function_execution": {
               "calls": 200,
-              "seconds": 0.002241968089947477
+              "seconds": 0.0024681240756763145
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005192499957047403
+              "seconds": 0.0006144999933894724
             }
           }
         },
         {
-          "end_to_end_seconds": 0.005037208000430837,
-          "result_materialization_seconds": 0.000615333003224805,
+          "end_to_end_seconds": 0.005601917000603862,
+          "result_materialization_seconds": 0.0006810420018155128,
           "output_bytes": 4800,
           "events": {
             "function_execution": {
               "calls": 200,
-              "seconds": 0.0022389969817595556
+              "seconds": 0.002258662920212373
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005170010117581114
+              "seconds": 0.0005695830041076988
             }
           }
         },
         {
-          "end_to_end_seconds": 0.0050026249955408275,
-          "result_materialization_seconds": 0.0006127919914433733,
+          "end_to_end_seconds": 0.005722333997255191,
+          "result_materialization_seconds": 0.0008574169914936647,
           "output_bytes": 4800,
           "events": {
             "function_execution": {
               "calls": 200,
-              "seconds": 0.002217203116742894
+              "seconds": 0.002292846969794482
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.0005215830024098977
+              "seconds": 0.0008028739975998178
             }
           }
         },
         {
-          "end_to_end_seconds": 0.005087166995508596,
-          "result_materialization_seconds": 0.0006108749948907644,
+          "end_to_end_seconds": 0.006120624995674007,
+          "result_materialization_seconds": 0.0008274580031866208,
           "output_bytes": 4800,
           "events": {
             "function_execution": {
               "calls": 200,
-              "seconds": 0.0022333810484269634
+              "seconds": 0.0024487450427841395
             },
             "xarray_dataset_construction": {
               "calls": 2,
-              "seconds": 0.000566666989470832
+              "seconds": 0.0006358329992508516
             }
           }
         }
       ],
-      "warm_median_seconds": 0.005039875002694316,
-      "warm_min_seconds": 0.0050026249955408275,
-      "warm_max_seconds": 0.005087166995508596
+      "warm_median_seconds": 0.0058431249926798046,
+      "warm_min_seconds": 0.005601917000603862,
+      "warm_max_seconds": 0.006120624995674007
     }
   },
-  "peak_process_rss_bytes": 362266624,
+  "peak_process_rss_bytes": 361857024,
   "status": "ok",
   "cache_state": "existing-disk-cache-first-request",
   "workload": "linear",

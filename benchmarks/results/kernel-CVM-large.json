@@ -7,29 +7,29 @@
   },
   "batch_draws": 50,
   "scenarios": 2,
-  "model_construction_seconds": 0.022166499999002554,
-  "graph_and_function_preparation_seconds": 0.4205731249967357,
+  "model_construction_seconds": 0.02123879200371448,
+  "graph_and_function_preparation_seconds": 0.3595352090051165,
   "preparation_events_inclusive": {
     "pytensor.function": {
       "calls": 1,
-      "seconds": 0.41751049998856615
+      "seconds": 0.35654954200435895
     },
     "mean_plan_preparation": {
       "calls": 1,
-      "seconds": 0.4204680419934448
+      "seconds": 0.35943199999746867
     }
   },
-  "first_execution_and_oracle_seconds": 0.01060416700784117,
+  "first_execution_and_oracle_seconds": 0.009721666996483691,
   "warmed_execution_seconds": [
-    0.00896916700003203,
-    0.008911917000659741,
-    0.008995625001261942,
-    0.008840290989610367,
-    0.008482374993036501
+    0.008500041993102059,
+    0.008718707991647534,
+    0.008835957996780053,
+    0.008472583009279333,
+    0.008449083994491957
   ],
-  "warm_median_seconds": 0.008911917000659741,
-  "warm_min_seconds": 0.008482374993036501,
-  "warm_max_seconds": 0.008995625001261942,
+  "warm_median_seconds": 0.008500041993102059,
+  "warm_min_seconds": 0.008449083994491957,
+  "warm_max_seconds": 0.008835957996780053,
   "environment": {
     "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
     "versions": {
@@ -45,7 +45,7 @@
       "numpyro": "0.21.0",
       "nutpie": "0.16.10"
     },
-    "commit": "72ec3cf048a8ad97065cca00cb6aba04c8007940",
+    "commit": "12e555023f8859c6fee94d5b524d1ce4e9f5b9cb",
     "dirty": false,
     "platform": "macOS-27.2-arm64-arm-64bit",
     "machine": "arm64",
@@ -68,5 +68,5 @@
   "workload": "linear",
   "sampler": "pymc",
   "large": true,
-  "peak_process_rss_bytes": 299925504
+  "peak_process_rss_bytes": 298696704
 }
