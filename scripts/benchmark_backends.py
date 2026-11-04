@@ -27,6 +27,7 @@ import resource
 import subprocess
 import sys
 from time import perf_counter
+from unittest.mock import patch
 
 import numpy as np
 
@@ -126,7 +127,25 @@ def fit_probe(args) -> dict:
         else {}
     )
     start = perf_counter()
-    with instrumentation() as events:
+
+    def compile_nutpie(*args, **kwargs):
+        started = perf_counter()
+        try:
+            return original_compile(*args, **kwargs)
+        finally:
+            events["nutpie.compile_pymc_model"]["calls"] += 1
+            events["nutpie.compile_pymc_model"]["seconds"] += perf_counter() - started
+
+    from contextlib import nullcontext
+
+    if sampler == "nutpie":
+        import nutpie
+
+        original_compile = nutpie.compile_pymc_model
+        compiler_probe = patch.object(nutpie, "compile_pymc_model", compile_nutpie)
+    else:
+        compiler_probe = nullcontext()
+    with instrumentation() as events, compiler_probe:
         idata = fitted.fit(
             draws=args.draws,
             tune=args.tune,

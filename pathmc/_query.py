@@ -17,7 +17,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from threading import RLock
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, cast
 
 import numpy as np
 import pymc as pm
@@ -25,6 +25,8 @@ import pytensor
 import pytensor.tensor as pt
 import xarray as xr
 from pytensor.graph.replace import graph_replace, vectorize_graph
+from pytensor.graph.basic import Constant, Variable
+from pytensor.tensor.variable import TensorVariable
 
 from pathmc.idata import posterior
 from pathmc.simulate import (
@@ -137,6 +139,7 @@ class MeanPlan:
     targets: tuple[str, ...]
     exogenous: tuple[str, ...]
     outputs: tuple[str, ...]
+    output_dtypes: tuple[str, ...]
     rows: int
     average: bool
 
@@ -180,14 +183,21 @@ def prepare_mean(model: PathModel, targets: tuple[str, ...], average: bool) -> M
         vectorized[source[name]] = pt.tensor3(
             dtype=source[name].dtype, shape=(1, 1, rows), name=f"data_{name}"
         )
-    batched = vectorize_graph(outputs, vectorized)
+    batched = cast(list[TensorVariable], vectorize_graph(outputs, vectorized))
     if average:
         batched = [pt.mean(value, axis=-1) for value in batched]
     function = pytensor.function(
         list(vectorized.values()), batched, on_unused_input="ignore"
     )
     return MeanPlan(
-        function, parameters, targets, exogenous, tuple(names), rows, average
+        function,
+        parameters,
+        targets,
+        exogenous,
+        tuple(names),
+        tuple(value.dtype for value in batched),
+        rows,
+        average,
     )
 
 
@@ -217,7 +227,9 @@ def mean_scenarios(
         if model._pymc_model[name].get_value().shape != (rows,):
             return None
     values = {
-        name: np.stack([_intervention_array(s[name], rows) for s in scenarios])
+        name: np.stack([_intervention_array(s[name], rows) for s in scenarios]).astype(
+            model._gen_model[name].dtype, copy=False
+        )
         for name in targets
     }
     if any(not np.isfinite(value).all() for value in values.values()):
@@ -244,7 +256,8 @@ def mean_scenarios(
         draw_batch = max(1, max_elements // max(1, rows * scenario_batch))
         tail = () if average else (rows,)
         result = {
-            name: np.empty((samples, n_scenarios, *tail)) for name in plan.outputs
+            name: np.empty((samples, n_scenarios, *tail), dtype=dtype)
+            for name, dtype in zip(plan.outputs, plan.output_dtypes, strict=True)
         }
         parameters = [
             post[name].values.reshape((samples, 1, *post[name].shape[2:]))
@@ -297,6 +310,10 @@ def prediction_model(model: PathModel, kwargs: Mapping[str, Any]) -> pm.Model:
         freeze_model is None
         or not eligible(model)
         or set(kwargs) - {"random_seed", "progressbar", "extend_inferencedata"}
+        or any(
+            isinstance(value, Variable) and not isinstance(value, Constant)
+            for value in model._pymc_model.rvs_to_initial_values.values()
+        )
     ):
         return model._pymc_model
     post = posterior(model._idata)

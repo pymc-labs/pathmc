@@ -156,7 +156,7 @@ def fixture(workload: str, large: bool):
     spec = "M ~ X\nY ~ X + M"
     if workload in ("bernoulli", "poisson"):
         kwargs["families"] = {"M": workload}
-    elif workload in ("panel_lag", "panel_ar", "panel_transform"):
+    elif workload in ("panel_lag", "panel_ar", "panel_transform", "panel_policy"):
         units, periods = (20, 200) if large else (1, 20)
         data = pd.DataFrame({
             "unit": np.repeat(np.arange(units), periods),
@@ -168,8 +168,11 @@ def fixture(workload: str, large: bool):
         spec = {
             "panel_lag": "Y ~ X + lag(X)",
             "panel_ar": "Y ~ X + lag(Y)",
+            "panel_policy": "Y ~ X + lag(Y)",
             "panel_transform": "Y ~ logistic_saturation(adstock(X, decay=decay), lam=lam)",
         }[workload]
+        if workload == "panel_policy":
+            kwargs["initial"] = {"Y": 0.0}
     start = perf_counter()
     model = pathmc.model(spec, data=data, **kwargs)
     construction_seconds = perf_counter() - start
@@ -251,6 +254,21 @@ def worker(args) -> dict:
             extend_inferencedata=False, progressbar=False, random_seed=526
         ),
     }
+    if args.workload == "panel_policy":
+        import pathmc
+
+        policy = pathmc.TreatmentPolicy(
+            "feedback", "X", pathmc.where(pathmc.previous("Y") > 1, 0.0, 1.0)
+        )
+        requests = {
+            "policy_mean": lambda: model.do(
+                policy=policy,
+                horizon=model._gen_model._pathmc_panel_scan.n_times,
+                n_simulations=args.simulations,
+                simulate_over="time",
+                random_seed=526,
+            )
+        }
     if args.workload == "linear":
         scenarios = [{"X": float(x)} for x in np.linspace(0, 1, args.scenarios)]
         requests["scenarios"] = lambda: (
@@ -269,6 +287,12 @@ def worker(args) -> dict:
         "queries": {},
     }
     for name, call in requests.items():
+        if args.workload == "panel_policy" and args.simulations == 1:
+            report["queries"][name] = {
+                "status": "unsupported",
+                "reason": "The policy API requires at least two simulations; one simulation is not a supported policy query.",
+            }
+            continue
         try:
             first, dataset = measure_request(call)
             if args.workload == "linear" and name in ("mean_do", "ate"):
@@ -322,12 +346,14 @@ def main() -> None:
             "panel_lag",
             "panel_ar",
             "panel_transform",
+            "panel_policy",
         ],
         default="linear",
     )
     parser.add_argument("--large", action="store_true")
     parser.add_argument("--repetitions", type=int, default=5)
     parser.add_argument("--scenarios", type=int, choices=[1, 2, 25], default=2)
+    parser.add_argument("--simulations", type=int, choices=[1, 20], default=20)
     parser.add_argument(
         "--mode", choices=["FAST_RUN", "CVM", "VM", "NUMBA", "JAX"], default="FAST_RUN"
     )
@@ -349,6 +375,8 @@ def main() -> None:
                 report["status"] = (
                     "ok"
                     if all(s == "ok" for s in statuses)
+                    else "unsupported"
+                    if all(s == "unsupported" for s in statuses)
                     else "partial"
                     if "ok" in statuses
                     else "failed"
@@ -388,6 +416,7 @@ def main() -> None:
     report["large"] = args.large
     report["executor"] = args.executor
     report["scenarios"] = args.scenarios
+    report["simulations"] = args.simulations
     args.output.write_text(json.dumps(report, indent=2) + "\n")
 
 

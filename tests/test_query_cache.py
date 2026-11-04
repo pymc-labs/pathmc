@@ -22,6 +22,7 @@ import pandas as pd
 import pymc as pm
 import pymc.model.core as core
 import pytensor
+import pytensor.tensor as pt
 import pytest
 import xarray as xr
 
@@ -121,12 +122,22 @@ def test_runtime_parameters_data_and_endogenous_targets(fitted):
 
 
 def test_scenarios_chunking_and_row_vector_semantics(fitted):
+    original = fitted._idata.copy(deep=True)
     scenarios = [{"X": float(value)} for value in np.linspace(-1, 2, 25)]
     for average in (True, False):
         full = query.mean_scenarios(fitted, scenarios, average, max_elements=100_000)
-        with patch.object(query, "prepare_mean", wraps=query.prepare_mean) as prepare:
+        plan = next(reversed(fitted._query_cache.entries.values()))
+        with (
+            patch.object(query, "prepare_mean", wraps=query.prepare_mean) as prepare,
+            patch.object(plan, "function", wraps=plan.function) as evaluate,
+        ):
             chunked = query.mean_scenarios(fitted, scenarios, average, max_elements=8)
         assert not prepare.called
+        assert evaluate.call_count > 1
+        for call in evaluate.call_args_list:
+            draw_count = call.args[0].shape[0]
+            scenario_count = call.args[len(plan.parameters)].shape[1]
+            assert draw_count * scenario_count * plan.rows <= 8
         assert len(full) == len(chunked) == 25
         for scenario, first, second in zip(scenarios, full, chunked, strict=True):
             xr.testing.assert_allclose(first.dataset, second.dataset)
@@ -138,6 +149,7 @@ def test_scenarios_chunking_and_row_vector_semantics(fitted):
             np.testing.assert_allclose(
                 second.dataset.Y, expected, rtol=1e-8, atol=1e-10
             )
+    xr.testing.assert_equal(fitted._idata, original)
 
 
 def test_predict_reuses_upstream_cache_and_reseeds(fitted):
@@ -294,3 +306,49 @@ def test_model_disposal_releases_plans(fitted):
     del other
     gc.collect()
     assert model_ref() is None and plan_ref() is None
+
+
+def test_symbolic_initial_values_delegate_prediction(fitted):
+    fitted.pymc_model.set_initval(fitted.pymc_model["beta_Y"], pt.ones(3))
+    with patch.object(query, "freeze_model", wraps=query.freeze_model) as freeze:
+        result = fitted.predict(
+            extend_inferencedata=False, progressbar=False, random_seed=3
+        )
+    assert not freeze.called
+    assert "Y" in result.posterior_predictive
+
+
+def test_float32_mean_preserves_legacy_output_dtype():
+    with pytensor.config.change_flags(floatX="float32"):
+        model = pathmc.model(
+            "M ~ X\nY ~ M",
+            data=pd.DataFrame({
+                "X": [-1.0, 1.0],
+                "M": [1.0, 2.0],
+                "Y": [2.0, 3.0],
+            }).astype("float32"),
+        )
+        post = xr.Dataset(
+            coords={
+                "chain": [0],
+                "draw": [0, 1],
+                "M_predictors": ["Intercept", "X"],
+                "Y_predictors": ["Intercept", "M"],
+            }
+        )
+        for name in ("M", "Y"):
+            post[f"beta_{name}"] = (
+                ("chain", "draw", f"{name}_predictors"),
+                np.array([[[1.0, 2.0], [2.0, 3.0]]], dtype="float32"),
+            )
+            post[f"sigma_{name}"] = (
+                ("chain", "draw"),
+                np.ones((1, 2), dtype="float32"),
+            )
+        model._idata = xr.DataTree.from_dict({"posterior": post})
+        for target, expected in (("X", [[7.0, 17.0]]), ("M", [[3.0, 5.0]])):
+            prepared = model.do(set={target: 1.0}).dataset.Y
+            with patch.object(query, "eligible", return_value=False):
+                legacy = model.do(set={target: 1.0}).dataset.Y
+            assert prepared.dtype == legacy.dtype
+            np.testing.assert_allclose(prepared, expected, rtol=1e-6, atol=1e-7)
