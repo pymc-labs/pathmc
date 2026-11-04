@@ -59,6 +59,14 @@ class QueryCache:
         with self.lock:
             self.entries.clear()
 
+    def __getstate__(self) -> dict[str, int]:
+        """Serialize configuration without process-local functions or locks."""
+        return {"limit": self.limit}
+
+    def __setstate__(self, state: dict[str, int]) -> None:
+        """Start deserialized instances with an empty cache and a fresh lock."""
+        QueryCache.__init__(self, state["limit"])
+
     def get(self, key: tuple, prepare: Callable[[], Any]) -> Any:
         """Prepare once, retaining only the most recently used entries."""
         with self.lock:
@@ -309,7 +317,8 @@ def prediction_model(model: PathModel, kwargs: Mapping[str, Any]) -> pm.Model:
     if (
         freeze_model is None
         or not eligible(model)
-        or set(kwargs) - {"random_seed", "progressbar", "extend_inferencedata"}
+        or set(kwargs)
+        - {"random_seed", "progressbar", "extend_inferencedata", "var_names"}
         or any(
             isinstance(value, Variable) and not isinstance(value, Constant)
             for value in model._pymc_model.rvs_to_initial_values.values()
@@ -317,7 +326,14 @@ def prediction_model(model: PathModel, kwargs: Mapping[str, Any]) -> pm.Model:
     ):
         return model._pymc_model
     post = posterior(model._idata)
-    key = ("predict", signature(model, post))
+    selected = kwargs.get("var_names")
+    outputs = None if selected is None else tuple(selected)
+    observed_schema = (
+        tuple(model._idata["observed_data"].data_vars)
+        if "observed_data" in model._idata
+        else ()
+    )
+    key = ("predict", signature(model, post), outputs, observed_schema)
     frozen = model._query_cache.get(key, lambda: freeze_model(model._pymc_model))
     for name, var in model._pymc_model.named_vars.items():
         if hasattr(var, "get_value"):

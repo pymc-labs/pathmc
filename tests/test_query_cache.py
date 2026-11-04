@@ -17,6 +17,8 @@ import gc
 from unittest.mock import patch
 import weakref
 
+import cloudpickle
+
 import numpy as np
 import pandas as pd
 import pymc as pm
@@ -285,7 +287,7 @@ def test_fixed_coefficients_and_lru_hits(fitted):
     assert first() is not None and second() is None
 
 
-def test_prediction_runtime_posterior_values_and_option_fallback(fitted):
+def test_prediction_runtime_posterior_values_and_output_selection(fitted):
     options = dict(extend_inferencedata=False, progressbar=False, random_seed=123)
     before = fitted.predict(**options).posterior_predictive.to_dataset()
     fitted._idata.posterior["beta_Y"] = fitted._idata.posterior.beta_Y + [1.0, 0.0, 0.0]
@@ -295,17 +297,27 @@ def test_prediction_runtime_posterior_values_and_option_fallback(fitted):
         var_names=["Y"], **options
     ).posterior_predictive.to_dataset()
     assert list(subset.data_vars) == ["Y"]
+    with patch.object(core, "compile", wraps=core.compile) as compile_pm:
+        again = fitted.predict(
+            var_names=["Y"], **options
+        ).posterior_predictive.to_dataset()
+    if query.freeze_model is not None:
+        assert not compile_pm.called
+    xr.testing.assert_equal(subset, again)
 
 
 def test_model_disposal_releases_plans(fitted):
     other = pathmc.model("M ~ X\nY ~ X + M", data=fitted._data.to_pandas())
     other._idata = fitted._idata
     other.do(set={"X": 1})
+    other.predict(extend_inferencedata=False, progressbar=False, random_seed=7)
     model_ref = weakref.ref(other)
-    plan_ref = weakref.ref(next(iter(other._query_cache.entries.values())))
+    plan_refs = tuple(
+        weakref.ref(value) for value in other._query_cache.entries.values()
+    )
     del other
     gc.collect()
-    assert model_ref() is None and plan_ref() is None
+    assert model_ref() is None and all(ref() is None for ref in plan_refs)
 
 
 def test_symbolic_initial_values_delegate_prediction(fitted):
@@ -316,6 +328,32 @@ def test_symbolic_initial_values_delegate_prediction(fitted):
         )
     assert not freeze.called
     assert "Y" in result.posterior_predictive
+
+
+def test_deserialization_drops_process_local_plans(fitted):
+    before = fitted.do(set={"X": 1}).dataset
+    fitted.predict(extend_inferencedata=False, progressbar=False, random_seed=7)
+    restored = cloudpickle.loads(cloudpickle.dumps(fitted))
+    assert not restored._query_cache.entries
+    assert restored._query_cache.lock is not fitted._query_cache.lock
+    xr.testing.assert_equal(restored.do(set={"X": 1}).dataset, before)
+
+
+def test_changed_trace_outputs_use_fresh_prediction_structure(fitted):
+    options = dict(extend_inferencedata=False, progressbar=False, random_seed=123)
+    before = fitted.predict(**options).posterior_predictive.to_dataset()
+    assert "X" not in before
+    fitted._idata = xr.DataTree.from_dict({
+        "posterior": fitted._idata.posterior.to_dataset(),
+        "observed_data": xr.Dataset({"X": ("obs", fitted._data["X"].to_numpy())}),
+    })
+    after = fitted.predict(**options).posterior_predictive.to_dataset()
+    assert "X" in after
+    with patch.object(core, "compile", wraps=core.compile) as compile_pm:
+        again = fitted.predict(**options).posterior_predictive.to_dataset()
+    if query.freeze_model is not None:
+        assert not compile_pm.called
+    xr.testing.assert_equal(after, again)
 
 
 def test_float32_mean_preserves_legacy_output_dtype():
