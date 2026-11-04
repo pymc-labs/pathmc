@@ -1,0 +1,19 @@
+pathmc/identify.py
+  s_ad89216b7e1f56::t_de053252e8c625 393
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "56df41cb9d59d47f3fc6e46a5c3a7ce54571251b",
+  "prompts": {},
+  "sessions": {
+    "s_ad89216b7e1f56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a85f-9813-7e92-a9dd-973151031643",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
