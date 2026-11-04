@@ -98,6 +98,8 @@ def environment() -> dict[str, Any]:
         "jax_enable_x64": jax.config.jax_enable_x64,
         "jax_devices": [str(device) for device in jax.devices()],
         "jax_compilation_cache_dir": os.environ.get("JAX_COMPILATION_CACHE_DIR"),
+        "xla_flags": os.environ.get("XLA_FLAGS"),
+        "jax_platforms": os.environ.get("JAX_PLATFORMS"),
     }
 
 
@@ -217,7 +219,7 @@ def fit_probe(args: argparse.Namespace) -> dict[str, Any]:
         nuts_sampler=sampler,
         random_seed=args.seed,
         progressbar=False,
-        target_accept=0.9,
+        target_accept=args.target_accept,
         compute_convergence_checks=False,
         discard_tuned_samples=False,
         idata_kwargs={"save_warmup": True},
@@ -368,6 +370,7 @@ def main() -> None:
     parser.add_argument("--draws", type=int, default=1000)
     parser.add_argument("--tune", type=int, default=1000)
     parser.add_argument("--chains", type=int, default=2)
+    parser.add_argument("--target-accept", type=float, default=0.95)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--seed", type=int, default=85)
     parser.add_argument(
@@ -388,6 +391,10 @@ def main() -> None:
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--repetition", type=int, default=0, help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if not 0 < args.target_accept < 1:
+        parser.error(
+            "target-accept must be between zero and one; choose a NUTS acceptance target such as 0.95."
+        )
     if (
         min(
             args.units,
@@ -469,6 +476,7 @@ def main() -> None:
                     JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS="0",
                     JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES="0",
                     NUMBA_CACHE_DIR=str(cache / "numba"),
+                    XLA_FLAGS="--xla_force_host_platform_device_count=1",
                 )
                 command = [
                     sys.executable,
@@ -490,6 +498,8 @@ def main() -> None:
                     str(args.tune),
                     "--chains",
                     str(args.chains),
+                    "--target-accept",
+                    str(args.target_accept),
                     "--seed",
                     str(args.seed + max(0, repetition)),
                     "--data-seed",
