@@ -30,6 +30,16 @@ sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
 
 The nesting order defines a pipeline: raw spend flows through adstock (accumulating carry-over), then through saturation (applying diminishing returns), then enters the linear predictor scaled by its coefficient.
 
+You can write that same predictor in execution order inside the pathmc formula string:
+
+```python
+spec = """
+sales ~ b_tv*(tv |> adstock(decay=theta_tv) |> logistic_saturation(lam=lam_tv))
+"""
+```
+
+The two spellings compile to the same nested transform expression. `b_tv` multiplies the completed saturated value, so a coefficient-prefixed pipe requires parentheses around the whole chain. A pipe starts with a plain variable; each following stage is a registered single-input transform call with keyword parameter **names** such as `theta_tv`, not a precomputed column or Python expression. Order matters: saturation after adstock differs from adstock after saturation. Pipes can coexist with nested calls in separate terms, and grouped chains can break across lines. `lag()`, categorical and basis terms, interactions, and sums are outside this syntax. The nested spelling remains supported without a migration and preserves the same statistical model, priors, parameter names, and `do()` behavior.
+
 ```{dot}
 //| label: fig-transform-pipeline
 //| fig-cap: "Transform composition pipeline for a single channel. Raw spend enters the inner transform (adstock) first, producing an accumulated stock. The stock then passes through the outer transform (logistic saturation), producing a 0–1 response. The response is multiplied by the channel coefficient and added to the linear predictor."

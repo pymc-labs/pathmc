@@ -198,6 +198,111 @@ def _join_continuation_lines(spec_string: str) -> str:
     return "\n".join(merged)
 
 
+def _pipe_marks(text: str) -> bool:
+    """Whether pipe punctuation occurs outside a quoted legacy value."""
+    quote: str | None = None
+    escaped = False
+    for ch in text:
+        if quote is not None:
+            if ch == quote and not escaped:
+                quote = None
+            if ch == "\\" and not escaped:
+                escaped = True
+            else:
+                escaped = False
+        elif ch in {"'", '"'}:
+            quote = ch
+        elif ch in {"|", ">"}:
+            return True
+    return False
+
+
+def _prepare_pipe_lines(spec_string: str) -> str:
+    """Fold physical lines inside a pipeline group, preserving statement breaks."""
+    source = spec_string.replace("\r\n", "\n")
+    if not _pipe_marks(source):
+        return source
+    out: list[str] = []
+    groups: list[bool] = []
+    quote: str | None = None
+    escaped = False
+    for i, ch in enumerate(source):
+        if quote is not None:
+            out.append(ch)
+            if ch == quote and not escaped:
+                quote = None
+            if ch == "\\" and not escaped:
+                escaped = True
+            else:
+                escaped = False
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+        elif ch == "(":
+            previous = next((item for item in reversed(out) if not item.isspace()), "")
+            groups.append(previous in {"", "~", "+", "*"})
+        elif ch == ")" and groups:
+            groups.pop()
+        elif ch == ";" and any(groups):
+            raise ParseError(
+                "Semicolon inside a pipeline group. Close the group before "
+                "starting another statement, for example 'Y ~ (x |> f()); Z ~ z'."
+            )
+        elif ch == "\n":
+            next_line = source[i + 1 :].split("\n", 1)[0].strip()
+            if any(groups):
+                if re.match(r"^[A-Za-z_]\w*\s*(?:~~|:=|~)", next_line):
+                    raise ParseError(
+                        "Unclosed pipeline group before another equation. "
+                        "Close ')' before starting the next statement."
+                    )
+                ch = " "
+            elif next_line.startswith("|>") or "".join(out).rstrip().endswith("|>"):
+                raise ParseError(
+                    "An ungrouped pipeline cannot span lines. "
+                    "Write '(x |> f())' to continue a pipeline across lines."
+                )
+            elif groups and _pipe_marks("".join(out).split("\n")[-1]):
+                raise ParseError(
+                    "An ungrouped pipeline cannot span lines. "
+                    "Write '(x |> f())' to continue a pipeline across lines."
+                )
+        out.append(ch)
+    return "".join(out)
+
+
+def _split_pipe_terms(rhs: str) -> list[str]:
+    """Split additive terms without splitting a grouped pipeline."""
+    terms: list[str] = []
+    start = 0
+    depth = 0
+    quote: str | None = None
+    for i, ch in enumerate(rhs):
+        if quote is not None:
+            if ch == quote:
+                quote = None
+        elif ch in {"'", '"'}:
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                raise ParseError(
+                    f"Unexpected ')' in pipeline regression '{rhs}'. "
+                    "Remove it or balance the pipeline group."
+                )
+        elif ch == "+" and depth == 0:
+            terms.append(rhs[start:i].strip())
+            start = i + 1
+    if depth:
+        raise ParseError(
+            f"Unclosed pipeline group or call in '{rhs}'. Add the missing ')'."
+        )
+    terms.append(rhs[start:].strip())
+    return terms
+
+
 def parse_spec(spec_string: str) -> Spec:
     """Parse a DSL specification string into a Spec object.
 
@@ -221,7 +326,7 @@ def parse_spec(spec_string: str) -> Spec:
         label is reused across equations, or a defined parameter (``:=``)
         uses a coefficient label's name.
     """
-    spec_string = _join_continuation_lines(spec_string)
+    spec_string = _join_continuation_lines(_prepare_pipe_lines(spec_string))
     raw_statements = re.split(r"[;\n]", spec_string)
     statements = [s.strip() for s in raw_statements if s.strip()]
 
@@ -237,6 +342,11 @@ def parse_spec(spec_string: str) -> Spec:
     seen_labels: dict[str, str] = {}
 
     for stmt in statements:
+        if _pipe_marks(stmt) and (":=" in stmt or "~~" in stmt or "~" not in stmt):
+            raise ParseError(
+                f"Pipeline syntax is only valid in a regression predictor: '{stmt}'. "
+                "Use a plain variable or coefficient expression here."
+            )
         if ":=" in stmt:
             defined_params.append(_parse_defined_param(stmt))
         elif "~~" in stmt:
@@ -449,12 +559,20 @@ def _parse_regression(stmt: str) -> Regression:
             "Provide at least one predictor variable after '~'."
         )
 
+    if _pipe_marks(lhs):
+        raise ParseError(
+            f"Pipeline syntax is not valid on the left-hand side '{lhs}'. "
+            "Move the pipeline into a regression predictor."
+        )
     if not re.match(r"^[A-Za-z_]\w*$", lhs):
         raise ParseError(
             f"Invalid variable name '{lhs}' on left-hand side of '{stmt}'."
         )
-
-    raw_terms = [t.strip() for t in rhs.split("+")]
+    raw_terms = (
+        _split_pipe_terms(rhs)
+        if _pipe_marks(rhs)
+        else [t.strip() for t in rhs.split("+")]
+    )
 
     has_intercept = True
     terms: list[Term] = []
@@ -558,6 +676,7 @@ def _parse_term(raw: str) -> Term:
     coefficient values rather than free parameter names.
     """
     raw = raw.strip()
+    has_pipe = _pipe_marks(raw)
     _reject_top_level_minus(raw)
     label: str | None = None
     fixed_value: float | None = None
@@ -574,6 +693,22 @@ def _parse_term(raw: str) -> Term:
                 label = None
             except ValueError:
                 label = label_str
+
+    if has_pipe:
+        if label is not None and _PIPE_IDENTIFIER.fullmatch(label) is None:
+            raise ParseError(
+                f"Invalid pipeline coefficient label '{label}'. "
+                "Use an identifier such as 'a*(x |> f())'."
+            )
+        transform = _parse_pipeline(
+            raw, prefixed=label is not None or fixed_value is not None
+        )
+        return Term(
+            variable=_extract_leaf_variable(transform),
+            label=label,
+            transform=transform,
+            fixed_value=fixed_value,
+        )
 
     if _find_top_level_colon(raw) is not None and re.search(r"(?:^|:)\s*C\s*\(", raw):
         raise ParseError(
@@ -799,6 +934,115 @@ def _find_top_level_colon(raw: str) -> int | None:
         elif ch == ":" and depth == 0:
             return i
     return None
+
+
+_PIPE_IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+_PIPE_REFERENCE = re.compile(
+    r"(?:[A-Za-z_]\w*|-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\Z"
+)
+
+
+def _parse_pipeline(raw: str, *, prefixed: bool) -> TransformCall:
+    """Lower a forward-pipe predictor into nested transform calls."""
+    original = raw
+    if prefixed and not (raw.startswith("(") and raw.endswith(")")):
+        raise ParseError(
+            f"Coefficient-prefixed pipeline '{original}' needs grouping. "
+            "Write 'a*(x |> f())' so the coefficient applies after the transform."
+        )
+    if raw.startswith("(") and raw.endswith(")"):
+        raw = raw[1:-1].strip()
+    if not raw:
+        raise ParseError(f"Empty pipeline group '{original}'. Write '(x |> f())'.")
+
+    def fail(problem: str) -> ParseError:
+        return ParseError(
+            f"Invalid pipeline '{original}': {problem}. "
+            "Write a single chain such as 'x |> f(p=u) |> g(q=v)' "
+            "(or 'a*(x |> f(p=u))' with a coefficient)."
+        )
+
+    pos = 0
+
+    def skip_space() -> None:
+        nonlocal pos
+        while pos < len(raw) and raw[pos].isspace():
+            pos += 1
+
+    skip_space()
+    source = _PIPE_IDENTIFIER.match(raw, pos)
+    if source is None:
+        raise fail("the input must start with a plain source variable")
+    expression: str | TransformCall = source.group()
+    pos = source.end()
+    stage_count = 0
+    while True:
+        skip_space()
+        if pos == len(raw):
+            if stage_count == 0:
+                raise fail("a transform stage is required after the source variable")
+            assert isinstance(expression, TransformCall)
+            return expression
+        if not raw.startswith("|>", pos):
+            raise fail(f"unexpected text '{raw[pos:]}' after a pipeline part")
+        pos += 2
+        skip_space()
+        stage = _PIPE_IDENTIFIER.match(raw, pos)
+        if stage is None:
+            raise fail("missing transform call after '|>'")
+        name = stage.group()
+        pos = stage.end()
+        skip_space()
+        if pos >= len(raw) or raw[pos] != "(":
+            raise fail(f"stage '{name}' needs call parentheses, for example '{name}()'")
+        pos += 1
+        args_start = pos
+        while pos < len(raw) and raw[pos] != ")":
+            if raw[pos] == "(":
+                raise fail(f"nested expression in stage '{name}' is unsupported")
+            pos += 1
+        if pos >= len(raw):
+            raise fail(f"stage '{name}' has an unclosed call")
+        args = raw[args_start:pos].strip()
+        pos += 1
+        if name in {
+            "lag",
+            "C",
+            "hsgp",
+            "fourier",
+            *SPLINE_NAMES,
+        } or _is_registered_basis(name):
+            raise fail(
+                f"'{name}' is a structural, categorical, or basis term; "
+                f"use '{name}(x, ...)' as a standalone term"
+            )
+        params: dict[str, str] = {}
+        if args:
+            parts = args.split(",")
+            if parts[-1].strip() == "":
+                parts.pop()
+            for part in parts:
+                if "=" not in part:
+                    raise fail(
+                        f"stage '{name}' expects keyword references; "
+                        "the piped input is inserted automatically"
+                    )
+                key, _, value = part.partition("=")
+                key, value = key.strip(), value.strip()
+                if _PIPE_IDENTIFIER.fullmatch(key) is None or not value:
+                    raise fail(
+                        f"stage '{name}' has an incomplete keyword '{part.strip()}'"
+                    )
+                if _PIPE_REFERENCE.fullmatch(value) is None:
+                    raise fail(
+                        f"stage '{name}' parameter '{key}' needs a plain "
+                        "parameter reference"
+                    )
+                if key in params:
+                    raise fail(f"stage '{name}' repeats keyword '{key}'")
+                params[key] = value
+        expression = TransformCall(name=name, input_expr=expression, params=params)
+        stage_count += 1
 
 
 def _parse_transform_expr(raw: str) -> TransformCall:

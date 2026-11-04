@@ -64,6 +64,25 @@ $$
 
 Every regression includes an **intercept**, **slope coefficients** (one per predictor), and a **residual term**. All parameters — intercepts, slopes, and residual scales — are estimated jointly via MCMC.
 
+#### Transform pipelines
+
+Inside a formula string, `|>` applies named transforms from left to right. `Y ~ x |> adstock(decay=theta) |> logistic_saturation(lam=lam_x)` means exactly `Y ~ logistic_saturation(adstock(x, decay=theta), lam=lam_x)`. The pipe inserts the preceding predictor as the first argument of each stage; each keyword value names a transform parameter. This is pathmc formula syntax, not a Python expression.
+
+If a pipeline has a labeled or fixed coefficient, group the **whole chain**: `Y ~ a*(x |> adstock(decay=theta) |> logistic_saturation(lam=lam_x))` applies `a` after saturation. `a*x |> adstock(decay=theta)` is rejected because the coefficient's scope would be unclear. An unlabeled `Y ~ x |> f() + z` has two terms, `f(x)` and `z`; the pipe never captures the sum.
+
+Grouped chains may span lines, including inside a keyword list:
+
+```text
+Y ~ a*(x
+       |> adstock(decay=theta)
+       |> logistic_saturation(
+            lam=lam_x,
+          ))
+  + b*z
+```
+
+An ungrouped chain stays on one physical line. A chain starts with one plain variable and uses single-input transform stages with keyword references; `lag()`, `C()`, basis terms, interactions, sums, and `:=` expressions cannot be piped. Existing nested calls remain fully supported and have identical parameter names, priors, interventions, and displayed equations. See [Transforms](12-transforms.qmd) for the execution order and examples.
+
 #### Intercepts
 
 Intercepts are included by default because pathmc does not assume the data is centered or standardized. Without an intercept, the regression would be forced through the origin — appropriate only when the outcome is expected to be zero when all predictors are zero, which is rarely the case with real-world data.
