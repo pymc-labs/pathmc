@@ -23,6 +23,7 @@ import pytest
 import xarray as xr
 
 import pathmc
+from pathmc.compile import _requires_rectangular_panel
 from pathmc.graph import build_graph
 from pathmc.introspect import describe_do_graph, render_graph_description
 from pathmc.parse import parse_spec
@@ -119,13 +120,51 @@ def test_snapshot_does_not_retain_mutable_spec():
             "time",
             "temporal",
         ),
+        (
+            "y ~ delayed_adstock(x, decay=alpha, theta=theta)",
+            {"x": 1.0},
+            "time",
+            "temporal",
+        ),
+        (
+            "y ~ weibull_adstock(x, lam=lam, k=k)",
+            {"x": 1.0},
+            "time",
+            "temporal",
+        ),
+        (
+            "y ~ logistic_saturation(delayed_adstock(x, decay=alpha, theta=theta), lam=scale)",
+            {"x": 1.0},
+            "time",
+            "temporal",
+        ),
+        (
+            "y ~ logistic_saturation(weibull_adstock(x, lam=lam, k=k), lam=scale)",
+            {"x": 1.0},
+            "time",
+            "temporal",
+        ),
         ("x ~ z\ny ~ x\nx ~~ y", {"x": 1.0}, None, "residual covariance"),
     ],
 )
 def test_unsupported_graph_semantics_raise(spec, set_values, simulate_over, message):
+    if message == "temporal":
+        parsed = parse_spec(spec)
+        assert _requires_rectangular_panel(parsed, build_graph(parsed))
     description = _description(spec, set_values, simulate_over)
     with pytest.raises(ValueError, match=message):
         render_graph_description(description)
+
+
+def test_non_temporal_transform_still_has_intervention_graph():
+    spec = parse_spec("y ~ logistic_saturation(x, lam=lam)")
+    graph_info = build_graph(spec)
+    assert not _requires_rectangular_panel(spec, graph_info)
+    description = describe_do_graph(spec, graph_info, {}, {"x": 1.0}, None)
+    assert _topology(render_graph_description(description)) == (
+        {"x", "y"},
+        {("x", "y")},
+    )
 
 
 def test_legacy_counterfactual_and_contrast_results_raise_clearly():

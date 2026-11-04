@@ -32,7 +32,7 @@ from pathmc.categorical import (
     keeps_every_level,
     sums_to_zero,
 )
-from pathmc.graph import GraphInfo
+from pathmc.graph import GraphInfo, has_time_carrying_transform
 from pathmc.panel import PanelInfo
 from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
 
@@ -95,7 +95,9 @@ def describe_do_graph(
     """Snapshot a validated do-query's supported structural graph semantics."""
     description = build_graph_description(spec, graph_info, families)
     if graph_info.temporal_edges or any(
-        _has_adstock(term.transform) for reg in spec.regressions for term in reg.terms
+        has_time_carrying_transform(term.transform)
+        for reg in spec.regressions
+        for term in reg.terms
     ):
         return replace(
             description,
@@ -148,15 +150,6 @@ def describe_do_graph(
                 ),
             )
     return description.intervene(tuple(targets))
-
-
-def _has_adstock(call: TransformCall | None) -> bool:
-    """Detect temporal carry in nested transforms without compiler state."""
-    if call is None:
-        return False
-    return call.name == "adstock" or (
-        isinstance(call.input_expr, TransformCall) and _has_adstock(call.input_expr)
-    )
 
 
 def _format_categorical(reg: Regression, call: CategoricalCall) -> str:

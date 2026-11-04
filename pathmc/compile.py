@@ -54,7 +54,7 @@ import patsy
 import pymc as pm
 
 from pathmc._warnings import _user_stacklevel
-from pathmc.graph import GraphInfo
+from pathmc.graph import GraphInfo, has_time_carrying_transform
 from pathmc.panel import PanelInfo
 from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
 from pathmc.policy import _POLICY_REQUIRES_SCAN, policy_scan_slots
@@ -2371,9 +2371,6 @@ def _has_temporal_deps(spec: Spec) -> bool:
     return False
 
 
-_CONV_ADSTOCK_TRANSFORMS = frozenset({"adstock", "delayed_adstock", "weibull_adstock"})
-
-
 def _requires_rectangular_panel(spec: Spec, graph_info: GraphInfo) -> bool:
     """Return True if panel data must form a dense unit x time grid.
 
@@ -2381,21 +2378,11 @@ def _requires_rectangular_panel(spec: Spec, graph_info: GraphInfo) -> bool:
     panel rows to ``(n_times, n_units)``; unbalanced panels must be
     rejected for either path.
     """
-    if _has_temporal_deps(spec):
-        return True
-    for reg in spec.regressions:
-        for term in reg.terms:
-            if term.transform is not None:
-                tc: TransformCall | None = term.transform
-                while tc is not None:
-                    if tc.name in _CONV_ADSTOCK_TRANSFORMS:
-                        return True
-                    tc = (
-                        tc.input_expr
-                        if isinstance(tc.input_expr, TransformCall)
-                        else None
-                    )
-    return False
+    return any(
+        term.lag_of is not None or has_time_carrying_transform(term.transform)
+        for reg in spec.regressions
+        for term in reg.terms
+    )
 
 
 def _is_scan_panel(spec: Spec, panel_info: PanelInfo | None) -> bool:
