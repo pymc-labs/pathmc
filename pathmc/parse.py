@@ -239,11 +239,10 @@ def _unquoted_source(text: str) -> str:
                 i += 2
             elif text.startswith(quote, i):
                 i += len(quote)
+                masked[start:i] = " " * (i - start)
                 break
             else:
                 i += 1
-        i = min(i, len(text))
-        masked[start:i] = " " * (i - start)
     return "".join(masked)
 
 
@@ -279,6 +278,7 @@ def _prepare_pipe_lines(spec_string: str) -> str:
         return source
     out: list[str] = []
     groups: list[bool] = []
+    term_start = 0
     for i, ch in enumerate(visible):
         original = source[i]
         if ch == "(":
@@ -291,6 +291,9 @@ def _prepare_pipe_lines(spec_string: str) -> str:
                 "Semicolon inside a pipeline group. Close the group before "
                 "starting another statement, for example 'Y ~ (x |> f()); Z ~ z'."
             )
+        elif ch in {"+", ";"} and not any(groups):
+            groups.clear()
+            term_start = i + 1
         elif ch == "\n":
             next_line = visible[i + 1 :].split("\n", 1)[0].strip()
             if any(groups):
@@ -305,37 +308,30 @@ def _prepare_pipe_lines(spec_string: str) -> str:
                     "An ungrouped pipeline cannot span lines. "
                     "Write '(x |> f())' to continue a pipeline across lines."
                 )
-            elif groups and "|>" in visible[:i].split("\n")[-1]:
+            elif groups and "|>" in visible[term_start:i]:
                 raise ParseError(
                     "An ungrouped pipeline cannot span lines. "
                     "Write '(x |> f())' to continue a pipeline across lines."
                 )
+            if not any(groups):
+                groups.clear()
+                term_start = i + 1
         out.append(original)
     return "".join(out)
 
 
 def _split_pipe_terms(rhs: str) -> list[str]:
-    """Split additive terms without splitting a grouped pipeline."""
+    """Split additive terms, leaving parentheses to each term's parser.
+
+    Pipelines contain no additive subexpressions. Global balance checks would
+    narrow legacy bare categorical values, which can contain parentheses.
+    """
     terms: list[str] = []
     start = 0
-    depth = 0
     for i, ch in enumerate(_unquoted_source(rhs)):
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth < 0:
-                raise ParseError(
-                    f"Unexpected ')' in pipeline regression '{rhs}'. "
-                    "Remove it or balance the pipeline group."
-                )
-        elif ch == "+" and depth == 0:
+        if ch == "+":
             terms.append(rhs[start:i].strip())
             start = i + 1
-    if depth:
-        raise ParseError(
-            f"Unclosed pipeline group or call in '{rhs}'. Add the missing ')'."
-        )
     terms.append(rhs[start:].strip())
     return terms
 

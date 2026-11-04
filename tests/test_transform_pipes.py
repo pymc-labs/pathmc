@@ -204,6 +204,43 @@ def test_bare_reference_quotes_do_not_hide_multiline_pipeline(reference):
     )
 
 
+@pytest.mark.parametrize(
+    "reference",
+    ["North(West", "North)West", "r'abc", "u'abc", "b'abc", "a>'b", "'r", 'r"abc'],
+)
+@pytest.mark.parametrize(
+    "chain",
+    [
+        "x |> logistic_saturation(lam=lam)",
+        "(x |> logistic_saturation(lam=lam))",
+        "(x\n |> logistic_saturation(lam=lam))",
+    ],
+)
+@pytest.mark.parametrize("position", ["before", "after"])
+def test_legacy_raw_values_remain_opaque_beside_pipeline(reference, chain, position):
+    legacy = f"C(group, reference={reference})"
+    nested_term = "logistic_saturation(x, lam=lam)"
+    pipe_rhs = f"{legacy} + {chain}" if position == "before" else f"{chain} + {legacy}"
+    nested_rhs = (
+        f"{legacy} + {nested_term}"
+        if position == "before"
+        else f"{nested_term} + {legacy}"
+    )
+    pipe = f"Y ~ {pipe_rhs}\nZ ~ z"
+    nested = f"Y ~ {nested_rhs}\nZ ~ z"
+    assert parse_spec(pipe) == parse_spec(nested)
+    frame = pd.DataFrame({
+        "group": [reference, "other"],
+        "x": [0.0, 1.0],
+        "Y": [0.0, 1.0],
+        "z": [0.0, 1.0],
+        "Z": [0.0, 1.0],
+    })
+    assert (
+        pathmc.model(pipe, data=frame)._spec == pathmc.model(nested, data=frame)._spec
+    )
+
+
 class _Identity(Transform):
     name = "pipe_identity_test"
     param_specs = {}
