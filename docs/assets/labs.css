@@ -63,6 +63,17 @@ body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li 
   color: var(--labs-green);
 }
 
+/* great-docs hardcodes these tabs to font-weight: bold, and the active
+   tab to 500. pydata leaves the bar at the body weight. */
+body.quarto-light #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a,
+body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a,
+body.quarto-light #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a:hover,
+body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a:hover,
+body.quarto-light #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a.active,
+body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a.active {
+  font-weight: 400;
+}
+
 /* labs_sphinx_theme navbar_align = right is ms-auto on the link group, so the
    tabs sit against the tools. Quarto hardcodes me-auto, which pins them to the
    logo. Override the margin only; keep the class so great-docs selectors and
@@ -150,6 +161,14 @@ body.quarto-dark .sidebar nav[role="doc-toc"] ul > li > ul > li > a.active {
    4rem would turn the bar into a tall diagram; 40px stays readable. */
 .navbar-logo {
   height: 40px;
+}
+
+/* Homepage only. The README image is width 75% (~670px at desktop). 45% is
+   about 60% of that, still the lead mark. GitHub and PyPI keep the source
+   width; the navbar mark is unchanged. */
+body.gd-homepage #quarto-document-content img[alt="pathmc logo"] {
+  width: 45%;
+  height: auto;
 }
 
 /* Labs footer is a thin page-colored bar: copyright on the left, icon links

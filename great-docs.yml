@@ -302,6 +302,35 @@ include_in_header:
           `<ul class="labs-footer-links">${items}</ul>`;
       });
       </script>
+  - text: |
+      <script>
+      /* pydata appends html_theme_options.external_links after the toctree.
+         great-docs has no equivalent, so add the Labs link the same way:
+         last text tab, same tab, no external icon. */
+      (function () {
+        function addAbout() {
+          const list = document.querySelector(
+            "#navbarCollapse > ul.navbar-nav"
+          );
+          if (!list || list.querySelector('a[href="https://pymc-labs.com"]')) {
+            return;
+          }
+          const li = document.createElement("li");
+          li.className = "nav-item";
+          const a = document.createElement("a");
+          a.className = "nav-link";
+          a.href = "https://pymc-labs.com";
+          a.innerHTML = '<span class="menu-text">About PyMC Labs</span>';
+          li.appendChild(a);
+          list.appendChild(li);
+        }
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", addAbout);
+        } else {
+          addAbout();
+        }
+      })();
+      </script>
 
 
 # SEO ------------------------------------------------------------------------
