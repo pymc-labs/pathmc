@@ -24,9 +24,20 @@ from dataclasses import dataclass, field
 import networkx as nx
 
 from pathmc.exceptions import CycleError
-from pathmc.parse import Spec
+from pathmc.parse import Spec, TransformCall
 
 __all__: list[str] = []
+
+_TIME_CARRYING_TRANSFORMS = frozenset({"adstock", "delayed_adstock", "weibull_adstock"})
+
+
+def has_time_carrying_transform(call: TransformCall | None) -> bool:
+    """Whether a nested transform chain carries values across time steps."""
+    while call is not None:
+        if call.name in _TIME_CARRYING_TRANSFORMS:
+            return True
+        call = call.input_expr if isinstance(call.input_expr, TransformCall) else None
+    return False
 
 
 @dataclass
