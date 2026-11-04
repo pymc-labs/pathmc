@@ -4,19 +4,6 @@ guide-section: "Getting Started"
 jupyter: pathmc
 ---
 
-:::{style="text-align: center;"}
-<img src="logo_light.png" class="gd-hero-logo-light" alt="pathmc logo" style="width: 75%;">
-<img src="logo_dark.png" class="gd-hero-logo-dark" alt="pathmc logo" style="width: 75%;">
-:::
-
-```{=html}
-<style>
-.gd-hero-logo-dark { display: none; }
-html[data-bs-theme="dark"] .gd-hero-logo-light { display: none; }
-html[data-bs-theme="dark"] .gd-hero-logo-dark { display: inline; }
-</style>
-```
-
 **Structural causal models, made simple.**
 
 Specify your causal assumptions as equations. Fit with full Bayesian inference. Simulate interventions and ask "what if?"
@@ -121,7 +108,7 @@ adj.ate(values=(0, 1))
 adj.comparisons(comparison="diff")
 ```
 
-Both paths share `ate()`, `comparisons()`, and `slopes()`. The structural path can also answer indirect effects and interventions on mediators; the adjustment path cannot, because those mediators were never given their own equation. See [Estimation Approaches](user-guide/estimation-approaches.qmd) and [SCM vs Regression Adjustment](user-guide/scm-vs-adjustment.qmd).
+Both paths share `ate()`, `comparisons()`, and `slopes()`. The structural path can also answer indirect effects and interventions on mediators; the adjustment path cannot, because those mediators were never given their own equation. See [Estimation Approaches](estimation-approaches.qmd) and [SCM vs Regression Adjustment](scm-vs-adjustment.qmd).
 
 **Causal queries** — simulate interventions via the do-operator and ask counterfactual questions. pathmc uses g-computation: it forward-simulates through the structural model under the intervention, propagating full posterior uncertainty through the causal chain. The shared interpret layer (`predictions()`, `comparisons()`, `slopes()`) generalizes two-point `ate()` to grids, ratio/lift contrasts, and local derivatives.
 
@@ -150,13 +137,13 @@ m.sensitivity("Y", "X")  # tipping point analysis
 
 ## Applied use cases
 
-pathmc isn't just for textbook examples. The [examples gallery](docs/examples/index.qmd) covers real problems across industries.
+pathmc isn't just for textbook examples. The [examples gallery](../docs/examples/index.qmd) covers real problems across industries.
 
 ::: {.panel-tabset}
 
 ### Marketing mix modeling
 
-Estimate channel-level ROI with adstock and saturation transforms that capture carry-over effects and diminishing returns. Panel mode handles geo-level data with hierarchical random effects. [Full example &rarr;](docs/examples/applied-models/mmm.qmd)
+Estimate channel-level ROI with adstock and saturation transforms that capture carry-over effects and diminishing returns. Panel mode handles geo-level data with hierarchical random effects. [Full example &rarr;](../docs/examples/applied-models/mmm.qmd)
 
 ```python
 spec = """
@@ -170,7 +157,7 @@ sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
 
 ### Vaccine surrogates
 
-Assess whether a biomarker is a valid surrogate for clinical outcomes using mediation analysis and the do-operator. Quantify what fraction of the treatment effect flows through the measured pathway. [Full example &rarr;](docs/examples/applied-models/vaccine_surrogates.qmd)
+Assess whether a biomarker is a valid surrogate for clinical outcomes using mediation analysis and the do-operator. Quantify what fraction of the treatment effect flows through the measured pathway. [Full example &rarr;](../docs/examples/applied-models/vaccine_surrogates.qmd)
 
 ```python
 spec = """
@@ -183,7 +170,7 @@ Labeled coefficients (`a*`, `b*`, `c*`) let you decompose the total effect into 
 
 ### SaaS conversion funnels
 
-Model a multi-stage funnel as a causal chain to find which stage has the highest leverage on paid conversion. Simulate "what if we improve onboarding?" scenarios that respect the full causal structure. [Full example &rarr;](docs/examples/applied-models/saas_funnel.qmd)
+Model a multi-stage funnel as a causal chain to find which stage has the highest leverage on paid conversion. Simulate "what if we improve onboarding?" scenarios that respect the full causal structure. [Full example &rarr;](../docs/examples/applied-models/saas_funnel.qmd)
 
 ```python
 spec = """
@@ -197,7 +184,7 @@ Each equation models one stage. Multiple equations form the causal chain — eff
 
 ### Dynamic pricing
 
-Price and demand are confounded. This notebook checks a hierarchical panel model against a planted elasticity; the sample does not recover it. [Full example &rarr;](docs/examples/applied-models/dynamic_pricing.qmd)
+Price and demand are confounded. This notebook checks a hierarchical panel model against a planted elasticity; the sample does not recover it. [Full example &rarr;](../docs/examples/applied-models/dynamic_pricing.qmd)
 
 ```python
 spec = """
@@ -225,13 +212,13 @@ The goal is responsible causal inference: make it easy to ask hard questions abo
 
 ## Getting started
 
-- [Overview](user-guide/how-it-works.qmd) — how pathmc works, from spec to causal insight
-- [Bayesian workflow](user-guide/bayesian-workflow.qmd) — the iterative cycle of inspect, check, refine, fit, and query
-- [Model specification](user-guide/model-specification.qmd) — DSL syntax: `~`, `~~`, `:=`, labels, transforms
-- [Causal inference](user-guide/causal-inference.qmd) — the do-operator, g-computation, identification
-- [Estimation approaches](user-guide/estimation-approaches.qmd) — structural `do()` vs native `adjustment_model()`
-- [Predictions, comparisons, and slopes](user-guide/predictions-comparisons-slopes.qmd) — shared interpret API
-- [Examples](docs/examples/index.qmd) — worked notebooks across mediation, MMM, panel data, interpret queries, and more
+- [Overview](how-it-works.qmd) — how pathmc works, from spec to causal insight
+- [Bayesian workflow](bayesian-workflow.qmd) — the iterative cycle of inspect, check, refine, fit, and query
+- [Model specification](model-specification.qmd) — DSL syntax: `~`, `~~`, `:=`, labels, transforms
+- [Causal inference](causal-inference.qmd) — the do-operator, g-computation, identification
+- [Estimation approaches](estimation-approaches.qmd) — structural `do()` vs native `adjustment_model()`
+- [Predictions, comparisons, and slopes](predictions-comparisons-slopes.qmd) — shared interpret API
+- [Examples](../docs/examples/index.qmd) — worked notebooks across mediation, MMM, panel data, interpret queries, and more
 
 ::: {.callout-tip}
 ## Coming from lavaan?

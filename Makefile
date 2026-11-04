@@ -7,7 +7,7 @@ BUILD_CHECK_DIR = .build-check
 VENV_JUPYTER := $(CURDIR)/.venv/share/jupyter
 UV_RUN = uv run --locked --all-extras
 REMOTE ?= origin
-REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' ! -name '00-welcome.qmd' | sort)
+REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' | sort)
 
 #################################################################################
 # COMMANDS                                                                      #
@@ -75,8 +75,6 @@ freeze-page: jupyter-kernel ## Re-execute one doc page and refresh its _freeze/ 
 
 refreeze-docs: jupyter-kernel ## Re-execute all doc notebooks and refresh the committed _freeze/ cache
 	JUPYTER_PATH=$(VENV_JUPYTER) uv run great-docs freeze --clean $(REFREEZE_QMD_PAGES)
-	JUPYTER_PATH=$(VENV_JUPYTER) uv run great-docs build
-	cp -r great-docs/_freeze/index _freeze/
 	@echo "Freeze cache refreshed. Commit with: git add _freeze/"
 
 cleandocs: ## Clean the ephemeral great-docs build directory
