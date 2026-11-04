@@ -3427,22 +3427,18 @@ def _compile_scan_panel(
                     non_seq_names.append(component_name)
                     beta_component_names[var].append(component_name)
         for name, rv in tparam_rvs.items():
-            non_seq_list.append(
-                pt.specify_shape(rv, (n_units,))
-                if scan_model.named_vars_to_dims.get(name) == ("unit",)
-                else rv
-            )
+            non_seq_list.append(rv)
             non_seq_names.append(name)
         for var in endo_keys:
             if var in alpha_rvs:
-                non_seq_list.append(pt.specify_shape(alpha_rvs[var], (n_units,)))
+                non_seq_list.append(alpha_rvs[var])
                 non_seq_names.append(f"alpha_{var}")
         for var in endo_keys:
             for svar, srv in slope_rvs.get(var, {}).items():
-                non_seq_list.append(pt.specify_shape(srv, (n_units,)))
+                non_seq_list.append(srv)
                 non_seq_names.append(f"slope_{var}_{svar}")
         for name, rv in byvar_rvs.items():
-            non_seq_list.append(pt.specify_shape(rv, (n_units,)))
+            non_seq_list.append(rv)
             non_seq_names.append(f"beta_{name}")
         for var in stochastic_latent:
             non_seq_list.append(sigma_rvs[var])
@@ -3454,6 +3450,16 @@ def _compile_scan_panel(
             if families.get(var, "gaussian") == "negbinomial":
                 non_seq_list.append(scan_model[f"alpha_disp_{var}"])
                 non_seq_names.append(f"alpha_disp_{var}")
+
+        # Custom per-unit noise priors need the same contract as pooled
+        # coefficients/transform parameters, or rewrites can lose the output's
+        # singleton metadata. Normalize by declared dimensions at this seam.
+        non_seq_list = [
+            pt.specify_shape(value, (n_units,))
+            if scan_model.named_vars_to_dims.get(value.name) == ("unit",)
+            else value
+            for value in non_seq_list
+        ]
 
         def _unpack_step(args: tuple[Any, ...]) -> dict[str, Any]:
             n_seq = len(layout.sequences)

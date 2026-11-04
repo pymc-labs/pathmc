@@ -284,6 +284,27 @@ def test_explicit_initial_shared_states(n_units):
     _compare_compilers(fitted.pymc_model)
 
 
+@pytest.mark.parametrize("n_units", [1, 3])
+@pytest.mark.parametrize("case", ["latent_process", "measurement", "observed_carry"])
+def test_per_unit_noise_priors(n_units, case):
+    name = "sigma_a" if case == "latent_process" else "sigma_y"
+    priors = {name: Prior("HalfNormal", sigma=0.3, dims="unit")}
+    if case == "observed_carry":
+        fitted = pathmc.model(
+            "y ~ lag(y) + x",
+            data=_frame(n_units, sparse=False),
+            panel={"unit": "unit", "time": "time"},
+            pooling="partial",
+            priors=priors,
+        )
+    else:
+        fitted = _latent(n_units, priors=priors)
+    _compare_compilers(fitted.pymc_model)
+    nutpie = pytest.importorskip("nutpie")
+    for backend in ("numba", "jax"):
+        nutpie.compile_pymc_model(fitted.pymc_model, backend=backend)
+
+
 def _shared_snapshot(model):
     return {
         name: np.array(var.get_value(), copy=True)

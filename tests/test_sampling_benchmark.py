@@ -56,3 +56,20 @@ def test_comparison_preserves_failures_and_diagnostic_denominator():
     assert group["diagnostic_passes"] == 1
     assert group["end_to_end_seconds"] == {"median": 4.0, "min": 3, "max": 5}
     assert len(summary["runs"]) == 4
+
+    # Mirror the worker's JSON round-trip: nonfinite diagnostics become null.
+    import json
+    import numpy as np
+
+    unavailable = run(quality=False, repetition=3)
+    unavailable["minimum_bulk_ess_per_end_to_end_second"] = np.nan
+    unavailable["minimum_tail_ess_per_end_to_end_second"] = np.nan
+    decoded = json.loads(json.dumps(module._json_safe(unavailable)))
+    summary = module.summarize([decoded])
+    group = summary["groups"][0]
+    assert group["runs"] == 1 and group["failures"] == 0
+    assert group["diagnostic_passes"] == 0
+    assert group["minimum_bulk_ess_per_end_to_end_second"] is None
+    assert group["minimum_tail_ess_per_end_to_end_second"] is None
+    assert group["metric_available_runs"]["minimum_bulk_ess_per_end_to_end_second"] == 0
+    assert summary["runs"][0]["status"] == "ok"

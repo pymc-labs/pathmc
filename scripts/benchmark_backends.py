@@ -199,7 +199,7 @@ def fit_probe(args: argparse.Namespace) -> dict[str, Any]:
 
     jax.config.update("jax_enable_x64", True)
     fitted, construction, observed = fixture(
-        args.units, args.periods, args.observed_fraction, args.seed
+        args.units, args.periods, args.observed_fraction, args.data_seed
     )
     sampler = "nutpie" if args.sampler.startswith("nutpie") else args.sampler
     options: dict[str, Any] = {}
@@ -256,9 +256,9 @@ def fit_probe(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     divergences = int(stats.diverging.sum())
-    bulk = float(summary.ess_bulk.min())
-    tail = float(summary.ess_tail.min())
-    rhat = float(summary.r_hat.max())
+    bulk = float(np.min(summary.ess_bulk.to_numpy()))
+    tail = float(np.min(summary.ess_tail.to_numpy()))
+    rhat = float(np.max(summary.r_hat.to_numpy()))
     total = construction + fit_seconds + loglik_seconds
     return {
         "status": "ok",
@@ -329,6 +329,7 @@ def worker(args: argparse.Namespace) -> None:
         observed_fraction=args.observed_fraction,
         sampler=args.sampler,
         seed=args.seed,
+        data_seed=args.data_seed,
         cache=args.cache,
         repetition=args.repetition,
         smoke=args.smoke,
@@ -369,6 +370,12 @@ def main() -> None:
     parser.add_argument("--chains", type=int, default=2)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--seed", type=int, default=85)
+    parser.add_argument(
+        "--data-seed",
+        type=int,
+        default=85,
+        help="Fixed across repetitions so warm JAX graphs retain identical embedded data",
+    )
     parser.add_argument("--cache", choices=["cold", "warm", "both"], default="both")
     parser.add_argument(
         "--gradient-backend", choices=["jax", "pytensor"], default="jax"
@@ -423,10 +430,12 @@ def main() -> None:
     )
     regimes = ["cold", "warm"] if args.cache == "both" else [args.cache]
     all_runs = []
+    scratch = Path(__file__).resolve().parents[1] / ".scratch" / "sampler-caches"
+    scratch.mkdir(parents=True, exist_ok=True)
     for (units, periods), fraction, sampler, regime in itertools.product(
         workloads, fractions, samplers, regimes
     ):
-        with tempfile.TemporaryDirectory(prefix="pathmc-sampler-") as cache_root:
+        with tempfile.TemporaryDirectory(prefix="run-", dir=scratch) as cache_root:
             repetitions = range(-1 if regime == "warm" else 0, args.repetitions)
             for repetition in repetitions:
                 # Warm runs reuse one disk cache across fresh processes, primed
@@ -483,6 +492,8 @@ def main() -> None:
                     str(args.chains),
                     "--seed",
                     str(args.seed + max(0, repetition)),
+                    "--data-seed",
+                    str(args.data_seed),
                     "--cache",
                     regime,
                     "--repetition",
@@ -558,7 +569,12 @@ def summarize(runs: list[dict[str, Any]]) -> dict[str, Any]:
             "minimum_tail_ess_per_end_to_end_second",
             "peak_process_rss_bytes",
         ):
-            values = [run[name] for run in successful]
+            values = [
+                run[name]
+                for run in successful
+                if run.get(name) is not None and np.isfinite(run[name])
+            ]
+            row.setdefault("metric_available_runs", {})[name] = len(values)
             row[name] = (
                 {
                     "median": float(np.median(values)),
