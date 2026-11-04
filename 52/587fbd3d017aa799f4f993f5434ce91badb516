@@ -1,0 +1,19 @@
+tests/test_scaling_contract.py
+  s_a10cee725d93c2::t_e866b6d50bf2ee 458
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "52587fbd3d017aa799f4f993f5434ce91badb516",
+  "prompts": {},
+  "sessions": {
+    "s_a10cee725d93c2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a3ac-a206-7642-90b5-804b6061f21e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
