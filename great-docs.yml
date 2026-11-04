@@ -37,8 +37,10 @@ sections:
   - title: Examples
     dir: docs/examples
     index: true
-    # index_columns is clamped to a max of 2 by great-docs; the grid is
-    # responsive (auto-fill) and shows more columns on wide screens anyway.
+    # index_columns is clamped to 2 by great-docs. The listing still emits
+    # auto-fill minmax(300px), but Quarto caps the article column at ~850px,
+    # so that never reaches three cards. docs/assets/labs.css reclaims the
+    # empty margin sidebar on this page so the grid can.
     index_columns: 2
     navbar_after: User Guide
 

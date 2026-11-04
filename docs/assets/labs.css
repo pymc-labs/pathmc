@@ -257,3 +257,18 @@ body.gd-homepage #quarto-document-content > section.level1 > p:has(
   ) {
   display: none;
 }
+
+/* The examples index is a card gallery with no TOC, but Quarto still reserves
+   #quarto-margin-sidebar and caps main.content at the article column (~850px).
+   auto-fill minmax(300px) therefore never reaches a third card. Hide that empty
+   rail and let the article span through page-end. A rail that actually has
+   contents (a notebook TOC) is left alone, and the content column only grows
+   when the rail is empty, so the two cannot overlap. */
+#quarto-content:has(.section-cards) > #quarto-margin-sidebar:not(:has(*)) {
+  display: none;
+}
+
+#quarto-content:has(.section-cards):not(:has(#quarto-margin-sidebar *))
+  > main.content {
+  grid-column: body-content-start / page-end;
+}
