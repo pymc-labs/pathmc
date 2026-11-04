@@ -233,8 +233,22 @@ def _has_pipe(text: str) -> bool:
 
 
 def _pipe_marks(text: str) -> bool:
-    """Detect even malformed pipe punctuation within a predictor."""
-    return any(ch in {"|", ">"} for ch in _unquoted_source(text))
+    """Detect pipes and malformed punctuation outside legacy call arguments."""
+    visible = _unquoted_source(text)
+    if "|>" in visible:
+        return True
+    call_depth = 0
+    for i, ch in enumerate(visible):
+        if ch == "(":
+            previous = visible[:i].rstrip()[-1:]
+            if call_depth or previous.isalnum() or previous == "_":
+                call_depth += 1
+        elif ch == ")" and call_depth:
+            call_depth -= 1
+        elif ch in {"|", ">"} and not call_depth:
+            # Legacy argument parsers accept bare strings such as a>b or a|b.
+            return True
+    return False
 
 
 def _prepare_pipe_lines(spec_string: str) -> str:

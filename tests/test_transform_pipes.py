@@ -88,6 +88,8 @@ def test_pipe_and_nested_forms_have_equal_full_specs(pipe, nested):
         "x |> f(p=u,,q=v)",
         "x |> f(p=u) )",
         "x | > f()",
+        "(x | > f())",
+        "a*(x | > f())",
         "x ||> f()",
         "x |> f(p='u')",
         "x |> f(p=u.v)",
@@ -163,6 +165,26 @@ def test_defined_comparisons_remain_usable(operator, expected, predictor):
     draws = xr.DataArray([-1.0, 0.0, 1.0], dims="draw")
     result = evaluate_defined_params(spec, {"a": draws})
     np.testing.assert_array_equal(result["positive"], expected)
+
+
+@pytest.mark.parametrize("value", ["a>b", "a>=b", "a|b"])
+@pytest.mark.parametrize("pipe", [False, True])
+def test_legacy_argument_punctuation_is_not_a_pipeline(value, pipe):
+    legacy = f"C(group, reference={value}) + f(x, p={value})"
+    suffix = " + (z\n |> g())" if pipe else ""
+    nested_suffix = " + g(z)" if pipe else ""
+    spec = parse_spec(f"Y ~ {legacy}{suffix}")
+    assert spec == parse_spec(f"Y ~ {legacy}{nested_suffix}")
+    categorical, transform = spec.regressions[0].terms[:2]
+    assert categorical.categorical.reference == value
+    assert transform.transform.params == {"p": value}
+
+
+@pytest.mark.parametrize("reference", ["a>b", "a|b"])
+def test_legacy_bare_categorical_reference_can_build_model(reference):
+    frame = pd.DataFrame({"group": [reference, "other"], "Y": [0.0, 1.0]})
+    fitted = pathmc.model(f"Y ~ C(group, reference={reference})", data=frame)
+    assert fitted._spec.regressions[0].terms[0].categorical.reference == reference
 
 
 class _Identity(Transform):
