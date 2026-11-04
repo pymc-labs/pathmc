@@ -1,0 +1,497 @@
+benchmarks/results/controlled/parameter-diagnostics.csv
+  s_550fff03a4634a::t_ad00fabf3c658c 1-4481
+benchmarks/results/pilots/stable-protocol/parameter-diagnostics.csv
+  s_550fff03a4634a::t_ad00fabf3c658c 1-37
+benchmarks/results/pilots/log-normal-target-090/parameter-diagnostics.csv
+  s_550fff03a4634a::t_ad00fabf3c658c 1-10
+benchmarks/results/default-initialization/summary.json
+  s_550fff03a4634a::t_ad00fabf3c658c 7-8,12,20-22,25-27,30-32,35-37,43-44,48,56-58,61-63,66-68,71-73,79-80,84,92-94,97-99,102-104,107-109,115-116,120,128-130,133-135,138-140,143-145,151-152,164-166,169-171,174-176,179-181,187-188,200-202,205-207,210-212,215-217,295-296,308-311,313-315,318-320,323-325,331-332,344-346,349-351,354-356,359-361,367-368,372,380-382,385-387,390-392,395-397,403-404,408,416-418,421-423,426-428,431-433,439-440,444,452-454,457-459,462-464,467-469,475-476,480,488-490,493-495,498-500,503-577,583,585-588,590-593,595-600,603-604,611,619-622,625-628,630-634,638-639,645-646,648-650,653-655,658-659,663,679,681-684,686-689,691-696,699-700,707,715-718,721-724,726-730,734-735,741-742,744-746,749-751,754-755,759,775,777-780,782-785,787-792,795-796,803,811-814,817-827,830-831,837-838,840-842,845-847,850-851,855,871,873-876,878-881,883-888,891-892,899,907-910,913-916,918-922,926-927,933-934,936-938,941-943,946-947,951,967,969-972,974-977,979-984,987-988,995,1003-1006,1009-1012,1014-1018,1022-1023,1029-1030,1032-1034,1037-1039,1042-1043,1047,1063,1065-1068,1070-1073,1075-1080,1083-1084,1091,1099-1102,1105-1108,1110-1114,1118-1119,1125-1126,1128-1130,1133-1135,1138-1139,1143,1159,1161-1164,1166-1169,1171-1176,1179-1180,1187,1195-1198,1201-1211,1214-1215,1221-1222,1224-1226,1229-1231,1234-1235,1239,1255,1257-1260,1264,1268,1288-1291,1293-1303,1306-1307,1313-1314,1316-1318,1321-1323,1326-1327,1331,1347,1349-1352,1356,1360,1380-1383,1385-1388,1390-1394,1398-1399,1405-1406,1408-1410,1413-1415,1418-1419,1423,1439,1441-1444,1448,1452,1472-1475,1477-1480,1482-1486,1490-1491,1497-1498,1500-1502,1505-1507,1510-1511,1515,1531,1533-1536,1540,1544,1564-1567,1569-1579,1582-1583,1589-1590,1592-1594,1597-1599,1602-1603,1607,1623,1625-1628,1632,1636,1656-1659,1661-1671,1674-1675,1681-1682,1684-1686,1689-1691,1694-1695,1699,1715,1717-1720,1724,1728,1748-1751,1753-1756,1758-1762,1766-1767,1773-1774,1776-1778,1781-1783,1786-1787,1791,1807,1809-1812,1816,1820,1840-1843,1845-1848,1850-1854,1858-1859,1865-1866,1868-1870,1873-1875,1878-1879,1883,1899,1901-1904,1907-1908,1910,1912,1923,1932,1934-1944,1947-1948,1954-1955,1957-1959,1962-1964,1967-1968,1972,1988,1990-1993,1996-1997,1999,2001,2012,2021,2023-2026,2028-2032,2036-2037,2043-2044,2046-2048,2051-2053,2056-2057,2061,2077,2079-2082,2085-2086,2088,2090,2101,2110,2112-2115,2117-2122,2125-2126,2132-2133,2135-2137,2140-2142,2145-2146,2150,2166,2168-2171,2174-2175,2177,2179,2190,2199,2201-2211,2214-2215,2221-2222,2224-2226,2229-2231,2234-2235,2239,2255,2257-2260,2263-2264,2266,2268,2279,2288,2290-2300,2303-2304,2310-2311,2313-2315,2318-2320,2323-2324,2328,2344,2346-2349,2352-2353,2355,2357,2368,2377,2379-2382,2384-2388,2392-2393,2399-2400,2402-2404,2407-2409,2412-2413,2417,2433,2435-2438,2441-2442,2444,2446,2457,2466,2468-2471,2473-2478,2481-2482,2488-2489,2491-2493,2496-2498,2501-2502,2506,2522,2524-2527,2531,2534-2535,2542,2552-2555,2557-2561,2565-2566,2572-2573,2575-2577,2580-2582,2585-2586,2590,2606,2608-2611,2615,2618-2619,2626,2636-2639,2641-2646,2649-2650,2656-2657,2659-2661,2664-2666,2669-2670,2674,2690,2692-2695,2699,2702-2703,2710,2720-2730,2733-2734,2740-2741,2743-2745,2748-2750,2753-2754,2758,2774,2776-2779,2783,2786-2787,2794,2804-2807,2809-2813,2817-2818,2824-2825,2827-2829,2832-2834,2837-2838,2842,2858,2860-2863,2867,2870-2871,2878,2888-2891,2893-2897,2901-2902,2908-2909,2911-2913,2916-2918,2921-2922,2926,2942,2944-2947,2951,2954-2955,2962,2972-2975,2977-2982,2985-2986,2992-2993,2995-2997,3000-3002,3005-3006,3010,3026,3028-3031,3035,3038-3039,3046,3056-3066,3069-3070,3076-3077,3079-3081,3084-3086,3089-3090,3094,3110,3112-3115,3117-3120,3122-3127,3130-3131,3138,3146-3149,3152-3162,3165-3166,3172-3173,3175-3177,3180-3182,3185-3186,3190,3206,3208-3211,3213-3216,3218-3223,3226-3227,3234,3242-3245,3248-3251,3253-3258,3261-3262,3268-3269,3271-3273,3276-3278,3281-3282,3286,3302,3304-3307,3309-3312,3314-3319,3322-3323,3330,3338-3341,3344-3354,3357-3358,3364-3365,3367-3369,3372-3374,3377-3378,3382,3398-3403,3405-3408,3410-3415,3418-3419,3426,3434-3437,3440-3450,3453-3454,3460-3461,3463-3465,3468-3470,3473-3474,3478,3494,3496-3499,3501-3504,3506-3511,3514-3515,3522,3530-3533,3536-3546,3549-3550,3556-3557,3559-3561,3564-3566,3569-3570,3574,3590,3592-3595,3597-3600,3602-3607,3610-3611,3618,3626-3629,3632-3635,3637-3642,3645-3646,3652-3653,3655-3657,3660-3662,3665-3666,3670,3686,3688-3691,3693-3696,3698-3703,3706-3707,3714,3722-3725,3728-3738,3741-3742,3748-3749,3751-3753,3756-3758,3761-3762,3766,3782,3784-3787,3791,3795,3815-3818,3820-3823,3825-3829,3833-3834,3840-3841,3843-3845,3848-3850,3853-3854,3858,3874,3876-3879,3883,3887,3907-3910,3912-3915,3917-3921,3925-3926,3932-3933,3935-3937,3940-3942,3945-3946,3950,3966,3968-3971,3975,3979,3999-4002,4004-4007,4009-4014,4017-4018,4024-4025,4027-4029,4032-4034,4037-4038,4042,4058,4060-4063,4067,4071,4091-4094,4096-4099,4101-4105,4109-4110,4116-4117,4119-4121,4124-4126,4129-4130,4134,4150,4152-4155,4159,4163,4183-4186,4188-4191,4193-4197,4201-4202,4208-4209,4211-4213,4216-4218,4221-4222,4226,4242,4244-4247,4251,4255,4275-4278,4280-4283,4285-4289,4293-4294,4300-4301,4303-4305,4308-4310,4313-4314,4318,4334,4336-4339,4343,4347,4367-4370,4372-4375,4377-4382,4385-4386,4392-4393,4395-4397,4400-4402,4405-4406,4410,4426,4428-4431,4434-4435,4437,4439,4450,4459,4461-4464,4466-4470,4474-4475,4481-4482,4484-4486,4489-4491,4494-4495,4499,4515,4517-4520,4523-4524,4526,4528,4539,4548,4550-4553,4555-4559,4563-4564,4570-4571,4573-4575,4578-4580,4583-4584,4588,4604,4606-4609,4612-4613,4615,4617,4628,4637,4639-4649,4652-4653,4659-4660,4662-4664,4667-4669,4672-4673,4677,4693,4695-4698,4701-4702,4704,4706,4717,4726,4728-4737,4741-4742,4748-4749,4751-4753,4756-4758,4761-4762,4766,4782,4784-4787,4790-4791,4793,4795,4806,4815,4817-4820,4822-4826,4830-4831,4837-4838,4840-4842,4845-4847,4850-4851,4855,4871,4873-4876,4879-4880,4882,4884,4895,4904,4906-4909,4911-4915,4919-4920,4926-4927,4929-4931,4934-4936,4939-4940,4944,4960,4962-4965,4968-4969,4971,4973,4984,4993,4995-5005,5008-5009,5015-5016,5018-5020,5023-5025,5028-5029,5033,5049,5051-5054,5058,5061-5062,5069,5079-5089,5092-5093,5099-5100,5102-5104,5107-5109,5112-5113,5117,5133,5135-5138,5142,5145-5146,5153,5163-5166,5168-5172,5176-5177,5183-5184,5186-5188,5191-5193,5196-5197,5201,5217,5219-5222,5226,5229-5230,5237,5247-5250,5252-5256,5260-5261,5267-5268,5270-5272,5275-5277,5280-5281,5285,5301,5303-5306,5310,5313-5314,5321,5326-5341,5344-5345,5351-5352,5354-5356,5359-5361,5364-5365,5369,5385,5387-5390,5394,5397-5398,5405,5415-5425,5428-5429,5435-5436,5438-5440,5443-5445,5448-5449,5453,5469,5471-5474,5478,5481-5482,5489,5499-5502,5504-5508,5512-5513,5519-5520,5522-5524,5527-5529,5532-5533,5537,5553,5555-5558,5562,5565-5566,5573,5583-5586,5588-5592,5596-5597,5603-5604,5606-5608,5611-5613,5616-5617,5621
+tests/test_sampling_benchmark.py
+  s_550fff03a4634a::t_ad00fabf3c658c 17,179-259
+benchmarks/results/controlled/summary.json
+  s_550fff03a4634a::t_ad00fabf3c658c 1-32663
+benchmarks/results/default-initialization/parameter-diagnostics.csv
+  s_550fff03a4634a::t_ad00fabf3c658c 1-505
+benchmarks/results/pilots/half-normal/parameter-diagnostics.csv
+  s_550fff03a4634a::t_ad00fabf3c658c 1-28
+benchmarks/results/pilots/stable-protocol/summary.json
+  s_550fff03a4634a::t_ad00fabf3c658c 1-681
+benchmarks/README.md
+  s_550fff03a4634a::t_ad00fabf3c658c 11,18,26-119
+benchmarks/results/controlled/u1-t30-obs0.2-numpyro-cold-0.json
+  s_550fff03a4634a::t_c4cfa5715eafd4 1-283
+benchmarks/results/controlled/u1-t30-obs0.2-numpyro-cold-1.json
+  s_550fff03a4634a::t_ce372ddb3f44ef 1-283
+benchmarks/results/controlled/u1-t30-obs0.2-numpyro-cold-2.json
+  s_550fff03a4634a::t_26f06aae585f88 1-283
+benchmarks/results/controlled/u1-t30-obs0.2-numpyro-warm--1.json
+  s_550fff03a4634a::t_1075b45dfa4bb2 1-283
+benchmarks/results/controlled/u1-t30-obs0.2-numpyro-warm-0.json
+  s_550fff03a4634a::t_bf1e603ab968eb 1-283
+benchmarks/results/controlled/u1-t30-obs0.2-numpyro-warm-1.json
+  s_550fff03a4634a::t_adb6ed92e6f618 1-283
+benchmarks/results/controlled/u1-t30-obs0.2-numpyro-warm-2.json
+  s_550fff03a4634a::t_466713e0e102cd 1-283
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-jax-cold-0.json
+  s_550fff03a4634a::t_eb52a814e3ff36 1-282
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-jax-cold-1.json
+  s_550fff03a4634a::t_c19c02f6cb990a 1-282
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-jax-cold-2.json
+  s_550fff03a4634a::t_5a42ec7b7b5c18 1-282
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-jax-warm--1.json
+  s_550fff03a4634a::t_3fde6ca31c71b0 1-282
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-jax-warm-0.json
+  s_550fff03a4634a::t_b983720e11eaa7 1-282
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-jax-warm-1.json
+  s_550fff03a4634a::t_d90b91591560a5 1-282
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-jax-warm-2.json
+  s_550fff03a4634a::t_e31ab4815119f0 1-282
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-numba-cold-0.json
+  s_550fff03a4634a::t_bacf219f9e7e7e 1-281
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-numba-cold-1.json
+  s_550fff03a4634a::t_14b00e0b08777e 1-281
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-numba-cold-2.json
+  s_550fff03a4634a::t_f4f907054b9e76 1-281
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-numba-warm--1.json
+  s_550fff03a4634a::t_7f0adb2ccce710 1-281
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-numba-warm-0.json
+  s_550fff03a4634a::t_78616f8c8fd5be 1-281
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-numba-warm-1.json
+  s_550fff03a4634a::t_e8924cb564ee32 1-281
+benchmarks/results/controlled/u1-t30-obs0.2-nutpie-numba-warm-2.json
+  s_550fff03a4634a::t_2b4efcabddb2ce 1-281
+benchmarks/results/controlled/u1-t30-obs0.2-pymc-cold-0.json
+  s_550fff03a4634a::t_160cec9332a0b2 1-272
+benchmarks/results/controlled/u1-t30-obs0.2-pymc-cold-1.json
+  s_550fff03a4634a::t_7378f8acb76f34 1-272
+benchmarks/results/controlled/u1-t30-obs0.2-pymc-cold-2.json
+  s_550fff03a4634a::t_c52a6f685af6df 1-272
+benchmarks/results/controlled/u1-t30-obs0.2-pymc-warm--1.json
+  s_550fff03a4634a::t_971062989430e7 1-272
+benchmarks/results/controlled/u1-t30-obs0.2-pymc-warm-0.json
+  s_550fff03a4634a::t_9eaa8af5229efd 1-272
+benchmarks/results/controlled/u1-t30-obs0.2-pymc-warm-1.json
+  s_550fff03a4634a::t_70218152df3bb7 1-272
+benchmarks/results/controlled/u1-t30-obs0.2-pymc-warm-2.json
+  s_550fff03a4634a::t_2722de8021936d 1-272
+benchmarks/results/controlled/u1-t30-obs1-numpyro-cold-0.json
+  s_550fff03a4634a::t_9331a2c7f8fbc5 1-277
+benchmarks/results/controlled/u1-t30-obs1-numpyro-cold-1.json
+  s_550fff03a4634a::t_06134fa2e647ec 1-277
+benchmarks/results/controlled/u1-t30-obs1-numpyro-cold-2.json
+  s_550fff03a4634a::t_eae936717a5ffd 1-277
+benchmarks/results/controlled/u1-t30-obs1-numpyro-warm--1.json
+  s_550fff03a4634a::t_9d1459aea4202c 1-277
+benchmarks/results/controlled/u1-t30-obs1-numpyro-warm-0.json
+  s_550fff03a4634a::t_a27fd0250e5d48 1-277
+benchmarks/results/controlled/u1-t30-obs1-numpyro-warm-1.json
+  s_550fff03a4634a::t_36d64f21b41f38 1-277
+benchmarks/results/controlled/u1-t30-obs1-numpyro-warm-2.json
+  s_550fff03a4634a::t_330fab3f03399d 1-277
+benchmarks/results/controlled/u1-t30-obs1-nutpie-jax-cold-0.json
+  s_550fff03a4634a::t_214004e14fcfd4 1-276
+benchmarks/results/controlled/u1-t30-obs1-nutpie-jax-cold-1.json
+  s_550fff03a4634a::t_ec0cf7f433fc8a 1-276
+benchmarks/results/controlled/u1-t30-obs1-nutpie-jax-cold-2.json
+  s_550fff03a4634a::t_9ec41eaa7eb66a 1-276
+benchmarks/results/controlled/u1-t30-obs1-nutpie-jax-warm--1.json
+  s_550fff03a4634a::t_5ceb3f6d32d67f 1-276
+benchmarks/results/controlled/u1-t30-obs1-nutpie-jax-warm-0.json
+  s_550fff03a4634a::t_22a0d428163158 1-276
+benchmarks/results/controlled/u1-t30-obs1-nutpie-jax-warm-1.json
+  s_550fff03a4634a::t_470ab55b190db3 1-276
+benchmarks/results/controlled/u1-t30-obs1-nutpie-jax-warm-2.json
+  s_550fff03a4634a::t_d1819f203fd806 1-276
+benchmarks/results/controlled/u1-t30-obs1-nutpie-numba-cold-0.json
+  s_550fff03a4634a::t_59995d45720918 1-275
+benchmarks/results/controlled/u1-t30-obs1-nutpie-numba-cold-1.json
+  s_550fff03a4634a::t_2b9e7f6099aba4 1-275
+benchmarks/results/controlled/u1-t30-obs1-nutpie-numba-cold-2.json
+  s_550fff03a4634a::t_6ef71f51129cb2 1-275
+benchmarks/results/controlled/u1-t30-obs1-nutpie-numba-warm--1.json
+  s_550fff03a4634a::t_6df0bd312d45fa 1-275
+benchmarks/results/controlled/u1-t30-obs1-nutpie-numba-warm-0.json
+  s_550fff03a4634a::t_fa96ba25d72afe 1-275
+benchmarks/results/controlled/u1-t30-obs1-nutpie-numba-warm-1.json
+  s_550fff03a4634a::t_bd83645d761813 1-275
+benchmarks/results/controlled/u1-t30-obs1-nutpie-numba-warm-2.json
+  s_550fff03a4634a::t_ac1f3c170b5a07 1-275
+benchmarks/results/controlled/u1-t30-obs1-pymc-cold-0.json
+  s_550fff03a4634a::t_0fa98bb50f757b 1-266
+benchmarks/results/controlled/u1-t30-obs1-pymc-cold-1.json
+  s_550fff03a4634a::t_e835c0570ea0e4 1-266
+benchmarks/results/controlled/u1-t30-obs1-pymc-cold-2.json
+  s_550fff03a4634a::t_6b58fb08b3e637 1-266
+benchmarks/results/controlled/u1-t30-obs1-pymc-warm--1.json
+  s_550fff03a4634a::t_bb59ea95a428f6 1-266
+benchmarks/results/controlled/u1-t30-obs1-pymc-warm-0.json
+  s_550fff03a4634a::t_a265af6423e833 1-266
+benchmarks/results/controlled/u1-t30-obs1-pymc-warm-1.json
+  s_550fff03a4634a::t_0dd16f1f876f64 1-266
+benchmarks/results/controlled/u1-t30-obs1-pymc-warm-2.json
+  s_550fff03a4634a::t_cb2fe460b5c500 1-266
+benchmarks/results/controlled/u1-t300-obs0.2-numpyro-cold-0.json
+  s_550fff03a4634a::t_c3fbbe8ae41211 1-283
+benchmarks/results/controlled/u1-t300-obs0.2-numpyro-cold-1.json
+  s_550fff03a4634a::t_07435dc5fd7f04 1-283
+benchmarks/results/controlled/u1-t300-obs0.2-numpyro-cold-2.json
+  s_550fff03a4634a::t_5f44da940bd33f 1-283
+benchmarks/results/controlled/u1-t300-obs0.2-numpyro-warm--1.json
+  s_550fff03a4634a::t_4e057f543c2a16 1-283
+benchmarks/results/controlled/u1-t300-obs0.2-numpyro-warm-0.json
+  s_550fff03a4634a::t_540ecb4e254b6e 1-283
+benchmarks/results/controlled/u1-t300-obs0.2-numpyro-warm-1.json
+  s_550fff03a4634a::t_1235d83fa01d59 1-283
+benchmarks/results/controlled/u1-t300-obs0.2-numpyro-warm-2.json
+  s_550fff03a4634a::t_79f777a1d3ac78 1-283
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-jax-cold-0.json
+  s_550fff03a4634a::t_eb20a44054f107 1-282
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-jax-cold-1.json
+  s_550fff03a4634a::t_511cea48143d67 1-282
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-jax-cold-2.json
+  s_550fff03a4634a::t_df156e1953bb63 1-282
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-jax-warm--1.json
+  s_550fff03a4634a::t_15de4fdb6e0858 1-282
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-jax-warm-0.json
+  s_550fff03a4634a::t_82084a14c87e4d 1-282
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-jax-warm-1.json
+  s_550fff03a4634a::t_865356f4c79fc3 1-282
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-jax-warm-2.json
+  s_550fff03a4634a::t_4efa28f0d7b2f4 1-282
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-numba-cold-0.json
+  s_550fff03a4634a::t_32052260b0986d 1-281
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-numba-cold-1.json
+  s_550fff03a4634a::t_f1cbc7f1b82316 1-281
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-numba-cold-2.json
+  s_550fff03a4634a::t_4457862748eb0e 1-281
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-numba-warm--1.json
+  s_550fff03a4634a::t_e5279ad2661041 1-281
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-numba-warm-0.json
+  s_550fff03a4634a::t_ecd30d3157d02c 1-281
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-numba-warm-1.json
+  s_550fff03a4634a::t_bf48012e37dc98 1-281
+benchmarks/results/controlled/u1-t300-obs0.2-nutpie-numba-warm-2.json
+  s_550fff03a4634a::t_53e1ec47dd2aa7 1-281
+benchmarks/results/controlled/u1-t300-obs0.2-pymc-cold-0.json
+  s_550fff03a4634a::t_0785baf990bcf5 1-272
+benchmarks/results/controlled/u1-t300-obs0.2-pymc-cold-1.json
+  s_550fff03a4634a::t_8f387edec2bbce 1-272
+benchmarks/results/controlled/u1-t300-obs0.2-pymc-cold-2.json
+  s_550fff03a4634a::t_26d3dd3114a94b 1-272
+benchmarks/results/controlled/u1-t300-obs0.2-pymc-warm--1.json
+  s_550fff03a4634a::t_9f59b84075dafd 1-272
+benchmarks/results/controlled/u1-t300-obs0.2-pymc-warm-0.json
+  s_550fff03a4634a::t_ed62b11e354fa7 1-272
+benchmarks/results/controlled/u1-t300-obs0.2-pymc-warm-1.json
+  s_550fff03a4634a::t_77eb04dfa3c2c8 1-272
+benchmarks/results/controlled/u1-t300-obs0.2-pymc-warm-2.json
+  s_550fff03a4634a::t_2eb8203aa2963b 1-272
+benchmarks/results/controlled/u1-t300-obs1-numpyro-cold-0.json
+  s_550fff03a4634a::t_e2ebc4855004f7 1-277
+benchmarks/results/controlled/u1-t300-obs1-numpyro-cold-1.json
+  s_550fff03a4634a::t_d7e4065915ce65 1-277
+benchmarks/results/controlled/u1-t300-obs1-numpyro-cold-2.json
+  s_550fff03a4634a::t_c4ea875f40f9c8 1-277
+benchmarks/results/controlled/u1-t300-obs1-numpyro-warm--1.json
+  s_550fff03a4634a::t_bc72566d5c2fe9 1-277
+benchmarks/results/controlled/u1-t300-obs1-numpyro-warm-0.json
+  s_550fff03a4634a::t_867781e126b64a 1-277
+benchmarks/results/controlled/u1-t300-obs1-numpyro-warm-1.json
+  s_550fff03a4634a::t_b73b3a84afed8a 1-277
+benchmarks/results/controlled/u1-t300-obs1-numpyro-warm-2.json
+  s_550fff03a4634a::t_e348f595d8f248 1-277
+benchmarks/results/controlled/u1-t300-obs1-nutpie-jax-cold-0.json
+  s_550fff03a4634a::t_e3958e5316fba7 1-276
+benchmarks/results/controlled/u1-t300-obs1-nutpie-jax-cold-1.json
+  s_550fff03a4634a::t_1cb78152df7fcb 1-276
+benchmarks/results/controlled/u1-t300-obs1-nutpie-jax-cold-2.json
+  s_550fff03a4634a::t_f493baeb1b6c26 1-276
+benchmarks/results/controlled/u1-t300-obs1-nutpie-jax-warm--1.json
+  s_550fff03a4634a::t_5e29872a78f21c 1-276
+benchmarks/results/controlled/u1-t300-obs1-nutpie-jax-warm-0.json
+  s_550fff03a4634a::t_09de577dafd816 1-276
+benchmarks/results/controlled/u1-t300-obs1-nutpie-jax-warm-1.json
+  s_550fff03a4634a::t_92f7064cf87dd5 1-276
+benchmarks/results/controlled/u1-t300-obs1-nutpie-jax-warm-2.json
+  s_550fff03a4634a::t_5c2b9ef4501ab5 1-276
+benchmarks/results/controlled/u1-t300-obs1-nutpie-numba-cold-0.json
+  s_550fff03a4634a::t_6f3e46c763521a 1-275
+benchmarks/results/controlled/u1-t300-obs1-nutpie-numba-cold-1.json
+  s_550fff03a4634a::t_7a6805e4248d8b 1-275
+benchmarks/results/controlled/u1-t300-obs1-nutpie-numba-cold-2.json
+  s_550fff03a4634a::t_6fceb8691f859e 1-275
+benchmarks/results/controlled/u1-t300-obs1-nutpie-numba-warm--1.json
+  s_550fff03a4634a::t_fabafc896fc93d 1-275
+benchmarks/results/controlled/u1-t300-obs1-nutpie-numba-warm-0.json
+  s_550fff03a4634a::t_431808c08a3b9a 1-275
+benchmarks/results/controlled/u1-t300-obs1-nutpie-numba-warm-1.json
+  s_550fff03a4634a::t_1cac13600a8cba 1-275
+benchmarks/results/controlled/u1-t300-obs1-nutpie-numba-warm-2.json
+  s_550fff03a4634a::t_2bf94fded675c7 1-275
+benchmarks/results/controlled/u1-t300-obs1-pymc-cold-0.json
+  s_550fff03a4634a::t_64105707106ee5 1-266
+benchmarks/results/controlled/u1-t300-obs1-pymc-cold-1.json
+  s_550fff03a4634a::t_77c597b5caea4e 1-266
+benchmarks/results/controlled/u1-t300-obs1-pymc-cold-2.json
+  s_550fff03a4634a::t_194f36b3c8374a 1-266
+benchmarks/results/controlled/u1-t300-obs1-pymc-warm--1.json
+  s_550fff03a4634a::t_54530e2b7dd134 1-266
+benchmarks/results/controlled/u1-t300-obs1-pymc-warm-0.json
+  s_550fff03a4634a::t_0b51b62e929905 1-266
+benchmarks/results/controlled/u1-t300-obs1-pymc-warm-1.json
+  s_550fff03a4634a::t_3b81738fcc623b 1-266
+benchmarks/results/controlled/u1-t300-obs1-pymc-warm-2.json
+  s_550fff03a4634a::t_caf2c071c79ad2 1-266
+benchmarks/results/controlled/u10-t300-obs0.2-numpyro-cold-0.json
+  s_550fff03a4634a::t_5080b1365633fb 1-679
+benchmarks/results/controlled/u10-t300-obs0.2-numpyro-cold-1.json
+  s_550fff03a4634a::t_7b807f06b74423 1-679
+benchmarks/results/controlled/u10-t300-obs0.2-numpyro-cold-2.json
+  s_550fff03a4634a::t_49abbd99dab6b5 1-679
+benchmarks/results/controlled/u10-t300-obs0.2-numpyro-warm--1.json
+  s_550fff03a4634a::t_176c4fc021d5bc 1-679
+benchmarks/results/controlled/u10-t300-obs0.2-numpyro-warm-0.json
+  s_550fff03a4634a::t_eb7d5e42f9ee75 1-679
+benchmarks/results/controlled/u10-t300-obs0.2-numpyro-warm-1.json
+  s_550fff03a4634a::t_9dd251376ee822 1-679
+benchmarks/results/controlled/u10-t300-obs0.2-numpyro-warm-2.json
+  s_550fff03a4634a::t_5a475c0ba1eed0 1-679
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-jax-cold-0.json
+  s_550fff03a4634a::t_45c511a6e28f0d 1-678
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-jax-cold-1.json
+  s_550fff03a4634a::t_aed746ea850fae 1-678
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-jax-cold-2.json
+  s_550fff03a4634a::t_25c07c6a427e3c 1-678
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-jax-warm--1.json
+  s_550fff03a4634a::t_c95f09455870fd 1-678
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-jax-warm-0.json
+  s_550fff03a4634a::t_4ef2134c722ff2 1-678
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-jax-warm-1.json
+  s_550fff03a4634a::t_25f78b8ce60b85 1-678
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-jax-warm-2.json
+  s_550fff03a4634a::t_1f239c8256a5a2 1-678
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-numba-cold-0.json
+  s_550fff03a4634a::t_6e93a24b51e1a2 1-677
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-numba-cold-1.json
+  s_550fff03a4634a::t_4bed632bd22a4b 1-677
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-numba-cold-2.json
+  s_550fff03a4634a::t_1e9d556b49aab0 1-677
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-numba-warm--1.json
+  s_550fff03a4634a::t_faf4afa7580036 1-677
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-numba-warm-0.json
+  s_550fff03a4634a::t_fb19a1fcf858f6 1-677
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-numba-warm-1.json
+  s_550fff03a4634a::t_2280f5bd0b77a8 1-677
+benchmarks/results/controlled/u10-t300-obs0.2-nutpie-numba-warm-2.json
+  s_550fff03a4634a::t_7fc9903f26292b 1-677
+benchmarks/results/controlled/u10-t300-obs0.2-pymc-cold-0.json
+  s_550fff03a4634a::t_c778f5eb158403 1-668
+benchmarks/results/controlled/u10-t300-obs0.2-pymc-cold-1.json
+  s_550fff03a4634a::t_2c2e9bed833f60 1-668
+benchmarks/results/controlled/u10-t300-obs0.2-pymc-cold-2.json
+  s_550fff03a4634a::t_5acca89948926f 1-668
+benchmarks/results/controlled/u10-t300-obs0.2-pymc-warm--1.json
+  s_550fff03a4634a::t_9611ba78e90147 1-668
+benchmarks/results/controlled/u10-t300-obs0.2-pymc-warm-0.json
+  s_550fff03a4634a::t_664d1c9907d436 1-668
+benchmarks/results/controlled/u10-t300-obs0.2-pymc-warm-1.json
+  s_550fff03a4634a::t_7cd28f3320be70 1-668
+benchmarks/results/controlled/u10-t300-obs0.2-pymc-warm-2.json
+  s_550fff03a4634a::t_bc1e8aa476dfca 1-668
+benchmarks/results/controlled/u10-t300-obs1-numpyro-cold-0.json
+  s_550fff03a4634a::t_f37f0c884a7398 1-673
+benchmarks/results/controlled/u10-t300-obs1-numpyro-cold-1.json
+  s_550fff03a4634a::t_a9d0d46082b1ec 1-673
+benchmarks/results/controlled/u10-t300-obs1-numpyro-cold-2.json
+  s_550fff03a4634a::t_52b8a6bc9f5f4d 1-673
+benchmarks/results/controlled/u10-t300-obs1-numpyro-warm--1.json
+  s_550fff03a4634a::t_37afbf2e71f71e 1-673
+benchmarks/results/controlled/u10-t300-obs1-numpyro-warm-0.json
+  s_550fff03a4634a::t_3f6f1987b0e062 1-673
+benchmarks/results/controlled/u10-t300-obs1-numpyro-warm-1.json
+  s_550fff03a4634a::t_0c6e438821650e 1-673
+benchmarks/results/controlled/u10-t300-obs1-numpyro-warm-2.json
+  s_550fff03a4634a::t_435c1e4301b06b 1-673
+benchmarks/results/controlled/u10-t300-obs1-nutpie-jax-cold-0.json
+  s_550fff03a4634a::t_c0e411e1fa529a 1-672
+benchmarks/results/controlled/u10-t300-obs1-nutpie-jax-cold-1.json
+  s_550fff03a4634a::t_4f1cd180948cf0 1-672
+benchmarks/results/controlled/u10-t300-obs1-nutpie-jax-cold-2.json
+  s_550fff03a4634a::t_660d788c531f41 1-672
+benchmarks/results/controlled/u10-t300-obs1-nutpie-jax-warm--1.json
+  s_550fff03a4634a::t_36a890253685e0 1-672
+benchmarks/results/controlled/u10-t300-obs1-nutpie-jax-warm-0.json
+  s_550fff03a4634a::t_9a055ce8dab2e3 1-672
+benchmarks/results/controlled/u10-t300-obs1-nutpie-jax-warm-1.json
+  s_550fff03a4634a::t_42baee3c25fa01 1-672
+benchmarks/results/controlled/u10-t300-obs1-nutpie-jax-warm-2.json
+  s_550fff03a4634a::t_2774cbdf84d8b4 1-672
+benchmarks/results/controlled/u10-t300-obs1-nutpie-numba-cold-0.json
+  s_550fff03a4634a::t_33d685d0f980d0 1-671
+benchmarks/results/controlled/u10-t300-obs1-nutpie-numba-cold-1.json
+  s_550fff03a4634a::t_d98210ad331c84 1-671
+benchmarks/results/controlled/u10-t300-obs1-nutpie-numba-cold-2.json
+  s_550fff03a4634a::t_7ee1c1eaacc261 1-671
+benchmarks/results/controlled/u10-t300-obs1-nutpie-numba-warm--1.json
+  s_550fff03a4634a::t_122e564fd2dcdf 1-671
+benchmarks/results/controlled/u10-t300-obs1-nutpie-numba-warm-0.json
+  s_550fff03a4634a::t_e8ff71696a6254 1-671
+benchmarks/results/controlled/u10-t300-obs1-nutpie-numba-warm-1.json
+  s_550fff03a4634a::t_ac595b3e0e4abc 1-671
+benchmarks/results/controlled/u10-t300-obs1-nutpie-numba-warm-2.json
+  s_550fff03a4634a::t_4ca7d8cddb24bb 1-671
+benchmarks/results/controlled/u10-t300-obs1-pymc-cold-0.json
+  s_550fff03a4634a::t_ea44193af8eb4d 1-662
+benchmarks/results/controlled/u10-t300-obs1-pymc-cold-1.json
+  s_550fff03a4634a::t_f71cc6ca978fa5 1-662
+benchmarks/results/controlled/u10-t300-obs1-pymc-cold-2.json
+  s_550fff03a4634a::t_429f70ae9b4ab9 1-662
+benchmarks/results/controlled/u10-t300-obs1-pymc-warm--1.json
+  s_550fff03a4634a::t_b3f387989256e0 1-662
+benchmarks/results/controlled/u10-t300-obs1-pymc-warm-0.json
+  s_550fff03a4634a::t_dba0f22cdaf035 1-662
+benchmarks/results/controlled/u10-t300-obs1-pymc-warm-1.json
+  s_550fff03a4634a::t_940ccdf8478133 1-662
+benchmarks/results/controlled/u10-t300-obs1-pymc-warm-2.json
+  s_550fff03a4634a::t_f6d7a34d58e6d6 1-662
+benchmarks/results/controlled/u3-t30-obs0.2-numpyro-cold-0.json
+  s_550fff03a4634a::t_342851de374675 1-371
+benchmarks/results/controlled/u3-t30-obs0.2-numpyro-cold-1.json
+  s_550fff03a4634a::t_e8014dc403de81 1-371
+benchmarks/results/controlled/u3-t30-obs0.2-numpyro-cold-2.json
+  s_550fff03a4634a::t_977cbf2e6ea8b7 1-371
+benchmarks/results/controlled/u3-t30-obs0.2-numpyro-warm--1.json
+  s_550fff03a4634a::t_852abe52381c14 1-371
+benchmarks/results/controlled/u3-t30-obs0.2-numpyro-warm-0.json
+  s_550fff03a4634a::t_c0b1e044555d8d 1-371
+benchmarks/results/controlled/u3-t30-obs0.2-numpyro-warm-1.json
+  s_550fff03a4634a::t_d53331accb79c2 1-371
+benchmarks/results/controlled/u3-t30-obs0.2-numpyro-warm-2.json
+  s_550fff03a4634a::t_717eb6708f75b1 1-371
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-jax-cold-0.json
+  s_550fff03a4634a::t_f383c88ebae3ab 1-370
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-jax-cold-1.json
+  s_550fff03a4634a::t_7b13b5a6541828 1-370
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-jax-cold-2.json
+  s_550fff03a4634a::t_2ac3b7622628ab 1-370
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-jax-warm--1.json
+  s_550fff03a4634a::t_9457d44b761076 1-370
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-jax-warm-0.json
+  s_550fff03a4634a::t_e0b80dfacb93ef 1-370
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-jax-warm-1.json
+  s_550fff03a4634a::t_dd4e8ba52ca758 1-370
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-jax-warm-2.json
+  s_550fff03a4634a::t_e33be16b0de955 1-370
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-numba-cold-0.json
+  s_550fff03a4634a::t_d547c469cea7dc 1-369
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-numba-cold-1.json
+  s_550fff03a4634a::t_91552dd3124d26 1-369
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-numba-cold-2.json
+  s_550fff03a4634a::t_2eda93329bd0a3 1-369
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-numba-warm--1.json
+  s_550fff03a4634a::t_d5d214eed83dd0 1-369
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-numba-warm-0.json
+  s_550fff03a4634a::t_f52a65da2e4720 1-369
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-numba-warm-1.json
+  s_550fff03a4634a::t_08cdb51358b3a4 1-369
+benchmarks/results/controlled/u3-t30-obs0.2-nutpie-numba-warm-2.json
+  s_550fff03a4634a::t_fa5c3adc2241d8 1-369
+benchmarks/results/controlled/u3-t30-obs0.2-pymc-cold-0.json
+  s_550fff03a4634a::t_51b3aa2a2106dd 1-360
+benchmarks/results/controlled/u3-t30-obs0.2-pymc-cold-1.json
+  s_550fff03a4634a::t_1aeb8ac6b53dea 1-360
+benchmarks/results/controlled/u3-t30-obs0.2-pymc-cold-2.json
+  s_550fff03a4634a::t_08e70cd03999cd 1-360
+benchmarks/results/controlled/u3-t30-obs0.2-pymc-warm--1.json
+  s_550fff03a4634a::t_08cdae789d3c94 1-360
+benchmarks/results/controlled/u3-t30-obs0.2-pymc-warm-0.json
+  s_550fff03a4634a::t_6fc7b23027ed95 1-360
+benchmarks/results/controlled/u3-t30-obs0.2-pymc-warm-1.json
+  s_550fff03a4634a::t_30b4d61f7ea1f8 1-360
+benchmarks/results/controlled/u3-t30-obs0.2-pymc-warm-2.json
+  s_550fff03a4634a::t_c4e57ff671f057 1-360
+benchmarks/results/controlled/u3-t30-obs1-numpyro-cold-0.json
+  s_550fff03a4634a::t_e4cb9b191901b3 1-365
+benchmarks/results/controlled/u3-t30-obs1-numpyro-cold-1.json
+  s_550fff03a4634a::t_82aba25bb93128 1-365
+benchmarks/results/controlled/u3-t30-obs1-numpyro-cold-2.json
+  s_550fff03a4634a::t_2dd70ebb30667b 1-365
+benchmarks/results/controlled/u3-t30-obs1-numpyro-warm--1.json
+  s_550fff03a4634a::t_16bddefed63ec3 1-365
+benchmarks/results/controlled/u3-t30-obs1-numpyro-warm-0.json
+  s_550fff03a4634a::t_b39f43b8edda5a 1-365
+benchmarks/results/controlled/u3-t30-obs1-numpyro-warm-1.json
+  s_550fff03a4634a::t_5657a368be18c4 1-365
+benchmarks/results/controlled/u3-t30-obs1-numpyro-warm-2.json
+  s_550fff03a4634a::t_968021f45ef237 1-365
+benchmarks/results/controlled/u3-t30-obs1-nutpie-jax-cold-0.json
+  s_550fff03a4634a::t_50427bf0f49d30 1-364
+benchmarks/results/controlled/u3-t30-obs1-nutpie-jax-cold-1.json
+  s_550fff03a4634a::t_de6d0540f33cef 1-364
+benchmarks/results/controlled/u3-t30-obs1-nutpie-jax-cold-2.json
+  s_550fff03a4634a::t_bcc4349f685132 1-364
+benchmarks/results/controlled/u3-t30-obs1-nutpie-jax-warm--1.json
+  s_550fff03a4634a::t_d4cd4d018e2ae4 1-364
+benchmarks/results/controlled/u3-t30-obs1-nutpie-jax-warm-0.json
+  s_550fff03a4634a::t_33358bf9a5fda1 1-364
+benchmarks/results/controlled/u3-t30-obs1-nutpie-jax-warm-1.json
+  s_550fff03a4634a::t_89da5e23832467 1-364
+benchmarks/results/controlled/u3-t30-obs1-nutpie-jax-warm-2.json
+  s_550fff03a4634a::t_0ef35b608d164f 1-364
+benchmarks/results/controlled/u3-t30-obs1-nutpie-numba-cold-0.json
+  s_550fff03a4634a::t_28da33156497f2 1-363
+benchmarks/results/controlled/u3-t30-obs1-nutpie-numba-cold-1.json
+  s_550fff03a4634a::t_a72ac74776e3c9 1-363
+benchmarks/results/controlled/u3-t30-obs1-nutpie-numba-cold-2.json
+  s_550fff03a4634a::t_9d35140587ee08 1-363
+benchmarks/results/controlled/u3-t30-obs1-nutpie-numba-warm--1.json
+  s_550fff03a4634a::t_16b4f4c4546655 1-363
+benchmarks/results/controlled/u3-t30-obs1-nutpie-numba-warm-0.json
+  s_550fff03a4634a::t_d476252cdfb421 1-363
+benchmarks/results/controlled/u3-t30-obs1-nutpie-numba-warm-1.json
+  s_550fff03a4634a::t_3ca54874756174 1-363
+benchmarks/results/controlled/u3-t30-obs1-nutpie-numba-warm-2.json
+  s_550fff03a4634a::t_83091e3bf3b90e 1-363
+benchmarks/results/controlled/u3-t30-obs1-pymc-cold-0.json
+  s_550fff03a4634a::t_01e14f797c42e1 1-354
+benchmarks/results/controlled/u3-t30-obs1-pymc-cold-1.json
+  s_550fff03a4634a::t_aa54f4412bd264 1-354
+benchmarks/results/controlled/u3-t30-obs1-pymc-cold-2.json
+  s_550fff03a4634a::t_dfe6395aba525c 1-354
+benchmarks/results/controlled/u3-t30-obs1-pymc-warm--1.json
+  s_550fff03a4634a::t_dff6b7d4e0e645 1-354
+benchmarks/results/controlled/u3-t30-obs1-pymc-warm-0.json
+  s_550fff03a4634a::t_1acf319c6d50be 1-354
+benchmarks/results/controlled/u3-t30-obs1-pymc-warm-1.json
+  s_550fff03a4634a::t_ac9612cc29072f 1-354
+benchmarks/results/controlled/u3-t30-obs1-pymc-warm-2.json
+  s_550fff03a4634a::t_e9cc8e74ae9b45 1-354
+benchmarks/results/pilots/stable-protocol/u1-t30-obs1-numpyro-cold-0.json
+  s_550fff03a4634a::t_c9af9b7af9c951 1-277
+benchmarks/results/pilots/stable-protocol/u1-t30-obs1-nutpie-jax-cold-0.json
+  s_550fff03a4634a::t_65aa80cd721f00 1-276
+benchmarks/results/pilots/stable-protocol/u1-t30-obs1-nutpie-numba-cold-0.json
+  s_550fff03a4634a::t_31b1c8dbb1d2c7 1-275
+benchmarks/results/pilots/stable-protocol/u1-t30-obs1-pymc-cold-0.json
+  s_550fff03a4634a::t_26e4495ebc82ed 1-266
+docs/user_guide/19-panel-data.qmd
+  s_550fff03a4634a::t_64d7b1f5e9d9e1 471-472
+scripts/benchmark_backends.py
+  s_550fff03a4634a::t_c678f709165a9f 24,461-465,469-481,663,731-786
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7319750bfccb52d4de2fd55d594f115344d7cc45",
+  "prompts": {},
+  "sessions": {
+    "s_550fff03a4634a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a553-9f5d-79b2-a4f6-69a7a7a43c1d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
