@@ -21,6 +21,7 @@ covariance parameterization and likelihood emission.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
@@ -89,6 +90,33 @@ class ResidualStructure(Protocol):
             Prior parameter names (e.g. ``["chol_M1_M2"]``).
         """
         ...
+
+
+def validate_packed_factors(
+    params: Mapping[str, Any], residual_blocks: list[set[str]]
+) -> None:
+    """Validate fixed scan factors after checking required parameter names.
+
+    Each block uses sorted members and row-major lower-triangle packing.
+    Parameters are in model units and must define a nonsingular covariance.
+    """
+    for block in residual_blocks:
+        k = len(block)
+        name = f"chol_{'_'.join(sorted(block))}"
+        factor = np.asarray(params[name])
+        shape = (k * (k + 1) // 2,)
+        diagonal = np.cumsum(np.arange(1, k + 1)) - 1
+        if (
+            factor.shape != shape
+            or not np.isfinite(factor).all()
+            or not (factor[diagonal] > 0).all()
+        ):
+            raise ValueError(
+                f"Parameter '{name}' must be a finite packed vector of shape "
+                f"{shape} with strictly positive diagonal entries. Use "
+                "pathmc.simulate_params_template() for the required shape "
+                "and supply a nonsingular lower-triangular factor."
+            )
 
 
 def _sigma_priors(block_vars: list[str], priors: dict[str, Any] | None) -> list[Any]:

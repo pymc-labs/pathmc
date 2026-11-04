@@ -3278,18 +3278,23 @@ def _compile_scan_panel(
                 f"innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
 
-        carry_innovation_nodes: dict[str, Any] = {}
+        carry_white_nodes: dict[str, Any] = {}
         for var in stochastic_carry_vars:
-            carry_innovation_nodes[var] = pm.Normal(
+            carry_white_nodes[var] = pm.Normal(
                 f"carry_innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
 
+        carry_residual_nodes = {
+            var: sigma_rvs[var] * white
+            for var, white in carry_white_nodes.items()
+            if var not in block_vars
+        }
         if coherent:
             for block, chol in block_chols.items():
-                white = pt.stack([carry_innovation_nodes[v] for v in block], axis=-1)
+                white = pt.stack([carry_white_nodes[v] for v in block], axis=-1)
                 colored = pt.dot(white, chol.T)
                 for i, var in enumerate(block):
-                    carry_innovation_nodes[var] = colored[..., i]
+                    carry_residual_nodes[var] = colored[..., i]
 
         # --- estimated latent initial conditions ---
         # Latent variables have no data column, so their t=0 scan carry
@@ -3376,7 +3381,7 @@ def _compile_scan_panel(
                 *[("exog", name) for name in exog_keys],
                 *[("obs_carry", name) for name in observed_carry_vars],
                 *[("latent_innov", name) for name in stochastic_latent],
-                *[("carry_innov", name) for name in stochastic_carry_vars],
+                *[("carry_residual", name) for name in stochastic_carry_vars],
                 *[("discrete", name) for name in discrete_bernoulli_vars],
                 *[("discrete", name) for name in discrete_count_vars],
                 *[("intervene", name) for name in intervene_keys],
@@ -3405,7 +3410,7 @@ def _compile_scan_panel(
             "exog": exog_data_nodes,
             "obs_carry": observed_carry_nodes,
             "latent_innov": latent_innovation_nodes,
-            "carry_innov": carry_innovation_nodes,
+            "carry_residual": carry_residual_nodes,
             "discrete": discrete_uniform_nodes,
             "intervene": do_intervene_nodes,
             "schedule": (
@@ -3497,11 +3502,6 @@ def _compile_scan_panel(
         for var in stochastic_latent:
             non_seq_list.append(sigma_rvs[var])
             non_seq_names.append(f"sigma_{var}")
-        for var in stochastic_carry_vars:
-            if var in block_vars:
-                continue
-            non_seq_list.append(sigma_rvs[var])
-            non_seq_names.append(f"sigma_{var}")
         for var in discrete_sample_vars:
             if families.get(var, "gaussian") == "negbinomial":
                 non_seq_list.append(scan_model[f"alpha_disp_{var}"])
@@ -3531,7 +3531,7 @@ def _compile_scan_panel(
                 "exog_t": grouped.get("exog", {}),
                 "obs_carry_t": grouped.get("obs_carry", {}),
                 "latent_innov_t": grouped.get("latent_innov", {}),
-                "carry_innov_t": grouped.get("carry_innov", {}),
+                "carry_residual_t": grouped.get("carry_residual", {}),
                 "discrete_uniform_t": {
                     name: value
                     for name, value in discrete.items()
@@ -3565,7 +3565,7 @@ def _compile_scan_panel(
             ns_map = state["ns_map"]
             obs_carry_t = state["obs_carry_t"]
             latent_innov_t = state["latent_innov_t"]
-            carry_innov_t = state["carry_innov_t"]
+            carry_residual_t = state["carry_residual_t"]
             discrete_uniform_t = state["discrete_uniform_t"]
             count_uniform_t = state["count_uniform_t"]
             do_intervene_t = state["do_intervene_t"]
@@ -3671,10 +3671,7 @@ def _compile_scan_panel(
                     new_endo[var] = propagated
                 elif var in stochastic_carry_vars:
                     carry_mu[var] = mu
-                    residual = carry_innov_t[var]
-                    if var not in block_vars:
-                        residual = ns_map[f"sigma_{var}"] * residual
-                    sampled_state = mu + residual
+                    sampled_state = mu + carry_residual_t[var]
                     if coherent:
                         # The generative graph cannot condition future states on
                         # observations, even when its legacy carry flag is set.
@@ -3881,7 +3878,6 @@ def _compile_scan_panel(
                 sigma = sigma_rvs[var]
                 pm.Normal(var, mu=mu_all, sigma=sigma, shape=(n_times, n_units))
 
-    scan_model._pathmc_scan_residual_blocks = blocks
     scan_model._pathmc_panel_scan = PanelScanInfo(
         sort_idx=sort_idx,
         reverse_idx=reverse_idx,

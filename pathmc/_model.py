@@ -3874,26 +3874,16 @@ def simulate(
             stacklevel=2,
         )
 
+    if scan_info is not None:
+        from pathmc.residuals import validate_packed_factors
+
+        validate_packed_factors(params, graph_info.residual_blocks)
+
     do_dict: dict[str, Any] = {}
     for name in param_rv_names:
         rv = gen_model[name]
         arr = np.asarray(params[name])
         shape = tuple(int(d) for d in rv.shape.eval())
-        scan_blocks = getattr(gen_model, "_pathmc_scan_residual_blocks", ())
-        for block in scan_blocks:
-            if name == f"chol_{'_'.join(block)}":
-                diagonal = np.cumsum(np.arange(1, len(block) + 1)) - 1
-                if (
-                    arr.shape != shape
-                    or not np.isfinite(arr).all()
-                    or not (arr[diagonal] > 0).all()
-                ):
-                    raise ValueError(
-                        f"Parameter '{name}' must be a finite packed vector of shape "
-                        f"{shape} with strictly positive diagonal entries. Use "
-                        "pathmc.simulate_params_template() for the required shape "
-                        "and supply a nonsingular lower-triangular factor."
-                    )
         if arr.shape != shape:
             if arr.ndim == 0:
                 arr = np.full(shape, arr)
