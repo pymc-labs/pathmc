@@ -18,9 +18,9 @@ dynamic: false  # cyclic alias detected; griffe AST analysis is sufficient
 exclude:
   - Prior
 
-# Use the existing curated landing page from docs/index.qmd (mirrored into
-# the user_guide directory below) instead of generating one from README.md.
-homepage: user_guide
+# Landing page is generated from README.md. The user guide is a navbar tab,
+# so its sidebar appears only inside that section, matching the Labs sites.
+homepage: index
 
 # Disable generated Markdown page downloads. The copy-page widget eagerly
 # fetches the `.md` companion page on load, which makes navigation noticeably
@@ -148,8 +148,8 @@ attribution: false
 site:
   css: docs/assets/labs.css
 dark_mode_toggle: true
-# We use docs/user_guide/00-welcome.qmd as the homepage. It already has its
-# own logo/tagline/showcase, so suppress the auto-generated hero block.
+# README already carries the logo and lead copy, so suppress the
+# auto-generated hero block.
 hero: false
 
 # Graphviz figure sizing -----------------------------------------------------
