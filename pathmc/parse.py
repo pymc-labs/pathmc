@@ -245,22 +245,12 @@ def _has_pipe(text: str) -> bool:
 
 
 def _pipe_marks(text: str) -> bool:
-    """Detect pipes and malformed punctuation outside legacy call arguments."""
+    """Detect pipes or malformed punctuation, leaving legacy calls opaque."""
     visible = _unquoted_source(text)
-    if "|>" in visible:
-        return True
-    call_depth = 0
-    for i, ch in enumerate(visible):
-        if ch == "(":
-            previous = visible[:i].rstrip()[-1:]
-            if call_depth or previous.isalnum() or previous == "_":
-                call_depth += 1
-        elif ch == ")" and call_depth:
-            call_depth -= 1
-        elif ch in {"|", ">"} and not call_depth:
-            # Legacy argument parsers accept bare strings such as a>b or a|b.
-            return True
-    return False
+    return "|>" in visible or (
+        re.match(r"^[A-Za-z_]\w*\s*\(", visible) is None
+        and any(ch in {"|", ">"} for ch in visible)
+    )
 
 
 def _prepare_pipe_lines(spec_string: str) -> str:
@@ -269,47 +259,59 @@ def _prepare_pipe_lines(spec_string: str) -> str:
     visible = _unquoted_source(source)
     if "|>" not in visible:
         return source
-    out: list[str] = []
-    groups: list[bool] = []
-    term_start = 0
-    for i, ch in enumerate(visible):
-        original = source[i]
-        if ch == "(":
-            previous = visible[:i].rstrip()[-1:]
-            groups.append(previous in {"", "~", "+", "*"})
-        elif ch == ")" and groups:
-            groups.pop()
-        elif ch == ";" and any(groups):
-            raise ParseError(
-                "Semicolon inside a pipeline group. Close the group before "
-                "starting another statement, for example 'Y ~ (x |> f()); Z ~ z'."
-            )
-        elif ch in {"+", ";"} and not any(groups):
-            groups.clear()
-            term_start = i + 1
-        elif ch == "\n":
-            next_line = visible[i + 1 :].split("\n", 1)[0].strip()
-            if any(groups):
-                if re.match(r"^[A-Za-z_]\w*\s*(?:~~|:=|~)", next_line):
+    out = list(source)
+    group_start = re.compile(r"\(\s*[A-Za-z_]\w*\s*\|>")
+    i = 0
+    while i < len(visible):
+        ch = visible[i]
+        previous = visible[:i].rstrip()[-1:] if ch == "(" else ""
+        # Only confirmed pipeline groups own continuation state. Legacy bare
+        # values can contain arbitrary parentheses and coefficient punctuation.
+        if (
+            ch == "("
+            and previous in {"", "~", "+", "*"}
+            and group_start.match(visible, i)
+        ):
+            depth = 1
+            i += 1
+            while i < len(visible) and depth:
+                ch = visible[i]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                elif ch == ";":
                     raise ParseError(
-                        "Unclosed pipeline group before another equation. "
-                        "Close ')' before starting the next statement."
+                        "Semicolon inside a pipeline group. Close ')' before "
+                        "starting another statement."
                     )
-                original = " "
-            elif next_line.startswith("|>") or visible[:i].rstrip().endswith("|>"):
+                elif ch == "\n":
+                    next_line = visible[i + 1 :].split("\n", 1)[0].strip()
+                    if re.match(r"^[A-Za-z_]\w*\s*(?:~~|:=|~)", next_line):
+                        raise ParseError(
+                            "Unclosed pipeline group before another equation. "
+                            "Close ')' before starting the next statement."
+                        )
+                    out[i] = " "
+                i += 1
+            if depth:
+                raise ParseError("Unclosed pipeline group. Add the missing ')'.")
+            continue
+        if ch == "\n":
+            next_line = visible[i + 1 :].split("\n", 1)[0].strip()
+            term_start = max(visible.rfind(mark, 0, i) for mark in ("+", ";", "\n")) + 1
+            term = visible[term_start:i]
+            tail = term.partition("|>")[2]
+            if (
+                next_line.startswith("|>")
+                or term.rstrip().endswith("|>")
+                or tail.count("(") > tail.count(")")
+            ):
                 raise ParseError(
                     "An ungrouped pipeline cannot span lines. "
                     "Write '(x |> f())' to continue a pipeline across lines."
                 )
-            elif groups and "|>" in visible[term_start:i]:
-                raise ParseError(
-                    "An ungrouped pipeline cannot span lines. "
-                    "Write '(x |> f())' to continue a pipeline across lines."
-                )
-            if not any(groups):
-                groups.clear()
-                term_start = i + 1
-        out.append(original)
+        i += 1
     return "".join(out)
 
 
@@ -682,7 +684,7 @@ def _parse_term(raw: str) -> Term:
     coefficient values rather than free parameter names.
     """
     raw = raw.strip()
-    has_pipe = _pipe_marks(raw)
+    had_pipe = _has_pipe(raw)
     _reject_top_level_minus(raw)
     label: str | None = None
     fixed_value: float | None = None
@@ -700,7 +702,7 @@ def _parse_term(raw: str) -> Term:
             except ValueError:
                 label = label_str
 
-    if has_pipe:
+    if had_pipe or _pipe_marks(raw):
         if label is not None and _PIPE_IDENTIFIER.fullmatch(label) is None:
             raise ParseError(
                 f"Invalid pipeline coefficient label '{label}'. "
