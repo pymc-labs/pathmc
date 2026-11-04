@@ -207,6 +207,7 @@ The DSL is lavaan-inspired:
 - Configure custom priors via `Prior` objects from `pymc_extras`.
 - Run `fit()` with PyMC's NUTS sampler (or `nutpie` / `numpyro` via
   the `samplers` extra).
+
 - Query `ate`/`cate`/`att`/`atu`/`prob`/`effect` with full posterior
   uncertainty.
 - Fit a DAG-derived backdoor adjustment model via `adjustment_model()`
@@ -240,8 +241,7 @@ The DSL is lavaan-inspired:
 
 **Out of scope (do not attempt):**
 
-- **Latent variables / SEM measurement models** (the `=~` operator).
-  Out of scope in v0.1; on the post-v1 roadmap.
+- **The `=~` measurement operator.** Supported latent dynamics use explicit state equations with `latent=[...]`, `families={"a": "latent_normal"}`, and observed indicators such as `y ~ 0 + 1*a` instead.
 - **Categorical labels in the interpret API** (`predictions()`,
   `comparisons()`, `slopes()`, `att()`, `atu()`, `effect()`). Use
   `m.do(set={"region": "south"})`, `m.ate("Y", "region", values=(a, b))`,
@@ -255,6 +255,12 @@ The DSL is lavaan-inspired:
   / `families=` to `model()`.
 
 ## Patterns
+
+### Select a sampling backend
+
+Use `m.fit(nuts_sampler="pymc", ...)`, `m.fit(nuts_sampler="numpyro", ...)`, or `m.fit(nuts_sampler="nutpie", backend="numba", ...)` / `backend="jax"`. Nutpie's compiler backend and gradient backend are separate: JAX autodifferentiation uses `compile_kwargs={"gradient_backend": "jax"}`.
+
+Sparse stochastic AR(1) panels at one/three units are tested on PyMC 6.3.2, PyTensor 3.3.6, nutpie 0.16.10, NumPyro 0.21.0 and JAX 0.10.1, CPU/float64; do not repeat the obsolete blanket warning that nutpie cannot impute missing observations. Short fits establish execution, not convergence or a universal speedup. Compare multiple-chain diagnostics and end-to-end effective samples/second using `scripts/benchmark_backends.py`; see `benchmarks/README.md`. Keep the singleton unit axis and rebuild the model for changed panel shapes.
 
 ### Inspect before sampling (data-free DAG exploration)
 

@@ -3359,19 +3359,17 @@ def _compile_scan_panel(
                 else {}
             ),
         }
-        sequences = [sequence_by_group[label][name] for label, name in layout.sequences]
-
-        def _init_carry(arr: np.ndarray) -> Any:
-            """Convert init array to tensor for scan carry state.
-
-            Uses ``pytensor.shared`` when n_units=1 to prevent PyTensor
-            from marking the unit dimension as broadcastable (static
-            shape 1), which would cause shape mismatches in the
-            gradient scan.
-            """
-            if arr.shape[0] == 1:
-                return pytensor.shared(arr, broadcastable=(False,))
-            return pt.as_tensor_variable(arr)
+        # PyMC 6.3.2 / PyTensor 3.3.6 shared-to-constant cloning can make a
+        # singleton unit axis broadcastable *after* scan traces its inner
+        # inputs (#85). Declare the existing fixed panel shape before tracing,
+        # consistently for data, innovations, interventions and carry states.
+        # SpecifyShape retains the shared values: it does not freeze the
+        # generative model. Revisit when both JAX conversion paths support
+        # singleton scans without these declarations at our dependency floor.
+        sequences = [
+            pt.specify_shape(sequence_by_group[label][name], (n_times, n_units))
+            for label, name in layout.sequences
+        ]
 
         initial_nodes: dict[str, str] = {}
         initial_tensors: dict[str, Any] = {}
@@ -3388,14 +3386,17 @@ def _compile_scan_panel(
                     return latent_init_rvs[name]
                 if name in initial_tensors:
                     return initial_tensors[name]
-                return _init_carry(init_endo[name])
+                return pt.as_tensor_variable(init_endo[name])
             if group == "adstock":
-                return _init_carry(init_adstock[name])
+                return pt.as_tensor_variable(init_adstock[name])
             if name in initial_tensors:
                 return initial_tensors[name]
-            return _init_carry(init_exog_lag[name])
+            return pt.as_tensor_variable(init_exog_lag[name])
 
-        outputs_info = [_carry_init(group, name) for group, name in layout.carries]
+        outputs_info = [
+            pt.specify_shape(_carry_init(group, name), (n_units,))
+            for group, name in layout.carries
+        ]
         outputs_info += [None for _ in layout.trailing]
 
         # Non-sequences: all parameters
@@ -3426,18 +3427,22 @@ def _compile_scan_panel(
                     non_seq_names.append(component_name)
                     beta_component_names[var].append(component_name)
         for name, rv in tparam_rvs.items():
-            non_seq_list.append(rv)
+            non_seq_list.append(
+                pt.specify_shape(rv, (n_units,))
+                if scan_model.named_vars_to_dims.get(name) == ("unit",)
+                else rv
+            )
             non_seq_names.append(name)
         for var in endo_keys:
             if var in alpha_rvs:
-                non_seq_list.append(alpha_rvs[var])
+                non_seq_list.append(pt.specify_shape(alpha_rvs[var], (n_units,)))
                 non_seq_names.append(f"alpha_{var}")
         for var in endo_keys:
             for svar, srv in slope_rvs.get(var, {}).items():
-                non_seq_list.append(srv)
+                non_seq_list.append(pt.specify_shape(srv, (n_units,)))
                 non_seq_names.append(f"slope_{var}_{svar}")
         for name, rv in byvar_rvs.items():
-            non_seq_list.append(rv)
+            non_seq_list.append(pt.specify_shape(rv, (n_units,)))
             non_seq_names.append(f"beta_{name}")
         for var in stochastic_latent:
             non_seq_list.append(sigma_rvs[var])

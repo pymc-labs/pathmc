@@ -448,6 +448,26 @@ stochastic latents it reads the realized state registered under the
 variable's own name; for deterministic latents it reads the `mu_{var}`
 deterministic.
 
+### Choosing a sampler for latent dynamics
+
+Install the optional backends with `pip install 'pathmc[samplers]'`. Select a route explicitly when comparing the same model:
+
+```python
+model.fit(nuts_sampler="pymc", draws=1000, tune=1000, chains=2)
+# Alternative invocations on a freshly built equivalent model:
+model.fit(nuts_sampler="numpyro", draws=1000, tune=1000, chains=2)
+model.fit(nuts_sampler="nutpie", backend="numba", draws=1000, tune=1000, chains=2)
+model.fit(nuts_sampler="nutpie", backend="jax", draws=1000, tune=1000, chains=2)
+```
+
+Here `backend` selects nutpie's compiler; its gradient backend is a separate setting. For JAX autodifferentiation with nutpie, add `compile_kwargs={"gradient_backend": "jax"}`. The default nutpie/JAX gradient route uses PyTensor differentiation. The top-level `backend=` syntax is available at the PyMC 6.0 dependency floor; the older `nuts_sampler_kwargs={"backend": "jax"}` spelling is deprecated in the tested PyMC release.
+
+Regression tests cover sparse stochastic AR(1) panels with one and three units through all four routes, including posterior deterministics, imputation, and pointwise log likelihood. They use PyMC 6.3.2, PyTensor 3.3.6, nutpie 0.16.10, NumPyro 0.21.0, and JAX 0.10.1 on CPU with float64. Missing measurements remain unknown values. The initial state remains the state preceding the first transition, and process noise and measurement noise remain separate. Plain/sparse regression, dense latent dynamics, observed and exogenous lags, and adstock provide compilation controls; this is not a compatibility guarantee for every DSL/family/backend combination.
+
+Singleton scans previously failed while shared inputs were converted to constants. Explicit scan-boundary shapes preserve `(time, unit)` arrays and `(unit,)` carry states, including `unit=1`, without freezing the retained model's shared values. Same-shape data updates and interventions remain supported; changing a scan panel's number of units or periods still requires rebuilding the model.
+
+Compilation/JIT cost can outweigh retained-sampling gains on short panels. Compare end-to-end fitting time and effective samples per second with adequate multiple-chain diagnostics before choosing a route; a successful short fit is only an execution check. The maintained [sampling benchmark and report](https://github.com/pymc-labs/pathmc/blob/main/benchmarks/README.md) distinguish cold caches, primed disk caches, failed runs, and poor mixing. Kalman marginalization and sampler-default changes are separate work.
+
 The same machinery works for forward simulation. `pathmc.simulate()` treats
 `init_{var}` as a required parameter alongside coefficients and scales — use
 `pathmc.simulate_params_template()` to discover every name and shape:
