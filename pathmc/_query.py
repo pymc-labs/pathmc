@@ -39,7 +39,7 @@ from pathmc.simulate import (
 
 try:
     from pymc.model.transform.optimization import freeze_model
-except ImportError:  # PyMC 6.0 remains supported through the existing executor.
+except ImportError:  # Older PyMC releases use the existing prediction executor.
     freeze_model = None
 
 if TYPE_CHECKING:

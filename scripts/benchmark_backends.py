@@ -34,6 +34,55 @@ import numpy as np
 from benchmark_queries import environment, fixture, instrumentation
 
 
+def mean_kernel(args) -> dict:
+    """Compare the same prepared deterministic graph across compiler backends."""
+    import pathmc._query as query
+    from pathmc.idata import posterior
+
+    fitted, construction, shape = fixture("linear", args.large)
+    post = posterior(fitted._idata)
+    rows = shape["rows"]
+    batch = min(shape["samples"], max(1, 1_000_000 // (2 * rows)))
+    start = perf_counter()
+    with instrumentation() as events:
+        plan = query.prepare_mean(fitted, ("X",), True)
+    preparation = perf_counter() - start
+    parameters = [
+        post[name].values.reshape((-1, 1, post[name].shape[-1]))[:batch]
+        for name in plan.parameters
+    ]
+    scenarios = np.broadcast_to(
+        np.array([0.0, 1.0])[None, :, None], (1, 2, rows)
+    ).copy()
+    arguments = [*parameters, scenarios]
+    start = perf_counter()
+    values = plan.function(*arguments)
+    np.testing.assert_allclose(
+        values[-1], np.broadcast_to([8.0, 22.0], (batch, 2)), rtol=1e-8, atol=1e-10
+    )
+    first = perf_counter() - start
+    elapsed = []
+    for _ in range(5):
+        start = perf_counter()
+        for value in plan.function(*arguments):
+            np.asarray(value)
+        elapsed.append(perf_counter() - start)
+    return {
+        "work_unit": "One prepared deterministic batch, excluding labeled result assembly; not end-to-end query latency",
+        "shape": shape,
+        "batch_draws": batch,
+        "scenarios": 2,
+        "model_construction_seconds": construction,
+        "graph_and_function_preparation_seconds": preparation,
+        "preparation_events_inclusive": dict(events),
+        "first_execution_and_oracle_seconds": first,
+        "warmed_execution_seconds": elapsed,
+        "warm_median_seconds": float(np.median(elapsed)),
+        "warm_min_seconds": min(elapsed),
+        "warm_max_seconds": max(elapsed),
+    }
+
+
 def scan_profile(args) -> dict:
     """Profile the actual optimized likelihood and gradient, including scan Ops."""
     fitted, construction, shape = fixture(args.workload, args.large)
@@ -196,7 +245,9 @@ def main() -> None:
     """Run one backend experiment in an isolated process and write JSON."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--experiment", choices=["profile", "fit"], default="profile")
+    parser.add_argument(
+        "--experiment", choices=["profile", "fit", "kernel"], default="profile"
+    )
     parser.add_argument(
         "--workload",
         choices=["linear", "panel_lag", "panel_ar", "panel_transform", "latent"],
@@ -213,6 +264,8 @@ def main() -> None:
     parser.add_argument("--tune", type=int, default=200)
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.experiment == "kernel" and args.workload != "linear":
+        parser.error("The prepared-kernel experiment requires --workload linear.")
     if not args.worker:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         env = os.environ.copy()
@@ -226,7 +279,7 @@ def main() -> None:
                 "NUMBA_NUM_THREADS",
             )
         })
-        mode = args.mode if args.experiment == "profile" else "FAST_RUN"
+        mode = args.mode if args.experiment != "fit" else "FAST_RUN"
         env["PYTENSOR_FLAGS"] = (
             f"floatX=float64,mode={mode},profiling__time_thunks=True"
         )
@@ -235,7 +288,10 @@ def main() -> None:
         )
         return
     try:
-        result = (scan_profile if args.experiment == "profile" else fit_probe)(args)
+        experiment = {"profile": scan_profile, "fit": fit_probe, "kernel": mean_kernel}[
+            args.experiment
+        ]
+        result = experiment(args)
         report = {"status": "ok", **result}
     except Exception as error:
         report = {"status": "failed", "error": f"{type(error).__name__}: {error}"}
