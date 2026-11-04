@@ -468,6 +468,8 @@ Singleton scans previously failed while shared inputs were converted to constant
 
 Compilation/JIT cost can outweigh retained-sampling gains on short panels. Compare end-to-end fitting time and effective samples per second with adequate multiple-chain diagnostics before choosing a route; a successful short fit is only an execution check. The maintained [sampling benchmark and report](https://github.com/pymc-labs/pathmc/blob/main/benchmarks/README.md) distinguish cold caches, primed disk caches, failed runs, and poor mixing. Kalman marginalization and sampler-default changes are separate work.
 
+In the recorded controlled-start CPU comparison, all six measured runs per route passed the diagnostic criteria for the one-unit, 30-period, 20%-observed fixture. NumPyro's warm median minimum monitored bulk ESS/s was 50.9 versus 29.2 for native PyMC, with peak-RSS medians of 0.92 versus 0.45 GiB. The larger 300-period workloads left the useful-inference ranking unresolved because of poor mixing. Use the report's complete workload results and initialization/cache settings when applying this bounded guidance.
+
 The same machinery works for forward simulation. `pathmc.simulate()` treats
 `init_{var}` as a required parameter alongside coefficients and scales — use
 `pathmc.simulate_params_template()` to discover every name and shape:

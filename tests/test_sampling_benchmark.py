@@ -14,6 +14,7 @@
 """Benchmark summaries must not conceal failed/poorly mixing runs or priming."""
 
 import importlib.util
+import csv
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -175,3 +176,84 @@ def test_crashed_worker_records_reproduction_command_and_settings(
         report["worker_environment"]["XLA_FLAGS"]
         == "--xla_force_host_platform_device_count=1"
     )
+
+
+def test_rebuild_preserves_parameter_efficiency_and_raw_reports(tmp_path, monkeypatch):
+    module = _benchmark_module()
+    reports = {}
+    for repetition, status in [(-1, "ok"), (0, "ok"), (1, "failed")]:
+        report = dict(
+            units=1,
+            periods=30,
+            observed_fraction=0.2,
+            sampler="pymc",
+            cache="warm",
+            repetition=repetition,
+            smoke=False,
+            status=status,
+            diagnostics_acceptable_for_comparison=False,
+        )
+        if status == "ok":
+            report.update(
+                end_to_end_seconds=10,
+                fit_including_compilation_tuning_sampling_and_conversion_seconds=4,
+                minimum_bulk_ess_per_end_to_end_second=20,
+                minimum_tail_ess_per_end_to_end_second=None,
+                peak_process_rss_bytes=100,
+                diagnostics={
+                    "beta_a[lag(a)]": {
+                        "ess_bulk": 200,
+                        "ess_tail": None,
+                        "r_hat": 1.002,
+                    },
+                    "selected_latent_a[15, u0]": {
+                        "ess_bulk": 400,
+                        "ess_tail": 80,
+                        "r_hat": 1.003,
+                    },
+                },
+            )
+        path = tmp_path / f"u1-t30-obs0.2-pymc-warm-{repetition}.json"
+        path.write_text(json.dumps(report))
+        reports[path] = path.read_bytes()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Report rebuilding must not launch a sampler or query Git")
+
+    monkeypatch.setattr(module.subprocess, "run", forbidden)
+    monkeypatch.setattr(module.subprocess, "check_output", forbidden)
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [module.__file__, "--summarize-only", "--output", str(tmp_path)],
+    )
+    module.main()
+
+    assert all(path.read_bytes() == original for path, original in reports.items())
+    with (tmp_path / "parameter-diagnostics.csv").open() as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 5  # Two parameters per successful run, plus the failure.
+    assert sum(row["repetition"] == "-1" for row in rows) == 2
+    (failed,) = [row for row in rows if row["status"] == "failed"]
+    assert failed["parameter"] == ""
+    assert failed["ess_bulk_per_end_to_end_second"] == ""
+    (beta,) = [
+        row
+        for row in rows
+        if row["repetition"] == "0" and row["parameter"] == "beta_a[lag(a)]"
+    ]
+    assert float(beta["ess_bulk_per_end_to_end_second"]) == 20
+    assert beta["ess_tail_per_end_to_end_second"] == ""
+    (latent,) = [
+        row
+        for row in rows
+        if row["repetition"] == "0" and row["parameter"] == "selected_latent_a[15, u0]"
+    ]
+    assert float(latent["ess_bulk_per_end_to_end_second"]) == 40
+    assert float(latent["ess_tail_per_end_to_end_second"]) == 8
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    (group,) = summary["groups"]
+    assert group["runs"] == 2
+    assert group["failures"] == 1
+    assert group["diagnostic_passes"] == 0
+    assert len(summary["runs"]) == 3

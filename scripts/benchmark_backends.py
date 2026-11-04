@@ -21,6 +21,7 @@ Run outside pytest (whose fixture overrides the requested sampling sizes).
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager, ExitStack
@@ -457,9 +458,27 @@ def main() -> None:
         action="store_true",
         help="Execution check only: 8 periods, 20 draws/tune, one chain",
     )
+    parser.add_argument(
+        "--summarize-only",
+        action="store_true",
+        help="Rebuild summary.json and parameter-diagnostics.csv from saved worker JSON",
+    )
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--repetition", type=int, default=0, help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.summarize_only:
+        reports = sorted(args.output.glob("u*-t*-obs*.json"))
+        if not reports:
+            parser.error(
+                f"No worker JSON reports found in {args.output}; point --output "
+                "to a completed benchmark directory."
+            )
+        runs = [
+            {"file": report.name, **json.loads(report.read_text())}
+            for report in reports
+        ]
+        _write_reports(args.output, runs)
+        return
     if not 0 < args.target_accept < 1:
         parser.error(
             "target-accept must be between zero and one; choose a NUTS acceptance target such as 0.95."
@@ -641,12 +660,7 @@ def main() -> None:
                     "file": destination.name,
                     **json.loads(destination.read_text()),
                 })
-                (args.output / "summary.json").write_text(
-                    json.dumps(
-                        _json_safe(summarize(all_runs)), indent=2, allow_nan=False
-                    )
-                    + "\n"
-                )
+                _write_reports(args.output, all_runs)
 
 
 def summarize(runs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -712,6 +726,62 @@ def summarize(runs: list[dict[str, Any]]) -> dict[str, Any]:
             for run in runs
         ],
     }
+
+
+def write_parameter_diagnostics(destination: Path, runs: list[dict[str, Any]]) -> None:
+    """Export available diagnostics with ESS rates, retaining priming/failure rows."""
+    identifiers = [
+        "file",
+        "units",
+        "periods",
+        "observed_fraction",
+        "sampler",
+        "cache",
+        "repetition",
+        "status",
+        "smoke",
+        "diagnostics_acceptable_for_comparison",
+    ]
+    columns = identifiers + [
+        "parameter",
+        "r_hat",
+        "ess_bulk",
+        "ess_tail",
+        "ess_bulk_per_end_to_end_second",
+        "ess_tail_per_end_to_end_second",
+    ]
+    with destination.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=columns, lineterminator="\n")
+        writer.writeheader()
+        for run in runs:
+            total = run.get("end_to_end_seconds")
+            # Empty diagnostics still get a row so failure remains visible.
+            diagnostics = run.get("diagnostics") or {"": {}}
+            for parameter, metrics in diagnostics.items():
+                row = {key: run.get(key) for key in identifiers}
+                row.update(parameter=parameter)
+                row.update({
+                    key: metrics.get(key) for key in ("r_hat", "ess_bulk", "ess_tail")
+                })
+                for metric in ("ess_bulk", "ess_tail"):
+                    value = metrics.get(metric)
+                    row[f"{metric}_per_end_to_end_second"] = (
+                        value / total
+                        if value is not None
+                        and total is not None
+                        and np.isfinite(value)
+                        and np.isfinite(total)
+                        and total > 0
+                        else None
+                    )
+                writer.writerow(_json_safe(row))
+
+
+def _write_reports(output: Path, runs: list[dict[str, Any]]) -> None:
+    (output / "summary.json").write_text(
+        json.dumps(_json_safe(summarize(runs)), indent=2, allow_nan=False) + "\n"
+    )
+    write_parameter_diagnostics(output / "parameter-diagnostics.csv", runs)
 
 
 if __name__ == "__main__":

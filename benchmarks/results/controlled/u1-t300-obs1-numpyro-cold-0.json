@@ -1,0 +1,277 @@
+{
+  "status": "ok",
+  "model_construction_seconds": 0.05161883300752379,
+  "initialization_preparation_seconds": 0.5957248749909922,
+  "initialization": {
+    "mode": "stable",
+    "offset": 0.01,
+    "starting_phi": 0.61,
+    "variables": {
+      "sigma_a": {
+        "shape": [],
+        "sha256": "84db3d705b28d42e95c83f5ddb1f475c8e498eef26417ed229da9d39e6d70160"
+      },
+      "beta_a": {
+        "shape": [
+          3
+        ],
+        "sha256": "46308cce520c59d50fdb796c6163fc3383569e3e86a14df8c1d3175b9cd08a65"
+      },
+      "init_a": {
+        "shape": [
+          1
+        ],
+        "sha256": "69a98c8b88b880376dff425ce358865296dbe3f77788c5d901d1c3660734533a"
+      },
+      "innovations_a": {
+        "shape": [
+          300,
+          1
+        ],
+        "sha256": "3b4b9fe969cd010e09eefd4ec655ee9ddf7a4c70a203e0c0aa42e7f0db97d025"
+      },
+      "sigma_y": {
+        "shape": [],
+        "sha256": "ef0793ddf3d68ba6a8971e33bac5d30591f13fbb1b8c5fc736b5497783459483"
+      }
+    }
+  },
+  "fit_including_compilation_tuning_sampling_and_conversion_seconds": 9.338308584003244,
+  "pointwise_log_likelihood_seconds": 1.1953121249971446,
+  "end_to_end_seconds": 11.180964416998904,
+  "compiler_and_postprocessing_events_inclusive": {
+    "jax_graph_conversion": {
+      "calls": 2,
+      "seconds": 0.1956263340107398
+    },
+    "pytensor_function_compilation": {
+      "calls": 1,
+      "seconds": 0.001623666990781203,
+      "compiled_linkers": [
+        "VMLinker"
+      ]
+    },
+    "jax_posterior_postprocessing": {
+      "calls": 1,
+      "seconds": 0.07716470900049899
+    }
+  },
+  "tuning_sum_of_chain_clocks_seconds": null,
+  "retained_sum_of_chain_clocks_seconds": null,
+  "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, initialization preparation, fit and pointwise likelihood.",
+  "sampler_settings": {
+    "draws": 1000,
+    "tune": 1000,
+    "chains": 2,
+    "cores": 1,
+    "nuts_sampler": "numpyro",
+    "random_seed": 85,
+    "progressbar": false,
+    "target_accept": 0.95,
+    "compute_convergence_checks": false,
+    "discard_tuned_samples": false,
+    "idata_kwargs": {
+      "save_warmup": true
+    },
+    "nuts": {
+      "chain_method": "sequential",
+      "jitter": false,
+      "target_accept": 0.95
+    }
+  },
+  "gradient_backend": "jax",
+  "free_parameter_count": 306,
+  "observed_measurements": 300,
+  "imputed_measurements": 0,
+  "divergences": 0,
+  "maximum_rhat": 1.0080689634172457,
+  "minimum_bulk_ess": 98.18320816983818,
+  "minimum_tail_ess": 208.5772958130511,
+  "minimum_bulk_ess_per_end_to_end_second": 8.781282589591825,
+  "minimum_tail_ess_per_end_to_end_second": 18.654678436856663,
+  "diagnostics": {
+    "beta_a[Intercept]": {
+      "mean": 0.1151061763232873,
+      "sd": 0.015559890199473318,
+      "eti89_lb": 0.09017170085037267,
+      "eti89_ub": 0.13971664876028594,
+      "ess_bulk": 507.02114093476547,
+      "ess_tail": 767.6066077540436,
+      "r_hat": 1.0042550605705345,
+      "mcse_mean": 0.0006925477064199535,
+      "mcse_sd": 0.0004857959344784161
+    },
+    "beta_a[lag(a)]": {
+      "mean": 0.5781051145560105,
+      "sd": 0.03387724293869096,
+      "eti89_lb": 0.5247898043584812,
+      "eti89_ub": 0.6315607771192665,
+      "ess_bulk": 490.5865717560854,
+      "ess_tail": 764.7358643777611,
+      "r_hat": 1.0074186808742336,
+      "mcse_mean": 0.001532139425908506,
+      "mcse_sd": 0.0010970022363110572
+    },
+    "beta_a[x]": {
+      "mean": 0.24130268604806693,
+      "sd": 0.012498985794885413,
+      "eti89_lb": 0.2211688749071442,
+      "eti89_ub": 0.26126534240625787,
+      "ess_bulk": 925.2891501867529,
+      "ess_tail": 1067.8543202888643,
+      "r_hat": 1.0006629098157305,
+      "mcse_mean": 0.00041103545473795104,
+      "mcse_sd": 0.00028309968253444523
+    },
+    "sigma_a": {
+      "mean": 0.1886996397525373,
+      "sd": 0.015223594913703,
+      "eti89_lb": 0.1638276100651982,
+      "eti89_ub": 0.2121817725487459,
+      "ess_bulk": 132.97424261402662,
+      "ess_tail": 222.26277298405088,
+      "r_hat": 1.0044110656370122,
+      "mcse_mean": 0.001329891375225932,
+      "mcse_sd": 0.0009374437569947853
+    },
+    "sigma_y": {
+      "mean": 0.10520642405303886,
+      "sd": 0.018069227930910522,
+      "eti89_lb": 0.07820394568973714,
+      "eti89_ub": 0.13549310768562475,
+      "ess_bulk": 98.18320816983818,
+      "ess_tail": 208.5772958130511,
+      "r_hat": 1.0080689634172457,
+      "mcse_mean": 0.0018306383702912758,
+      "mcse_sd": 0.0012206238604497196
+    },
+    "init_a[0]": {
+      "mean": -0.004498241909847768,
+      "sd": 0.23186486264148068,
+      "eti89_lb": -0.37930751827159126,
+      "eti89_ub": 0.3548312102826184,
+      "ess_bulk": 2064.330673229989,
+      "ess_tail": 1322.7696260403104,
+      "r_hat": 1.001850262933477,
+      "mcse_mean": 0.0051444395716139625,
+      "mcse_sd": 0.003776610189054164
+    },
+    "selected_latent_a[0, 0]": {
+      "mean": 0.2787326346999373,
+      "sd": 0.09486313797074711,
+      "eti89_lb": 0.13050725219698256,
+      "eti89_ub": 0.4317439110210748,
+      "ess_bulk": 2127.275969685006,
+      "ess_tail": 1195.4686734446746,
+      "r_hat": 0.9998447231559324,
+      "mcse_mean": 0.0021188633768204285,
+      "mcse_sd": 0.0015353412625247838
+    },
+    "selected_latent_a[150, 0]": {
+      "mean": -0.08708815432411608,
+      "sd": 0.09267396280586726,
+      "eti89_lb": -0.23021643641062403,
+      "eti89_ub": 0.060899464659617895,
+      "ess_bulk": 1016.5109078258341,
+      "ess_tail": 1270.9960430200533,
+      "r_hat": 1.001130601118621,
+      "mcse_mean": 0.0029344662790272234,
+      "mcse_sd": 0.0021212736949071135
+    },
+    "selected_latent_a[299, 0]": {
+      "mean": 0.0012817579710780707,
+      "sd": 0.09144604218496614,
+      "eti89_lb": -0.14396225946922164,
+      "eti89_ub": 0.14435322283718205,
+      "ess_bulk": 3307.9321392147367,
+      "ess_tail": 1642.5215749310041,
+      "r_hat": 0.9997571735288288,
+      "mcse_mean": 0.0015888128748319868,
+      "mcse_sd": 0.001139417864489805
+    }
+  },
+  "diagnostics_acceptable_for_comparison": false,
+  "environment": {
+    "commit": "b1c0423c7e6c1dd7ded8017fd3037fc79a56c1cb",
+    "source_tree": "db370e73b387bc61d4ff0523d0277c8dc1f6e40f",
+    "dirty": false,
+    "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
+    "versions": {
+      "pathmc": "0.5.0",
+      "pymc": "6.3.2",
+      "pytensor": "3.3.6",
+      "arviz": "1.2.0",
+      "numpy": "2.4.6",
+      "nutpie": "0.16.10",
+      "numba": "0.65.1",
+      "numpyro": "0.21.0",
+      "jax": "0.10.1",
+      "jaxlib": "0.10.1"
+    },
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "cpu_model": "Apple M1 Max",
+    "logical_cpus": 10,
+    "threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1"
+    },
+    "floatX": "float64",
+    "pytensor_mode": "Mode",
+    "compiledir": "/Users/benjamv/.codex/worktrees/adbc/pathmc/.scratch/sampler-caches/run-amug0cvk/0/pytensor",
+    "numba_cache_dir": "/Users/benjamv/.codex/worktrees/adbc/pathmc/.scratch/sampler-caches/run-amug0cvk/0/numba",
+    "jax_enable_x64": true,
+    "jax_devices": [
+      "cpu:0"
+    ],
+    "jax_compilation_cache_dir": "/Users/benjamv/.codex/worktrees/adbc/pathmc/.scratch/sampler-caches/run-amug0cvk/0/jax",
+    "xla_flags": "--xla_force_host_platform_device_count=100 --xla_force_host_platform_device_count=1",
+    "jax_platforms": "cpu"
+  },
+  "units": 1,
+  "periods": 300,
+  "observed_fraction": 1.0,
+  "sampler": "numpyro",
+  "seed": 85,
+  "data_seed": 85,
+  "cache": "cold",
+  "repetition": 0,
+  "smoke": false,
+  "process_experiment_seconds": 14.380721249995986,
+  "peak_process_rss_bytes": 1011122176,
+  "system_load_average_before": [
+    26.45703125,
+    12.03271484375,
+    9.5703125
+  ],
+  "system_load_average_after": [
+    33.5634765625,
+    14.35400390625,
+    10.44384765625
+  ],
+  "requested_settings": {
+    "output": ".scratch/build-loop/issue-85/controlled-measurements/u1-t300-obs1-numpyro-cold-0.json",
+    "sampler": "numpyro",
+    "matrix": false,
+    "units": 1,
+    "periods": 300,
+    "observed_fraction": 1.0,
+    "draws": 1000,
+    "tune": 1000,
+    "chains": 2,
+    "target_accept": 0.95,
+    "initialization": "stable",
+    "repetitions": 3,
+    "seed": 85,
+    "data_seed": 85,
+    "cache": "cold",
+    "gradient_backend": "jax",
+    "smoke": false,
+    "worker": true,
+    "repetition": 0
+  }
+}
