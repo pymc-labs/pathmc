@@ -295,7 +295,7 @@ include_in_header:
           const mark = icon.startsWith("<")
             ? icon
             : `<i class="${icon}" aria-hidden="true"></i>`;
-          return `<li><a href="${href}">${mark}<span>${label}</span></a></li>`;
+          return `<li><a href="${href}" aria-label="${label}">${mark}<span>${label}</span></a></li>`;
         }).join("");
         slot.innerHTML =
           '<p class="labs-footer-copy">© Copyright 2025–2026, PyMC Labs.</p>' +
@@ -328,6 +328,45 @@ include_in_header:
           document.addEventListener("DOMContentLoaded", addAbout);
         } else {
           addAbout();
+        }
+      })();
+      </script>
+  - text: |
+      <script>
+      /* The README <picture> follows prefers-color-scheme. The site toggle
+         sets html[data-bs-theme], which that media query ignores, so a light
+         OS plus a dark toggle kept logo_light.png. README.md stays as-is;
+         on the docs homepage, drop the <source> and follow the toggle. */
+      (function () {
+        function syncHomepageLogo() {
+          if (!document.body.classList.contains("gd-homepage")) return;
+          const img = document.querySelector(
+            '#quarto-document-content img[alt="pathmc logo"]'
+          );
+          if (!img) return;
+          const picture = img.closest("picture");
+          if (picture) {
+            picture.querySelectorAll("source").forEach((source) => source.remove());
+          }
+          const theme = document.documentElement.getAttribute("data-bs-theme");
+          const dark = theme
+            ? theme === "dark"
+            : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const file = dark ? "logo_dark.png" : "logo_light.png";
+          const next = img.src.replace(/logo_(light|dark)\.png/, file);
+          if (next !== img.src) img.src = next;
+        }
+        function start() {
+          syncHomepageLogo();
+          new MutationObserver(syncHomepageLogo).observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["data-bs-theme", "class"],
+          });
+        }
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", start);
+        } else {
+          start();
         }
       })();
       </script>

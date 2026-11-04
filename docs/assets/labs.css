@@ -249,8 +249,15 @@ body.quarto-dark footer.footer .labs-footer-links a:hover {
 }
 
 @media (max-width: 760px) {
+  .labs-footer-links a {
+    gap: 0;
+  }
+
+  /* display: none drops the only text from the accessibility tree, and the
+     icons are aria-hidden. font-size: 0 hides the label and keeps the name,
+     matching labs_sphinx_theme. The anchor aria-label is the same name. */
   .labs-footer-links a span {
-    display: none;
+    font-size: 0;
   }
 
   .labs-footer-links a i {
@@ -275,6 +282,24 @@ body.gd-homepage #quarto-document-content > section.level1 > p:has(
     img[src*="shields.io"]
   ) {
   display: none;
+}
+
+/* Generated card titles carry inline color: #0d6efd. !important is required
+   while that style remains. Hover follows the same Labs link tokens. */
+.section-card-title {
+  color: var(--labs-blue) !important;
+}
+
+a.section-card:hover .section-card-title {
+  color: var(--labs-blue-highlight) !important;
+}
+
+body.quarto-dark .section-card-title {
+  color: var(--labs-blue-dark) !important;
+}
+
+body.quarto-dark a.section-card:hover .section-card-title {
+  color: #7cb8e8 !important;
 }
 
 /* The examples index is a card gallery with no TOC, but Quarto still reserves
