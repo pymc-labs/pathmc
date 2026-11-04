@@ -1,0 +1,37 @@
+pathmc/compile.py
+  s_5b583b137926e8::t_f07ea898836a1c 57,2381-2385
+pathmc/introspect.py
+  s_5b583b137926e8::t_34167407f6d016 35,98-100
+pathmc/graph.py
+  s_5b583b137926e8::t_f8dcb68b87d85b 27,32-40
+  s_5b583b137926e8::t_a11990cd78da1f 31
+  s_5b583b137926e8::t_b4b580c885d4da 41
+tests/test_do_graph.py
+  s_5b583b137926e8::t_c0b62ec47d658b 151-153
+  s_5b583b137926e8::t_675b072d9d27f3 26,123-146,159-167
+  s_2ff2069ec4b8b6::t_f610b4ce632f2d 168-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9cdf22d19abf08e37c4a2a4c1477967f1f37ee7d",
+  "prompts": {},
+  "sessions": {
+    "s_2ff2069ec4b8b6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a3d9-22f0-7b82-9d19-469a1fdb6d05",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    },
+    "s_5b583b137926e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a391-1777-7e02-b386-884259cf886e",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
