@@ -151,3 +151,77 @@ body.quarto-dark .sidebar nav[role="doc-toc"] ul > li > ul > li > a.active {
 .navbar-logo {
   height: 40px;
 }
+
+/* Labs footer is a thin page-colored bar: copyright on the left, icon links
+   on the right, muted text, green hover. great-docs only emits a centered
+   "Developed by" line, so include_in_header rewrites .nav-footer into this
+   structure. The calc padding on .nav-footer insets that line to the content
+   column; a bar wants the page edges. */
+footer.footer .nav-footer {
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  flex-wrap: wrap;
+  margin-top: 0;
+  padding: 0.65rem 1.25rem;
+  background: transparent;
+  border-top: 1px solid #d1d5da;
+}
+
+body.quarto-dark footer.footer .nav-footer {
+  background: transparent;
+  border-top-color: #3d3d3d;
+}
+
+.labs-footer-copy {
+  margin: 0;
+  color: #222832;
+  font-size: 1rem;
+}
+
+body.quarto-dark .labs-footer-copy {
+  color: #e0e0e0;
+}
+
+.labs-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+  /* The fixed back-to-top button sits in the bottom-right corner. Keep the
+     last icon clear of it. */
+  margin: 0 4rem 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.labs-footer-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #48566b;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+body.quarto-light footer.footer .labs-footer-links a {
+  color: #48566b;
+}
+
+body.quarto-dark footer.footer .labs-footer-links a {
+  color: #9aa3ad;
+}
+
+body.quarto-light footer.footer .labs-footer-links a:hover,
+body.quarto-dark footer.footer .labs-footer-links a:hover {
+  color: var(--labs-green);
+  text-decoration: none;
+}
+
+@media (max-width: 760px) {
+  .labs-footer-links a span {
+    display: none;
+  }
+
+  .labs-footer-links a i {
+    font-size: 1.35rem;
+  }
+}
