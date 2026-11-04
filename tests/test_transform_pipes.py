@@ -187,6 +187,23 @@ def test_legacy_bare_categorical_reference_can_build_model(reference):
     assert fitted._spec.regressions[0].terms[0].categorical.reference == reference
 
 
+@pytest.mark.parametrize("reference", ["O'Brien", "O'Neal", "O'r'", 'North"West'])
+def test_bare_reference_quotes_do_not_hide_multiline_pipeline(reference):
+    legacy = f"C(group, reference={reference}) + C(region, reference='a|>b')"
+    pipe = f"Y ~ {legacy} + (x\n |> logistic_saturation(lam=lam))"
+    nested = f"Y ~ {legacy} + logistic_saturation(x, lam=lam)"
+    assert parse_spec(pipe) == parse_spec(nested)
+    frame = pd.DataFrame({
+        "group": [reference, "other"],
+        "region": ["a|>b", "other"],
+        "x": [0.0, 1.0],
+        "Y": [0.0, 1.0],
+    })
+    assert (
+        pathmc.model(pipe, data=frame)._spec == pathmc.model(nested, data=frame)._spec
+    )
+
+
 class _Identity(Transform):
     name = "pipe_identity_test"
     param_specs = {}

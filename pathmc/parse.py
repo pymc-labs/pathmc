@@ -208,6 +208,26 @@ def _unquoted_source(text: str) -> str:
     masked = list(text)
     i = 0
     while i < len(text):
+        if text[i].isalnum() or text[i] == "_":
+            start = i
+            while i < len(text) and (text[i].isalnum() or text[i] == "_"):
+                i += 1
+            if text[start:i].lower() not in {
+                "r",
+                "u",
+                "b",
+                "br",
+                "rb",
+                "f",
+                "fr",
+                "rf",
+            }:
+                # Bare legacy values may contain quote punctuation (O'Brien).
+                while i < len(text) and (text[i].isalnum() or text[i] in "_'\""):
+                    i += 1
+                continue
+        if i == len(text):
+            break
         if text[i] not in {"'", '"'}:
             i += 1
             continue
