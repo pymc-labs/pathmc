@@ -1,0 +1,25 @@
+tests/test_gaussian_panel_trajectories.py
+  s_3e47b625f66c75::t_4b5228ea8588d5 556-597
+pathmc/_model.py
+  s_3e47b625f66c75::t_2bd3ef0a2ed6eb 3877-3881
+pathmc/compile.py
+  s_3e47b625f66c75::t_27ef8f66f635c7 3281,3283,3287-3291,3294,3297,3384,3413,3534,3568,3674
+pathmc/residuals.py
+  s_3e47b625f66c75::t_00da48fb1c3e96 24,95-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "34851d6bcc87968cfbf6d25c15fa0540e6a0baef",
+  "prompts": {},
+  "sessions": {
+    "s_3e47b625f66c75": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a3e3-1844-7d43-a903-159b08c141ad",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
