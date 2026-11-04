@@ -199,35 +199,28 @@ def _join_continuation_lines(spec_string: str) -> str:
 
 
 def _unquoted_source(text: str) -> str:
-    """Mask legacy Python string literals while preserving source offsets.
+    """Mask literals within the existing additive and statement boundaries.
 
-    Categorical values use ``ast.literal_eval``, so boundary detection must
-    honor single and triple delimiters, escapes, and adjacent literals too.
-    Literal validation remains with the existing term parsers.
+    Statements split on ``;`` and physical newlines; regression terms also
+    split on ``+``, even in quoted content. Defined expressions retain their
+    quoted operands. Keeping these existing boundaries prevents raw fallback
+    values such as ``'90s`` from pairing with a quote in another term.
     """
+
+    def mask_statement(match: re.Match[str]) -> str:
+        statement = match[0]
+        if ":=" in statement:
+            return _mask_legacy_literals(statement)
+        return re.sub(r"[^+]+", lambda term: _mask_legacy_literals(term[0]), statement)
+
+    return re.sub(r"[^;\n]+", mask_statement, text)
+
+
+def _mask_legacy_literals(text: str) -> str:
+    """Mask complete single/triple-quoted spans, preserving source offsets."""
     masked = list(text)
     i = 0
     while i < len(text):
-        if text[i].isalnum() or text[i] == "_":
-            start = i
-            while i < len(text) and (text[i].isalnum() or text[i] == "_"):
-                i += 1
-            if text[start:i].lower() not in {
-                "r",
-                "u",
-                "b",
-                "br",
-                "rb",
-                "f",
-                "fr",
-                "rf",
-            }:
-                # Bare legacy values may contain quote punctuation (O'Brien).
-                while i < len(text) and (text[i].isalnum() or text[i] in "_'\""):
-                    i += 1
-                continue
-        if i == len(text):
-            break
         if text[i] not in {"'", '"'}:
             i += 1
             continue
@@ -318,22 +311,6 @@ def _prepare_pipe_lines(spec_string: str) -> str:
                 term_start = i + 1
         out.append(original)
     return "".join(out)
-
-
-def _split_pipe_terms(rhs: str) -> list[str]:
-    """Split additive terms, leaving parentheses to each term's parser.
-
-    Pipelines contain no additive subexpressions. Global balance checks would
-    narrow legacy bare categorical values, which can contain parentheses.
-    """
-    terms: list[str] = []
-    start = 0
-    for i, ch in enumerate(_unquoted_source(rhs)):
-        if ch == "+":
-            terms.append(rhs[start:i].strip())
-            start = i + 1
-    terms.append(rhs[start:].strip())
-    return terms
 
 
 def parse_spec(spec_string: str) -> Spec:
@@ -601,11 +578,7 @@ def _parse_regression(stmt: str) -> Regression:
         raise ParseError(
             f"Invalid variable name '{lhs}' on left-hand side of '{stmt}'."
         )
-    raw_terms = (
-        _split_pipe_terms(rhs)
-        if _pipe_marks(rhs)
-        else [t.strip() for t in rhs.split("+")]
-    )
+    raw_terms = [t.strip() for t in rhs.split("+")]
 
     has_intercept = True
     terms: list[Term] = []

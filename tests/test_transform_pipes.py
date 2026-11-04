@@ -167,6 +167,14 @@ def test_defined_comparisons_remain_usable(operator, expected, predictor):
     np.testing.assert_array_equal(result["positive"], expected)
 
 
+def test_defined_expression_keeps_quoted_additive_and_pipe_content():
+    spec = parse_spec("Y ~ a*x; same := a * ('a+|>b' == 'a+|>b')")
+    draws = np.array([-1.0, 0.0, 1.0])
+    result = evaluate_defined_params(spec, {"a": draws})
+    assert isinstance(result["same"], np.ndarray)
+    np.testing.assert_array_equal(result["same"], draws)
+
+
 @pytest.mark.parametrize("value", ["a>b", "a>=b", "a|b"])
 @pytest.mark.parametrize("pipe", [False, True])
 def test_legacy_argument_punctuation_is_not_a_pipeline(value, pipe):
@@ -235,6 +243,33 @@ def test_legacy_raw_values_remain_opaque_beside_pipeline(reference, chain, posit
         "Y": [0.0, 1.0],
         "z": [0.0, 1.0],
         "Z": [0.0, 1.0],
+    })
+    assert (
+        pathmc.model(pipe, data=frame)._spec == pathmc.model(nested, data=frame)._spec
+    )
+
+
+@pytest.mark.parametrize("reference", ["'90s", "r'abc"])
+@pytest.mark.parametrize("separator", [" + ", "; ", "\n"])
+@pytest.mark.parametrize(
+    "chain",
+    ["x |> logistic_saturation(lam=lam)", "(x\n |> logistic_saturation(lam=lam))"],
+)
+def test_legacy_quote_mask_does_not_cross_term_or_statement(
+    reference, separator, chain
+):
+    first = f"C(decade, reference={reference})"
+    second = "C(region, reference='north')"
+    prefix = f"Y ~ {first} + " if separator == " + " else f"A ~ {first}{separator}Y ~ "
+    pipe = f"{prefix}{second} + {chain}"
+    nested = f"{prefix}{second} + logistic_saturation(x, lam=lam)"
+    assert parse_spec(pipe) == parse_spec(nested)
+    frame = pd.DataFrame({
+        "decade": [reference, "other"],
+        "region": ["north", "south"],
+        "x": [0.0, 1.0],
+        "Y": [0.0, 1.0],
+        "A": [0.0, 1.0],
     })
     assert (
         pathmc.model(pipe, data=frame)._spec == pathmc.model(nested, data=frame)._spec
