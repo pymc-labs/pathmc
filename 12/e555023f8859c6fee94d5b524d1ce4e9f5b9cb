@@ -1,0 +1,37 @@
+pathmc/_query.py
+  s_0561b03f0f056b::t_ae1942561ef8a8 247,283-289,321-324,326-330,332,394-401,403-419
+  s_0561b03f0f056b::t_7bcffa1a41a733 118-123,320
+  s_0561b03f0f056b::t_312e26084f3d92 244-246,325,402
+  s_0561b03f0f056b::t_716700bdc654f8 17-18,83-84,115-117,127-144,146-147,149-155,157-161,302
+  s_0561b03f0f056b::t_62cf7d64027fde 145,148,156
+  s_0561b03f0f056b::t_f5f9bbbd537c7a 124-126
+pathmc/_model.py
+  s_0561b03f0f056b::t_62cf7d64027fde 1830,1840
+  s_0561b03f0f056b::t_7bcffa1a41a733 1832-1834
+  s_0561b03f0f056b::t_ae1942561ef8a8 35,1268
+  s_0561b03f0f056b::t_716700bdc654f8 34,1831,1835-1839,1841-1849
+scripts/benchmark_queries.py
+  s_0561b03f0f056b::t_56908f73c2ca8d 218-231,293-302
+tests/test_query_cache.py
+  s_0561b03f0f056b::t_62cf7d64027fde 434
+  s_0561b03f0f056b::t_6046980b490a73 64-67,71-73,312-314,378-379,400,404,413-433,435-470,477-555
+  s_0561b03f0f056b::t_56908f73c2ca8d 471-474
+  s_0561b03f0f056b::t_0614de167265de 61-63,68-70,74,308,310-311
+  s_0561b03f0f056b::t_68ae75200d8513 475-476
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "12e555023f8859c6fee94d5b524d1ce4e9f5b9cb",
+  "prompts": {},
+  "sessions": {
+    "s_0561b03f0f056b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a3e6-e1b5-7603-a117-309ca450bde0",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
