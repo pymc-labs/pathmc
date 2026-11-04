@@ -182,8 +182,8 @@ def fixture(units: int, periods: int, observed_fraction: float, seed: int):
         families={"a": "latent_normal"},
         priors={
             "beta_a": Prior("Normal", mu=[0.1, 0.6, 0.25], sigma=[0.2, 0.1, 0.2]),
-            "sigma_a": Prior("HalfNormal", sigma=0.35),
-            "sigma_y": Prior("HalfNormal", sigma=0.2),
+            "sigma_a": Prior("LogNormal", mu=np.log(0.2), sigma=0.25),
+            "sigma_y": Prior("LogNormal", mu=np.log(0.1), sigma=0.25),
             "init_a": Prior("Normal", mu=0.2 + 0.1 * np.arange(units), sigma=0.3),
         },
     )
