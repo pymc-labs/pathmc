@@ -1,0 +1,134 @@
+benchmarks/results/fit-panel_ar-numpyro.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-43
+benchmarks/results/profile-panel_ar-small.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-87
+benchmarks/results/panel_lag-large.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+benchmarks/results/linear-large-scenarios-25.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-779
+benchmarks/README.md
+  s_0561b03f0f056b::t_72bced8f07d7ca 69
+  s_0561b03f0f056b::t_c7d41d276940ee 1-68,70-157
+benchmarks/results/kernel-CVM-small.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-72
+benchmarks/results/panel_ar-CVM.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+benchmarks/results/panel_ar-JAX.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+benchmarks/results/panel_transform-large.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+benchmarks/results/bernoulli-large.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-803
+benchmarks/results/linear-cold.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-779
+benchmarks/results/panel_ar-large.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+benchmarks/results/linear-JAX.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-997
+benchmarks/results/panel_ar-NUMBA.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+benchmarks/results/poisson-large.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-803
+benchmarks/results/profile-panel_ar-large.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-85
+benchmarks/results/fit-latent-numpyro.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-43
+benchmarks/results/linear-CVM.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-779
+benchmarks/results/fit-panel_ar-pymc.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-78
+benchmarks/results/panel_lag-small-legacy.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+benchmarks/results/fit-latent-pymc.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-78
+benchmarks/results/kernel-NUMBA-small.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-72
+benchmarks/results/linear-large-legacy.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-997
+benchmarks/results/linear-large-auto.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-779
+benchmarks/results/fit-latent-nutpie-jax.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-43
+benchmarks/results/panel_transform-small-legacy.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+benchmarks/results/fit-panel_ar-nutpie-jax.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-43
+benchmarks/results/kernel-NUMBA-large.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-72
+benchmarks/results/linear-NUMBA.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-779
+benchmarks/results/panel_ar-small-legacy.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+benchmarks/results/poisson-small.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-803
+benchmarks/results/policy-simulations-20.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-221
+benchmarks/results/profile-panel_transform-small.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-90
+benchmarks/results/kernel-JAX-small.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-72
+benchmarks/results/panel_ar-small.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+benchmarks/results/panel_transform-small.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+scripts/benchmark_backends.py
+  s_0561b03f0f056b::t_72bced8f07d7ca 30,38,87,133
+benchmarks/results/fit-panel_ar-nutpie-numba.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-70
+benchmarks/results/fit-linear-numpyro.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-66
+benchmarks/results/fit-linear-nutpie-jax.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-70
+benchmarks/results/linear-small-legacy.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-997
+benchmarks/results/fit-latent-nutpie-numba.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-70
+benchmarks/results/profile-panel_transform-large.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-88
+benchmarks/results/kernel-CVM-large.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-72
+scripts/benchmark_queries.py
+  s_0561b03f0f056b::t_72bced8f07d7ca 25,37-38,43-44,46-47,54,99,147,221,245
+benchmarks/results/policy-simulations-1.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-55
+benchmarks/results/poisson-small-legacy.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-803
+benchmarks/results/linear-scenarios-25.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-779
+benchmarks/results/profile-panel_lag-small.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-87
+benchmarks/results/fit-linear-pymc.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-78
+benchmarks/results/linear-scenarios-1.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-779
+benchmarks/results/linear-small-auto.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-779
+benchmarks/results/bernoulli-small-legacy.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-803
+benchmarks/results/panel_lag-small.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-827
+benchmarks/results/profile-panel_lag-large.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-86
+benchmarks/results/fit-linear-nutpie-numba.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-70
+benchmarks/results/kernel-JAX-large.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-72
+benchmarks/results/bernoulli-small.json
+  s_0561b03f0f056b::t_c7d41d276940ee 1-803
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0e500e6628567dc7b0cbfe795bf87367728276f4",
+  "prompts": {},
+  "sessions": {
+    "s_0561b03f0f056b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a3e6-e1b5-7603-a117-309ca450bde0",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
