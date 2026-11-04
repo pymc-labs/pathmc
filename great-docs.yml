@@ -18,9 +18,9 @@ dynamic: false  # cyclic alias detected; griffe AST analysis is sufficient
 exclude:
   - Prior
 
-# Use the existing curated landing page from docs/index.qmd (mirrored into
-# the user_guide directory below) instead of generating one from README.md.
-homepage: user_guide
+# Landing page is generated from README.md. The user guide is a navbar tab,
+# so its sidebar appears only inside that section, matching the Labs sites.
+homepage: index
 
 # Disable generated Markdown page downloads. The copy-page widget eagerly
 # fetches the `.md` companion page on load, which makes navigation noticeably
@@ -37,8 +37,10 @@ sections:
   - title: Examples
     dir: docs/examples
     index: true
-    # index_columns is clamped to a max of 2 by great-docs; the grid is
-    # responsive (auto-fill) and shows more columns on wide screens anyway.
+    # index_columns is clamped to 2 by great-docs. The listing still emits
+    # auto-fill minmax(300px), but Quarto caps the article column at ~850px,
+    # so that never reaches three cards. docs/assets/labs.css reclaims the
+    # empty margin sidebar on this page so the grid can.
     index_columns: 2
     navbar_after: User Guide
 
@@ -83,67 +85,77 @@ tags:
 # Public surface only: top-level constructors, PathModel methods, result/display
 # classes returned by those methods, and documented extension points.
 # Internal helpers (parse/build/compile/compute functions) are excluded.
+# title sets both the index heading and the navbar label. Labs calls that tab
+# API, not Reference.
 reference:
-  - title: Modeling
-    desc: Build, fit, and query Bayesian path models.
-    contents:
-      - modeling.model
-      - modeling.PathModel
-      - adjustment.AdjustmentModel
-      - interpret.datagrid
-  - title: Simulation
-    desc: Time-forward and counterfactual simulation helpers.
-    contents:
-      - modeling.simulate
-  - title: History-Dependent Treatment Policies
-    desc: Rules evaluated inside a Gaussian lag-panel scan.
-    contents:
-      - policy.TreatmentPolicy
-      - policy.TimeSchedule
-      - policy.current
-      - policy.previous
-      - policy.where
-      - policy_result.PolicyRun
-      - policy_result.PolicySimulationInfo
-  - title: DAG falsification
-    desc: Whole-graph validation via a permutation-based test.
-    contents:
-      - falsify.falsify_graph
-  - title: Causal discovery
-    desc: Learn candidate structure from data and turn a DAG into a model.
-    contents:
-      - discovery.TBFPC
-      - cpdag.same_markov_equivalence_class
-      - dag.dag_to_spec
-      - dag.BuildModelFromDAG
-  - title: Custom transforms
-    desc: Extend the model DSL with domain-specific transformations.
-    contents:
-      - transforms.Transform
-      - transforms.ParamSpec
-      - transforms.register_transform
-  - title: Result objects
-    desc: Result containers returned by PathModel and AdjustmentModel methods.
-    contents:
-      - simulate.DoResult
-      - simulate.EstimandResult
-      - interpret.InterpretResult
-      - effects.EffectResult
-      - identify.ImplicationTestResult
-      - sensitivity.SensitivityResult
-      - falsify.FalsificationResult
-      - refute.PlaceboRefutationResult
-      - discovery.TestResult
+  title: API
+  sections:
+    - title: Modeling
+      desc: Build, fit, and query Bayesian path models.
+      contents:
+        - modeling.model
+        - modeling.PathModel
+        - adjustment.AdjustmentModel
+        - interpret.datagrid
+    - title: Simulation
+      desc: Time-forward and counterfactual simulation helpers.
+      contents:
+        - modeling.simulate
+    - title: History-Dependent Treatment Policies
+      desc: Rules evaluated inside a Gaussian lag-panel scan.
+      contents:
+        - policy.TreatmentPolicy
+        - policy.TimeSchedule
+        - policy.current
+        - policy.previous
+        - policy.where
+        - policy_result.PolicyRun
+        - policy_result.PolicySimulationInfo
+    - title: DAG falsification
+      desc: Whole-graph validation via a permutation-based test.
+      contents:
+        - falsify.falsify_graph
+    - title: Causal discovery
+      desc: Learn candidate structure from data and turn a DAG into a model.
+      contents:
+        - discovery.TBFPC
+        - cpdag.same_markov_equivalence_class
+        - dag.dag_to_spec
+        - dag.BuildModelFromDAG
+    - title: Custom transforms
+      desc: Extend the model DSL with domain-specific transformations.
+      contents:
+        - transforms.Transform
+        - transforms.ParamSpec
+        - transforms.register_transform
+    - title: Result objects
+      desc: Result containers returned by PathModel and AdjustmentModel methods.
+      contents:
+        - simulate.DoResult
+        - simulate.EstimandResult
+        - interpret.InterpretResult
+        - effects.EffectResult
+        - identify.ImplicationTestResult
+        - sensitivity.SensitivityResult
+        - falsify.FalsificationResult
+        - refute.PlaceboRefutationResult
+        - discovery.TestResult
 
 # Site appearance ------------------------------------------------------------
 logo:
   light: docs/assets/logo_light.png
   dark: docs/assets/logo_dark.png
 favicon: docs/assets/favicon.png
-navbar_style: mint
+# mint is the mismatch with the Labs sites, and the preset injects an
+# !important gradient after user CSS. Leave it unset. The sidebar-pin and
+# footer-move halves of navbar-style.js (shipped only when a preset is set)
+# are inlined below so scroll layout does not regress.
+attribution: false
+site:
+  css: docs/assets/labs.css
 dark_mode_toggle: true
-# We use docs/user_guide/00-welcome.qmd as the homepage. It already has its
-# own logo/tagline/showcase, so suppress the auto-generated hero block.
+# README already carries the logo and lead copy, so suppress the
+# auto-generated hero block.
 hero: false
 
 # Graphviz figure sizing -----------------------------------------------------
@@ -197,6 +209,168 @@ include_in_header:
         height: auto;
       }
       </style>
+  - text: |
+      <script>
+      /* Non-gradient half of great-docs navbar-style.js. That file is the
+         only place these two fixes live, and great-docs emits it only when
+         navbar_style is set. Keep them so dropping the mint preset does not
+         let headroom slide the sidebars under the sticky header, or unstick
+         the sidebars when the footer starts. */
+      (function () {
+        "use strict";
+        var mql = window.matchMedia("(min-width: 992px)");
+        function fixSidebars() {
+          if (!mql.matches) return;
+          var header = document.querySelector("#quarto-header");
+          if (!header) return;
+          var h = header.offsetHeight;
+          var els = document.querySelectorAll(".sidebar, .headroom-target");
+          els.forEach(function (el) {
+            if (el.classList.contains("gd-sidebar-float")) return;
+            el.style.top = h + "px";
+            el.style.maxHeight = "calc(100vh - " + h + "px)";
+          });
+        }
+        window.addEventListener("quarto-hrChanged", fixSidebars);
+        mql.addEventListener("change", fixSidebars);
+      })();
+      (function () {
+        "use strict";
+        var mql = window.matchMedia("(min-width: 992px)");
+        var moved = false;
+        var originalParent = null;
+        var originalNext = null;
+        function update() {
+          var content = document.getElementById("quarto-content");
+          var footer = document.querySelector("footer.footer");
+          if (!content || !footer) return;
+          if (mql.matches && !moved) {
+            originalParent = footer.parentNode;
+            originalNext = footer.nextSibling;
+            footer.style.gridColumn = "1 / -1";
+            content.appendChild(footer);
+            moved = true;
+          } else if (!mql.matches && moved) {
+            footer.style.gridColumn = "";
+            if (originalNext) {
+              originalParent.insertBefore(footer, originalNext);
+            } else {
+              originalParent.appendChild(footer);
+            }
+            moved = false;
+          }
+        }
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", update);
+        } else {
+          update();
+        }
+        mql.addEventListener("change", update);
+      })();
+      </script>
+  - text: |
+      <script>
+      /* great-docs has no page-footer key, and it writes a centered
+         "Developed by" line whenever that key is absent. Labs sites use a
+         copyright line and the shared icon links instead. */
+      document.addEventListener("DOMContentLoaded", () => {
+        const slot = document.querySelector("footer.footer .nav-footer");
+        if (!slot || slot.querySelector(".labs-footer-links")) return;
+        // Font Awesome 6.4.0, the sheet great-docs loads, has no
+        // fa-x-twitter glyph. An empty <i> leaves the "X" label on the
+        // text baseline, below the other icons. Inline the mark instead.
+        const xIcon =
+          '<svg class="labs-x-icon" viewBox="0 0 24 24" aria-hidden="true">' +
+          '<path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.727-8.835L1.254 2.25H8.08l4.253 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>' +
+          "</svg>";
+        const links = [
+          ["https://x.com/pymc_labs", xIcon, "X"],
+          ["https://github.com/pymc-labs/pathmc", "fa-brands fa-github", "Github"],
+          ["https://www.linkedin.com/company/pymc-labs/", "fa-brands fa-linkedin", "LinkedIn"],
+          ["https://www.youtube.com/c/PyMCLabs", "fa-brands fa-youtube", "YouTube"],
+          ["https://www.meetup.com/pymc-labs-online-meetup/", "fa-brands fa-meetup", "Meetup"],
+          ["https://www.pymc-labs.com/contact", "fa-solid fa-file-signature", "Contact"],
+        ];
+        const items = links.map(([href, icon, label]) => {
+          const mark = icon.startsWith("<")
+            ? icon
+            : `<i class="${icon}" aria-hidden="true"></i>`;
+          return `<li><a href="${href}" aria-label="${label}">${mark}<span>${label}</span></a></li>`;
+        }).join("");
+        slot.innerHTML =
+          '<p class="labs-footer-copy">© Copyright 2025–2026, PyMC Labs.</p>' +
+          `<ul class="labs-footer-links">${items}</ul>`;
+      });
+      </script>
+  - text: |
+      <script>
+      /* pydata appends html_theme_options.external_links after the toctree.
+         great-docs has no equivalent, so add the Labs link the same way:
+         last text tab, same tab, no external icon. */
+      (function () {
+        function addAbout() {
+          const list = document.querySelector(
+            "#navbarCollapse > ul.navbar-nav"
+          );
+          if (!list || list.querySelector('a[href="https://pymc-labs.com"]')) {
+            return;
+          }
+          const li = document.createElement("li");
+          li.className = "nav-item";
+          const a = document.createElement("a");
+          a.className = "nav-link";
+          a.href = "https://pymc-labs.com";
+          a.innerHTML = '<span class="menu-text">About PyMC Labs</span>';
+          li.appendChild(a);
+          list.appendChild(li);
+        }
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", addAbout);
+        } else {
+          addAbout();
+        }
+      })();
+      </script>
+  - text: |
+      <script>
+      /* The README <picture> follows prefers-color-scheme. The site toggle
+         sets html[data-bs-theme], which that media query ignores, so a light
+         OS plus a dark toggle kept logo_light.png. README.md stays as-is;
+         on the docs homepage, drop the <source> and follow the toggle. */
+      (function () {
+        function syncHomepageLogo() {
+          if (!document.body.classList.contains("gd-homepage")) return;
+          const img = document.querySelector(
+            '#quarto-document-content img[alt="pathmc logo"]'
+          );
+          if (!img) return;
+          const picture = img.closest("picture");
+          if (picture) {
+            picture.querySelectorAll("source").forEach((source) => source.remove());
+          }
+          const theme = document.documentElement.getAttribute("data-bs-theme");
+          const dark = theme
+            ? theme === "dark"
+            : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const file = dark ? "logo_dark.png" : "logo_light.png";
+          const next = img.src.replace(/logo_(light|dark)\.png/, file);
+          if (next !== img.src) img.src = next;
+        }
+        function start() {
+          syncHomepageLogo();
+          new MutationObserver(syncHomepageLogo).observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["data-bs-theme", "class"],
+          });
+        }
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", start);
+        } else {
+          start();
+        }
+      })();
+      </script>
+
 
 # SEO ------------------------------------------------------------------------
 # Public docs URL at pathmc.pymc-labs.com (matches pyproject.toml [project.urls] Documentation).

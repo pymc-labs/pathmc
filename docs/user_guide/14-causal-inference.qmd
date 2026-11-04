@@ -113,12 +113,15 @@ model.fit()
 baseline = model.do(set={"X": 0.0})
 treatment = model.do(set={"X": 1.0})
 
+display(model.graph(), treatment.graph())  # original and post-intervention DAGs
+
 ate = treatment - baseline  # contrast arithmetic
 ate.mean("Y")  # posterior mean of the ATE
 ate.hdi("Y", prob=0.94)  # 94% highest density interval
 ```
 
 The result is a full posterior distribution over the causal effect, computed via PyMC graph surgery on the generative model.
+Both `.graph()` calls return Graphviz diagrams that display directly in Jupyter or Quarto. In the second diagram, arrows into `X` are cut and `X` is marked externally set; arrows out of `X` remain. `model.graph()` still shows the original structure. For a contrast such as `treatment - baseline`, inspect the two scenario graphs separately because their difference is not one intervention scenario.
 
 ::: {.callout-note}
 ## `kind="mean"` vs `kind="predictive"`

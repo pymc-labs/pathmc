@@ -54,20 +54,13 @@ import patsy
 import pymc as pm
 
 from pathmc._warnings import _user_stacklevel
-from pathmc.graph import GraphInfo
+from pathmc.graph import GraphInfo, has_time_carrying_transform
 from pathmc.panel import PanelInfo
 from pathmc.parse import CategoricalCall, Regression, Spec, Term, TransformCall
 from pathmc.policy import _POLICY_REQUIRES_SCAN, policy_scan_slots
 from pathmc.transforms import get_transform
 
 __all__: list[str] = []
-
-_SCAN_PANEL_RESIDUAL_COV_MSG = (
-    "Residual covariances (~~) are not supported yet on scan-compiled panel models "
-    "(lag() or adstock()). Drop the ~~ clause, or remove lag() and adstock() "
-    "so the model is not scan-compiled. "
-    "Future support is tracked in https://github.com/pymc-labs/pathmc/issues/520."
-)
 
 
 @dataclass
@@ -712,9 +705,8 @@ def compile_to_pymc(
         for term in reg.terms
         if term.categorical is not None
     }
+    _validate_scan_residual_cov(spec, panel_info, families, latent, data)
     _reject_nan_predictors(data, graph_info, categorical_vars=categorical_vars)
-
-    _reject_scan_panel_residual_cov(spec, panel_info)
 
     if policy_plan is not None and not _is_scan_panel(spec, panel_info):
         raise ValueError(_POLICY_REQUIRES_SCAN)
@@ -2371,9 +2363,6 @@ def _has_temporal_deps(spec: Spec) -> bool:
     return False
 
 
-_CONV_ADSTOCK_TRANSFORMS = frozenset({"adstock", "delayed_adstock", "weibull_adstock"})
-
-
 def _requires_rectangular_panel(spec: Spec, graph_info: GraphInfo) -> bool:
     """Return True if panel data must form a dense unit x time grid.
 
@@ -2381,21 +2370,11 @@ def _requires_rectangular_panel(spec: Spec, graph_info: GraphInfo) -> bool:
     panel rows to ``(n_times, n_units)``; unbalanced panels must be
     rejected for either path.
     """
-    if _has_temporal_deps(spec):
-        return True
-    for reg in spec.regressions:
-        for term in reg.terms:
-            if term.transform is not None:
-                tc: TransformCall | None = term.transform
-                while tc is not None:
-                    if tc.name in _CONV_ADSTOCK_TRANSFORMS:
-                        return True
-                    tc = (
-                        tc.input_expr
-                        if isinstance(tc.input_expr, TransformCall)
-                        else None
-                    )
-    return False
+    return any(
+        term.lag_of is not None or has_time_carrying_transform(term.transform)
+        for reg in spec.regressions
+        for term in reg.terms
+    )
 
 
 def _is_scan_panel(spec: Spec, panel_info: PanelInfo | None) -> bool:
@@ -2403,10 +2382,50 @@ def _is_scan_panel(spec: Spec, panel_info: PanelInfo | None) -> bool:
     return panel_info is not None and _has_temporal_deps(spec)
 
 
-def _reject_scan_panel_residual_cov(spec: Spec, panel_info: PanelInfo | None) -> None:
-    """Reject ~~ on scan-compiled panel models before the scan early-return."""
-    if spec.residual_covs and _is_scan_panel(spec, panel_info):
-        raise NotImplementedError(_SCAN_PANEL_RESIDUAL_COV_MSG)
+def _validate_scan_residual_cov(
+    spec: Spec,
+    panel_info: PanelInfo | None,
+    families: dict[str, str],
+    latent: set[str],
+    data: nw.DataFrame,
+) -> None:
+    """Validate the complete observed-Gaussian scan covariance contract."""
+    if not spec.residual_covs or not _is_scan_panel(spec, panel_info):
+        return
+    block_vars, blocks = _identify_residual_blocks(spec)
+    endogenous = {r.lhs for r in spec.regressions}
+    exogenous = block_vars - endogenous
+    if exogenous:
+        raise ValueError(
+            f"Scan residual covariance endpoints {sorted(exogenous)} have no equation. "
+            "Use endogenous observed Gaussian outcomes with an equation for each endpoint."
+        )
+    singleton = sorted(next(iter(block)) for block in blocks if len(block) < 2)
+    if singleton:
+        raise ValueError(
+            f"Residual covariance components {singleton} contain only one outcome. "
+            "Connect at least two distinct endogenous Gaussian outcomes, or remove ~~."
+        )
+    unsupported = sorted(
+        latent | {v for v in endogenous if families.get(v, "gaussian") != "gaussian"}
+    )
+    if unsupported:
+        raise NotImplementedError(
+            f"Scan residual covariance cannot include latent or non-Gaussian variables "
+            f"{unsupported}. Use complete observed Gaussian equations throughout the model."
+        )
+    incomplete = sorted(
+        v
+        for v in endogenous
+        if v not in data.columns
+        or not np.isfinite(np.asarray(data[v].to_numpy(), dtype=float)).all()
+    )
+    if incomplete:
+        raise NotImplementedError(
+            f"Scan residual covariance requires complete finite outcomes; "
+            f"{incomplete} contain missing or nonfinite observations. "
+            "Impute or remove missing rows to fit complete observed Gaussian panels."
+        )
 
 
 def _transform_base_vars(tc: TransformCall) -> list[str]:
@@ -2839,6 +2858,12 @@ def _compile_scan_panel(
     if priors is None:
         priors = default_priors(spec, families, pooling, latent, panel_info, data=data)
 
+    from pathmc.residuals import LKJResidual
+
+    block_vars, residual_blocks = _identify_residual_blocks(spec)
+    blocks = tuple(sorted(tuple(sorted(block)) for block in residual_blocks))
+    residual_structure = LKJResidual()
+
     gaussian_panel = not latent and all(
         families.get(r.lhs, "gaussian") == "gaussian" for r in spec.regressions
     )
@@ -2968,7 +2993,7 @@ def _compile_scan_panel(
             else:
                 beta_rvs[var] = None
             if var not in latent:
-                if family in ("gaussian", "studentt"):
+                if family in ("gaussian", "studentt") and var not in block_vars:
                     sigma_rvs[var] = _create_prior_var(priors, f"sigma_{var}")
                 if family == "studentt":
                     _create_prior_var(priors, f"nu_{var}")
@@ -2976,6 +3001,10 @@ def _compile_scan_panel(
                     _create_prior_var(priors, f"alpha_disp_{var}")
             elif family == "latent_normal":
                 sigma_rvs[var] = _create_prior_var(priors, f"sigma_{var}")
+
+        block_chols = {
+            block: residual_structure.cholesky(list(block), priors) for block in blocks
+        }
 
         # --- random effects ---
         alpha_rvs: dict[str, Any] = {}
@@ -3179,6 +3208,12 @@ def _compile_scan_panel(
             if v not in latent
             and families.get(v, "gaussian") in ("gaussian", "studentt")
         )
+        if not coherent:
+            # Complete observations supply all block histories during fitting;
+            # no auxiliary innovations belong in its posterior.
+            stochastic_carry_vars = [
+                v for v in stochastic_carry_vars if v not in block_vars
+            ]
         lagged_observed_vars = set(stochastic_carry_vars) | set(discrete_carry_vars)
         # Contemporaneous non-Gaussian parents are not in the lag carry.
         # Estimation still has to read the observed column, not an auxiliary
@@ -3243,11 +3278,23 @@ def _compile_scan_panel(
                 f"innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
 
-        carry_innovation_nodes: dict[str, Any] = {}
+        carry_white_nodes: dict[str, Any] = {}
         for var in stochastic_carry_vars:
-            carry_innovation_nodes[var] = pm.Normal(
+            carry_white_nodes[var] = pm.Normal(
                 f"carry_innovations_{var}", mu=0, sigma=1, shape=(n_times, n_units)
             )
+
+        carry_residual_nodes = {
+            var: sigma_rvs[var] * white
+            for var, white in carry_white_nodes.items()
+            if var not in block_vars
+        }
+        if coherent:
+            for block, chol in block_chols.items():
+                white = pt.stack([carry_white_nodes[v] for v in block], axis=-1)
+                colored = pt.dot(white, chol.T)
+                for i, var in enumerate(block):
+                    carry_residual_nodes[var] = colored[..., i]
 
         # --- estimated latent initial conditions ---
         # Latent variables have no data column, so their t=0 scan carry
@@ -3334,7 +3381,7 @@ def _compile_scan_panel(
                 *[("exog", name) for name in exog_keys],
                 *[("obs_carry", name) for name in observed_carry_vars],
                 *[("latent_innov", name) for name in stochastic_latent],
-                *[("carry_innov", name) for name in stochastic_carry_vars],
+                *[("carry_residual", name) for name in stochastic_carry_vars],
                 *[("discrete", name) for name in discrete_bernoulli_vars],
                 *[("discrete", name) for name in discrete_count_vars],
                 *[("intervene", name) for name in intervene_keys],
@@ -3363,7 +3410,7 @@ def _compile_scan_panel(
             "exog": exog_data_nodes,
             "obs_carry": observed_carry_nodes,
             "latent_innov": latent_innovation_nodes,
-            "carry_innov": carry_innovation_nodes,
+            "carry_residual": carry_residual_nodes,
             "discrete": discrete_uniform_nodes,
             "intervene": do_intervene_nodes,
             "schedule": (
@@ -3455,9 +3502,6 @@ def _compile_scan_panel(
         for var in stochastic_latent:
             non_seq_list.append(sigma_rvs[var])
             non_seq_names.append(f"sigma_{var}")
-        for var in stochastic_carry_vars:
-            non_seq_list.append(sigma_rvs[var])
-            non_seq_names.append(f"sigma_{var}")
         for var in discrete_sample_vars:
             if families.get(var, "gaussian") == "negbinomial":
                 non_seq_list.append(scan_model[f"alpha_disp_{var}"])
@@ -3487,7 +3531,7 @@ def _compile_scan_panel(
                 "exog_t": grouped.get("exog", {}),
                 "obs_carry_t": grouped.get("obs_carry", {}),
                 "latent_innov_t": grouped.get("latent_innov", {}),
-                "carry_innov_t": grouped.get("carry_innov", {}),
+                "carry_residual_t": grouped.get("carry_residual", {}),
                 "discrete_uniform_t": {
                     name: value
                     for name, value in discrete.items()
@@ -3521,7 +3565,7 @@ def _compile_scan_panel(
             ns_map = state["ns_map"]
             obs_carry_t = state["obs_carry_t"]
             latent_innov_t = state["latent_innov_t"]
-            carry_innov_t = state["carry_innov_t"]
+            carry_residual_t = state["carry_residual_t"]
             discrete_uniform_t = state["discrete_uniform_t"]
             count_uniform_t = state["count_uniform_t"]
             do_intervene_t = state["do_intervene_t"]
@@ -3627,8 +3671,7 @@ def _compile_scan_panel(
                     new_endo[var] = propagated
                 elif var in stochastic_carry_vars:
                     carry_mu[var] = mu
-                    sigma_val = ns_map[f"sigma_{var}"]
-                    sampled_state = mu + sigma_val * carry_innov_t[var]
+                    sampled_state = mu + carry_residual_t[var]
                     if coherent:
                         # The generative graph cannot condition future states on
                         # observations, even when its legacy carry flag is set.
@@ -3769,6 +3812,22 @@ def _compile_scan_panel(
             var: results[layout.index("log_rate", var)] for var in rate_clip_vars
         }
 
+        block_outputs: dict[str, Any] = {}
+        if not coherent:
+            for block, chol in block_chols.items():
+                joint = residual_structure.emit(
+                    list(block),
+                    carry_mu_results,
+                    {
+                        v: _reshape_to_panel(data_sorted, v, n_units, n_times)
+                        for v in block
+                    },
+                    priors,
+                    chol=chol,
+                )
+                for i, var in enumerate(block):
+                    block_outputs[var] = joint[..., i]
+
         # --- emit deterministics and free RVs ---
         for var in endo_keys:
             carry_all = results[layout.index("endo", var)]  # (n_times, n_units)
@@ -3790,6 +3849,8 @@ def _compile_scan_panel(
 
             if coherent:
                 pm.Deterministic(var, carry_all)
+            elif var in block_outputs:
+                pm.Deterministic(var, block_outputs[var])
             elif var in sparse_panel_data:
                 sigma = sigma_rvs[var]
                 pm.Normal(

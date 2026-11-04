@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import numpy as np
 import xarray as xr
@@ -173,6 +173,14 @@ class PolicyRun(_DrawStorageMixin):
     def dataset(self) -> xr.Dataset:
         """Unit-mean posterior draws, dims ``("time", "chain", "draw")``."""
         return self.population
+
+    def graph(self) -> NoReturn:
+        """Explain why a policy result has no static intervention DAG."""
+        raise ValueError(
+            "PolicyRun.graph() does not support policy= results. Use "
+            "do(set=...) for a hard intervention graph, or model.graph() "
+            "for the original structural DAG."
+        )
 
     def simulation_info(self) -> PolicySimulationInfo:
         """Simulation context, including the baseline states this run used."""

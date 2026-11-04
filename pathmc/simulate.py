@@ -31,6 +31,7 @@ from collections.abc import Collection, Hashable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
+import graphviz
 import narwhals.stable.v1 as nw
 import numpy as np
 import pandas as pd
@@ -42,6 +43,7 @@ from pytensor.graph.traversal import ancestors
 
 from pathmc.compile import MuSpec, PredictorSlot, build_mu, build_mu_specs
 from pathmc.graph import GraphInfo
+from pathmc.introspect import GraphDescription, render_graph_description
 from pathmc.parse import Spec
 from pathmc.idata import DEFAULT_HDI_PROB
 from pathmc.idata import hdi as compute_hdi
@@ -581,6 +583,10 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         Individual evidence associated with a counterfactual result.
     observed_by_time : Mapping[str, np.ndarray] | None
         Unit-mean observed series per variable, aligned to :attr:`time_index`.
+    graph_description : GraphDescription | None
+        Detached structural graph snapshot attached by ``model.do()``.
+    contrast : bool
+        Whether this result is arithmetic between two scenarios.
     """
 
     def __init__(
@@ -590,6 +596,8 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         scenario: str = "do",
         evidence: Mapping[str, float] | None = None,
         observed_by_time: Mapping[str, np.ndarray] | None = None,
+        graph_description: GraphDescription | None = None,
+        contrast: bool = False,
     ) -> None:
         self._ds = ds
         self._scenario = scenario
@@ -599,6 +607,8 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             if observed_by_time is not None
             else {}
         )
+        self._graph_description = graph_description
+        self._contrast = contrast
 
     @property
     def dataset(self) -> xr.Dataset:
@@ -609,6 +619,30 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
         ``(n_samples,)`` numpy view, use :meth:`draws`.
         """
         return self._ds
+
+    def graph(self) -> graphviz.Digraph:
+        """Render the structural DAG after a supported hard intervention.
+
+        Returns a fresh Graphviz object for notebook and Quarto display.
+        Partial schedules, temporal and residual-covariance models, and
+        contrasts have no graph representation in this initial API.
+        """
+        if self._contrast:
+            raise ValueError(
+                "A DoResult contrast is not one intervention scenario. "
+                "Call graph() on each constituent scenario instead."
+            )
+        if self._scenario == "counterfactual":
+            raise ValueError(
+                "DoResult.graph() does not support counterfactual results. "
+                "Use model.graph() to inspect the original structure."
+            )
+        if self._graph_description is None:
+            raise ValueError(
+                "DoResult.graph() has no graph metadata. Create the result "
+                "with model.do(set=...) to inspect an intervention graph."
+            )
+        return render_graph_description(self._graph_description)
 
     def draws(self, var: str) -> np.ndarray:
         """Return raw posterior draws for *var* under this intervention.
@@ -778,6 +812,7 @@ class DoResult(_DrawStorageMixin, ResultReprMixin):
             ds=self._ds[common] - other._ds[common],
             scenario=self._scenario,
             evidence=self._evidence,
+            contrast=True,
         )
 
     def _repr_compact(self) -> str:
@@ -2163,7 +2198,10 @@ def _execute_gaussian_panel(
     may hold NaN on steps it releases: the scan runs that state's own
     equation there, and the returned state is the realized path. Supplied
     innovations cover all endogenous variables with standard-Normal epsilon
-    arrays of dimensions ``(chain, draw, unit, time)``. When every innovation
+    arrays of dimensions ``(chain, draw, unit, time)``. For a residual block,
+    these are independent white coordinates, stacked in sorted member order
+    and colored once by its Cholesky factor before interventions sever states.
+    Unheld members retain their marginal residual law. When every innovation
     also carries a
     ``simulation`` dimension, posterior draws are repeated along ``draw`` by
     that count and the noise is stacked into the same axis. The returned
@@ -2548,6 +2586,9 @@ def run_do_panel_unified(
                 progressbar=False,
                 backend="c" if discrete_rate else None,
             )
+            # PyMC's deterministic adapter can regenerate default sample labels;
+            # held/released paths must align with the original posterior labels.
+            det = det.assign_coords(chain=posterior_ds.chain, draw=posterior_ds.draw)
 
         ones = _chain_draw_ones(posterior(idata))
         time_idx = (
