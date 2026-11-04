@@ -389,16 +389,8 @@ def optimal_adjustment_set(
         )
 
     causal = descendants & (nx.ancestors(dag, outcome) | {outcome})
-    forbidden = causal | {treatment}
-    pending = list(causal)
-    while pending:
-        for child in dag.successors(pending.pop()):
-            if child not in forbidden:
-                forbidden.add(child)
-                pending.append(child)
-
     parents = {parent for node in causal for parent in dag.predecessors(node)}
-    optimal = parents - forbidden
+    optimal = parents - descendants - {treatment}
     latent_required = optimal & latent
     if latent_required:
         if not is_identifiable(graph_info, treatment, outcome):
