@@ -313,6 +313,7 @@ def _json_safe(value):
 def worker(args: argparse.Namespace) -> None:
     """Write a run even on backend failure; subprocess exit never hides failure."""
     started = perf_counter()
+    load_before = os.getloadavg()
     try:
         report = fit_probe(args)
     except Exception as error:
@@ -337,6 +338,8 @@ def worker(args: argparse.Namespace) -> None:
         smoke=args.smoke,
         process_experiment_seconds=perf_counter() - started,
         peak_process_rss_bytes=int(rss if sys.platform == "darwin" else rss * 1024),
+        system_load_average_before=load_before,
+        system_load_average_after=os.getloadavg(),
     )
     args.output.write_text(
         json.dumps(_json_safe(report), indent=2, allow_nan=False) + "\n"
