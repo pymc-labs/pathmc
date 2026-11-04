@@ -185,12 +185,25 @@ body.quarto-dark .labs-footer-copy {
 .labs-footer-links {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.35rem 0.9rem;
   /* The fixed back-to-top button sits in the bottom-right corner. Keep the
      last icon clear of it. */
   margin: 0 4rem 0 auto;
   padding: 0;
   list-style: none;
+}
+
+.labs-footer-links li {
+  display: flex;
+  align-items: center;
+}
+
+.labs-x-icon {
+  width: 1em;
+  height: 1em;
+  display: block;
+  flex: none;
 }
 
 .labs-footer-links a {
@@ -224,4 +237,23 @@ body.quarto-dark footer.footer .labs-footer-links a:hover {
   .labs-footer-links a i {
     font-size: 1.35rem;
   }
+
+  .labs-footer-links a .labs-x-icon {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+}
+
+/* Homepage is the README. The H1 and the shield row stay on GitHub;
+   under the docs logo they are noise. Hiding them here leaves README.md
+   alone, since that file is also the repo landing page. */
+body.gd-homepage #quarto-document-content > section.level1 > h1 {
+  display: none;
+}
+
+body.gd-homepage #quarto-document-content > section.level1 > p:has(
+    img[src*="badge.svg"],
+    img[src*="shields.io"]
+  ) {
+  display: none;
 }

@@ -274,17 +274,27 @@ include_in_header:
       document.addEventListener("DOMContentLoaded", () => {
         const slot = document.querySelector("footer.footer .nav-footer");
         if (!slot || slot.querySelector(".labs-footer-links")) return;
+        // Font Awesome 6.4.0, the sheet great-docs loads, has no
+        // fa-x-twitter glyph. An empty <i> leaves the "X" label on the
+        // text baseline, below the other icons. Inline the mark instead.
+        const xIcon =
+          '<svg class="labs-x-icon" viewBox="0 0 24 24" aria-hidden="true">' +
+          '<path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.727-8.835L1.254 2.25H8.08l4.253 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>' +
+          "</svg>";
         const links = [
-          ["https://x.com/pymc_labs", "fa-brands fa-x-twitter", "X"],
+          ["https://x.com/pymc_labs", xIcon, "X"],
           ["https://github.com/pymc-labs/pathmc", "fa-brands fa-github", "Github"],
           ["https://www.linkedin.com/company/pymc-labs/", "fa-brands fa-linkedin", "LinkedIn"],
           ["https://www.youtube.com/c/PyMCLabs", "fa-brands fa-youtube", "YouTube"],
           ["https://www.meetup.com/pymc-labs-online-meetup/", "fa-brands fa-meetup", "Meetup"],
           ["https://www.pymc-labs.com/contact", "fa-solid fa-file-signature", "Contact"],
         ];
-        const items = links.map(([href, icon, label]) =>
-          `<li><a href="${href}"><i class="${icon}" aria-hidden="true"></i><span>${label}</span></a></li>`
-        ).join("");
+        const items = links.map(([href, icon, label]) => {
+          const mark = icon.startsWith("<")
+            ? icon
+            : `<i class="${icon}" aria-hidden="true"></i>`;
+          return `<li><a href="${href}">${mark}<span>${label}</span></a></li>`;
+        }).join("");
         slot.innerHTML =
           '<p class="labs-footer-copy">© Copyright 2025–2026, PyMC Labs.</p>' +
           `<ul class="labs-footer-links">${items}</ul>`;
