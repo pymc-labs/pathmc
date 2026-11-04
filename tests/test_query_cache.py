@@ -121,6 +121,60 @@ def test_mean_values_and_ate_reuse_batched_graph(fitted, average):
         assert not prepare.called
 
 
+@pytest.mark.parametrize("average", [True, False])
+def test_mean_reuses_symbolic_sample_axes_and_required_inputs(fitted, average):
+    fitted.do(set={"X": 0}, average_units=average)
+    plan = next(iter(fitted._query_cache.entries.values()))
+    post = fitted._idata.posterior.to_dataset()
+    coefficients = post[["beta_M", "beta_Y"]]
+    unrelated = coefficients.assign(
+        unused=(("chain", "draw", "extra"), np.ones((2, 3, 5)))
+    )
+    subset = coefficients.isel(chain=[1], draw=[2, 0])
+    expanded = coefficients.isel(chain=[1, 0, 1], draw=[2, 0, 1, 2]).assign_coords(
+        chain=[17, 19, 31], draw=[37, 41, 43, 47]
+    )
+    expanded = expanded.assign(beta_M=expanded.beta_M + 1, beta_Y=expanded.beta_Y * 2)
+    with (
+        patch.object(query, "prepare_mean", wraps=query.prepare_mean) as prepare,
+        patch.object(pytensor, "function", wraps=pytensor.function) as compile_pt,
+        patch.object(core, "compile", wraps=core.compile) as compile_pm,
+        patch.object(pm, "do", wraps=pm.do) as surgery,
+    ):
+        for current in (
+            coefficients,
+            unrelated,
+            unrelated[list(unrelated.data_vars)[::-1]],
+            subset,
+            expanded,
+            post,
+        ):
+            fitted._idata = xr.DataTree.from_dict({"posterior": current})
+            x = np.array([-1.0, 0.0, 1.0, 2.0])
+            result = fitted.do(set={"X": x}, average_units=average)
+            expected_m, expected_y = oracle(fitted, x)
+            if average:
+                expected_m, expected_y = expected_m.mean(-1), expected_y.mean(-1)
+            np.testing.assert_allclose(
+                result.dataset.M, expected_m, rtol=1e-8, atol=1e-10
+            )
+            np.testing.assert_allclose(
+                result.dataset.Y, expected_y, rtol=1e-8, atol=1e-10
+            )
+            ate = fitted.ate("Y", "X", values=(0, 2), average_units=average)
+            bm, by = current.beta_M.values, current.beta_Y.values
+            expected = 2 * (by[..., 1] + by[..., 2] * bm[..., 1])
+            if not average:
+                expected = np.broadcast_to(expected[..., None], (*expected.shape, 4))
+            np.testing.assert_allclose(ate.dataset.Y, expected, rtol=1e-8, atol=1e-10)
+            for dataset in (result.dataset, ate.dataset):
+                np.testing.assert_array_equal(dataset.chain, current.chain)
+                np.testing.assert_array_equal(dataset.draw, current.draw)
+            assert list(fitted._query_cache.entries.values()) == [plan]
+        assert not prepare.called and not compile_pt.called
+        assert not compile_pm.called and not surgery.called
+
+
 def test_runtime_parameters_data_and_endogenous_targets(fitted):
     fitted.do(set={"M": 2}, average_units=False)
     fitted._idata.posterior["beta_Y"] = fitted._idata.posterior.beta_Y * 2
@@ -242,8 +296,13 @@ def test_invalidation_eviction_and_disposal(fitted):
 def test_schema_change_refit_and_exception_restore(fitted, monkeypatch):
     fitted.do(set={"X": 1})
     post = fitted._idata.posterior.to_dataset()
-    fitted._idata = xr.DataTree.from_dict({"posterior": post.isel(draw=[0])})
-    assert fitted.do(set={"X": 1}).dataset.sizes["draw"] == 1
+    fitted._idata = xr.DataTree.from_dict({
+        "posterior": post.assign(beta_Y=post.beta_Y.astype("float32"))
+    })
+    result = fitted.do(set={"X": 1})
+    np.testing.assert_allclose(
+        result.dataset.Y, oracle(fitted, np.ones(4))[1].mean(-1), rtol=1e-8, atol=1e-10
+    )
     assert len(fitted._query_cache.entries) == 2
     frame = fitted._data.to_pandas()
     original = fitted.pymc_model["X"].get_value().copy()
@@ -259,6 +318,48 @@ def test_schema_change_refit_and_exception_restore(fitted, monkeypatch):
     monkeypatch.setattr(pm, "sample", lambda **kwargs: saved)
     fitted.fit(compute_log_likelihood=False)
     assert not fitted._query_cache.entries
+
+
+@pytest.mark.parametrize("change", ["missing", "dimensions", "width"])
+def test_invalid_mean_parameter_layout_does_not_reuse_plan(fitted, change):
+    fitted.do(set={"X": 1})
+    plan = next(iter(fitted._query_cache.entries.values()))
+    post = fitted._idata.posterior.to_dataset()
+    if change == "missing":
+        post = post.drop_vars("beta_M")
+    elif change == "dimensions":
+        post["beta_M"] = post.beta_M.transpose("draw", "chain", "M_predictors")
+    else:
+        post = post.isel(M_predictors=[0])
+    fitted._idata = xr.DataTree.from_dict({"posterior": post})
+    with patch.object(plan, "function", wraps=plan.function) as evaluate:
+        assert query.mean_scenarios(fitted, [{"X": 1}]) is None
+    assert not evaluate.called
+    assert list(fitted._query_cache.entries.values()) == [plan]
+
+
+def test_prediction_retains_its_trace_schema_key(fitted):
+    if query.freeze_model is None:
+        pytest.skip("This installed PyMC uses the uncached fallback")
+    options = dict(extend_inferencedata=False, progressbar=False, random_seed=123)
+    fitted.do(set={"X": 1})
+    fitted.predict(**options)
+    post = fitted._idata.posterior.to_dataset().drop_vars(["mu_M", "mu_Y"])
+    fitted._idata["posterior"] = xr.DataTree(post.isel(chain=[1], draw=[2, 0]))
+    with (
+        patch.object(query, "prepare_mean", wraps=query.prepare_mean) as prepare,
+        patch.object(query, "freeze_model", wraps=query.freeze_model) as freeze,
+    ):
+        fitted.do(set={"X": 1})
+        result = fitted.predict(**options)
+    assert not prepare.called and freeze.call_count == 1
+    assert len(fitted._query_cache.entries) == 3
+    np.testing.assert_array_equal(result.posterior_predictive.chain, [11])
+    np.testing.assert_array_equal(result.posterior_predictive.draw, [29, 23])
+    with patch.object(core, "compile", wraps=core.compile) as compile_pm:
+        repeated = fitted.predict(**options)
+    assert not compile_pm.called
+    xr.testing.assert_equal(result, repeated)
 
 
 @pytest.mark.parametrize(

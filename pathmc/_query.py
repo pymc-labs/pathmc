@@ -159,17 +159,13 @@ def current_data(model: PathModel) -> Iterator[None]:
             model._gen_model[name].set_value(value)
 
 
-def signature(model: PathModel, post: xr.Dataset) -> tuple:
-    """Identify graph generation, posterior schema, and mutable input layout."""
+def _graph_signature(model: PathModel) -> tuple:
+    """Identify graph generation, mutable input layout, and compiler settings."""
     assert model._gen_model is not None and model._pymc_model is not None
     return (
         id(model._gen_model),
         tuple((name, id(var)) for name, var in model._gen_model.named_vars.items()),
         tuple((name, id(var)) for name, var in model._pymc_model.named_vars.items()),
-        tuple(
-            (name, value.dims, value.shape, str(value.dtype))
-            for name, value in post.data_vars.items()
-        ),
         tuple(
             (name, value.get_value().shape, str(value.dtype))
             for name, value in model._pymc_model.named_vars.items()
@@ -181,6 +177,38 @@ def signature(model: PathModel, post: xr.Dataset) -> tuple:
         pytensor.config.optimizer,
         pytensor.config.optimizer_excluding,
         pytensor.config.optimizer_including,
+    )
+
+
+def _mean_parameters(model: PathModel) -> tuple[str, ...]:
+    """Order the coefficient inputs shared by mean preparation and evaluation."""
+    assert model._gen_model is not None
+    return tuple(
+        f"beta_{reg.lhs}"
+        for reg in model._spec.regressions
+        if f"beta_{reg.lhs}" in model._gen_model.named_vars
+    )
+
+
+def _mean_signature(model: PathModel, post: xr.Dataset) -> tuple:
+    """Key symbolic mean inputs without runtime sample axes or unused draws."""
+    return (
+        _graph_signature(model),
+        tuple(
+            (name, post[name].dims[2:], post[name].shape[2:], str(post[name].dtype))
+            for name in _mean_parameters(model)
+        ),
+    )
+
+
+def _prediction_signature(model: PathModel, post: xr.Dataset) -> tuple:
+    """Retain prediction's trace schema and sampled-versus-computed roles."""
+    return (
+        _graph_signature(model),
+        tuple(
+            (name, value.dims, value.shape, str(value.dtype))
+            for name, value in post.data_vars.items()
+        ),
     )
 
 
@@ -217,11 +245,7 @@ def prepare_mean(model: PathModel, targets: tuple[str, ...], average: bool) -> M
         replacements[source[name]] = mu
         outputs.append(mu)
         names.append(name)
-    parameters = tuple(
-        f"beta_{reg.lhs}"
-        for reg in model._spec.regressions
-        if f"beta_{reg.lhs}" in source.named_vars
-    )
+    parameters = _mean_parameters(model)
     exogenous = tuple(sorted(model._graph_info.exogenous - set(targets)))
     vectorized = {}
     for name in parameters:
@@ -300,7 +324,7 @@ def mean_scenarios(
     cache = model._query_cache
     with cache.lock:
         current = _current_exogenous(model)
-        key = ("mean", signature(model, post), targets, average)
+        key = ("mean", _mean_signature(model, post), targets, average)
         plan: MeanPlan = cache.get(key, lambda: prepare_mean(model, targets, average))
         chains, draws = post.sizes["chain"], post.sizes["draw"]
         samples = chains * draws
@@ -381,7 +405,7 @@ def prediction_model(model: PathModel, kwargs: Mapping[str, Any]) -> pm.Model:
         if "observed_data" in model._idata
         else ()
     )
-    key = ("predict", signature(model, post), outputs, observed_schema)
+    key = ("predict", _prediction_signature(model, post), outputs, observed_schema)
     frozen = model._query_cache.get(key, lambda: freeze_model(model._pymc_model))
     for name, var in model._pymc_model.named_vars.items():
         if hasattr(var, "get_value"):
