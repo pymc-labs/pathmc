@@ -277,10 +277,15 @@ def _split_pipe_terms(rhs: str) -> list[str]:
     start = 0
     depth = 0
     quote: str | None = None
+    escaped = False
     for i, ch in enumerate(rhs):
         if quote is not None:
-            if ch == quote:
+            if ch == quote and not escaped:
                 quote = None
+            if ch == "\\" and not escaped:
+                escaped = True
+            else:
+                escaped = False
         elif ch in {"'", '"'}:
             quote = ch
         elif ch == "(":

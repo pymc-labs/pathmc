@@ -124,6 +124,12 @@ def test_quoted_pipe_in_categorical_reference_is_legacy_content():
     assert categorical.reference == "a|>b"
 
 
+def test_escaped_quote_in_legacy_term_survives_adjacent_pipe_term():
+    pipe = r"Y ~ C(group, reference='a\')b') + x |> f()"
+    nested = r"Y ~ C(group, reference='a\')b') + f(x)"
+    assert parse_spec(pipe) == parse_spec(nested)
+
+
 class _Identity(Transform):
     name = "pipe_identity_test"
     param_specs = {}
