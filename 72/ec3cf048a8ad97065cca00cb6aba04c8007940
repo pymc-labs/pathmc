@@ -1,0 +1,22 @@
+pathmc/_query.py
+  s_0561b03f0f056b::t_49298e0594bf60 42
+scripts/benchmark_backends.py
+  s_0561b03f0f056b::t_b4bdbfaaf22b5c 37-38,40-47,49,57-59,63-71,75-80,83-85,282,294
+  s_0561b03f0f056b::t_61ed21897fcd79 39,48,50-56,60-62,72-74,81-82,248-250,267-268,291-293
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "72ec3cf048a8ad97065cca00cb6aba04c8007940",
+  "prompts": {},
+  "sessions": {
+    "s_0561b03f0f056b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a3e6-e1b5-7603-a117-309ca450bde0",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
