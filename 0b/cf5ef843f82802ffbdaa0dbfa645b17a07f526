@@ -1,0 +1,68 @@
+docs/user_guide/14-causal-inference.qmd
+  s_3b6ada398b36cf::t_c850d88036dac3 116-117,124
+.github/workflows/pr-closing-issue-labels.yml
+  s_3b6ada398b36cf::t_c850d88036dac3 22,28
+pathmc/simulate.py
+  s_3b6ada398b36cf::t_c850d88036dac3 34,46,586-589,599-600,610-611,623-646,815,2201-2204,2589-2591
+tests/test_gaussian_panel_trajectories.py
+  s_3b6ada398b36cf::t_c850d88036dac3 556-597
+pathmc/skills/pathmc/SKILL.md
+  s_3b6ada398b36cf::t_c850d88036dac3 200-201
+great-docs.yml
+  s_3b6ada398b36cf::t_c850d88036dac3 21-23,40-43,88-89,91-142,149-155,157-158,212-373
+docs/user_guide/19-panel-data.qmd
+  s_3b6ada398b36cf::t_c850d88036dac3 389,391-427
+pathmc/residuals.py
+  s_3b6ada398b36cf::t_c850d88036dac3 24,42-45,54,72-73,95-121,223-234,236-261,263,266,320,322,325-327,329,335-344
+  s_3b6ada398b36cf::t_fbe2782af933bd 345
+tests/test_simulate_data.py
+  s_3b6ada398b36cf::t_c850d88036dac3 360,362-376
+docs/user_guide/00-welcome.qmd
+  s_3b6ada398b36cf::t_c850d88036dac3 111,140,146,160,173,187,215-221
+tests/test_do_graph.py
+  s_3b6ada398b36cf::t_c850d88036dac3 1-237
+_freeze/user-guide/welcome/execute-results/html.json
+  s_3b6ada398b36cf::t_c850d88036dac3 1-12
+pathmc/_model.py
+  s_3b6ada398b36cf::t_c850d88036dac3 76,1202-1206,1272-1285,1806-1809,2498,2513-2539,2541-2544,2548-2555,3697-3703,3910-3914,4137-4140
+pathmc/introspect.py
+  s_3b6ada398b36cf::t_c850d88036dac3 23-24,27,35,42-154,413,416-422,424-426,428-432,434,436,443,461-463,465,469-498
+tests/test_scan_residual_cov.py
+  s_3b6ada398b36cf::t_c850d88036dac3 1-908
+pathmc/policy_result.py
+  s_3b6ada398b36cf::t_c850d88036dac3 24,177-183
+  s_3b6ada398b36cf::t_838f73cac51973 184
+tests/test_policy_result_contract.py
+  s_3b6ada398b36cf::t_c850d88036dac3 72-86
+_freeze/user-guide/welcome/figure-html/cell-3-output-1.svg
+  s_3b6ada398b36cf::t_c850d88036dac3 1-51
+CONTRIBUTING.md
+  s_3b6ada398b36cf::t_c850d88036dac3 211
+Makefile
+  s_3b6ada398b36cf::t_c850d88036dac3 10
+pathmc/compile.py
+  s_3b6ada398b36cf::t_c850d88036dac3 57,708,2373-2377,2385-2428,2861-2866,2996,3005-3008,3211-3216,3281,3283,3287-3298,3384,3413,3534,3568,3674,3815-3830,3852-3853
+pathmc/graph.py
+  s_3b6ada398b36cf::t_c850d88036dac3 27,31-40
+  s_3b6ada398b36cf::t_d12095b6d2e774 41
+tests/test_residual_cov.py
+  s_3b6ada398b36cf::t_c850d88036dac3 476-477,479-487,489-499,666-688
+docs/assets/labs.css
+  s_3b6ada398b36cf::t_c850d88036dac3 1-318
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0bcf5ef843f82802ffbdaa0dbfa645b17a07f526",
+  "prompts": {},
+  "sessions": {
+    "s_3b6ada398b36cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a860-829e-7980-a092-82ed4cbe0ebc",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
