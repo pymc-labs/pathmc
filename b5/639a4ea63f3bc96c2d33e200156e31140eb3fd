@@ -1,0 +1,60 @@
+pathmc/introspect.py
+  s_5b583b137926e8::t_738b2957dd431b 23-24,27,42-96,102-152
+  s_5b583b137926e8::t_b07b79316fb507 97,101,153-154
+  s_5b583b137926e8::t_60e9134e2332c3 413,416-422,424-426,428-432,434,436,443,461-463,465,469-498
+  s_5b583b137926e8::t_34167407f6d016 35,98-100
+pathmc/_model.py
+  s_5b583b137926e8::t_e58180b5aed7f6 76
+  s_5b583b137926e8::t_b928db1e09b9d9 2466,2507,2509-2512,2516-2523
+  s_5b583b137926e8::t_7895230896696f 2481-2505
+  s_5b583b137926e8::t_6539bb0e72773b 2506
+docs/user_guide/14-causal-inference.qmd
+  s_5b583b137926e8::t_180b1689f1be6f 116-117,124
+tests/test_do_graph.py
+  s_5b583b137926e8::t_ed6dac34242348 117-122,194,202-206,213-218,220-221
+  s_5b583b137926e8::t_da7e810c0af983 207-212
+  s_5b583b137926e8::t_402876a3c60afc 1-25,27-77,80-101,110-116,147-150,154-158,170-193,195-201
+  s_5b583b137926e8::t_080a943acbd90f 78-79
+  s_5b583b137926e8::t_f2ebcd7ec23c1a 102-109,219,222-237
+  s_5b583b137926e8::t_c0b62ec47d658b 151-153
+  s_5b583b137926e8::t_675b072d9d27f3 26,123-146,159-167
+  s_2ff2069ec4b8b6::t_f610b4ce632f2d 168-169
+pathmc/simulate.py
+  s_5b583b137926e8::t_fe9f292089dd1f 34,586-589
+  s_5b583b137926e8::t_aaa7dfd2a74b92 46,599-600,610-611,623-646,815
+pathmc/policy_result.py
+  s_5b583b137926e8::t_a5f3c4249d095f 24,177-183
+  s_5b583b137926e8::t_823b68393a165b 184
+tests/test_policy_result_contract.py
+  s_5b583b137926e8::t_c0d804ac89a8e7 72-86
+pathmc/compile.py
+  s_5b583b137926e8::t_f07ea898836a1c 57,2381-2385
+pathmc/graph.py
+  s_5b583b137926e8::t_f8dcb68b87d85b 27,32-40
+  s_5b583b137926e8::t_a11990cd78da1f 31
+  s_5b583b137926e8::t_b4b580c885d4da 41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b5639a4ea63f3bc96c2d33e200156e31140eb3fd",
+  "prompts": {},
+  "sessions": {
+    "s_2ff2069ec4b8b6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a3d9-22f0-7b82-9d19-469a1fdb6d05",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    },
+    "s_5b583b137926e8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a391-1777-7e02-b386-884259cf886e",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
