@@ -1,0 +1,24 @@
+tests/test_query_cache.py
+  s_3b6ada398b36cf::t_fd9614282db4d5 124-146,148-177,299-303,305
+  s_3b6ada398b36cf::t_a8b72c9d320f53 323-364
+  s_3b6ada398b36cf::t_17f05b364671db 304
+  s_3b6ada398b36cf::t_442f8bf6b27497 147
+pathmc/_query.py
+  s_3b6ada398b36cf::t_8f5ca1714ca030 162-163,183-214,248,327,408
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "01b32c35356bf0d14f4cdd48a6f6c32cf1b232a2",
+  "prompts": {},
+  "sessions": {
+    "s_3b6ada398b36cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a860-829e-7980-a092-82ed4cbe0ebc",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
