@@ -1,0 +1,37 @@
+.github/workflows/pr-closing-issue-labels.yml
+  s_3e47b625f66c75::t_b1d3f3d7ef9735 22,28
+docs/user_guide/14-causal-inference.qmd
+  s_3e47b625f66c75::t_38a0ee328e8f92 116-117,124
+pathmc/_model.py
+  s_3e47b625f66c75::t_655bcfca84bc13 74,2486,2501-2527,2529-2532,2536-2543
+pathmc/compile.py
+  s_3e47b625f66c75::t_cc6b0a93cd304d 57,2373-2377
+pathmc/graph.py
+  s_3e47b625f66c75::t_c1e1d4eb896a30 27,31-41
+pathmc/introspect.py
+  s_3e47b625f66c75::t_dbeda50acae505 23-24,27,35,42-154,413,416-422,424-426,428-432,434,436,443,461-463,465,469-498
+pathmc/policy_result.py
+  s_3e47b625f66c75::t_8269d2aa54e60e 24,177-184
+pathmc/simulate.py
+  s_3e47b625f66c75::t_0610bbddf84ee4 34,46,586-589,599-600,610-611,623-646,815
+tests/test_do_graph.py
+  s_3e47b625f66c75::t_4b35810c9e3b4f 1-237
+tests/test_policy_result_contract.py
+  s_3e47b625f66c75::t_dd0a98e3d71e56 72-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "22f6bbd322bb5b27a602cfee2ad4081ca9dec225",
+  "prompts": {},
+  "sessions": {
+    "s_3e47b625f66c75": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a3e3-1844-7d43-a903-159b08c141ad",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Benjamin T. Vincent <inferencelab@gmail.com>"
+    }
+  }
+}
