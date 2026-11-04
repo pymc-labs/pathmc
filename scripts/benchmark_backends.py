@@ -314,6 +314,10 @@ def worker(args: argparse.Namespace) -> None:
     """Write a run even on backend failure; subprocess exit never hides failure."""
     started = perf_counter()
     load_before = os.getloadavg()
+    requested_settings = {
+        key: str(value) if isinstance(value, Path) else value
+        for key, value in vars(args).items()
+    }
     try:
         report = fit_probe(args)
     except Exception as error:
@@ -340,6 +344,7 @@ def worker(args: argparse.Namespace) -> None:
         peak_process_rss_bytes=int(rss if sys.platform == "darwin" else rss * 1024),
         system_load_average_before=load_before,
         system_load_average_after=os.getloadavg(),
+        requested_settings=requested_settings,
     )
     args.output.write_text(
         json.dumps(_json_safe(report), indent=2, allow_nan=False) + "\n"
@@ -425,6 +430,9 @@ def main() -> None:
             args.repetitions,
         ) = 1, 8, 20, 20, 1, 1
     args.output.mkdir(parents=True, exist_ok=True)
+    source_commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], text=True
+    ).strip()
     workloads = (
         [(1, 30), (3, 30), (1, 300), (10, 300)]
         if args.matrix and not args.smoke
@@ -532,6 +540,37 @@ def main() -> None:
                             "observed_fraction": fraction,
                             "cache": regime,
                             "repetition": repetition,
+                            "source_commit": source_commit,
+                            "worker_command": command,
+                            "requested_settings": {
+                                **vars(args),
+                                "output": str(destination),
+                                "worker": True,
+                                "matrix": False,
+                                "units": units,
+                                "periods": periods,
+                                "observed_fraction": fraction,
+                                "sampler": sampler,
+                                "cache": regime,
+                                "repetition": repetition,
+                                "seed": args.seed + max(0, repetition),
+                            },
+                            "worker_environment": {
+                                key: env[key]
+                                for key in (
+                                    "OMP_NUM_THREADS",
+                                    "OPENBLAS_NUM_THREADS",
+                                    "MKL_NUM_THREADS",
+                                    "VECLIB_MAXIMUM_THREADS",
+                                    "NUMBA_NUM_THREADS",
+                                    "PYTENSOR_FLAGS",
+                                    "JAX_ENABLE_X64",
+                                    "JAX_PLATFORMS",
+                                    "XLA_FLAGS",
+                                    "JAX_COMPILATION_CACHE_DIR",
+                                    "NUMBA_CACHE_DIR",
+                                )
+                            },
                         })
                         + "\n"
                     )
