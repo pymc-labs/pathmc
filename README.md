@@ -72,6 +72,10 @@ adj.ate(values=(0, 1))
 
 The DSL mirrors lavaan: `~` defines a regression of an outcome on its parents, `label*var` attaches a name to a coefficient, and `:=` defines derived quantities (such as an indirect/mediated effect) that are tracked with full posterior uncertainty.
 
+## Overview talk
+
+[![An overview of pathmc: Bayesian structural causal modeling in PyMC](https://img.youtube.com/vi/gvhBqd9Myi8/maxresdefault.jpg)](https://www.youtube.com/watch?v=gvhBqd9Myi8)
+
 ## Capabilities
 
 *For concepts, tutorials, and the full API reference, see the documentation at [pathmc.pymc-labs.com](https://pathmc.pymc-labs.com/).*
