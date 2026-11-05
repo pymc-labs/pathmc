@@ -74,8 +74,6 @@ The DSL mirrors lavaan: `~` defines a regression of an outcome on its parents, `
 
 ## Overview talk
 
-Ben Vincent's 22-minute introduction at the Causal Data Science Meeting 2026 walks a marketing-spend example from a lavaan-style spec through identification, fitting, and a `do()` intervention.
-
 [![An overview of pathmc: Bayesian structural causal modeling in PyMC](https://img.youtube.com/vi/gvhBqd9Myi8/maxresdefault.jpg)](https://www.youtube.com/watch?v=gvhBqd9Myi8)
 
 ## Capabilities
