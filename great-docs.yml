@@ -370,6 +370,39 @@ include_in_header:
         }
       })();
       </script>
+  - text: |
+      <script>
+      /* README.md is also the GitHub and PyPI landing page, and both strip
+         iframes. Keep a thumbnail link there; on the docs homepage, replace
+         that link with a player. */
+      document.addEventListener("DOMContentLoaded", () => {
+        if (!document.body.classList.contains("gd-homepage")) return;
+        const link = document.querySelector(
+          '#quarto-document-content a[href*="gvhBqd9Myi8"]:has(img)'
+        );
+        if (!link) return;
+        const frame = document.createElement("div");
+        frame.className = "ratio ratio-16x9";
+        const player = document.createElement("iframe");
+        const label = "An overview of pathmc: Bayesian structural causal modeling in PyMC";
+        player.src = "https://www.youtube-nocookie.com/embed/gvhBqd9Myi8";
+        // Quarto turns a title attribute into a tippy tooltip and removes it.
+        // aria-label is the accessible name that survives that pass.
+        player.setAttribute("aria-label", label);
+        player.setAttribute(
+          "allow",
+          "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        );
+        player.setAttribute("allowfullscreen", "");
+        player.setAttribute("loading", "lazy");
+        player.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+        frame.appendChild(player);
+        // The thumbnail link is inside a paragraph; replacing only the anchor
+        // would nest the ratio div in a p.
+        const slot = link.closest("p") || link;
+        slot.replaceWith(frame);
+      });
+      </script>
 
 
 # SEO ------------------------------------------------------------------------
