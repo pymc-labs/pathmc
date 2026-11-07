@@ -198,6 +198,123 @@ def _join_continuation_lines(spec_string: str) -> str:
     return "\n".join(merged)
 
 
+def _unquoted_source(text: str) -> str:
+    """Mask literals within the existing additive and statement boundaries.
+
+    Statements split on ``;`` and physical newlines; regression terms also
+    split on ``+``, even in quoted content. Defined expressions retain their
+    quoted operands. Keeping these existing boundaries prevents raw fallback
+    values such as ``'90s`` from pairing with a quote in another term.
+    """
+
+    def mask_statement(match: re.Match[str]) -> str:
+        statement = match[0]
+        if ":=" in statement:
+            return _mask_legacy_literals(statement)
+        return re.sub(r"[^+]+", lambda term: _mask_legacy_literals(term[0]), statement)
+
+    return re.sub(r"[^;\n]+", mask_statement, text)
+
+
+def _mask_legacy_literals(text: str) -> str:
+    """Mask complete single/triple-quoted spans, preserving source offsets."""
+    masked = list(text)
+    i = 0
+    while i < len(text):
+        if text[i] not in {"'", '"'}:
+            i += 1
+            continue
+        start = i
+        quote = text[i] * (3 if text.startswith(text[i] * 3, i) else 1)
+        i += len(quote)
+        while i < len(text):
+            if text[i] == "\\":
+                i += 2
+            elif text.startswith(quote, i):
+                i += len(quote)
+                masked[start:i] = " " * (i - start)
+                break
+            else:
+                i += 1
+    return "".join(masked)
+
+
+def _has_pipe(text: str) -> bool:
+    """Whether an actual pipe token occurs outside a legacy literal."""
+    return "|>" in _unquoted_source(text)
+
+
+def _pipe_marks(text: str) -> bool:
+    """Detect pipes or malformed punctuation, leaving legacy calls opaque."""
+    visible = _unquoted_source(text)
+    return "|>" in visible or (
+        re.match(r"^[A-Za-z_]\w*\s*\(", visible) is None
+        and any(ch in {"|", ">"} for ch in visible)
+    )
+
+
+def _prepare_pipe_lines(spec_string: str) -> str:
+    """Fold physical lines inside a pipeline group, preserving statement breaks."""
+    source = spec_string.replace("\r\n", "\n")
+    visible = _unquoted_source(source)
+    if "|>" not in visible:
+        return source
+    out = list(source)
+    group_start = re.compile(r"\(\s*[A-Za-z_]\w*\s*\|>")
+    i = 0
+    while i < len(visible):
+        ch = visible[i]
+        previous = visible[:i].rstrip()[-1:] if ch == "(" else ""
+        # Only confirmed pipeline groups own continuation state. Legacy bare
+        # values can contain arbitrary parentheses and coefficient punctuation.
+        if (
+            ch == "("
+            and previous in {"", "~", "+", "*"}
+            and group_start.match(visible, i)
+        ):
+            depth = 1
+            i += 1
+            while i < len(visible) and depth:
+                ch = visible[i]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                elif ch == ";":
+                    raise ParseError(
+                        "Semicolon inside a pipeline group. Close ')' before "
+                        "starting another statement."
+                    )
+                elif ch == "\n":
+                    next_line = visible[i + 1 :].split("\n", 1)[0].strip()
+                    if re.match(r"^[A-Za-z_]\w*\s*(?:~~|:=|~)", next_line):
+                        raise ParseError(
+                            "Unclosed pipeline group before another equation. "
+                            "Close ')' before starting the next statement."
+                        )
+                    out[i] = " "
+                i += 1
+            if depth:
+                raise ParseError("Unclosed pipeline group. Add the missing ')'.")
+            continue
+        if ch == "\n":
+            next_line = visible[i + 1 :].split("\n", 1)[0].strip()
+            term_start = max(visible.rfind(mark, 0, i) for mark in ("+", ";", "\n")) + 1
+            term = visible[term_start:i]
+            tail = term.partition("|>")[2]
+            if (
+                next_line.startswith("|>")
+                or term.rstrip().endswith("|>")
+                or tail.count("(") > tail.count(")")
+            ):
+                raise ParseError(
+                    "An ungrouped pipeline cannot span lines. "
+                    "Write '(x |> f())' to continue a pipeline across lines."
+                )
+        i += 1
+    return "".join(out)
+
+
 def parse_spec(spec_string: str) -> Spec:
     """Parse a DSL specification string into a Spec object.
 
@@ -221,7 +338,7 @@ def parse_spec(spec_string: str) -> Spec:
         label is reused across equations, or a defined parameter (``:=``)
         uses a coefficient label's name.
     """
-    spec_string = _join_continuation_lines(spec_string)
+    spec_string = _join_continuation_lines(_prepare_pipe_lines(spec_string))
     raw_statements = re.split(r"[;\n]", spec_string)
     statements = [s.strip() for s in raw_statements if s.strip()]
 
@@ -237,6 +354,11 @@ def parse_spec(spec_string: str) -> Spec:
     seen_labels: dict[str, str] = {}
 
     for stmt in statements:
+        if _has_pipe(stmt) and (":=" in stmt or "~~" in stmt or "~" not in stmt):
+            raise ParseError(
+                f"Pipeline syntax is only valid in a regression predictor: '{stmt}'. "
+                "Use a plain variable or coefficient expression here."
+            )
         if ":=" in stmt:
             defined_params.append(_parse_defined_param(stmt))
         elif "~~" in stmt:
@@ -449,11 +571,15 @@ def _parse_regression(stmt: str) -> Regression:
             "Provide at least one predictor variable after '~'."
         )
 
+    if _pipe_marks(lhs):
+        raise ParseError(
+            f"Pipeline syntax is not valid on the left-hand side '{lhs}'. "
+            "Move the pipeline into a regression predictor."
+        )
     if not re.match(r"^[A-Za-z_]\w*$", lhs):
         raise ParseError(
             f"Invalid variable name '{lhs}' on left-hand side of '{stmt}'."
         )
-
     raw_terms = [t.strip() for t in rhs.split("+")]
 
     has_intercept = True
@@ -558,6 +684,7 @@ def _parse_term(raw: str) -> Term:
     coefficient values rather than free parameter names.
     """
     raw = raw.strip()
+    had_pipe = _has_pipe(raw)
     _reject_top_level_minus(raw)
     label: str | None = None
     fixed_value: float | None = None
@@ -574,6 +701,22 @@ def _parse_term(raw: str) -> Term:
                 label = None
             except ValueError:
                 label = label_str
+
+    if had_pipe or _pipe_marks(raw):
+        if label is not None and _PIPE_IDENTIFIER.fullmatch(label) is None:
+            raise ParseError(
+                f"Invalid pipeline coefficient label '{label}'. "
+                "Use an identifier such as 'a*(x |> f())'."
+            )
+        transform = _parse_pipeline(
+            raw, prefixed=label is not None or fixed_value is not None
+        )
+        return Term(
+            variable=_extract_leaf_variable(transform),
+            label=label,
+            transform=transform,
+            fixed_value=fixed_value,
+        )
 
     if _find_top_level_colon(raw) is not None and re.search(r"(?:^|:)\s*C\s*\(", raw):
         raise ParseError(
@@ -799,6 +942,115 @@ def _find_top_level_colon(raw: str) -> int | None:
         elif ch == ":" and depth == 0:
             return i
     return None
+
+
+_PIPE_IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+_PIPE_REFERENCE = re.compile(
+    r"(?:[A-Za-z_]\w*|-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\Z"
+)
+
+
+def _parse_pipeline(raw: str, *, prefixed: bool) -> TransformCall:
+    """Lower a forward-pipe predictor into nested transform calls."""
+    original = raw
+    if prefixed and not (raw.startswith("(") and raw.endswith(")")):
+        raise ParseError(
+            f"Coefficient-prefixed pipeline '{original}' needs grouping. "
+            "Write 'a*(x |> f())' so the coefficient applies after the transform."
+        )
+    if raw.startswith("(") and raw.endswith(")"):
+        raw = raw[1:-1].strip()
+    if not raw:
+        raise ParseError(f"Empty pipeline group '{original}'. Write '(x |> f())'.")
+
+    def fail(problem: str) -> ParseError:
+        return ParseError(
+            f"Invalid pipeline '{original}': {problem}. "
+            "Write a single chain such as 'x |> f(p=u) |> g(q=v)' "
+            "(or 'a*(x |> f(p=u))' with a coefficient)."
+        )
+
+    pos = 0
+
+    def skip_space() -> None:
+        nonlocal pos
+        while pos < len(raw) and raw[pos].isspace():
+            pos += 1
+
+    skip_space()
+    source = _PIPE_IDENTIFIER.match(raw, pos)
+    if source is None:
+        raise fail("the input must start with a plain source variable")
+    expression: str | TransformCall = source.group()
+    pos = source.end()
+    stage_count = 0
+    while True:
+        skip_space()
+        if pos == len(raw):
+            if stage_count == 0:
+                raise fail("a transform stage is required after the source variable")
+            assert isinstance(expression, TransformCall)
+            return expression
+        if not raw.startswith("|>", pos):
+            raise fail(f"unexpected text '{raw[pos:]}' after a pipeline part")
+        pos += 2
+        skip_space()
+        stage = _PIPE_IDENTIFIER.match(raw, pos)
+        if stage is None:
+            raise fail("missing transform call after '|>'")
+        name = stage.group()
+        pos = stage.end()
+        skip_space()
+        if pos >= len(raw) or raw[pos] != "(":
+            raise fail(f"stage '{name}' needs call parentheses, for example '{name}()'")
+        pos += 1
+        args_start = pos
+        while pos < len(raw) and raw[pos] != ")":
+            if raw[pos] == "(":
+                raise fail(f"nested expression in stage '{name}' is unsupported")
+            pos += 1
+        if pos >= len(raw):
+            raise fail(f"stage '{name}' has an unclosed call")
+        args = raw[args_start:pos].strip()
+        pos += 1
+        if name in {
+            "lag",
+            "C",
+            "hsgp",
+            "fourier",
+            *SPLINE_NAMES,
+        } or _is_registered_basis(name):
+            raise fail(
+                f"'{name}' is a structural, categorical, or basis term; "
+                f"use '{name}(x, ...)' as a standalone term"
+            )
+        params: dict[str, str] = {}
+        if args:
+            parts = args.split(",")
+            if parts[-1].strip() == "":
+                parts.pop()
+            for part in parts:
+                if "=" not in part:
+                    raise fail(
+                        f"stage '{name}' expects keyword references; "
+                        "the piped input is inserted automatically"
+                    )
+                key, _, value = part.partition("=")
+                key, value = key.strip(), value.strip()
+                if _PIPE_IDENTIFIER.fullmatch(key) is None or not value:
+                    raise fail(
+                        f"stage '{name}' has an incomplete keyword '{part.strip()}'"
+                    )
+                if _PIPE_REFERENCE.fullmatch(value) is None:
+                    raise fail(
+                        f"stage '{name}' parameter '{key}' needs a plain "
+                        "parameter reference"
+                    )
+                if key in params:
+                    raise fail(f"stage '{name}' repeats keyword '{key}'")
+                params[key] = value
+        expression = TransformCall(name=name, input_expr=expression, params=params)
+        stage_count += 1
 
 
 def _parse_transform_expr(raw: str) -> TransformCall:
