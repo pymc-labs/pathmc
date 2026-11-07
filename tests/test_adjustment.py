@@ -24,6 +24,7 @@ import pytest
 from pymc_extras.prior import Prior
 
 import pathmc
+from pathmc.adjustment import AdjustmentModel
 from pathmc.graph import build_graph
 from pathmc.identify import collider_warnings, is_valid_adjustment_set
 from pathmc.idata import posterior as _posterior
@@ -102,8 +103,12 @@ class TestMultipleMinimalSets:
             v: rng.normal(size=80) for v in ["X", "Y", "Z1", "Z2", "M1", "M2"]
         })
         model = pathmc.model(self.MULTI_SPEC, data=df)
-        with pytest.raises(ValueError, match="Several minimal"):
+        with pytest.raises(ValueError, match="Several minimal") as exc_info:
             model.adjustment_model("X -> Y")
+        message = str(exc_info.value)
+        assert "{M2}" in message
+        assert "{Z2}" in message
+        assert 'adjustment_set="optimal"' in message
 
     def test_succeeds_with_explicit_set(self, rng):
         df = pd.DataFrame({
@@ -113,6 +118,126 @@ class TestMultipleMinimalSets:
         adjusted = model.adjustment_model("X -> Y", adjustment_set={"Z2"})
         assert adjusted.adjustment_set == frozenset({"Z2"})
         assert "Z2" in adjusted.formula
+
+    def test_optimal_set_is_nonminimal_and_formula_order_is_stable(self, rng):
+        df = pd.DataFrame({
+            v: rng.normal(size=80) for v in ["X", "Y", "Z1", "Z2", "M1", "M2"]
+        })
+        model = pathmc.model(self.MULTI_SPEC, data=df)
+        adjusted = model.adjustment_model("X -> Y", adjustment_set="optimal")
+        assert adjusted.adjustment_set == frozenset({"M2", "Z1"})
+        assert adjusted.formula == "Y ~ X + M2 + Z1"
+
+    def test_custom_formula_must_include_every_optimal_member(self, rng):
+        df = pd.DataFrame({
+            v: rng.normal(size=80) for v in ["X", "Y", "Z1", "Z2", "M1", "M2"]
+        })
+        model = pathmc.model(self.MULTI_SPEC, data=df)
+        with pytest.raises(ValueError, match=r"Missing: \['M2', 'Z1'\]"):
+            model.adjustment_model(
+                "X -> Y",
+                adjustment_set="optimal",
+                formula="Y ~ X",
+            )
+
+
+class TestOptimalSelectionForms:
+    SPEC = "X ~ I\nY ~ X + P"
+
+    @staticmethod
+    def _data(rng):
+        return pd.DataFrame({
+            name: rng.normal(size=80) for name in ["I", "X", "P", "Y", "W", "M"]
+        })
+
+    def test_default_remains_minimal_and_opt_in_adds_precision_variable(self, rng):
+        model = pathmc.model(self.SPEC, data=self._data(rng))
+        default = model.adjustment_model("X -> Y")
+        optimal = model.adjustment_model("X -> Y", adjustment_set="optimal")
+        assert default.adjustment_set == frozenset()
+        assert default.formula == "Y ~ X"
+        assert optimal.adjustment_set == frozenset({"P"})
+        assert optimal.formula == "Y ~ X + P"
+
+    def test_keyword_endpoints_and_direct_factory_dispatch(self, rng):
+        model = pathmc.model(self.SPEC, data=self._data(rng))
+        keyword = model.adjustment_model(
+            treatment="X", outcome="Y", adjustment_set="optimal"
+        )
+        direct = AdjustmentModel.from_path_model(
+            model,
+            query="X -> Y",
+            adjustment_set="optimal",
+        )
+        assert keyword.adjustment_set == frozenset({"P"})
+        assert direct.adjustment_set == frozenset({"P"})
+
+    def test_unknown_string_has_targeted_error(self, rng):
+        model = pathmc.model(self.SPEC, data=self._data(rng))
+        with pytest.raises(ValueError, match=r"Invalid adjustment_set='optmal'.*None"):
+            model.adjustment_model("X -> Y", adjustment_set="optmal")  # type: ignore[arg-type]
+
+    def test_variable_literally_named_optimal_is_an_explicit_set(self, rng):
+        data = pd.DataFrame({
+            name: rng.normal(size=80) for name in ["optimal", "X", "Y"]
+        })
+        model = pathmc.model("X ~ optimal\nY ~ X + optimal", data=data)
+        adjusted = model.adjustment_model("X -> Y", adjustment_set={"optimal"})
+        assert adjusted.adjustment_set == frozenset({"optimal"})
+
+    def test_missing_optimal_data_column_uses_existing_construction_error(self, rng):
+        model = pathmc.model(self.SPEC)
+        data = self._data(rng).drop(columns=["P"])
+        with pytest.raises(KeyError, match="P"):
+            model.adjustment_model("X -> Y", adjustment_set="optimal", data=data)
+
+    def test_valid_additional_formula_predictor_is_preserved(self, rng):
+        spec = self.SPEC + "\nW ~ I"
+        model = pathmc.model(spec, data=self._data(rng))
+        adjusted = model.adjustment_model(
+            "X -> Y",
+            adjustment_set="optimal",
+            formula="Y ~ X + P + W",
+        )
+        assert adjusted.adjustment_set == frozenset({"P"})
+        assert adjusted.formula == "Y ~ X + P + W"
+
+    def test_invalid_additional_formula_predictor_is_still_rejected(self, rng):
+        model = pathmc.model("M ~ X\nY ~ M + P", data=self._data(rng))
+        with pytest.raises(ValueError, match="descendant"):
+            model.adjustment_model(
+                "X -> Y",
+                adjustment_set="optimal",
+                formula="Y ~ X + P + M",
+            )
+
+    def test_bernoulli_outcome_constructs_with_graphical_option(self, rng):
+        data = self._data(rng)
+        data["Y"] = rng.binomial(1, 0.5, size=len(data)).astype(float)
+        model = pathmc.model(self.SPEC, data=data, families={"Y": "bernoulli"})
+        adjusted = model.adjustment_model("X -> Y", adjustment_set="optimal")
+        assert adjusted.adjustment_set == frozenset({"P"})
+        assert adjusted.outcome_model._families["Y"] == "bernoulli"
+
+    def test_observed_o_set_unavailable_through_public_model(self):
+        model = pathmc.model("M ~ X\nY ~ M\nQ ~ W\nM ~~ Q")
+        with pytest.raises(ValueError, match=r"M ~~ Q.*explicit valid set"):
+            model.adjustment_model("X -> Y", adjustment_set="optimal")
+
+    def test_panel_guard_still_precedes_optimal_selection(self, rng):
+        data = pd.DataFrame({
+            "unit": ["a", "a", "b", "b"],
+            "time": [0, 1, 0, 1],
+            "X": rng.normal(size=4),
+            "Y": rng.normal(size=4),
+        })
+        model = pathmc.model(
+            "Y ~ X",
+            data=data,
+            panel={"unit": "unit", "time": "time"},
+        )
+        with pytest.raises(NotImplementedError, match="Panel adjustment models"):
+            model.adjustment_model("X -> Y", adjustment_set="optimal")
 
 
 class TestUnidentifiedQuery:
@@ -657,6 +782,25 @@ class TestFitAndEstimands:
         assert ate.interventional is True
         assert ate.identifiable is True
         assert ate.dataset.attrs["estimator"] == "regression_adjustment"
+
+    def test_optimal_set_variables_are_stamped_on_estimand_and_interpret(
+        self, mock_pymc_sample, rng
+    ):
+        spec = "M1 ~ Z1 + X\nM2 ~ Z2\nY ~ M1 + M2\nX ~ Z2"
+        df = pd.DataFrame({
+            v: rng.normal(size=80) for v in ["X", "Y", "Z1", "Z2", "M1", "M2"]
+        })
+        model = pathmc.model(spec, data=df)
+        adjusted = model.adjustment_model("X -> Y", adjustment_set="optimal")
+        adjusted.fit(draws=40, chains=2, random_seed=42)
+
+        ate = adjusted.ate()
+        comparisons = adjusted.comparisons(variable="X", average_by="all")
+
+        assert ate.dataset.attrs["adjustment_set"] == ("M2", "Z1")
+        assert comparisons.dataset.attrs["adjustment_set"] == ("M2", "Z1")
+        assert ate.dataset.attrs["estimator"] == "regression_adjustment"
+        assert comparisons.causal is True
 
 
 class TestBernoulliATE:

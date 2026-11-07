@@ -62,6 +62,7 @@ from pathmc.identify import (
     frontdoor_identifiable as _frontdoor_identifiable,
     implied_independences as _implied_independences,
     is_identifiable as _is_identifiable,
+    optimal_adjustment_set as _optimal_adjustment_set,
     test_implications as _test_implications,
 )
 from pathmc.introspect import (
@@ -1503,6 +1504,46 @@ class PathModel:
         """
         return _adjustment_sets(self._graph_info, treatment, outcome)
 
+    def optimal_adjustment_set(self, treatment: str, outcome: str) -> set[str]:
+        """Return the graphical variance-optimal adjustment set (O-set).
+
+        This data-free query uses the contemporaneous causal DAG, including
+        latent common causes declared through ``~~``. The returned O-set can
+        include precision variables that are not required by any minimal
+        identification set.
+
+        The variance guarantee is asymptotic and applies to adjusted OLS in
+        causal linear models. It is not a general finite-sample posterior-
+        variance guarantee for pathmc's Bayesian GLM estimators, informative
+        priors, or misspecified outcome regressions.
+
+        Parameters
+        ----------
+        treatment : str
+            Observed treatment variable name.
+        outcome : str
+            Observed outcome variable name. It must be a descendant of the
+            treatment in the declared contemporaneous DAG.
+
+        Returns
+        -------
+        set[str]
+            Fresh set containing the observed O-set. An empty set is a valid
+            result.
+
+        Raises
+        ------
+        ValueError
+            If the query is outside the observed, directed-path domain, no
+            observed backdoor set exists, or the O-set requires a latent node.
+
+        See Also
+        --------
+        adjustment_sets : Enumerate minimal identifying sets.
+        adjustment_model : Fit an outcome regression with a selected set.
+        """
+        return _optimal_adjustment_set(self._graph_info, treatment, outcome)
+
     def is_identifiable(self, treatment: str, outcome: str) -> bool:
         """Check if the causal effect of *treatment* on *outcome* is
         identifiable via the backdoor criterion.
@@ -1540,7 +1581,7 @@ class PathModel:
         *,
         treatment: str | None = None,
         outcome: str | None = None,
-        adjustment_set: set[str] | None = None,
+        adjustment_set: set[str] | Literal["optimal"] | None = None,
         formula: str | None = None,
         data: IntoFrame | None = None,
         families: dict[str, str] | None = None,
@@ -1561,9 +1602,14 @@ class PathModel:
             Treatment variable name.
         outcome : str | None
             Outcome variable name.
-        adjustment_set : set[str] | None
-            Explicit backdoor adjustment set. Required when several minimal
-            sets exist; otherwise the unique minimal set is auto-selected.
+        adjustment_set : set[str] | {"optimal"} | None
+            Explicit backdoor adjustment set, or ``"optimal"`` to use the
+            graphical O-set. With ``None``, the unique minimal set is
+            auto-selected and several minimal sets raise for an explicit
+            choice. The O-set can be nonminimal because it also includes
+            precision variables. Its efficiency guarantee is asymptotic for
+            adjusted OLS in causal linear models, not a general Bayesian GLM
+            posterior-variance guarantee.
         formula : str | None
             Custom reduced regression formula. Must include the treatment
             and every member of the adjustment set.
@@ -1599,6 +1645,7 @@ class PathModel:
         See Also
         --------
         pathmc.adjustment.AdjustmentModel : The returned facade.
+        optimal_adjustment_set : Inspect the O-set without constructing a model.
         pathmc.interpret.datagrid : Build a covariate grid for interpret queries.
         """
         from pathmc.adjustment import AdjustmentModel
