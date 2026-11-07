@@ -1,0 +1,354 @@
+{
+  "status": "ok",
+  "model_construction_seconds": 0.04546829199534841,
+  "initialization_preparation_seconds": 0.6952926249941811,
+  "initialization": {
+    "mode": "stable",
+    "offset": 0.01,
+    "starting_phi": 0.61,
+    "variables": {
+      "sigma_a": {
+        "shape": [],
+        "sha256": "84db3d705b28d42e95c83f5ddb1f475c8e498eef26417ed229da9d39e6d70160"
+      },
+      "beta_a": {
+        "shape": [
+          3
+        ],
+        "sha256": "46308cce520c59d50fdb796c6163fc3383569e3e86a14df8c1d3175b9cd08a65"
+      },
+      "init_a": {
+        "shape": [
+          3
+        ],
+        "sha256": "e16c5e65ce8aa4efd8c75e9cbab928b1907d14b406edfa78d91576410e283003"
+      },
+      "innovations_a": {
+        "shape": [
+          30,
+          3
+        ],
+        "sha256": "688196392caea1c642c66734fec81878fd39569ac569aa2b2f1a13c23f7dac98"
+      },
+      "sigma_y": {
+        "shape": [],
+        "sha256": "ef0793ddf3d68ba6a8971e33bac5d30591f13fbb1b8c5fc736b5497783459483"
+      }
+    }
+  },
+  "fit_including_compilation_tuning_sampling_and_conversion_seconds": 13.831660750001902,
+  "pointwise_log_likelihood_seconds": 1.2252026670030318,
+  "end_to_end_seconds": 15.797624333994463,
+  "compiler_and_postprocessing_events_inclusive": {
+    "pytensor_function_compilation": {
+      "calls": 5,
+      "seconds": 0.5639284570206655,
+      "compiled_linkers": [
+        "VMLinker",
+        "NumbaLinker"
+      ]
+    }
+  },
+  "tuning_sum_of_chain_clocks_seconds": 7.108569865726167,
+  "retained_sum_of_chain_clocks_seconds": 5.097647120521287,
+  "clock_note": "Inclusive compiler buckets overlap. JIT, tuning, sampling and deterministic expansion are not separately exposed on every backend; absent boundaries are null, never inferred by subtraction. Chain clocks are sums, not elapsed wall time. End-to-end excludes data generation/imports/diagnostic calculation and includes construction, initialization preparation, fit and pointwise likelihood.",
+  "sampler_settings": {
+    "draws": 1000,
+    "tune": 1000,
+    "chains": 2,
+    "cores": 1,
+    "nuts_sampler": "pymc",
+    "random_seed": 85,
+    "progressbar": false,
+    "target_accept": 0.95,
+    "compute_convergence_checks": false,
+    "discard_tuned_samples": false,
+    "idata_kwargs": {
+      "save_warmup": true
+    },
+    "init": "adapt_diag"
+  },
+  "gradient_backend": "pytensor",
+  "free_parameter_count": 98,
+  "observed_measurements": 90,
+  "imputed_measurements": 0,
+  "divergences": 0,
+  "maximum_rhat": 1.0303997632873532,
+  "minimum_bulk_ess": 76.33967997635578,
+  "minimum_tail_ess": 154.07214604595566,
+  "minimum_bulk_ess_per_end_to_end_second": 4.832351900664113,
+  "minimum_tail_ess_per_end_to_end_second": 9.75286807614561,
+  "diagnostics": {
+    "beta_a[Intercept]": {
+      "mean": 0.09129281340266603,
+      "sd": 0.029495225816956724,
+      "eti89_lb": 0.04546450547916246,
+      "eti89_ub": 0.13861869070012733,
+      "ess_bulk": 858.7222759492448,
+      "ess_tail": 1047.7020321739567,
+      "r_hat": 1.004676858661606,
+      "mcse_mean": 0.0010070537523534332,
+      "mcse_sd": 0.0007203124423809151
+    },
+    "beta_a[lag(a)]": {
+      "mean": 0.6454353273267355,
+      "sd": 0.05681250410771711,
+      "eti89_lb": 0.5506985992884817,
+      "eti89_ub": 0.7326898266931968,
+      "ess_bulk": 699.9393399145091,
+      "ess_tail": 827.8622053002811,
+      "r_hat": 1.0023583278431565,
+      "mcse_mean": 0.0021647415031503534,
+      "mcse_sd": 0.001568821273222516
+    },
+    "beta_a[x]": {
+      "mean": 0.23736107329851008,
+      "sd": 0.02423319171360998,
+      "eti89_lb": 0.19794081773052627,
+      "eti89_ub": 0.2765128510245649,
+      "ess_bulk": 870.747851905819,
+      "ess_tail": 1019.2571524402346,
+      "r_hat": 1.0041127831072023,
+      "mcse_mean": 0.000823182787130506,
+      "mcse_sd": 0.0005811142689468472
+    },
+    "sigma_a": {
+      "mean": 0.2068644347132049,
+      "sd": 0.02705520552966871,
+      "eti89_lb": 0.16403403459864926,
+      "eti89_ub": 0.25035727670372676,
+      "ess_bulk": 117.21780951845868,
+      "ess_tail": 281.6547641951871,
+      "r_hat": 1.0218597184344609,
+      "mcse_mean": 0.0024922231760493947,
+      "mcse_sd": 0.0017555903169981003
+    },
+    "sigma_y": {
+      "mean": 0.11361885126223174,
+      "sd": 0.02660859709224687,
+      "eti89_lb": 0.07269616396425894,
+      "eti89_ub": 0.15761772662192394,
+      "ess_bulk": 76.33967997635578,
+      "ess_tail": 154.07214604595566,
+      "r_hat": 1.0303997632873532,
+      "mcse_mean": 0.0030432151811960947,
+      "mcse_sd": 0.002327225714737313
+    },
+    "init_a[0]": {
+      "mean": 0.017349376878271424,
+      "sd": 0.23878288955352153,
+      "eti89_lb": -0.3733241402095258,
+      "eti89_ub": 0.4019801124074573,
+      "ess_bulk": 2727.204541827282,
+      "ess_tail": 1482.321663133183,
+      "r_hat": 1.0009856211527808,
+      "mcse_mean": 0.004585026171237118,
+      "mcse_sd": 0.003254118320799141
+    },
+    "init_a[1]": {
+      "mean": 0.4575666901946455,
+      "sd": 0.2442170607252831,
+      "eti89_lb": 0.0694704692470318,
+      "eti89_ub": 0.8319210787674364,
+      "ess_bulk": 1701.042886014678,
+      "ess_tail": 1422.7866677072093,
+      "r_hat": 0.99946649114858,
+      "mcse_mean": 0.005918655585751807,
+      "mcse_sd": 0.003988655453915109
+    },
+    "init_a[2]": {
+      "mean": 0.49166189366995683,
+      "sd": 0.2313320292552298,
+      "eti89_lb": 0.1204103902762217,
+      "eti89_ub": 0.8699774878074767,
+      "ess_bulk": 2135.6409942767573,
+      "ess_tail": 1344.5397140372593,
+      "r_hat": 1.0002928157070348,
+      "mcse_mean": 0.005005773031627933,
+      "mcse_sd": 0.003592669162865665
+    },
+    "selected_latent_a[0, 0]": {
+      "mean": 0.27461894930680547,
+      "sd": 0.10330873326414099,
+      "eti89_lb": 0.11558530809821549,
+      "eti89_ub": 0.4445810328853493,
+      "ess_bulk": 2438.04193745552,
+      "ess_tail": 1348.354474392549,
+      "r_hat": 1.0000604608023111,
+      "mcse_mean": 0.0021009796412405964,
+      "mcse_sd": 0.0015367353282704154
+    },
+    "selected_latent_a[0, 1]": {
+      "mean": 0.7234057514436492,
+      "sd": 0.10418154545975264,
+      "eti89_lb": 0.5604965567291798,
+      "eti89_ub": 0.8918919802450508,
+      "ess_bulk": 955.965047337552,
+      "ess_tail": 1095.6498450257075,
+      "r_hat": 1.001816890597368,
+      "mcse_mean": 0.003423270071382517,
+      "mcse_sd": 0.0024721804676074606
+    },
+    "selected_latent_a[0, 2]": {
+      "mean": 0.6554483839234706,
+      "sd": 0.10141537813008021,
+      "eti89_lb": 0.49259477400892004,
+      "eti89_ub": 0.8117888381948327,
+      "ess_bulk": 1907.7236274335473,
+      "ess_tail": 1510.2021098323157,
+      "r_hat": 1.0024463944634483,
+      "mcse_mean": 0.0023292654456898046,
+      "mcse_sd": 0.0019182619681726173
+    },
+    "selected_latent_a[15, 0]": {
+      "mean": 0.21500793325610335,
+      "sd": 0.09645982090472398,
+      "eti89_lb": 0.06029724083471277,
+      "eti89_ub": 0.3701176577514623,
+      "ess_bulk": 2043.6646205184895,
+      "ess_tail": 1234.8432216492272,
+      "r_hat": 1.0031644824062005,
+      "mcse_mean": 0.0021479954167168943,
+      "mcse_sd": 0.00157709283947233
+    },
+    "selected_latent_a[15, 1]": {
+      "mean": 0.4874328219258202,
+      "sd": 0.0989306053496938,
+      "eti89_lb": 0.3253928085814618,
+      "eti89_ub": 0.6447276382747905,
+      "ess_bulk": 1619.5075392854703,
+      "ess_tail": 1168.6014222449976,
+      "r_hat": 1.0033955757399216,
+      "mcse_mean": 0.002517810242872661,
+      "mcse_sd": 0.0018139701367810754
+    },
+    "selected_latent_a[15, 2]": {
+      "mean": 0.019960183990639074,
+      "sd": 0.09843875452115448,
+      "eti89_lb": -0.1341257644278729,
+      "eti89_ub": 0.1770770197006351,
+      "ess_bulk": 3282.817323959776,
+      "ess_tail": 1611.3611171576451,
+      "r_hat": 1.0017473001082935,
+      "mcse_mean": 0.0017150760201906977,
+      "mcse_sd": 0.0012734345321382405
+    },
+    "selected_latent_a[29, 0]": {
+      "mean": -0.5108786704282673,
+      "sd": 0.12167976790418197,
+      "eti89_lb": -0.693343301607406,
+      "eti89_ub": -0.3113695965160195,
+      "ess_bulk": 332.7900687154509,
+      "ess_tail": 662.9891498817769,
+      "r_hat": 1.0078849303620854,
+      "mcse_mean": 0.006898621955765065,
+      "mcse_sd": 0.005334365071182022
+    },
+    "selected_latent_a[29, 1]": {
+      "mean": -0.7861557464510959,
+      "sd": 0.11605736673108827,
+      "eti89_lb": -0.9547916875703223,
+      "eti89_ub": -0.5934279723460207,
+      "ess_bulk": 416.75691096047944,
+      "ess_tail": 438.14591509931506,
+      "r_hat": 1.00736095825396,
+      "mcse_mean": 0.005985607071175653,
+      "mcse_sd": 0.0046631884589547765
+    },
+    "selected_latent_a[29, 2]": {
+      "mean": 0.6572297012837431,
+      "sd": 0.10119896917010533,
+      "eti89_lb": 0.49144601245499064,
+      "eti89_ub": 0.8147262620548414,
+      "ess_bulk": 3118.64917311095,
+      "ess_tail": 1303.7572012945282,
+      "r_hat": 1.0015652483855135,
+      "mcse_mean": 0.0018389540166684646,
+      "mcse_sd": 0.0014548753421068173
+    }
+  },
+  "diagnostics_acceptable_for_comparison": false,
+  "environment": {
+    "commit": "b1c0423c7e6c1dd7ded8017fd3037fc79a56c1cb",
+    "source_tree": "db370e73b387bc61d4ff0523d0277c8dc1f6e40f",
+    "dirty": false,
+    "python": "3.12.12 (main, Dec 17 2025, 21:07:08) [Clang 21.1.4 ]",
+    "versions": {
+      "pathmc": "0.5.0",
+      "pymc": "6.3.2",
+      "pytensor": "3.3.6",
+      "arviz": "1.2.0",
+      "numpy": "2.4.6",
+      "nutpie": "0.16.10",
+      "numba": "0.65.1",
+      "numpyro": "0.21.0",
+      "jax": "0.10.1",
+      "jaxlib": "0.10.1"
+    },
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "cpu_model": "Apple M1 Max",
+    "logical_cpus": 10,
+    "threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "NUMBA_NUM_THREADS": "1"
+    },
+    "floatX": "float64",
+    "pytensor_mode": "Mode",
+    "compiledir": "/Users/benjamv/.codex/worktrees/adbc/pathmc/.scratch/sampler-caches/run-720ncedy/0/pytensor",
+    "numba_cache_dir": "/Users/benjamv/.codex/worktrees/adbc/pathmc/.scratch/sampler-caches/run-720ncedy/0/numba",
+    "jax_enable_x64": true,
+    "jax_devices": [
+      "cpu:0"
+    ],
+    "jax_compilation_cache_dir": "/Users/benjamv/.codex/worktrees/adbc/pathmc/.scratch/sampler-caches/run-720ncedy/0/jax",
+    "xla_flags": "--xla_force_host_platform_device_count=100 --xla_force_host_platform_device_count=1",
+    "jax_platforms": "cpu"
+  },
+  "units": 3,
+  "periods": 30,
+  "observed_fraction": 1.0,
+  "sampler": "pymc",
+  "seed": 85,
+  "data_seed": 85,
+  "cache": "cold",
+  "repetition": 0,
+  "smoke": false,
+  "process_experiment_seconds": 18.131195207999554,
+  "peak_process_rss_bytes": 527433728,
+  "system_load_average_before": [
+    6.3896484375,
+    6.6953125,
+    7.1220703125
+  ],
+  "system_load_average_after": [
+    7.12158203125,
+    6.853515625,
+    7.1708984375
+  ],
+  "requested_settings": {
+    "output": ".scratch/build-loop/issue-85/controlled-measurements/u3-t30-obs1-pymc-cold-0.json",
+    "sampler": "pymc",
+    "matrix": false,
+    "units": 3,
+    "periods": 30,
+    "observed_fraction": 1.0,
+    "draws": 1000,
+    "tune": 1000,
+    "chains": 2,
+    "target_accept": 0.95,
+    "initialization": "stable",
+    "repetitions": 3,
+    "seed": 85,
+    "data_seed": 85,
+    "cache": "cold",
+    "gradient_backend": "jax",
+    "smoke": false,
+    "worker": true,
+    "repetition": 0
+  }
+}

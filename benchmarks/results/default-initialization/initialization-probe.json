@@ -1,0 +1,67 @@
+{
+  "source_commit": "709c7151da7ce9cf84486b3140bf1a1d52fc9999",
+  "versions": {
+    "pathmc": "0.5.0",
+    "pymc": "6.3.2",
+    "pytensor": "3.3.6",
+    "arviz": "1.2.0",
+    "numpy": "2.4.6",
+    "nutpie": "0.16.10",
+    "numba": "0.65.1",
+    "numpyro": "0.21.0",
+    "jax": "0.10.1",
+    "jaxlib": "0.10.1"
+  },
+  "data_seed": 85,
+  "starts": [
+    {
+      "public_seed": 85,
+      "driver_seeds": [
+        838266350,
+        948325155
+      ],
+      "phi": [
+        1.1476565368899743,
+        1.5440866320642517
+      ],
+      "logp": [
+        -100507.42827975868,
+        -61524210745292.414
+      ]
+    },
+    {
+      "public_seed": 86,
+      "driver_seeds": [
+        907846594,
+        989495877
+      ],
+      "phi": [
+        1.5901976897202763,
+        -0.2089475040840737
+      ],
+      "logp": [
+        -6407697708219.987,
+        -255.4028659443095
+      ]
+    },
+    {
+      "public_seed": 87,
+      "driver_seeds": [
+        640667072,
+        907699817
+      ],
+      "phi": [
+        -0.36407262722482503,
+        0.11083846792180274
+      ],
+      "logp": [
+        -6711.324405026177,
+        -1049.211616101668
+      ]
+    }
+  ],
+  "support_point_phi": 0.6,
+  "support_point_logp": -125.09968554205807,
+  "working_tree_dirty": true,
+  "probe_scope": "Initialization probe while harness controls were being edited; fixture and statistical model unchanged from source_commit."
+}
