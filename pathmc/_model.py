@@ -31,6 +31,8 @@ import pymc as pm
 import xarray as xr
 from narwhals.stable.v1.typing import IntoFrame, IntoFrameT
 
+from pathmc._query import QueryCache, mean_scenarios, current_data
+from pathmc._query import run_prediction as _run_prepared_prediction
 from pathmc.compile import (
     _requires_rectangular_panel,
     _build_lag_map,
@@ -561,6 +563,7 @@ class PathModel:
         self._initial_explicit = initial_explicit
         self._initial_baseline: InitialBaseline | None = None
         self._construction: dict[str, Any] | None = None
+        self._query_cache = QueryCache()
         # Fit-time data-basis state. Later compiles (predictions, set_priors)
         # replay it so knots are not recomputed on a query frame.
         self._frozen_basis_states: dict[Any, Any] | None = None
@@ -631,6 +634,7 @@ class PathModel:
     def _compile(self) -> None:
         """Compile the generative PyMC model and attach observations."""
         assert self._data is not None
+        self._query_cache.clear()
         _reject_within_block_directed_edges(self._spec, caller="model")
         # Drop any generative sibling; it must be rebuilt against this compile.
         self._residual_predictive_model = None
@@ -1150,6 +1154,7 @@ class PathModel:
         """
         self._require_data("fit")
         assert self._pymc_model is not None
+        self._query_cache.clear()
         if sys.platform == "darwin" and "mp_ctx" not in kwargs:
             kwargs.setdefault("mp_ctx", "forkserver")
         with self._pymc_model:
@@ -1232,7 +1237,7 @@ class PathModel:
         scan_info = getattr(self._gen_model, "_pathmc_panel_scan", None)
         if scan_info is not None:
             validate_panel_scan_shape(self._pymc_model, scan_info)
-        with self._prediction_data(data) as prediction_data:
+        with self._query_cache.lock, self._prediction_data(data) as prediction_data:
             with self._pymc_model, _observed_carry(self._pymc_model, one_step_ahead):
                 if (
                     scan_info is not None
@@ -1278,7 +1283,7 @@ class PathModel:
                             set(requested)
                             | {rv.name for rv in self._pymc_model.observed_RVs}
                         )
-                    pp = pm.sample_posterior_predictive(idata, **kwargs)
+                    pp = _run_prepared_prediction(self, kwargs)
         result = pp if not kwargs["extend_inferencedata"] else idata
         if self._scaling_factors is not None and prediction_data is not None:
             assert self._data is not None
@@ -1839,23 +1844,30 @@ class PathModel:
         assert self._gen_model is not None
         assert self._data is not None
         assert self._idata is not None
-        gen_model = (
-            self._predictive_gen_model() if kind == "predictive" else self._gen_model
-        )
-        return run_do_pymc(
-            gen_model=gen_model,
-            graph_info=self._graph_info,
-            idata=self._idata,
-            data=self._data,
-            set=set,
-            kind=kind,
-            families=self._families,
-            subgroup_indices=subgroup_indices,
-            scaling_factors=self._scaling_factors,
-            categorical_vars=self._categorical_vars,
-            average_units=average_units,
-            random_seed=random_seed,
-        )
+        if kind == "mean" and subgroup_indices is None:
+            prepared = mean_scenarios(self, [set or {}], average_units)
+            if prepared is not None:
+                return prepared[0]
+        with self._query_cache.lock, current_data(self):
+            gen_model = (
+                self._predictive_gen_model()
+                if kind == "predictive"
+                else self._gen_model
+            )
+            return run_do_pymc(
+                gen_model=gen_model,
+                graph_info=self._graph_info,
+                idata=self._idata,
+                data=self._data,
+                set=set,
+                kind=kind,
+                families=self._families,
+                subgroup_indices=subgroup_indices,
+                scaling_factors=self._scaling_factors,
+                categorical_vars=self._categorical_vars,
+                average_units=average_units,
+                random_seed=random_seed,
+            )
 
     @contextmanager
     def _categorical_intervention(self, values: Mapping[str, Any]) -> Iterator[None]:
@@ -2678,6 +2690,27 @@ class PathModel:
         """
         self._require_data("ate")
         lo, hi = values
+        if do_kwargs.get("kind", "mean") == "mean" and not do_kwargs.keys() - {
+            "kind",
+            "average_units",
+            "random_seed",
+        }:
+            self._require_fitted("do")
+            prepared = mean_scenarios(
+                self,
+                [{treatment: lo}, {treatment: hi}],
+                do_kwargs.get("average_units", True),
+            )
+            if prepared is not None:
+                assert self._data is not None
+                for value in (lo, hi):
+                    _warn_extrapolation(self._data, {treatment: value})
+                return EstimandResult.from_contrast(
+                    prepared[1] - prepared[0],
+                    outcome=outcome,
+                    treatment=treatment,
+                    estimand="ATE",
+                )
         r_lo = self.do(set={treatment: lo}, **do_kwargs)
         r_hi = self.do(set={treatment: hi}, **do_kwargs)
         return EstimandResult.from_contrast(
