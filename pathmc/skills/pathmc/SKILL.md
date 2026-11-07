@@ -150,10 +150,9 @@ The DSL is lavaan-inspired:
    `test_implications()`, `falsify()`, `sensitivity()`,
    `refute_placebo()` raise `RuntimeError` until the model is rebuilt
    with data (and `refute_placebo()` also needs a prior `.fit()`).
-8. **`PathModel` is not in `pathmc.__all__`** — it's the class returned
-   by `model()`. You don't import it directly; you receive it. Type
-   annotations can use `pathmc.PathModel` (it is reachable as an
-   attribute) but the public entrypoint is the `model()` function.
+8. **`PathModel` is in `pathmc.__all__`.** `model()` returns that class.
+   Import it when an annotation needs the class (`from pathmc import PathModel`
+   or `pathmc.PathModel`). The call that builds a model is still `model()`.
 9. **`adjustment_model()` returns an `AdjustmentModel` facade.**
    Inspect `adj.adjustment_set` and `adj.formula` before calling
    `adj.fit()`. An empty set `{}` is valid when no covariates are
