@@ -230,6 +230,40 @@ def test_colon_inside_stage_stays_a_bad_reference():
 
 
 @pytest.mark.parametrize(
+    ("pipe", "nested"),
+    [
+        (
+            "Y ~ a*(x |> adstock(decay=1e+5))",
+            "Y ~ a*adstock(x, decay=1e+5)",
+        ),
+        ("Y ~ (x |> f(p=1e+5))", "Y ~ f(x, p=1e+5)"),
+        ("Y ~ (x |> f(p=1E+5))", "Y ~ f(x, p=1E+5)"),
+        ("Y ~ (x |> f(p=1.e+5))", "Y ~ f(x, p=1.e+5)"),
+        ("Y ~ (x |> f(p=.5e+2))", "Y ~ f(x, p=.5e+2)"),
+        ("Y ~ (x |> f(p=2e+3))", "Y ~ f(x, p=2e+3)"),
+        ("Y ~ (x |> f(p=2.5e+3))", "Y ~ f(x, p=2.5e+3)"),
+    ],
+)
+def test_plus_exponent_stage_parameter_is_rejected(pipe, nested):
+    with pytest.raises(ParseError, match="parameter reference"):
+        parse_spec(pipe)
+    with pytest.raises(ParseError):
+        parse_spec(nested)
+
+
+@pytest.mark.parametrize(
+    ("pipe", "nested"),
+    [
+        ("Y ~ a*(x |> f(p=1e-5))", "Y ~ a*f(x, p=1e-5)"),
+        ("Y ~ (x |> f(p=2e3))", "Y ~ f(x, p=2e3)"),
+        ("Y ~ a*(x |> adstock(decay=-0.5))", "Y ~ a*adstock(x, decay=-0.5)"),
+    ],
+)
+def test_kept_numeric_stage_parameters_match_nested(pipe, nested):
+    assert parse_spec(pipe) == parse_spec(nested)
+
+
+@pytest.mark.parametrize(
     "spec",
     [
         "Y ~ (x + y) |> f()",

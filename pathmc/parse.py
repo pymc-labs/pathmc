@@ -1186,8 +1186,10 @@ def _find_top_level_colon(raw: str) -> int | None:
 
 
 _PIPE_IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+# A plus in the exponent is a term operator in the nested spelling.
+# Grouping must not accept a parameter that call cannot parse.
 _PIPE_REFERENCE = re.compile(
-    r"(?:[A-Za-z_]\w*|-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\Z"
+    r"(?:[A-Za-z_]\w*|-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE]-?\d+)?)\Z"
 )
 
 
