@@ -326,13 +326,55 @@ def _matching_paren(masked: str, open_at: int) -> int | None:
     return None
 
 
+_NEXT_EQUATION = re.compile(r"^[A-Za-z_]\w*\s*(?:~~|:=|~)")
+
+
+def _pipe_before_next_equation(masked: str, start: int) -> bool:
+    """Whether ``|>`` appears after ``start`` before the next equation."""
+    index = start
+    while index < len(masked):
+        if masked[index] == "\n":
+            next_line = masked[index + 1 :].split("\n", 1)[0].lstrip()
+            if _NEXT_EQUATION.match(next_line):
+                return _find_pipe_token(masked[start:index]) is not None
+        index += 1
+    return _find_pipe_token(masked[start:]) is not None
+
+
+def _coefficient_before(text: str, open_at: int) -> str | None:
+    """Coefficient token immediately before ``text[open_at]``, if any."""
+    index = open_at - 1
+    while index >= 0 and text[index].isspace():
+        index -= 1
+    if index < 0 or text[index] != "*":
+        return None
+    index -= 1
+    while index >= 0 and text[index].isspace():
+        index -= 1
+    end = index + 1
+    while index >= 0 and text[index] not in " \t\n+;~":
+        index -= 1
+    token = text[index + 1 : end]
+    return token or None
+
+
+def _closed_group_example(text: str, open_at: int) -> str:
+    """Closed-form suggestion using the real coefficient when one is present."""
+    token = _coefficient_before(text, open_at)
+    example = "(x |> f())"
+    if token:
+        return f"{token}*{example}"
+    return example
+
+
 def _group_introducer(masked: str, index: int) -> bool:
     """True when ``masked[index]`` opens a pipeline group after ``~``, ``+``, ``*``, or start.
 
-    The pipe need not be the first token. ``(x + y |> f())`` is one group so
-    the sum reaches the pipeline diagnostic instead of a torn transform call.
-    A call such as ``f(x, p=a|>b)`` is not a group: its ``(`` is not preceded
-    by ``~``, ``+``, ``*``, or the start of the text.
+    A group contains ``|>``, including an unclosed introducer paren when the
+    pipe appears before the next equation. A closed span followed by ``|>``,
+    such as ``(x + y) |> f()``, is also a group so the sum is not split
+    before the pipeline diagnostic. A call such as ``f(x, p=a|>b)`` is not a
+    group: its ``(`` is not preceded by ``~``, ``+``, ``*``, or the start.
     """
     if index >= len(masked) or masked[index] != "(":
         return False
@@ -341,8 +383,11 @@ def _group_introducer(masked: str, index: int) -> bool:
         return False
     close = _matching_paren(masked, index)
     if close is None:
-        return False
-    return _find_pipe_token(masked[index : close + 1]) is not None
+        return _pipe_before_next_equation(masked, index)
+    if _find_pipe_token(masked[index : close + 1]) is not None:
+        return True
+    rest = masked[close + 1 :].lstrip()
+    return _pipe_token_at(rest, 0)
 
 
 def _note_call_char(ch: str, depth: int, keyword_depths: list[int]) -> tuple[int, bool]:
@@ -399,9 +444,9 @@ def _pipeline_group_spans(text: str) -> list[tuple[int, int]]:
 def _split_rhs_terms(rhs: str) -> list[str]:
     """Split additive terms without tearing a grouped pipeline.
 
-    ``a*(x |> f()) + z`` is two terms. ``a*(x |> f() + z)`` and
-    ``(x + y |> f())`` are one malformed group; splitting either first hides
-    the sum.
+    ``a*(x |> f()) + z`` is two terms. ``a*(x |> f() + z)``,
+    ``(x + y |> f())``, and ``(x + y) |> f()`` stay one term so the
+    pipeline diagnostic sees the sum.
     """
     spans = _pipeline_group_spans(rhs)
     parts: list[str] = []
@@ -447,6 +492,8 @@ def _prepare_pipe_lines(spec_string: str) -> str:
         in_keyword = bool(keyword_depths) and depth == keyword_depths[-1]
         # A ``*`` inside a keyword value is not a coefficient group.
         if i in opens:
+            open_at = i
+            suggestion = _closed_group_example(visible, open_at)
             group_depth = 1
             i += 1
             while i < len(visible) and group_depth:
@@ -462,15 +509,19 @@ def _prepare_pipe_lines(spec_string: str) -> str:
                     )
                 elif ch == "\n":
                     next_line = visible[i + 1 :].split("\n", 1)[0].strip()
-                    if re.match(r"^[A-Za-z_]\w*\s*(?:~~|:=|~)", next_line):
+                    if _NEXT_EQUATION.match(next_line):
                         raise ParseError(
                             "Unclosed pipeline group before another equation. "
-                            "Close ')' before starting the next statement."
+                            "Close ')' before starting the next statement. "
+                            f"Write '{suggestion}'."
                         )
                     out[i] = " "
                 i += 1
             if group_depth:
-                raise ParseError("Unclosed pipeline group. Add the missing ')'.")
+                raise ParseError(
+                    "Unclosed pipeline group. Add the missing ')'. "
+                    f"Write '{suggestion}'."
+                )
             continue
         if ch == "\n" and depth == 0 and not in_keyword:
             next_line = visible[i + 1 :].split("\n", 1)[0].lstrip()
@@ -1164,21 +1215,135 @@ def _reject_pipeline_interaction(raw: str) -> None:
     )
 
 
+def _reject_parenthesized_pipe_seed(raw: str) -> None:
+    """Reject a parenthesized sum or interaction used as a pipe seed.
+
+    ``(x + y) |> f()`` and ``(x:z) |> f()`` are one term. Neither correction
+    is a chain that includes the sum or the interaction. ``(x) |> f()`` is
+    left to the grouped-chain rejection.
+    """
+    if not raw.startswith("("):
+        return
+    close = _matching_paren(_unquoted_source(raw), 0)
+    if close is None:
+        return
+    rest = raw[close + 1 :].lstrip()
+    if not _pipe_token_at(rest, 0):
+        return
+    interior = raw[1:close]
+    if _top_level_plus(interior) is not None:
+        seed = raw[: close + 1]
+        raise ParseError(
+            f"Invalid pipeline '{raw}': pipeline inputs must be plain variables. "
+            f"'{seed}' is a sum, not a pipeline input. "
+            "Write a plain source variable before the pipe, or write the sum as "
+            "separate terms."
+        )
+    colon_at = _find_top_level_colon(interior)
+    if colon_at is None:
+        return
+    fragment = f"{interior[colon_at:].strip()} {rest}".strip()
+    raise ParseError(
+        f"Invalid pipeline '{raw}': pipeline inputs must be plain variables. "
+        f"'{fragment}' is not a valid pipeline input. "
+        "Write a plain source variable before the pipe."
+    )
+
+
+def _pipeline_stage_names(raw: str) -> list[str]:
+    """Stage names after each depth-0 ``|>``."""
+    masked = _unquoted_source(raw)
+    names: list[str] = []
+    depth = 0
+    index = 0
+    while index < len(masked):
+        ch = masked[index]
+        if ch == "(":
+            depth += 1
+            index += 1
+            continue
+        if ch == ")":
+            if depth:
+                depth -= 1
+            index += 1
+            continue
+        if depth == 0 and _pipe_token_at(masked, index):
+            stage_at = index + 2
+            while stage_at < len(masked) and masked[stage_at].isspace():
+                stage_at += 1
+            stage = _PIPE_IDENTIFIER.match(masked, stage_at)
+            if stage is not None:
+                names.append(stage.group())
+            index = stage_at
+            continue
+        index += 1
+    return names
+
+
+def _reject_standalone_stage(name: str, original: str) -> None:
+    """Raise the existing standalone error for a special pipeline stage."""
+    if name.lower() in SPLINE_NAMES and name not in SPLINE_NAMES:
+        raise ParseError(
+            f"{name}(...) is not a standalone spline term. Use bs(), ns(), or ps() "
+            "directly on one variable, e.g. 'y ~ bs(x, df=5)'."
+        )
+    if name.lower() == "hsgp" and name != "hsgp":
+        raise ParseError(
+            f"Unknown function '{name}'. Did you mean hsgp(...)? "
+            "The hsgp() term is lowercase."
+        )
+    if name in {"lag", "C", "hsgp", "fourier", *SPLINE_NAMES} or _is_registered_basis(
+        name
+    ):
+        raise ParseError(
+            f"Invalid pipeline '{original}': '{name}' is a structural, "
+            "categorical, or basis term; "
+            f"use '{name}(x, ...)' as a standalone term."
+        )
+
+
+def _reject_structural_pipeline(raw: str, original: str) -> None:
+    """Reject a special stage before a grouping suggestion can hide it."""
+    for name in _pipeline_stage_names(raw):
+        _reject_standalone_stage(name, original)
+
+
 def _parse_pipeline(
     raw: str, *, prefixed: bool, coefficient: str | None = None
 ) -> TransformCall:
     """Lower a forward-pipe predictor into nested transform calls."""
     original = raw
+    token = coefficient if coefficient else "a"
     _reject_pipeline_interaction(raw)
-    if prefixed and not (raw.startswith("(") and raw.endswith(")")):
-        token = coefficient if coefficient else "a"
+    _reject_parenthesized_pipe_seed(raw)
+    close = _matching_paren(_unquoted_source(raw), 0) if raw.startswith("(") else None
+    if raw.startswith("(") and close is None:
+        suggestion = f"{token}*(x |> f())" if prefixed else "(x |> f())"
+        raise ParseError(
+            f"Unclosed pipeline group. Add the missing ')'. Write '{suggestion}'."
+        )
+    if close is not None:
+        rest = raw[close + 1 :].lstrip()
+        interior_has_pipe = _find_pipe_token(_unquoted_source(raw[1:close])) is not None
+        if interior_has_pipe and rest and not _pipe_token_at(rest, 0):
+            group = raw[: close + 1]
+            suggestion = f"{token}*{group}" if prefixed else group
+            raise ParseError(
+                f"Invalid pipeline '{original}': unexpected text "
+                f"'{rest.strip()}' after the pipeline group. "
+                f"Remove it and write '{suggestion}'."
+            )
+        if not rest:
+            raw = raw[1:close].strip()
+            _reject_pipeline_interaction(raw)
+            _reject_parenthesized_pipe_seed(raw)
+    elif prefixed:
+        _reject_structural_pipeline(raw, original)
         raise ParseError(
             f"Coefficient-prefixed pipeline '{original}' needs grouping. "
             f"Write '{token}*({raw})' so the coefficient applies after "
             "the transform."
         )
-    if raw.startswith("(") and raw.endswith(")"):
-        raw = raw[1:-1].strip()
     if not raw:
         raise ParseError(f"Empty pipeline group '{original}'. Write '(x |> f())'.")
     plus_at = _top_level_plus(raw)
@@ -1239,28 +1404,7 @@ def _parse_pipeline(
             raise fail(f"stage '{name}' has an unclosed call")
         args = raw[args_start:pos].strip()
         pos += 1
-        if name.lower() in SPLINE_NAMES and name not in SPLINE_NAMES:
-            raise ParseError(
-                f"{name}(...) is not a standalone spline term. Use bs(), ns(), or ps() "
-                "directly on one variable, e.g. 'y ~ bs(x, df=5)'."
-            )
-        if name.lower() == "hsgp" and name != "hsgp":
-            raise ParseError(
-                f"Unknown function '{name}'. Did you mean hsgp(...)? "
-                "The hsgp() term is lowercase."
-            )
-        if name in {
-            "lag",
-            "C",
-            "hsgp",
-            "fourier",
-            *SPLINE_NAMES,
-        } or _is_registered_basis(name):
-            raise ParseError(
-                f"Invalid pipeline '{original}': '{name}' is a structural, "
-                "categorical, or basis term; "
-                f"use '{name}(x, ...)' as a standalone term."
-            )
+        _reject_standalone_stage(name, original)
         params: dict[str, str] = {}
         if args:
             parts = args.split(",")

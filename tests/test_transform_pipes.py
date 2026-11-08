@@ -169,6 +169,129 @@ def test_ungrouped_sum_before_pipe_stays_additive():
 @pytest.mark.parametrize(
     "spec",
     [
+        "Y ~ (x:z |> f())",
+        "Y ~ a*(x:z |> f())",
+        "Y ~ 2*(x:z |> f())",
+        "Y ~ (x:z) |> f()",
+        "Y ~ a*(x:z) |> f()",
+    ],
+)
+def test_grouped_interaction_seed_skips_the_chain(spec):
+    with pytest.raises(ParseError) as exc:
+        parse_spec(spec)
+    message = str(exc.value)
+    assert ":z" in message
+    assert "plain variable" in message
+    assert "needs grouping" not in message
+    assert "x |> f(p=u)" not in message
+
+
+@pytest.mark.parametrize(
+    "spec",
+    ["Y ~ (x |> f():z)", "Y ~ a*(x |> f():z)"],
+)
+def test_grouped_transformed_interaction_skips_the_chain(spec):
+    with pytest.raises(ParseError) as exc:
+        parse_spec(spec)
+    message = str(exc.value)
+    assert ":z" in message
+    assert "unsupported" in message.lower()
+    assert "needs grouping" not in message
+    assert "x |> f(p=u)" not in message
+
+
+def test_colon_inside_stage_stays_a_bad_reference():
+    with pytest.raises(ParseError, match="parameter reference") as exc:
+        parse_spec("Y ~ a*(x |> f(p=a:b))")
+    message = str(exc.value)
+    assert "unsupported" not in message.lower()
+    assert "needs grouping" not in message
+    assert "Transformed interaction" not in message
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "Y ~ (x + y) |> f()",
+        "Y ~ a*(x + y) |> f()",
+        "Y ~ 2*(x + y) |> f()",
+    ],
+)
+def test_parenthesized_sum_before_pipe_is_not_torn(spec):
+    with pytest.raises(ParseError) as exc:
+        parse_spec(spec)
+    message = str(exc.value)
+    assert "Missing transform name" not in message
+    assert "x |> f(p=u)" not in message
+    assert "(x + y)" in message
+    assert "plain variable" in message
+
+
+@pytest.mark.parametrize(
+    ("spec", "suggestion"),
+    [
+        ("Y ~ a*(x\n |> f()\nZ ~ w", "a*(x |> f())"),
+        ("Y ~ (x\n|> f()\nZ ~ w", "(x |> f())"),
+        ("Y ~ a*(x |> f()\nZ ~ w", "a*(x |> f())"),
+        ("Y ~ 2*(x |> f(", "2*(x |> f())"),
+    ],
+)
+def test_unclosed_pipeline_group_names_the_closed_form(spec, suggestion):
+    with pytest.raises(ParseError) as exc:
+        parse_spec(spec)
+    message = str(exc.value)
+    assert "Unclosed pipeline group" in message
+    assert suggestion in message
+    assert "Missing transform name" not in message
+    assert "x |> f(p=u)" not in message
+    assert "needs grouping" not in message
+
+
+def test_ungrouped_pipeline_still_cannot_span_lines():
+    with pytest.raises(ParseError, match="cannot span lines"):
+        parse_spec("Y ~ x\n|> f()")
+
+
+def test_named_call_is_not_an_unclosed_pipeline_group():
+    with pytest.raises(ParseError) as exc:
+        parse_spec("Y ~ f(x\n |> g()\nZ ~ w")
+    message = str(exc.value)
+    assert "Write '(x |> f())'" not in message
+    assert "Write 'f*(x |> f())'" not in message
+
+
+@pytest.mark.parametrize(
+    ("spec", "forbidden"),
+    [
+        ("Y ~ 2*x |> lag()", "2*(x |> lag())"),
+        ("Y ~ a*x |> hsgp(m=20)", "a*(x |> hsgp(m=20))"),
+        ("Y ~ 1e-5*x |> fourier()", "1e-5*(x |> fourier())"),
+        ("Y ~ -1*x |> bs(df=5)", "-1*(x |> bs(df=5))"),
+        ("Y ~ a*x |> C()", "a*(x |> C())"),
+    ],
+)
+def test_prefixed_special_stage_does_not_suggest_grouping(spec, forbidden):
+    with pytest.raises(ParseError, match="standalone") as exc:
+        parse_spec(spec)
+    message = str(exc.value)
+    assert forbidden not in message
+    assert "needs grouping" not in message
+
+
+def test_prefixed_group_with_trailing_text_names_the_closed_form():
+    with pytest.raises(ParseError) as exc:
+        parse_spec("Y ~ 2*(x |> f()) trailing")
+    message = str(exc.value)
+    assert "2*(x |> f())" in message
+    assert "trailing" in message
+    assert "2*((x |> f()) trailing)" not in message
+    assert "needs grouping" not in message
+    assert "x |> f(p=u)" not in message
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
         "Y ~ f(g(x, p=a|>b), q=c+d)",
         "Y ~ logistic_saturation(x, lam=a|>b+c)",
         "Y ~ C(group, reference=a|>b+c) + x",
