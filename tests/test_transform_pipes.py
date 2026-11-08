@@ -87,10 +87,6 @@ def test_pipe_and_nested_forms_have_equal_full_specs(pipe, nested):
         "x |> f(_)",
         "x |> f(p=u,,q=v)",
         "x |> f(p=u) )",
-        "x | > f()",
-        "(x | > f())",
-        "a*(x | > f())",
-        "x ||> f()",
         "x |> f(p='u')",
         "x |> f(p=u.v)",
         "x |> f(p=g(u))",
@@ -138,6 +134,46 @@ def test_mixed_case_hsgp_stage_uses_standalone_guard(stage):
 def test_mixed_case_ordinary_transform_stage_still_parses():
     assert parse_spec("Y ~ x |> Fourier()") == parse_spec("Y ~ Fourier(x)")
     assert parse_spec("Y ~ x |> LAG()") == parse_spec("Y ~ LAG(x)")
+
+
+def test_bare_comparison_and_bar_stay_legacy_variable_text():
+    assert parse_spec("Y ~ spend>0").regressions[0].terms[0].variable == "spend>0"
+    assert parse_spec("Y ~ x>1").regressions[0].terms[0].variable == "x>1"
+    assert parse_spec("Y ~ tv>digital").regressions[0].terms[0].variable == "tv>digital"
+    assert parse_spec("Y ~ x | group").regressions[0].terms[0].variable == "x | group"
+    terms = parse_spec("Y ~ a>b + c").regressions[0].terms
+    assert [term.variable for term in terms] == ["a>b", "c"]
+    prefixed = parse_spec("Y ~ 2*x > y").regressions[0].terms[0]
+    assert prefixed.variable == "x > y"
+    assert prefixed.fixed_value == 2.0
+
+
+@pytest.mark.parametrize(
+    ("spec", "message"),
+    [
+        ("Y ~ x | > f()", "Empty transform call"),
+        ("Y ~ (x | > f())", "Missing transform name"),
+        ("Y ~ a*(x | > f())", "Missing transform name"),
+        ("Y ~ x ||> f()", "Empty transform call"),
+    ],
+)
+def test_non_token_pipe_punctuation_keeps_legacy_errors(spec, message):
+    with pytest.raises(ParseError, match=message):
+        parse_spec(spec)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "Y ~ f(x, p=a*(b|>c+d)) + z",
+        "Y ~ logistic_saturation(x, lam=a*(b|>c+d))",
+        "Y ~ C(group, reference=a*(b|>c+d))",
+        "Y ~ f(x, p=a*(b\n|> c))\nZ ~ w",
+    ],
+)
+def test_star_inside_legacy_call_does_not_form_a_pipeline_group(spec):
+    with pytest.raises(ParseError, match="Unclosed parenthesis"):
+        parse_spec(spec)
 
 
 @pytest.mark.parametrize("spec", ["Y ~ x\n |> f()", "Y ~ x |>\n f()"])

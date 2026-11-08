@@ -239,18 +239,26 @@ def _mask_legacy_literals(text: str) -> str:
     return "".join(masked)
 
 
+def _pipe_token_at(text: str, index: int) -> bool:
+    """True when ``text[index:]`` is a ``|>`` token, not the tail of ``||>``."""
+    return text.startswith("|>", index) and (index == 0 or text[index - 1] != "|")
+
+
+def _find_pipe_token(text: str) -> int | None:
+    """Index of a ``|>`` token, ignoring ``||>`` and a bare ``|`` or ``>``."""
+    start = 0
+    while True:
+        index = text.find("|>", start)
+        if index < 0:
+            return None
+        if _pipe_token_at(text, index):
+            return index
+        start = index + 1
+
+
 def _has_pipe(text: str) -> bool:
-    """Whether an actual pipe token occurs outside a legacy literal."""
-    return "|>" in _unquoted_source(text)
-
-
-def _pipe_marks(text: str) -> bool:
-    """Detect pipes or malformed punctuation, leaving legacy calls opaque."""
-    visible = _unquoted_source(text)
-    return "|>" in visible or (
-        re.match(r"^[A-Za-z_]\w*\s*\(", visible) is None
-        and any(ch in {"|", ">"} for ch in visible)
-    )
+    """Whether a ``|>`` token occurs outside a legacy literal."""
+    return _find_pipe_token(_unquoted_source(text)) is not None
 
 
 def _has_expression_pipe(expr: str) -> bool:
@@ -261,7 +269,7 @@ def _has_expression_pipe(expr: str) -> bool:
     expression position.
     """
     masked = _unquoted_source(expr)
-    if "|>" not in masked:
+    if _find_pipe_token(masked) is None:
         return False
     depth = 0
     keyword_depths: list[int] = []
@@ -282,7 +290,7 @@ def _has_expression_pipe(expr: str) -> bool:
             and (not keyword_depths or depth > keyword_depths[-1])
         ):
             keyword_depths.append(depth)
-        elif masked.startswith("|>", index):
+        elif _pipe_token_at(masked, index):
             if not keyword_depths:
                 return True
             index += 2
@@ -292,17 +300,17 @@ def _has_expression_pipe(expr: str) -> bool:
 
 
 def _pipe_confined_to_keyword_values(expr: str) -> bool:
-    """True when every unquoted ``|>`` is legacy call keyword text."""
-    if "|>" not in _unquoted_source(expr):
+    """True when every unquoted ``|>`` token is legacy call keyword text."""
+    if _find_pipe_token(_unquoted_source(expr)) is None:
         return False
     return not _has_expression_pipe(expr)
 
 
 def _should_parse_as_pipeline(raw: str) -> bool:
     """Whether ``raw`` uses pipeline grammar rather than a legacy call."""
-    if _pipe_confined_to_keyword_values(raw):
+    if not _has_pipe(raw):
         return False
-    return _has_pipe(raw) or _pipe_marks(raw)
+    return not _pipe_confined_to_keyword_values(raw)
 
 
 _CONFIRMED_PIPELINE_GROUP = re.compile(r"\(\s*[A-Za-z_]\w*\s*\|>")
@@ -321,23 +329,61 @@ def _matching_paren(masked: str, open_at: int) -> int | None:
     return None
 
 
-def _pipeline_group_spans(text: str) -> list[tuple[int, int]]:
-    """Spans of confirmed pipeline groups, not every call containing ``|>``.
+def _group_introducer(masked: str, index: int) -> bool:
+    """True when ``masked[index]`` is ``(identifier |>`` after ``~``, ``+``, ``*``, or start."""
+    if index >= len(masked) or masked[index] != "(":
+        return False
+    previous = masked[:index].rstrip()[-1:]
+    if previous not in {"", "~", "+", "*"}:
+        return False
+    return _CONFIRMED_PIPELINE_GROUP.match(masked, index) is not None
 
-    Same boundary as continuation folding: ``(identifier |>`` after ``~``,
-    ``+``, ``*``, or the start of the text. ``f(x, p=a|>b+c)`` is not a group,
-    so ``+`` stays a term separator there.
+
+def _note_call_char(ch: str, depth: int, keyword_depths: list[int]) -> tuple[int, bool]:
+    """Advance call depth. The flag is whether this character is keyword text.
+
+    Parentheses inside a keyword value are literal text: an unclosed ``(`` in
+    ``reference=North(West`` must not hide a following depth-0 pipeline group.
+    An extra ``)`` outside a call stays at depth 0.
     """
+    in_keyword = bool(keyword_depths) and depth == keyword_depths[-1]
+    if ch == "(" and not in_keyword:
+        depth += 1
+    elif ch == ")":
+        if keyword_depths and depth == keyword_depths[-1]:
+            keyword_depths.pop()
+        if depth > 0:
+            depth -= 1
+    elif ch == "," and keyword_depths and depth == keyword_depths[-1]:
+        keyword_depths.pop()
+    elif ch == "=" and depth > 0 and (not keyword_depths or depth > keyword_depths[-1]):
+        keyword_depths.append(depth)
+    return depth, in_keyword
+
+
+def _depth0_group_opens(masked: str) -> set[int]:
+    """Indexes of pipeline groups that are not inside a call or keyword value."""
+    opens: set[int] = set()
+    depth = 0
+    keyword_depths: list[int] = []
+    for index, ch in enumerate(masked):
+        in_keyword = bool(keyword_depths) and depth == keyword_depths[-1]
+        if (
+            ch == "("
+            and not in_keyword
+            and depth == 0
+            and _group_introducer(masked, index)
+        ):
+            opens.add(index)
+        depth, _ = _note_call_char(ch, depth, keyword_depths)
+    return opens
+
+
+def _pipeline_group_spans(text: str) -> list[tuple[int, int]]:
+    """Spans of depth-0 pipeline groups, not every call containing ``|>``."""
     masked = _unquoted_source(text)
     spans: list[tuple[int, int]] = []
-    for index, ch in enumerate(masked):
-        if ch != "(":
-            continue
-        previous = masked[:index].rstrip()[-1:]
-        if previous not in {"", "~", "+", "*"}:
-            continue
-        if _CONFIRMED_PIPELINE_GROUP.match(masked, index) is None:
-            continue
+    for index in sorted(_depth0_group_opens(masked)):
         close = _matching_paren(masked, index)
         if close is not None:
             spans.append((index, close))
@@ -382,29 +428,26 @@ def _prepare_pipe_lines(spec_string: str) -> str:
     """Fold physical lines inside a pipeline group, preserving statement breaks."""
     source = spec_string.replace("\r\n", "\n")
     visible = _unquoted_source(source)
-    if "|>" not in visible:
+    if _find_pipe_token(visible) is None:
         return source
     out = list(source)
-    group_start = _CONFIRMED_PIPELINE_GROUP
+    opens = _depth0_group_opens(visible)
+    depth = 0
+    keyword_depths: list[int] = []
     i = 0
     while i < len(visible):
         ch = visible[i]
-        previous = visible[:i].rstrip()[-1:] if ch == "(" else ""
-        # Only confirmed pipeline groups own continuation state. Legacy bare
-        # values can contain arbitrary parentheses and coefficient punctuation.
-        if (
-            ch == "("
-            and previous in {"", "~", "+", "*"}
-            and group_start.match(visible, i)
-        ):
-            depth = 1
+        in_keyword = bool(keyword_depths) and depth == keyword_depths[-1]
+        # A ``*`` inside a keyword value is not a coefficient group.
+        if i in opens:
+            group_depth = 1
             i += 1
-            while i < len(visible) and depth:
+            while i < len(visible) and group_depth:
                 ch = visible[i]
                 if ch == "(":
-                    depth += 1
+                    group_depth += 1
                 elif ch == ")":
-                    depth -= 1
+                    group_depth -= 1
                 elif ch == ";":
                     raise ParseError(
                         "Semicolon inside a pipeline group. Close ')' before "
@@ -419,23 +462,25 @@ def _prepare_pipe_lines(spec_string: str) -> str:
                         )
                     out[i] = " "
                 i += 1
-            if depth:
+            if group_depth:
                 raise ParseError("Unclosed pipeline group. Add the missing ')'.")
             continue
-        if ch == "\n":
-            next_line = visible[i + 1 :].split("\n", 1)[0].strip()
+        if ch == "\n" and depth == 0 and not in_keyword:
+            next_line = visible[i + 1 :].split("\n", 1)[0].lstrip()
             term_start = max(visible.rfind(mark, 0, i) for mark in ("+", ";", "\n")) + 1
             term = visible[term_start:i]
-            tail = term.partition("|>")[2]
+            pipe_at = _find_pipe_token(term)
+            tail = "" if pipe_at is None else term[pipe_at + 2 :]
             if (
-                next_line.startswith("|>")
-                or term.rstrip().endswith("|>")
-                or tail.count("(") > tail.count(")")
+                _pipe_token_at(next_line, 0)
+                or _pipe_token_at(term.rstrip(), len(term.rstrip()) - 2)
+                or (pipe_at is not None and tail.count("(") > tail.count(")"))
             ):
                 raise ParseError(
                     "An ungrouped pipeline cannot span lines. "
                     "Write '(x |> f())' to continue a pipeline across lines."
                 )
+        depth, _ = _note_call_char(ch, depth, keyword_depths)
         i += 1
     return "".join(out)
 
@@ -481,7 +526,7 @@ def parse_spec(spec_string: str) -> Spec:
     for stmt in statements:
         visible = _unquoted_source(stmt)
         # Quoted ':=' / '~~' are literal text, not statement operators.
-        if "|>" in visible and (
+        if _has_pipe(stmt) and (
             ":=" in visible or "~~" in visible or "~" not in visible
         ):
             raise ParseError(
@@ -700,7 +745,7 @@ def _parse_regression(stmt: str) -> Regression:
             "Provide at least one predictor variable after '~'."
         )
 
-    if _pipe_marks(lhs):
+    if _has_pipe(lhs):
         raise ParseError(
             f"Pipeline syntax is not valid on the left-hand side '{lhs}'. "
             "Move the pipeline into a regression predictor."
