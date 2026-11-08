@@ -17,6 +17,9 @@ drift-summary.txt
 # Agent/developer scratch space — never commit contents.
 .scratch/
 
+# Generated benchmark measurements are reported on PRs.
+/benchmarks/results/
+
 # Ignore accidental agent PR-summary drafts.
 .github/pr-summaries/
 
