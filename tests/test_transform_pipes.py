@@ -24,7 +24,7 @@ from pathmc.basis import REGISTRY as BASIS_REGISTRY
 from pathmc.basis import Basis, register_basis
 from pathmc.exceptions import DuplicateEquationError, ParseError
 from pathmc.effects import evaluate_defined_params
-from pathmc.parse import parse_spec
+from pathmc.parse import TransformCall, parse_spec
 from pathmc.scaling import Scaling
 from pathmc.transforms import REGISTRY as TRANSFORM_REGISTRY
 from pathmc.transforms import Transform, register_transform
@@ -102,6 +102,44 @@ def test_malformed_pipes_are_parse_errors(rhs):
     assert "pipe" in str(exc.value).lower() or "pipeline" in str(exc.value).lower()
 
 
+def test_sum_inside_pipeline_group_says_to_move_it_outside():
+    with pytest.raises(ParseError, match=r"Move '\+ z' outside the group") as exc:
+        parse_spec("Y ~ a*(x |> f() + z)")
+    message = str(exc.value)
+    assert "a*(x |> f()) + z" in message
+    assert parse_spec("Y ~ x |> f() + z") == parse_spec("Y ~ f(x) + z")
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "Y ~ f(g(x, p=a|>b), q=c+d)",
+        "Y ~ logistic_saturation(x, lam=a|>b+c)",
+        "Y ~ C(group, reference=a|>b+c) + x",
+    ],
+)
+def test_plus_inside_legacy_call_with_keyword_pipe_still_splits(spec):
+    with pytest.raises(ParseError, match="Unclosed parenthesis"):
+        parse_spec(spec)
+
+
+@pytest.mark.parametrize("stage", ["BS(df=5)", "NS(df=4)", "PS(df=4)"])
+def test_mixed_case_spline_stage_uses_standalone_guard(stage):
+    with pytest.raises(ParseError, match="not a standalone spline term"):
+        parse_spec(f"Y ~ x |> {stage}")
+
+
+@pytest.mark.parametrize("stage", ["Hsgp(m=10)", "HSGP(m=10)"])
+def test_mixed_case_hsgp_stage_uses_standalone_guard(stage):
+    with pytest.raises(ParseError, match="Did you mean hsgp"):
+        parse_spec(f"Y ~ x |> {stage}")
+
+
+def test_mixed_case_ordinary_transform_stage_still_parses():
+    assert parse_spec("Y ~ x |> Fourier()") == parse_spec("Y ~ Fourier(x)")
+    assert parse_spec("Y ~ x |> LAG()") == parse_spec("Y ~ LAG(x)")
+
+
 @pytest.mark.parametrize("spec", ["Y ~ x\n |> f()", "Y ~ x |>\n f()"])
 def test_ungrouped_multiline_pipe_is_rejected(spec):
     with pytest.raises(ParseError, match="group"):
@@ -125,6 +163,67 @@ def test_quoted_pipe_in_categorical_reference_is_legacy_content():
     )
     assert categorical is not None
     assert categorical.reference == "a|>b"
+
+
+def test_pipe_characters_in_legacy_keyword_keep_transform_call():
+    spec = parse_spec("Y ~ logistic_saturation(x, lam=a|>b)")
+    assert spec.regressions[0].terms[0].transform == TransformCall(
+        name="logistic_saturation",
+        input_expr="x",
+        params={"lam": "a|>b"},
+    )
+
+
+def test_nested_legacy_keyword_pipe_is_not_pipeline_syntax():
+    spec = parse_spec("Y ~ f(g(x, p=a|>b), q=c|>d)")
+    assert spec.regressions[0].terms[0].transform == TransformCall(
+        name="f",
+        input_expr=TransformCall(name="g", input_expr="x", params={"p": "a|>b"}),
+        params={"q": "c|>d"},
+    )
+
+
+@pytest.mark.parametrize(
+    "term",
+    ["g(x |> f())", "f(x |> g(), p=u)", "f(g(x |> h()), p=u)"],
+)
+def test_pipe_in_call_input_is_still_rejected(term):
+    with pytest.raises(ParseError, match="pipe|pipeline|Pipeline"):
+        parse_spec(f"Y ~ {term}")
+
+
+def test_unquoted_categorical_reference_pipe_stays_legacy():
+    categorical = (
+        parse_spec("Y ~ C(group, reference=a|>b)").regressions[0].terms[0].categorical
+    )
+    assert categorical is not None
+    assert categorical.reference == "a|>b"
+
+
+@pytest.mark.parametrize(
+    ("reference", "field", "left"),
+    [
+        ("'a:=b'", "defined_params", "name"),
+        ("'a~~b'", "residual_covs", "var1"),
+        ('"a:=b"', "defined_params", "name"),
+        ('"a~~b"', "residual_covs", "var1"),
+    ],
+)
+@pytest.mark.parametrize("pipe", ["x |> f()", "(x |> f())"])
+def test_quoted_statement_operator_beside_pipe_matches_nested(
+    reference, field, left, pipe
+):
+    """Quoted := / ~~ is literal text, so pipe spelling takes the nested misparse."""
+    nested = parse_spec(f"Y ~ C(group, reference={reference}) + f(x)")
+    piped = parse_spec(f"Y ~ C(group, reference={reference}) + {pipe}")
+    assert piped.regressions == nested.regressions == []
+    piped_item = getattr(piped, field)[0]
+    nested_item = getattr(nested, field)[0]
+    assert getattr(piped_item, left) == getattr(nested_item, left)
+    right = "expression" if field == "defined_params" else "var2"
+    assert getattr(piped_item, right).replace(pipe, "f(x)") == getattr(
+        nested_item, right
+    )
 
 
 def test_escaped_quote_in_legacy_term_survives_adjacent_pipe_term():

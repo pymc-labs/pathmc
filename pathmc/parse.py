@@ -253,6 +253,131 @@ def _pipe_marks(text: str) -> bool:
     )
 
 
+def _has_expression_pipe(expr: str) -> bool:
+    """Whether an unquoted ``|>`` is pipeline syntax, not keyword text.
+
+    A legacy call stores keyword values as text, so ``f(x, p=a|>b)`` must not
+    enter the pipeline grammar. ``g(x |> f())`` must: the pipe is in an
+    expression position.
+    """
+    masked = _unquoted_source(expr)
+    if "|>" not in masked:
+        return False
+    depth = 0
+    keyword_depths: list[int] = []
+    index = 0
+    while index < len(masked):
+        ch = masked[index]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if keyword_depths and depth == keyword_depths[-1]:
+                keyword_depths.pop()
+            depth -= 1
+        elif ch == "," and keyword_depths and depth == keyword_depths[-1]:
+            keyword_depths.pop()
+        elif (
+            ch == "="
+            and depth > 0
+            and (not keyword_depths or depth > keyword_depths[-1])
+        ):
+            keyword_depths.append(depth)
+        elif masked.startswith("|>", index):
+            if not keyword_depths:
+                return True
+            index += 2
+            continue
+        index += 1
+    return False
+
+
+def _pipe_confined_to_keyword_values(expr: str) -> bool:
+    """True when every unquoted ``|>`` is legacy call keyword text."""
+    if "|>" not in _unquoted_source(expr):
+        return False
+    return not _has_expression_pipe(expr)
+
+
+def _should_parse_as_pipeline(raw: str) -> bool:
+    """Whether ``raw`` uses pipeline grammar rather than a legacy call."""
+    if _pipe_confined_to_keyword_values(raw):
+        return False
+    return _has_pipe(raw) or _pipe_marks(raw)
+
+
+_CONFIRMED_PIPELINE_GROUP = re.compile(r"\(\s*[A-Za-z_]\w*\s*\|>")
+
+
+def _matching_paren(masked: str, open_at: int) -> int | None:
+    """Close-paren index matching ``masked[open_at]`` on already-masked text."""
+    depth = 0
+    for index in range(open_at, len(masked)):
+        if masked[index] == "(":
+            depth += 1
+        elif masked[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _pipeline_group_spans(text: str) -> list[tuple[int, int]]:
+    """Spans of confirmed pipeline groups, not every call containing ``|>``.
+
+    Same boundary as continuation folding: ``(identifier |>`` after ``~``,
+    ``+``, ``*``, or the start of the text. ``f(x, p=a|>b+c)`` is not a group,
+    so ``+`` stays a term separator there.
+    """
+    masked = _unquoted_source(text)
+    spans: list[tuple[int, int]] = []
+    for index, ch in enumerate(masked):
+        if ch != "(":
+            continue
+        previous = masked[:index].rstrip()[-1:]
+        if previous not in {"", "~", "+", "*"}:
+            continue
+        if _CONFIRMED_PIPELINE_GROUP.match(masked, index) is None:
+            continue
+        close = _matching_paren(masked, index)
+        if close is not None:
+            spans.append((index, close))
+    return spans
+
+
+def _split_rhs_terms(rhs: str) -> list[str]:
+    """Split additive terms without tearing a grouped pipeline.
+
+    ``a*(x |> f()) + z`` is two terms. ``a*(x |> f() + z)`` is one malformed
+    group; splitting it first hides the sum and reports an unclosed call.
+    """
+    spans = _pipeline_group_spans(rhs)
+    parts: list[str] = []
+    start = 0
+    for index, ch in enumerate(rhs):
+        if ch != "+":
+            continue
+        if any(span_start <= index <= span_end for span_start, span_end in spans):
+            continue
+        parts.append(rhs[start:index])
+        start = index + 1
+    parts.append(rhs[start:])
+    return [part.strip() for part in parts]
+
+
+def _top_level_plus(text: str) -> int | None:
+    """Index of a ``+`` outside calls and legacy literals, if any."""
+    masked = _unquoted_source(text)
+    depth = 0
+    for index, ch in enumerate(masked):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "+" and depth == 0:
+            return index
+    return None
+
+
 def _prepare_pipe_lines(spec_string: str) -> str:
     """Fold physical lines inside a pipeline group, preserving statement breaks."""
     source = spec_string.replace("\r\n", "\n")
@@ -260,7 +385,7 @@ def _prepare_pipe_lines(spec_string: str) -> str:
     if "|>" not in visible:
         return source
     out = list(source)
-    group_start = re.compile(r"\(\s*[A-Za-z_]\w*\s*\|>")
+    group_start = _CONFIRMED_PIPELINE_GROUP
     i = 0
     while i < len(visible):
         ch = visible[i]
@@ -354,7 +479,11 @@ def parse_spec(spec_string: str) -> Spec:
     seen_labels: dict[str, str] = {}
 
     for stmt in statements:
-        if _has_pipe(stmt) and (":=" in stmt or "~~" in stmt or "~" not in stmt):
+        visible = _unquoted_source(stmt)
+        # Quoted ':=' / '~~' are literal text, not statement operators.
+        if "|>" in visible and (
+            ":=" in visible or "~~" in visible or "~" not in visible
+        ):
             raise ParseError(
                 f"Pipeline syntax is only valid in a regression predictor: '{stmt}'. "
                 "Use a plain variable or coefficient expression here."
@@ -580,7 +709,7 @@ def _parse_regression(stmt: str) -> Regression:
         raise ParseError(
             f"Invalid variable name '{lhs}' on left-hand side of '{stmt}'."
         )
-    raw_terms = [t.strip() for t in rhs.split("+")]
+    raw_terms = _split_rhs_terms(rhs)
 
     has_intercept = True
     terms: list[Term] = []
@@ -684,7 +813,7 @@ def _parse_term(raw: str) -> Term:
     coefficient values rather than free parameter names.
     """
     raw = raw.strip()
-    had_pipe = _has_pipe(raw)
+
     _reject_top_level_minus(raw)
     label: str | None = None
     fixed_value: float | None = None
@@ -702,7 +831,12 @@ def _parse_term(raw: str) -> Term:
             except ValueError:
                 label = label_str
 
-    if had_pipe or _pipe_marks(raw):
+    if label is not None and _has_pipe(label):
+        raise ParseError(
+            f"Invalid pipeline coefficient label '{label}'. "
+            "Use an identifier such as 'a*(x |> f())'."
+        )
+    if _should_parse_as_pipeline(raw):
         if label is not None and _PIPE_IDENTIFIER.fullmatch(label) is None:
             raise ParseError(
                 f"Invalid pipeline coefficient label '{label}'. "
@@ -962,6 +1096,13 @@ def _parse_pipeline(raw: str, *, prefixed: bool) -> TransformCall:
         raw = raw[1:-1].strip()
     if not raw:
         raise ParseError(f"Empty pipeline group '{original}'. Write '(x |> f())'.")
+    plus_at = _top_level_plus(raw)
+    if plus_at is not None:
+        fragment = raw[plus_at:].strip()
+        raise ParseError(
+            f"Invalid pipeline '{original}': '{fragment}' is inside the pipeline group. "
+            f"Move '{fragment}' outside the group, for example 'a*(x |> f()) + z'."
+        )
 
     def fail(problem: str) -> ParseError:
         return ParseError(
@@ -1013,6 +1154,16 @@ def _parse_pipeline(raw: str, *, prefixed: bool) -> TransformCall:
             raise fail(f"stage '{name}' has an unclosed call")
         args = raw[args_start:pos].strip()
         pos += 1
+        if name.lower() in SPLINE_NAMES and name not in SPLINE_NAMES:
+            raise ParseError(
+                f"{name}(...) is not a standalone spline term. Use bs(), ns(), or ps() "
+                "directly on one variable, e.g. 'y ~ bs(x, df=5)'."
+            )
+        if name.lower() == "hsgp" and name != "hsgp":
+            raise ParseError(
+                f"Unknown function '{name}'. Did you mean hsgp(...)? "
+                "The hsgp() term is lowercase."
+            )
         if name in {
             "lag",
             "C",
