@@ -107,6 +107,26 @@ def test_sum_inside_pipeline_group_says_to_move_it_outside():
 
 
 @pytest.mark.parametrize(
+    ("spec", "example"),
+    [
+        ("Y ~ a*(x |> f() + z)", "a*(x |> f()) + z"),
+        ("Y ~ -2*(x |> f() + z)", "-2*(x |> f()) + z"),
+        ("Y ~ 1e-5*(x |> f() + z)", "1e-5*(x |> f()) + z"),
+        ("Y ~ b_tv*(x |> f() + z)", "b_tv*(x |> f()) + z"),
+        ("Y ~ (x |> f() + z)", "(x |> f()) + z"),
+    ],
+)
+def test_sum_inside_group_keeps_the_real_coefficient(spec, example):
+    with pytest.raises(ParseError, match=r"Move '\+ z' outside the group") as exc:
+        parse_spec(spec)
+    message = str(exc.value)
+    assert example in message
+    assert spec.removeprefix("Y ~ ") in message
+    if example != "a*(x |> f()) + z":
+        assert "a*(x |> f()) + z" not in message
+
+
+@pytest.mark.parametrize(
     ("spec", "token"),
     [
         ("Y ~ 2*x |> f()", "2*(x |> f())"),

@@ -1349,9 +1349,16 @@ def _parse_pipeline(
     plus_at = _top_level_plus(raw)
     if plus_at is not None:
         fragment = raw[plus_at:].strip()
+        if prefixed and coefficient is not None:
+            displayed = f"{coefficient}*{original}"
+            example = f"{coefficient}*(x |> f()) + z"
+        else:
+            displayed = original
+            example = "(x |> f()) + z"
         raise ParseError(
-            f"Invalid pipeline '{original}': '{fragment}' is inside the pipeline group. "
-            f"Move '{fragment}' outside the group, for example 'a*(x |> f()) + z'."
+            f"Invalid pipeline '{displayed}': '{fragment}' is inside "
+            "the pipeline group. "
+            f"Move '{fragment}' outside the group, for example '{example}'."
         )
 
     def fail(problem: str) -> ParseError:
