@@ -268,6 +268,24 @@ def test_predict_reuses_upstream_cache_and_reseeds(fitted):
     assert "posterior_predictive" in returned
 
 
+def test_predict_rejects_set_data_row_count_change(fitted):
+    original = fitted.pymc_model["X"].get_value().copy()
+    with fitted.pymc_model:
+        pm.set_data({"X": np.arange(5, dtype=float)})
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"Replacement data for 'X' has shape \(5,\), but this model "
+            r"requires \(4,\)\. Restore the fitted row count"
+        ),
+    ):
+        fitted.predict(progressbar=False, random_seed=1)
+    with fitted.pymc_model:
+        pm.set_data({"X": original})
+    restored = fitted.predict(progressbar=False, random_seed=1)
+    assert "posterior_predictive" in restored
+
+
 def test_predict_missing_capability_and_options_delegate(fitted, monkeypatch):
     monkeypatch.setattr(query, "freeze_model", None)
     result = fitted.predict(

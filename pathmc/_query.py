@@ -420,6 +420,10 @@ def prediction_model(model: PathModel, kwargs: Mapping[str, Any]) -> pm.Model:
 def run_prediction(model: PathModel, kwargs: Mapping[str, Any]) -> Any:
     """Evaluate prediction with stable runtime roles for response means."""
     assert model._idata is not None and model._pymc_model is not None
+    # set_data can resize a shared input without raising. Reject that before
+    # the compiled SpecifyShape check, which names neither the column nor the fix.
+    if _linear_gaussian_model(model):
+        _current_exogenous(model)
     execution_model = prediction_model(model, kwargs)
     post = posterior(model._idata)
     means = [
