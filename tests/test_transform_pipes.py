@@ -107,6 +107,66 @@ def test_sum_inside_pipeline_group_says_to_move_it_outside():
 
 
 @pytest.mark.parametrize(
+    ("spec", "token"),
+    [
+        ("Y ~ 2*x |> f()", "2*(x |> f())"),
+        ("Y ~ 1e-5*x |> f()", "1e-5*(x |> f())"),
+        ("Y ~ -1*x |> f()", "-1*(x |> f())"),
+        ("Y ~ a*x |> f()", "a*(x |> f())"),
+    ],
+)
+def test_prefixed_pipeline_grouping_keeps_the_coefficient_token(spec, token):
+    with pytest.raises(ParseError, match="needs grouping") as exc:
+        parse_spec(spec)
+    message = str(exc.value)
+    assert token in message
+    if token != "a*(x |> f())":
+        assert "a*(x |> f())" not in message
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "Y ~ x:z |> f()",
+        "Y ~ (x |> f()):z",
+        "Y ~ a*(x |> f()):z",
+        "Y ~ 2*(x |> f()):z",
+    ],
+)
+def test_pipeline_interaction_names_the_colon_and_skips_the_chain(spec):
+    with pytest.raises(ParseError) as exc:
+        parse_spec(spec)
+    message = str(exc.value)
+    assert ":z" in message
+    assert "needs grouping" not in message
+    assert "x |> f(p=u)" not in message
+    if "|>" in spec.split(":", 1)[0]:
+        assert "unsupported" in message.lower()
+    else:
+        assert "plain variable" in message
+
+
+def test_special_stage_error_does_not_suggest_a_chain():
+    with pytest.raises(ParseError, match="standalone") as exc:
+        parse_spec("Y ~ x |> lag()")
+    assert "x |> f(p=u)" not in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    ["Y ~ a*(x + y |> f())", "Y ~ (x + y |> f())"],
+)
+def test_sum_before_pipe_inside_group_reuses_move_outside(spec):
+    with pytest.raises(ParseError, match="outside the group") as exc:
+        parse_spec(spec)
+    assert "Missing transform name" not in str(exc.value)
+
+
+def test_ungrouped_sum_before_pipe_stays_additive():
+    assert parse_spec("Y ~ x + y |> f()") == parse_spec("Y ~ x + f(y)")
+
+
+@pytest.mark.parametrize(
     "spec",
     [
         "Y ~ f(g(x, p=a|>b), q=c+d)",

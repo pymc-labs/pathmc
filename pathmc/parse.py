@@ -313,9 +313,6 @@ def _should_parse_as_pipeline(raw: str) -> bool:
     return not _pipe_confined_to_keyword_values(raw)
 
 
-_CONFIRMED_PIPELINE_GROUP = re.compile(r"\(\s*[A-Za-z_]\w*\s*\|>")
-
-
 def _matching_paren(masked: str, open_at: int) -> int | None:
     """Close-paren index matching ``masked[open_at]`` on already-masked text."""
     depth = 0
@@ -330,13 +327,22 @@ def _matching_paren(masked: str, open_at: int) -> int | None:
 
 
 def _group_introducer(masked: str, index: int) -> bool:
-    """True when ``masked[index]`` is ``(identifier |>`` after ``~``, ``+``, ``*``, or start."""
+    """True when ``masked[index]`` opens a pipeline group after ``~``, ``+``, ``*``, or start.
+
+    The pipe need not be the first token. ``(x + y |> f())`` is one group so
+    the sum reaches the pipeline diagnostic instead of a torn transform call.
+    A call such as ``f(x, p=a|>b)`` is not a group: its ``(`` is not preceded
+    by ``~``, ``+``, ``*``, or the start of the text.
+    """
     if index >= len(masked) or masked[index] != "(":
         return False
     previous = masked[:index].rstrip()[-1:]
     if previous not in {"", "~", "+", "*"}:
         return False
-    return _CONFIRMED_PIPELINE_GROUP.match(masked, index) is not None
+    close = _matching_paren(masked, index)
+    if close is None:
+        return False
+    return _find_pipe_token(masked[index : close + 1]) is not None
 
 
 def _note_call_char(ch: str, depth: int, keyword_depths: list[int]) -> tuple[int, bool]:
@@ -393,8 +399,9 @@ def _pipeline_group_spans(text: str) -> list[tuple[int, int]]:
 def _split_rhs_terms(rhs: str) -> list[str]:
     """Split additive terms without tearing a grouped pipeline.
 
-    ``a*(x |> f()) + z`` is two terms. ``a*(x |> f() + z)`` is one malformed
-    group; splitting it first hides the sum and reports an unclosed call.
+    ``a*(x |> f()) + z`` is two terms. ``a*(x |> f() + z)`` and
+    ``(x + y |> f())`` are one malformed group; splitting either first hides
+    the sum.
     """
     spans = _pipeline_group_spans(rhs)
     parts: list[str] = []
@@ -862,6 +869,7 @@ def _parse_term(raw: str) -> Term:
     _reject_top_level_minus(raw)
     label: str | None = None
     fixed_value: float | None = None
+    coefficient_token: str | None = None
 
     if "*" in raw:
         star_pos = _find_top_level_star(raw)
@@ -870,6 +878,7 @@ def _parse_term(raw: str) -> Term:
             raw = raw[star_pos + 1 :].strip()
             if not label_str:
                 raise ParseError(f"Malformed labeled term: '{raw}'.")
+            coefficient_token = label_str
             try:
                 fixed_value = float(label_str)
                 label = None
@@ -888,7 +897,9 @@ def _parse_term(raw: str) -> Term:
                 "Use an identifier such as 'a*(x |> f())'."
             )
         transform = _parse_pipeline(
-            raw, prefixed=label is not None or fixed_value is not None
+            raw,
+            prefixed=coefficient_token is not None,
+            coefficient=coefficient_token,
         )
         return Term(
             variable=_extract_leaf_variable(transform),
@@ -1129,13 +1140,42 @@ _PIPE_REFERENCE = re.compile(
 )
 
 
-def _parse_pipeline(raw: str, *, prefixed: bool) -> TransformCall:
+def _reject_pipeline_interaction(raw: str) -> None:
+    """Reject a top-level ``:`` before grouping or stage parsing.
+
+    ``x:z |> f()`` uses an interaction as a seed. ``(x |> f()):z`` is a
+    transformed interaction. Neither correction is a non-interaction chain.
+    """
+    colon_at = _find_top_level_colon(raw)
+    if colon_at is None:
+        return
+    fragment = raw[colon_at:].strip()
+    left = raw[:colon_at]
+    if _find_pipe_token(_unquoted_source(left)) is not None:
+        raise ParseError(
+            f"Transformed interaction '{raw}' is unsupported. "
+            f"'{fragment}' cannot follow a pipeline. "
+            "Write the factors as separate supported terms."
+        )
+    raise ParseError(
+        f"Invalid pipeline '{raw}': pipeline inputs must be plain variables. "
+        f"'{fragment}' is not a valid pipeline input. "
+        "Write a plain source variable before the pipe."
+    )
+
+
+def _parse_pipeline(
+    raw: str, *, prefixed: bool, coefficient: str | None = None
+) -> TransformCall:
     """Lower a forward-pipe predictor into nested transform calls."""
     original = raw
+    _reject_pipeline_interaction(raw)
     if prefixed and not (raw.startswith("(") and raw.endswith(")")):
+        token = coefficient if coefficient else "a"
         raise ParseError(
             f"Coefficient-prefixed pipeline '{original}' needs grouping. "
-            "Write 'a*(x |> f())' so the coefficient applies after the transform."
+            f"Write '{token}*({raw})' so the coefficient applies after "
+            "the transform."
         )
     if raw.startswith("(") and raw.endswith(")"):
         raw = raw[1:-1].strip()
@@ -1216,9 +1256,10 @@ def _parse_pipeline(raw: str, *, prefixed: bool) -> TransformCall:
             "fourier",
             *SPLINE_NAMES,
         } or _is_registered_basis(name):
-            raise fail(
-                f"'{name}' is a structural, categorical, or basis term; "
-                f"use '{name}(x, ...)' as a standalone term"
+            raise ParseError(
+                f"Invalid pipeline '{original}': '{name}' is a structural, "
+                "categorical, or basis term; "
+                f"use '{name}(x, ...)' as a standalone term."
             )
         params: dict[str, str] = {}
         if args:
