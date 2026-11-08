@@ -310,6 +310,131 @@ def is_valid_adjustment_set(
     return True
 
 
+def optimal_adjustment_set(
+    graph_info: GraphInfo,
+    treatment: str,
+    outcome: str,
+) -> set[str]:
+    """Return the graphical variance-optimal adjustment set (O-set).
+
+    The O-set contains the observed parents of nodes on proper directed
+    causal paths from *treatment* to *outcome*, excluding those causal nodes,
+    their descendants, and the treatment. For adjusted OLS in causal linear
+    models, this set minimizes asymptotic variance among valid adjustment
+    sets. The same guarantee does not generally extend to finite-sample
+    Bayesian posterior variance, non-Gaussian pathmc models, informative
+    priors, or misspecified outcome regressions.
+
+    Residual covariance declarations (``~~``) are represented as latent
+    common causes before constructing the set. A latent node elsewhere in
+    the graph is allowed, but an O-set that itself requires a latent node is
+    unavailable through this observed-variable interface.
+
+    Parameters
+    ----------
+    graph_info : GraphInfo
+        DAG from the structural model.
+    treatment : str
+        Treatment variable name.
+    outcome : str
+        Outcome variable name.
+
+    Returns
+    -------
+    set[str]
+        A fresh set containing the observed O-set. An empty set is a valid
+        result when no covariates are required for optimal adjustment.
+
+    Raises
+    ------
+    ValueError
+        If either endpoint is missing or latent, the endpoints are equal,
+        the DAG has no directed treatment-to-outcome path, no observed
+        backdoor adjustment set exists, or the O-set requires a latent node.
+
+    Notes
+    -----
+    This helper uses the contemporaneous DAG. It does not claim an optimality
+    result for longitudinal or panel adjustment.
+    """
+    original_dag = graph_info.contemporaneous_dag
+    _require_nodes(original_dag, treatment=treatment, outcome=outcome)
+
+    if treatment == outcome:
+        raise ValueError(
+            "optimal_adjustment_set() requires distinct treatment and outcome "
+            "variables. Pass two different DAG nodes."
+        )
+
+    dag, latent = _with_residual_confounders(graph_info)
+    if treatment in latent:
+        raise ValueError(
+            f"Treatment '{treatment}' is latent and cannot be used by the "
+            f"observed-variable O-set interface. Choose an observed treatment."
+        )
+    if outcome in latent:
+        raise ValueError(
+            f"Outcome '{outcome}' is latent and cannot be used by the "
+            f"observed-variable O-set interface. Choose an observed outcome."
+        )
+
+    descendants = nx.descendants(dag, treatment)
+    if outcome not in descendants:
+        raise ValueError(
+            f"The declared DAG has no directed causal path from '{treatment}' "
+            f"to '{outcome}', so it implies a zero total effect. "
+            f"optimal_adjustment_set() requires a directed causal path. If "
+            f"you deliberately want an adjusted regression, use the existing "
+            f"default or pass an explicit valid adjustment_set=."
+        )
+
+    causal = descendants & (nx.ancestors(dag, outcome) | {outcome})
+    parents = {parent for node in causal for parent in dag.predecessors(node)}
+    optimal = parents - descendants - {treatment}
+    latent_required = optimal & latent
+    if latent_required:
+        if not is_identifiable(graph_info, treatment, outcome):
+            raise ValueError(
+                f"No observed backdoor adjustment set exists for the effect "
+                f"of '{treatment}' on '{outcome}'. The effect is not "
+                f"identifiable via observed backdoor adjustment. Revise the "
+                f"DAG or measure the required confounder; do not replace this "
+                f"query with an associational regression."
+            )
+
+        declared_latent = sorted(latent_required & graph_info.latent)
+        synthetic_latent = sorted(latent_required - graph_info.latent)
+        requirements: list[str] = []
+        if declared_latent:
+            requirements.append(f"unobserved variable(s) {declared_latent}")
+        if synthetic_latent:
+            residual_sources: list[str] = []
+            for node in synthetic_latent:
+                members = sorted(dag.successors(node))
+                if len(members) == 2:
+                    residual_sources.append(
+                        f"the `{members[0]} ~~ {members[1]}` declaration"
+                    )
+                else:
+                    residual_sources.append(
+                        f"the `~~` residual-covariance block containing {members}"
+                    )
+            requirements.append(
+                "an unobserved common cause from " + " and ".join(residual_sources)
+            )
+        required = " and ".join(requirements)
+        raise ValueError(
+            f"The variance-optimal adjustment set for '{treatment}' -> "
+            f"'{outcome}' requires {required}. An observed backdoor set exists, "
+            f"but this implementation cannot provide an observed O-set. "
+            f"Inspect adjustment_sets() and pass an explicit valid set with "
+            f"adjustment_set={{...}}."
+        )
+
+    is_valid_adjustment_set(graph_info, treatment, outcome, optimal)
+    return set(optimal)
+
+
 def is_identifiable(
     graph_info: GraphInfo,
     treatment: str,

@@ -31,6 +31,7 @@ from pathmc.identify import (
     adjustment_sets,
     is_identifiable,
     is_valid_adjustment_set,
+    optimal_adjustment_set,
 )
 from pathmc.interpret import InterpretResult
 from pathmc.introspect import build_dag_viz
@@ -123,14 +124,24 @@ def _select_adjustment_set(
     graph_info: GraphInfo,
     treatment: str,
     outcome: str,
-    adjustment_set: set[str] | None,
+    adjustment_set: set[str] | Literal["optimal"] | None,
 ) -> frozenset[str]:
     """Resolve and validate the backdoor adjustment set.
 
-    An explicit ``adjustment_set`` is validated directly. Listing every
+    An explicit ``adjustment_set`` is validated directly. ``"optimal"``
+    constructs the O-set without enumerating minimal sets. Listing every
     minimal set is exponential in the output size, so it runs only when
     pathmc must choose or report the alternatives.
     """
+    if isinstance(adjustment_set, str):
+        if adjustment_set != "optimal":
+            raise ValueError(
+                f"Invalid adjustment_set={adjustment_set!r}. Pass None to "
+                f"auto-select a unique minimal set, a set of variable names, "
+                f'or adjustment_set="optimal".'
+            )
+        return frozenset(optimal_adjustment_set(graph_info, treatment, outcome))
+
     if adjustment_set is not None:
         if not is_identifiable(graph_info, treatment, outcome):
             raise _unidentifiable_via_backdoor(treatment, outcome)
@@ -150,7 +161,9 @@ def _select_adjustment_set(
             f"Several minimal backdoor adjustment sets exist for "
             f"'{treatment}' -> '{outcome}': {formatted}. Pass "
             f"adjustment_set= explicitly — pathmc does not choose among "
-            f"valid sets automatically."
+            f"valid sets automatically. Alternatively, pass "
+            f'adjustment_set="optimal" to use the variance-optimal '
+            f"graphical set when it is available."
         )
     return frozenset(sets[0])
 
@@ -436,7 +449,7 @@ class AdjustmentModel:
         query: str | None = None,
         treatment: str | None = None,
         outcome: str | None = None,
-        adjustment_set: set[str] | None = None,
+        adjustment_set: set[str] | Literal["optimal"] | None = None,
         formula: str | None = None,
         data: IntoFrame | None = None,
         families: dict[str, str] | None = None,
@@ -447,6 +460,15 @@ class AdjustmentModel:
         This is the implementation behind
         :meth:`pathmc.modeling.PathModel.adjustment_model`. Prefer that
         method from user code.
+
+        Parameters
+        ----------
+        adjustment_set : set[str], {"optimal"}, or None
+            An explicit observed set to validate, ``None`` to require a unique
+            minimal set, or ``"optimal"`` to select the graphical O-set. The
+            O-set's variance-optimality result is asymptotic for adjusted OLS
+            in causal linear models; it is not a general finite-sample or
+            Bayesian GLM efficiency guarantee.
         """
         from pathmc._model import model as build_model
 
