@@ -733,8 +733,12 @@ for region in regions:
         digital = rng.uniform(5, 30)
         adstocked_tv = tv + true_decay_tv * adstocked_tv
         adstocked_dig = digital + true_decay_dig * adstocked_dig
-        sat_tv = 1 - np.exp(-true_lam_tv * adstocked_tv)
-        sat_dig = 1 - np.exp(-true_lam_dig * adstocked_dig)
+        sat_tv = (1 - np.exp(-true_lam_tv * adstocked_tv)) / (
+            1 + np.exp(-true_lam_tv * adstocked_tv)
+        )
+        sat_dig = (1 - np.exp(-true_lam_dig * adstocked_dig)) / (
+            1 + np.exp(-true_lam_dig * adstocked_dig)
+        )
         sales = (
             true_intercepts[region]
             + true_b_tv * sat_tv
@@ -758,10 +762,12 @@ df_mmm.head()
 
 ### Fit the model
 
+Each channel is adstock, then the same logistic saturation the simulation just applied. The pipe writes that order, and the coefficient wraps the chain. The equations cell shows the nested call, not the pipe. See [Chaining transforms](/user-guide/transforms.html#sec-chaining-transforms).
+
 ```{python}
 spec_mmm = """
-sales ~ 0 + b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
-      + b_dig*logistic_saturation(adstock(digital, decay=theta_dig), lam=lam_dig)
+sales ~ 0 + b_tv*(tv |> adstock(decay=theta_tv) |> logistic_saturation(lam=lam_tv))
+      + b_dig*(digital |> adstock(decay=theta_dig) |> logistic_saturation(lam=lam_dig))
       + trend
 """
 
