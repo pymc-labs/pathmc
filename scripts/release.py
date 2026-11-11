@@ -409,10 +409,12 @@ def _pr_body(old: str, new: str, released: str, other_diff: str) -> str:
         "It refuses if `main` is not this bump, "
         f"if `{new}` already exists, if the tag would not equal the package version, "
         "or if `date-released` is not today's UTC date. It will not commit a date "
-        "change. Tag on this UTC day. If the day has passed, or later commits "
-        "landed on `main`, Protect main cannot rewrite the tip. Open a new bump "
-        "pull request, then run `make release-publish` on that bump. This version "
-        "cannot be tagged by resetting `main`.\n\n"
+        "change. Tag on this UTC day. If the day has passed, later commits "
+        "landed, or the version files disagree, Protect main cannot rewrite "
+        "the tip. Open a new bump pull request that moves all three version "
+        "files to the next version with today's date, then run "
+        "`make release-publish` on that bump. Do not reset or align `main` "
+        "to tag the existing version.\n\n"
         "The tag push creates the GitHub Release with generated notes and starts "
         "the PyPI jobs. Test PyPI runs, then the real upload waits for approval "
         "on the `release` environment.\n\n"
@@ -572,8 +574,12 @@ def _versions_agree(root: Path) -> str:
     if not _SEMVER.fullmatch(version):
         raise ReleaseError(
             f"Package version {version!r} is not MAJOR.MINOR.PATCH. "
-            'Fix: set [project].version to "X.Y.Z" before tagging. '
-            "This command will not invent a version."
+            "Fix: Protect main cannot rewrite the tip, and this command "
+            "will not guess a version. Open a pull request that sets "
+            '[project].version to "X.Y.Z", with CITATION.cff and the uv.lock '
+            "pathmc entry set to that version and date-released set to the "
+            "day that pull request is opened. Then run make release-publish "
+            "on that merge. This command will not commit."
         )
     citation = _citation_field((root / "CITATION.cff").read_text(), "version")
     locked = _pathmc_lock_version((root / "uv.lock").read_text())
@@ -586,8 +592,11 @@ def _versions_agree(root: Path) -> str:
         details = ", ".join(f"{label} has {found}" for label, found in mismatches)
         raise ReleaseError(
             f"Refusing to tag {version}: it would not equal the package version "
-            f"({details}). Fix: align pyproject.toml, CITATION.cff, and the "
-            "uv.lock pathmc entry, then retry. This command will not commit."
+            f"({details}). Fix: Protect main cannot rewrite the tip. Open a "
+            "new bump pull request that moves pyproject.toml, CITATION.cff, "
+            "and the uv.lock pathmc entry to the next version with today's "
+            "UTC date, then run make release-publish on that bump. Do not "
+            "align the merged tip in place. This command will not commit."
         )
     return version
 

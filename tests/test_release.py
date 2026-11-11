@@ -402,7 +402,30 @@ def test_publish_refuses_when_the_tag_would_not_equal_the_package_version(tmp_pa
     assert completed.returncode == 1
     assert "would not equal the package version" in completed.stderr
     assert "CITATION.cff has 0.6.2" in completed.stderr
+    assert "Protect main" in completed.stderr
+    assert "new bump" in completed.stderr
+    assert "Do not align the merged tip" in completed.stderr
+    assert "align pyproject.toml" not in completed.stderr
     assert "will not commit" in completed.stderr
+    assert _pushes(git_log) == []
+    assert _git(root, "tag", "--list") == ""
+
+
+def test_publish_refuses_an_invalid_version_without_rewriting_main(tmp_path):
+    root, _, binaries, git_log, _, _, _ = _repo(tmp_path, released=TODAY)
+    _write_versions(root, "0.6.0rc1", TODAY)
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "invalid version")
+    _git(root, "push", "origin", "main")
+    before = _git(root, "rev-parse", "HEAD")
+    completed = _run(root, binaries, "publish")
+    assert completed.returncode == 1
+    assert "not MAJOR.MINOR.PATCH" in completed.stderr
+    assert "Protect main" in completed.stderr
+    assert "will not guess" in completed.stderr
+    assert "will not commit" in completed.stderr
+    assert "before tagging" not in completed.stderr
+    assert _git(root, "rev-parse", "HEAD") == before
     assert _pushes(git_log) == []
     assert _git(root, "tag", "--list") == ""
 
@@ -451,4 +474,4 @@ def test_init_keeps_metadata_version_and_workflows_listen_for_the_tag(tmp_path):
     assert "make release-patch" in contributing
     assert "make release-publish" in contributing
     assert "Protect main cannot rewrite the tip" in contributing
-    assert "Do not reset `main`" in contributing
+    assert "Do not reset or align `main`" in contributing
