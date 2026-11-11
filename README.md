@@ -11,7 +11,7 @@
 [![CI](https://github.com/pymc-labs/pathmc/actions/workflows/ci.yml/badge.svg)](https://github.com/pymc-labs/pathmc/actions/workflows/ci.yml)
 [![Docs](https://github.com/pymc-labs/pathmc/actions/workflows/docs.yml/badge.svg)](https://pathmc.pymc-labs.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](https://github.com/pymc-labs/pathmc/blob/main/LICENSE)
-[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](https://www.python.org)
+[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 
@@ -31,7 +31,7 @@ pathmc is a good fit when you want the interpretability of path / structural equ
 pip install pathmc
 ```
 
-pathmc requires Python ≥ 3.12 and PyMC ≥ 6.0.
+pathmc requires Python ≥ 3.12 (3.12, 3.13, and 3.14) and PyMC ≥ 6.0.
 
 ## Quickstart
 

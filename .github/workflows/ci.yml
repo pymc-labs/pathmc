@@ -39,9 +39,15 @@ jobs:
               - '!*.qmd'
               - '!**/*.qmd'
 
-  # Four computers share the per-commit selection. pytest-split balances them
-  # from .test_durations. The matrix length is the split count the weekly job
-  # passes to duration_drift.py. The required check stays named `test`.
+  # Four groups share the per-commit selection on each CI Python. pytest-split
+  # balances them from .test_durations. SPLITS is that group count, not
+  # strategy.job-total: the Python axis doubles the jobs without changing the
+  # split. The weekly job reads `group:` and passes that count to
+  # duration_drift.py. Oldest (3.12) and newest (3.14) each run the full
+  # split. Samplers wheels resolve on 3.14, so both legs use --all-extras.
+  # Coverage stays the 3.12 combine; a 3.14 failure still fails `test`.
+  # .python-version stays 3.12. UV_PYTHON keeps `make`'s `uv run` on this leg.
+  # The required check stays named `test`.
   test-shard:
     needs: changes
     if: >-
@@ -53,9 +59,12 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     strategy:
       fail-fast: false
       matrix:
+        python-version: ["3.12", "3.14"]
         group: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -63,17 +72,20 @@ jobs:
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
       - name: Install dependencies
-        run: uv sync --all-extras --locked
+        run: uv sync --all-extras --locked --python ${{ matrix.python-version }}
       - name: Run tests
         env:
           COVERAGE_FILE: coverage-data/.coverage.shard-${{ matrix.group }}
           GROUP: ${{ matrix.group }}
-          SPLITS: ${{ strategy.job-total }}
+          SPLITS: "4"
         run: |
           mkdir -p coverage-data
           make test-shard GROUP="$GROUP" SPLITS="$SPLITS"
       - name: Upload coverage data
+        if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-${{ matrix.group }}
