@@ -164,6 +164,9 @@ print("https://example.invalid/pull/1")
 
 def _run(root: Path, binaries: Path, *args: str, **env_extra: str):
     env = os.environ.copy()
+    # The Actions test job sets this on every process. The refusal is for an
+    # operator running the release command inside Actions, which one test sets.
+    env.pop("GITHUB_ACTIONS", None)
     env["PATH"] = str(binaries) + os.pathsep + env["PATH"]
     for name in (
         "GITHUB_TOKEN",
@@ -662,6 +665,12 @@ def _committed_release_tree(tmp_path: Path, pyproject: str, lock: str) -> Path:
     return root
 
 
+def _without_actions_flag() -> dict[str, str]:
+    env = os.environ.copy()
+    env.pop("GITHUB_ACTIONS", None)
+    return env
+
+
 def _release_argv(*flags: str) -> list[str]:
     uv = shutil.which("uv")
     assert uv
@@ -678,7 +687,13 @@ def test_make_release_command_reaches_the_script_without_locking(tmp_path):
         tmp_path / "missing", project, _strip_pathmc_member(real_lock)
     )
     head = _git(missing, "rev-parse", "HEAD")
-    completed = subprocess.run(command, cwd=missing, text=True, capture_output=True)
+    completed = subprocess.run(
+        command,
+        cwd=missing,
+        env=_without_actions_flag(),
+        text=True,
+        capture_output=True,
+    )
     assert completed.returncode == 1
     assert "no readable pathmc version" in completed.stderr
     assert "new bump" in completed.stderr
@@ -691,6 +706,7 @@ def test_make_release_command_reaches_the_script_without_locking(tmp_path):
     frozen = subprocess.run(
         _release_argv("--frozen", "--all-extras"),
         cwd=missing,
+        env=_without_actions_flag(),
         text=True,
         capture_output=True,
     )
@@ -702,7 +718,13 @@ def test_make_release_command_reaches_the_script_without_locking(tmp_path):
 
     broken = _committed_release_tree(tmp_path / "broken", "[\n", real_lock)
     broken_head = _git(broken, "rev-parse", "HEAD")
-    parsed = subprocess.run(command, cwd=broken, text=True, capture_output=True)
+    parsed = subprocess.run(
+        command,
+        cwd=broken,
+        env=_without_actions_flag(),
+        text=True,
+        capture_output=True,
+    )
     assert parsed.returncode == 1
     assert "could not be parsed" in parsed.stderr
     assert "restores a valid" in parsed.stderr
@@ -712,7 +734,13 @@ def test_make_release_command_reaches_the_script_without_locking(tmp_path):
 
     consistent = _committed_release_tree(tmp_path / "consistent", project, real_lock)
     consistent_head = _git(consistent, "rev-parse", "HEAD")
-    started = subprocess.run(command, cwd=consistent, text=True, capture_output=True)
+    started = subprocess.run(
+        command,
+        cwd=consistent,
+        env=_without_actions_flag(),
+        text=True,
+        capture_output=True,
+    )
     assert started.returncode == 1
     assert "not a merged version bump" in started.stderr
     assert "uv lock" not in started.stderr
