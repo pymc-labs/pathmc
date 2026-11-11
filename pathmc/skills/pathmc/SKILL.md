@@ -63,7 +63,7 @@ The DSL is lavaan-inspired:
 - `Y ~~ X` — residual covariance
 - `indirect := a*b` — defined parameter
 - `a*X` — labeled coefficient
-- Transforms: `adstock(x, decay=...)`, `logistic_saturation(x, lam=...)`
+- Transforms: `adstock(x, decay=theta)`, `logistic_saturation(x, lam=lam)`; equivalent formula-string pipes such as `x |> adstock(decay=theta) |> logistic_saturation(lam=lam)`. Group a coefficient-prefixed chain: `a*(x |> adstock(decay=theta))`.
 - Categorical predictors: string columns are treatment-coded
   automatically; `C(region, reference='north')` picks the reference and
   `C(store, prior='hierarchical')` pools one coefficient per level (no
