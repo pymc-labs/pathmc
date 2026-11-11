@@ -18,9 +18,11 @@ Transform parameters get appropriate priors automatically: `decay` receives a `B
 
 Without `panel=`, `adstock()`, `delayed_adstock()`, and `weibull_adstock()` convolve down row order and treat those rows as one series. pathmc warns: a stacked-unit frame would carry one unit's tail into the next, and the compiler cannot see the unit change. Pass `panel={"unit": ..., "time": ...}` to keep each unit on its own time axis. For geometric `adstock()`, that warning also says the non-panel path is a 12-lag convolution, not the full recursive stock `y_t = x_t + decay * y_{t-1}` used when `panel=` compiles the scan. Delayed and Weibull adstock are finite kernels either way; their warning is only about the row-order assumption.
 
-### Composability
+### Chaining transforms {#sec-chaining-transforms}
 
-Transforms nest naturally — inner transforms are evaluated first:
+A chain of transforms has two spellings, and they parse as the same expression. Graph edge labels and the structural equations text print the nested spelling either way. The notebook equations display shows that nesting without the keyword names. Priors, parameter names, and `do()` behavior match, so existing nested calls do not need a migration.
+
+The nested call evaluates the inner transform first:
 
 ```python
 spec = """
@@ -28,9 +30,7 @@ sales ~ b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
 """
 ```
 
-The nesting order defines a pipeline: raw spend flows through adstock (accumulating carry-over), then through saturation (applying diminishing returns), then enters the linear predictor scaled by its coefficient.
-
-You can write that same predictor in execution order inside the pathmc formula string:
+The pipe writes that same order from left to right. Write it inside the formula string: `|>` is pathmc formula syntax, not a Python operator. Each stage receives the value so far as its first argument. A keyword such as `decay=theta_tv` names a transform parameter. It is not a column and not a Python expression.
 
 ```python
 spec = """
@@ -38,11 +38,21 @@ sales ~ b_tv*(tv |> adstock(decay=theta_tv) |> logistic_saturation(lam=lam_tv))
 """
 ```
 
-The two spellings compile to the same nested transform expression. `b_tv` multiplies the completed saturated value, so a coefficient-prefixed pipe requires parentheses around the whole chain. A pipe starts with a plain variable; each following stage is a registered single-input transform call with keyword parameter **names** such as `theta_tv`, not a precomputed column or Python expression. Order matters: saturation after adstock differs from adstock after saturation. Pipes can coexist with nested calls in separate terms, and grouped chains can break across lines. `lag()`, categorical and basis terms, interactions, and sums are outside this syntax. The nested spelling remains supported without a migration and preserves the same statistical model, priors, parameter names, and `do()` behavior.
+Raw spend accumulates in adstock, then passes through logistic saturation, then enters the linear predictor scaled by `b_tv`. Reversing the stages is a different model.
+
+A labeled or fixed coefficient applies to the completed chain, so the parentheses wrap the whole pipe. `b_tv*tv |> adstock(decay=theta_tv)` is rejected because the coefficient's scope would be unclear. The same grouping is required for a fixed coefficient, as in `-2*(tv |> adstock(decay=theta_tv))`.
+
+These limits keep a pipe a single chain:
+
+- An ungrouped pipe does not capture a following `+`. `sales ~ tv |> adstock(decay=theta_tv) + trend` has two terms: `adstock(tv, decay=theta_tv)` and `trend`.
+- The chain starts with one plain variable. Do not pass that variable again, and do not pipe a call: `tv |> adstock(tv, decay=theta_tv)` and `adstock(tv, decay=theta_tv) |> logistic_saturation(lam=lam_tv)` are rejected.
+- `lag()`, `C()`, basis terms, interactions, and sums are not pipe stages. Write them as their own terms. `:=` expressions cannot be piped either.
+- A grouped chain may span lines, including inside a keyword list. An ungrouped chain stays on one physical line. The multiline form is in [Model specification](11-model-specification.qmd#sec-transform-pipelines).
+- A pipe and a nested call may appear in different terms of the same equation.
 
 ```{dot}
 //| label: fig-transform-pipeline
-//| fig-cap: "Transform composition pipeline for a single channel. Raw spend enters the inner transform (adstock) first, producing an accumulated stock. The stock then passes through the outer transform (logistic saturation), producing a 0–1 response. The response is multiplied by the channel coefficient and added to the linear predictor."
+//| fig-cap: "One channel's transform chain. Raw spend enters adstock first and becomes an accumulated stock. That stock passes through logistic saturation and becomes a 0–1 response. The response is multiplied by the channel coefficient and added to the linear predictor. Nested calls and pipes compile to this order."
 //| fig-width: 6.5
 digraph {
   rankdir=LR
@@ -50,14 +60,14 @@ digraph {
   edge [fontsize=10]
 
   tv [label="tv\n(raw spend)", fillcolor="#c6dbef"]
-  adstock [label="adstock\n(carry-over)", fillcolor="#ffffb2"]
-  sat [label="logistic_saturation\n(diminishing returns)", fillcolor="#d9f0d3"]
+  adstock [label="adstock\n(decay=θ)", fillcolor="#ffffb2"]
+  sat [label="logistic_saturation\n(lam=λ)", fillcolor="#d9f0d3"]
   coef [label="× b_tv\n(coefficient)", fillcolor="#e2e2e2", shape=circle, width=0.8, fixedsize=true, fontsize=9]
   mu [label="μ_sales\n(linear predictor)", fillcolor="#fcbba1"]
 
-  tv -> adstock [label=" decay=θ"]
-  adstock -> sat [label=" lam=λ"]
-  sat -> coef
+  tv -> adstock [label=" raw spend"]
+  adstock -> sat [label=" stock"]
+  sat -> coef [label=" 0–1 response"]
   coef -> mu
 }
 ```
