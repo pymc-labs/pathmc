@@ -721,3 +721,23 @@ def test_make_release_command_reaches_the_script_without_locking(tmp_path):
     assert _git(consistent, "rev-parse", "HEAD") == consistent_head
     assert (consistent / "uv.lock").read_text() == real_lock
     assert (consistent / "pyproject.toml").read_text() == project
+
+
+def test_lock_reader_and_rewriter_share_one_version_line():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("pathmc_release_under_test", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    indented = '[[package]]\nname = "pathmc"\n  version = "0.6.0"\n'
+    assert module._pathmc_lock_version(indented) == "0.6.0"
+    rewritten = module._with_pathmc_lock_version(indented, "0.6.1")
+    assert module._pathmc_lock_version(rewritten) == "0.6.1"
+
+    commented = '[[package]]\nname = "pathmc"\nversion = "0.6.0" # pin\n'
+    with pytest.raises(module.ReleaseError, match="no version"):
+        module._pathmc_lock_version(commented)
+    with pytest.raises(module.ReleaseError, match="no version"):
+        module._with_pathmc_lock_version(commented, "0.6.1")

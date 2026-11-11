@@ -256,10 +256,7 @@ def _citation_field(text: str, key: str) -> str:
         flags=re.MULTILINE,
     )
     if not match:
-        raise ReleaseError(
-            f"CITATION.cff has no {key} field. "
-            f"Fix: add `{key}: ...` in the existing unquoted form and retry."
-        )
+        raise ReleaseError(f"CITATION.cff has no {key} field. {_merged_bump_fix()}")
     return match.group(1)
 
 
@@ -280,8 +277,7 @@ def _set_citation_field(text: str, key: str, value: str) -> str:
     return rewritten
 
 
-def _pathmc_lock_version(text: str) -> str:
-    lines = text.splitlines()
+def _pathmc_lock_version_at(lines: list[str]) -> tuple[int, str]:
     index = 0
     while index < len(lines):
         if lines[index].strip() != "[[package]]":
@@ -292,10 +288,10 @@ def _pathmc_lock_version(text: str) -> str:
             end += 1
         block = lines[index + 1 : end]
         if any(line.strip() == 'name = "pathmc"' for line in block):
-            for line in block:
+            for offset, line in enumerate(block):
                 match = re.fullmatch(r"""version = (['"])([^'"]+)\1""", line.strip())
                 if match:
-                    return match.group(2)
+                    return index + 1 + offset, match.group(2)
             raise ReleaseError(
                 'uv.lock entry name = "pathmc" has no version. '
                 "Fix: run uv lock and retry. Do not hand-edit the lock."
@@ -307,29 +303,18 @@ def _pathmc_lock_version(text: str) -> str:
     )
 
 
+def _pathmc_lock_version(text: str) -> str:
+    _, version = _pathmc_lock_version_at(text.splitlines())
+    return version
+
+
 def _with_pathmc_lock_version(text: str, version: str) -> str:
     """Return text with only the pathmc version line replaced. Does not write the lock."""
     lines = text.splitlines(keepends=True)
-    index = 0
-    while index < len(lines):
-        if lines[index].strip() != "[[package]]":
-            index += 1
-            continue
-        end = index + 1
-        while end < len(lines) and not lines[end].startswith("["):
-            end += 1
-        block = [line.strip() for line in lines[index + 1 : end]]
-        if any(line == 'name = "pathmc"' for line in block):
-            for cursor in range(index + 1, end):
-                if lines[cursor].startswith("version = "):
-                    newline = "\n" if lines[cursor].endswith("\n") else ""
-                    lines[cursor] = f'version = "{version}"{newline}'
-                    return "".join(lines)
-        index = end
-    raise ReleaseError(
-        'uv.lock has no package entry name = "pathmc". '
-        "Fix: run uv lock from the repository root and retry."
-    )
+    cursor, _ = _pathmc_lock_version_at(lines)
+    newline = "\n" if lines[cursor].endswith("\n") else ""
+    lines[cursor] = f'version = "{version}"{newline}'
+    return "".join(lines)
 
 
 def _other_lock_diff(before: str, after: str, old: str) -> str:
@@ -621,12 +606,7 @@ def _versions_agree(root: Path) -> str:
             "on that merge. This command will not commit."
         )
     citation_text = (root / "CITATION.cff").read_text()
-    try:
-        citation = _citation_field(citation_text, "version")
-    except ReleaseError as exc:
-        raise ReleaseError(
-            f"CITATION.cff has no version field. {_merged_bump_fix()}"
-        ) from exc
+    citation = _citation_field(citation_text, "version")
     try:
         locked = _pathmc_lock_version((root / "uv.lock").read_text())
     except ReleaseError as exc:
@@ -689,20 +669,12 @@ def publish(root: Path) -> None:
             "If this version was already released, bump again with make release-patch. "
             "If the tag is a local mistake, delete it and retry."
         )
-    try:
-        released = _citation_field((root / "CITATION.cff").read_text(), "date-released")
-    except ReleaseError as exc:
-        raise ReleaseError(
-            f"CITATION.cff has no date-released field. {_merged_bump_fix()}"
-        ) from exc
+    released = _citation_field((root / "CITATION.cff").read_text(), "date-released")
     today = _today()
     if released != today:
         raise ReleaseError(
-            f"CITATION.cff date-released is {released}, not today's UTC date {today}. "
-            "Fix: Protect main cannot rewrite the merged bump. Open a new bump "
-            "pull request after this tip so date-released is today's UTC date, "
-            "then run make release-publish on that bump. This command will not "
-            "commit that change."
+            f"CITATION.cff date-released is {released}, not today's UTC date "
+            f"{today}. {_merged_bump_fix()}"
         )
     head = _stdout(root, ["git", "rev-parse", "HEAD"])
     _run(root, ["git", "tag", "--", version, head])
