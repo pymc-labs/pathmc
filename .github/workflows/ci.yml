@@ -42,12 +42,12 @@ jobs:
   # Four groups share the per-commit selection on each CI Python. pytest-split
   # balances them from .test_durations. SPLITS is that group count, not
   # strategy.job-total: the Python axis doubles the jobs without changing the
-  # split. The weekly job reads `group:` and passes that count to
-  # duration_drift.py. Oldest (3.12) and newest (3.14) each run the full
-  # split. Samplers wheels resolve on 3.14, so both legs use --all-extras.
-  # Coverage stays the 3.12 combine; a 3.14 failure still fails `test`.
-  # .python-version stays 3.12. UV_PYTHON keeps `make`'s `uv run` on this leg.
-  # The required check stays named `test`.
+  # split. refresh-test-durations.yml hardcodes --splits 4; the duration-drift
+  # test checks that count against this `group:` list. Oldest (3.12) and
+  # newest (3.14) each run the full split. Samplers wheels resolve on 3.14,
+  # so both legs use --all-extras. Coverage stays the 3.12 combine; a 3.14
+  # failure still fails `test`. .python-version stays 3.12. UV_PYTHON keeps
+  # `make`'s `uv run` on this leg. The required check stays named `test`.
   test-shard:
     needs: changes
     if: >-

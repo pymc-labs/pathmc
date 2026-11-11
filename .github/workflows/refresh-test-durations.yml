@@ -35,7 +35,7 @@ jobs:
         id: drift
         run: |
           set +e
-          # --splits must equal the test-shard matrix length in ci.yml.
+          # --splits must equal the test-shard `group:` length in ci.yml, not strategy.job-total.
           uv run --locked --all-extras python scripts/duration_drift.py \
             --old .test_durations \
             --new fresh.test_durations \
