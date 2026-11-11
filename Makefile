@@ -6,10 +6,13 @@ PACKAGE_NAME = pathmc
 BUILD_CHECK_DIR = .build-check
 VENV_JUPYTER := $(CURDIR)/.venv/share/jupyter
 UV_RUN = uv run --locked --all-extras
-# Release targets must not use --locked. A stale pathmc lock line makes uv
-# exit before the script, and that gate's own fix (`uv lock`) cannot be
-# committed on main. --frozen starts the script so it can name a new bump.
-UV_RUN_RELEASE = uv run --frozen --all-extras
+# Release targets must not discover the project. --locked and --frozen both
+# exit before the script when uv.lock has no pathmc member or pyproject.toml
+# cannot be parsed, and that failure says to run `uv lock`. Protect main
+# cannot commit that lock. --no-project --no-config starts the stdlib script
+# without reading the project, so the script's named fix is what Make prints.
+# The script runs `uv lock` only after it has switched to the release branch.
+UV_RUN_RELEASE = uv run --no-project --no-config
 REMOTE ?= origin
 REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' | sort)
 

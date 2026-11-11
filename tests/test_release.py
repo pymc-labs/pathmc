@@ -480,10 +480,12 @@ def test_init_keeps_metadata_version_and_workflows_listen_for_the_tag(tmp_path):
     )
     for arg in ("bump patch", "bump minor", "bump major", "publish"):
         assert (
-            f"uv run --frozen --all-extras python scripts/release.py {arg}"
-            in dry.stdout
+            "uv run --no-project --no-config python scripts/release.py "
+            f"{arg}" in dry.stdout
         )
     assert "--locked" not in dry.stdout
+    assert "--frozen" not in dry.stdout
+    assert "uv lock" not in dry.stdout
     assert "$(UV_RUN) python scripts/release.py" not in makefile
     publish = (ROOT / ".github" / "workflows" / "release.yml").read_text()
     created = (ROOT / ".github" / "workflows" / "github-release.yml").read_text()
@@ -620,3 +622,102 @@ def test_publish_unparseable_parent_names_a_new_bump(tmp_path):
     assert "restore a valid" not in completed.stderr
     assert _pushes(git_log) == []
     assert _git(root, "tag", "--list") == ""
+
+
+def _strip_pathmc_member(lock: str) -> str:
+    blocks = lock.split("\n[[package]]\n")
+    kept = [blocks[0]]
+    removed = 0
+    for block in blocks[1:]:
+        if block.startswith('name = "pathmc"\n'):
+            removed += 1
+            continue
+        kept.append(block)
+    assert removed == 1
+    return "\n[[package]]\n".join(kept)
+
+
+def _committed_release_tree(tmp_path: Path, pyproject: str, lock: str) -> Path:
+    """A clean main matching a local origin, without the stub uv on PATH."""
+    root = tmp_path / "checkout"
+    remote = tmp_path / "origin.git"
+    root.mkdir(parents=True)
+    subprocess.run(["git", "init", "--bare", str(remote)], check=True)
+    _git(root, "init", "-b", "main")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "config", "user.email", "test@localhost.invalid")
+    _git(root, "config", "commit.gpgsign", "false")
+    _git(root, "config", "tag.gpgsign", "false")
+    _git(root, "config", "core.hooksPath", "/dev/null")
+    (root / "pyproject.toml").write_text(pyproject)
+    (root / "CITATION.cff").write_text(
+        "cff-version: 1.2.0\nversion: 0.6.0\ndate-released: 2020-01-01\n"
+    )
+    (root / "uv.lock").write_text(lock)
+    (root / ".gitignore").write_text(".venv/\n")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "initial")
+    _git(root, "remote", "add", "origin", str(remote))
+    _git(root, "push", "origin", "main")
+    return root
+
+
+def _release_argv(*flags: str) -> list[str]:
+    uv = shutil.which("uv")
+    assert uv
+    return [uv, "run", *flags, "python", str(SCRIPT), "publish"]
+
+
+def test_make_release_command_reaches_the_script_without_locking(tmp_path):
+    """The four targets share this argv. It must start the script, not uv lock."""
+    real_lock = (ROOT / "uv.lock").read_text()
+    project = '[project]\nname = "pathmc"\nversion = "0.6.0"\n'
+    command = _release_argv("--no-project", "--no-config")
+
+    missing = _committed_release_tree(
+        tmp_path / "missing", project, _strip_pathmc_member(real_lock)
+    )
+    head = _git(missing, "rev-parse", "HEAD")
+    completed = subprocess.run(command, cwd=missing, text=True, capture_output=True)
+    assert completed.returncode == 1
+    assert "no readable pathmc version" in completed.stderr
+    assert "new bump" in completed.stderr
+    assert "uv lock" not in completed.stderr
+    assert "Missing workspace member" not in completed.stderr
+    assert _git(missing, "status", "--porcelain") == ""
+    assert _git(missing, "rev-parse", "HEAD") == head
+    assert _git(missing, "rev-parse", "--abbrev-ref", "HEAD") == "main"
+
+    frozen = subprocess.run(
+        _release_argv("--frozen", "--all-extras"),
+        cwd=missing,
+        text=True,
+        capture_output=True,
+    )
+    assert frozen.returncode != 0
+    assert "no readable pathmc version" not in frozen.stderr
+    assert "uv lock" in frozen.stderr
+    assert _git(missing, "rev-parse", "HEAD") == head
+    assert _git(missing, "status", "--porcelain") == ""
+
+    broken = _committed_release_tree(tmp_path / "broken", "[\n", real_lock)
+    broken_head = _git(broken, "rev-parse", "HEAD")
+    parsed = subprocess.run(command, cwd=broken, text=True, capture_output=True)
+    assert parsed.returncode == 1
+    assert "could not be parsed" in parsed.stderr
+    assert "restores a valid" in parsed.stderr
+    assert "uv lock" not in parsed.stderr
+    assert _git(broken, "status", "--porcelain") == ""
+    assert _git(broken, "rev-parse", "HEAD") == broken_head
+
+    consistent = _committed_release_tree(tmp_path / "consistent", project, real_lock)
+    consistent_head = _git(consistent, "rev-parse", "HEAD")
+    started = subprocess.run(command, cwd=consistent, text=True, capture_output=True)
+    assert started.returncode == 1
+    assert "not a merged version bump" in started.stderr
+    assert "uv lock" not in started.stderr
+    assert "Missing workspace member" not in started.stderr
+    assert _git(consistent, "status", "--porcelain") == ""
+    assert _git(consistent, "rev-parse", "HEAD") == consistent_head
+    assert (consistent / "uv.lock").read_text() == real_lock
+    assert (consistent / "pyproject.toml").read_text() == project
