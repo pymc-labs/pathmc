@@ -13,7 +13,7 @@ REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' |
 # COMMANDS                                                                      #
 #################################################################################
 
-.PHONY: setup lint check_lint check check-pr check-merge test-fast test test-shard record-test-durations test-nightly jupyter-kernel docs freeze-page refreeze-docs cleandocs build check-build help
+.PHONY: setup lint check_lint check check-pr check-merge test-fast test test-shard record-test-durations test-nightly jupyter-kernel docs freeze-page refreeze-docs cleandocs build check-build release-patch release-minor release-major release-publish help
 
 setup: ## Set up the complete development environment (uv)
 	uv sync --all-extras
@@ -93,6 +93,18 @@ check-build: build ## Build artifacts and smoke-test sdist and wheel installs
 	uv pip install --python $(BUILD_CHECK_DIR)/wheel/bin/python dist/$(PACKAGE_NAME)-*.whl
 	$(BUILD_CHECK_DIR)/wheel/bin/python -c "import $(PACKAGE_NAME); print($(PACKAGE_NAME).__name__)"
 	rm -rf $(BUILD_CHECK_DIR)
+
+release-patch: ## Open a patch-version pull request
+	$(UV_RUN) python scripts/release.py bump patch
+
+release-minor: ## Open a minor-version pull request
+	$(UV_RUN) python scripts/release.py bump minor
+
+release-major: ## Open a major-version pull request
+	$(UV_RUN) python scripts/release.py bump major
+
+release-publish: ## Tag the merged bump and push that bare tag
+	$(UV_RUN) python scripts/release.py publish
 
 #################################################################################
 # Self Documenting Commands                                                     #

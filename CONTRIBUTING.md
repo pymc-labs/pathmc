@@ -215,3 +215,11 @@ See the "Building the docs" section of [AGENTS.md](https://github.com/pymc-labs/
 ## README assets on PyPI
 
 The PyPI project page renders `README.md` and loads its images from absolute `raw.githubusercontent.com/.../main/docs/assets/...` URLs at **view** time, not from the sdist. Do not rename or relocate `docs/assets/logo_light.png`, `logo_dark.png`, or `contributors.svg` without updating `README.md`; if those paths disappear from `main`, images break on PyPI for every previously published release. PyPI currently has no dark-mode toggle, so the README uses a `<picture>` block for GitHub (light/dark logos) with a light-background fallback for PyPI.
+
+## Releasing
+
+`make release-patch`, `make release-minor`, and `make release-major` open a pull request that bumps `[project].version` in `pyproject.toml`, the `pathmc` entry in `uv.lock` via `uv lock`, and `CITATION.cff` `version` plus `date-released` (the UTC date the pull request is opened). They compute the next `MAJOR.MINOR.PATCH`, create a `release/pathmc-X.Y.Z` branch, commit only those files, push that branch, and open the pull request. They do not commit on `main`, push `main`, or create a tag. Run them from a clean `main` that matches `origin/main`. `pathmc.__version__` stays `importlib.metadata.version`; do not add a second version literal.
+
+After that pull request is squash-merged or rebased, and on the same UTC day as `date-released`, run `make release-publish` from a clean `main` that matches `origin/main`. It tags only the merged bump commit and pushes the bare tag (`0.6.1`, not `v0.6.1`) with your credentials, not `GITHUB_TOKEN`. It refuses, and names the fix, if `main` is not that bump, if the tag already exists, if the tag would not equal the package version, or if `date-released` is not today's UTC date. It does not commit the date change. If you need to tag on a later day, set `date-released` to that UTC date in the bump before it is the tip of `main`, then run `make release-publish`.
+
+The tag push creates the GitHub Release with generated notes and starts the PyPI workflow. Test PyPI runs first. The real upload still waits for approval on the `release` environment. Tag protection and the Protect main ruleset are unchanged. Publishing is an admin action.

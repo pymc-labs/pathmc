@@ -1,13 +1,14 @@
 name: PyPI release
 
+# A bare version-tag push publishes. Release creation must not be the trigger:
+# the token that creates the GitHub Release cannot start this workflow.
 on:
-  workflow_dispatch:
   pull_request:
     branches: [main]
   push:
     branches: [main]
-  release:
-    types: [published]
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
 
 permissions: {}
 
@@ -22,6 +23,13 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Require a bare version tag
+        if: github.ref_type == 'tag'
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          printf '%s\n' "$REF_NAME" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "Refusing tag $REF_NAME; expected MAJOR.MINOR.PATCH." >&2; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -87,7 +95,7 @@ jobs:
     name: Upload to Test PyPI
     needs: [build]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' && github.event.action == 'published'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     permissions:
       id-token: write
     steps:
@@ -123,7 +131,7 @@ jobs:
     name: Upload release to PyPI
     needs: [build, test-pypi]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' && github.event.action == 'published'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     environment: release
     permissions:
       id-token: write
