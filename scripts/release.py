@@ -47,8 +47,9 @@ def next_version(current: str, part: str) -> str:
     if not match:
         raise ReleaseError(
             f"Version {current!r} is not MAJOR.MINOR.PATCH. "
-            'Fix: set [project].version to "X.Y.Z" and retry. '
-            "This command will not guess a bump from a pre-release."
+            "Fix: open a pull request that sets [project].version to a valid "
+            '"X.Y.Z". This command will not guess a bump from a pre-release, '
+            "and will not commit."
         )
     major, minor, patch = (int(piece) for piece in match.groups())
     if part == "patch":
@@ -131,6 +132,30 @@ def _require_root(root: Path) -> None:
         )
 
 
+def _main_drift_fix(root: Path, remote_sha: str) -> str:
+    """Name a fix that can land. Fast-forward only when this checkout is behind."""
+    ahead = _run(
+        root,
+        ["git", "merge-base", "--is-ancestor", remote_sha, "HEAD"],
+        check=False,
+    )
+    behind = _run(
+        root,
+        ["git", "merge-base", "--is-ancestor", "HEAD", remote_sha],
+        check=False,
+    )
+    if behind.returncode == 0 and ahead.returncode != 0:
+        return (
+            "Fix: git fetch origin && git merge --ff-only origin/main, "
+            "then retry. This command will not update main."
+        )
+    return (
+        "Fix: move those commits to another branch, then "
+        "git reset --hard origin/main locally, and retry. "
+        "Do not push main. This command will not update main."
+    )
+
+
 def _require_clean_main(root: Path) -> str:
     """Return origin/main. Refuse unless this checkout is that commit and clean."""
     _require_root(root)
@@ -165,8 +190,7 @@ def _require_clean_main(root: Path) -> str:
     if head != remote_sha:
         raise ReleaseError(
             f"main is {head[:12]}, but {_REMOTE}/main is {remote_sha[:12]}. "
-            "Fix: git fetch origin && git merge --ff-only origin/main, then retry. "
-            "This command will not update main."
+            f"{_main_drift_fix(root, remote_sha)}"
         )
     return head
 
@@ -177,12 +201,16 @@ def _project_version(text: str) -> str:
     except tomllib.TOMLDecodeError as exc:
         raise ReleaseError(
             f"pyproject.toml could not be parsed ({exc}). "
-            "Fix: restore a valid [project].version and retry."
+            "Fix: Protect main cannot rewrite the tip. Open a pull request "
+            "that restores a valid [project].version, then open a bump. "
+            "Do not restore and retry. This command will not commit."
         ) from exc
     if not isinstance(version, str):
         raise ReleaseError(
             "pyproject.toml [project].version is missing. "
-            'Fix: set version = "X.Y.Z" under [project] and retry.'
+            "Fix: Protect main cannot rewrite the tip. Open a pull request "
+            'that sets version = "X.Y.Z" under [project], then open a bump. '
+            "Do not restore and retry. This command will not commit."
         )
     return version
 
@@ -241,11 +269,12 @@ def _set_citation_field(text: str, key: str, value: str) -> str:
         flags=re.MULTILINE,
     )
     rewritten, count = pattern.subn(f"{key}: {value}", text, count=1)
-    if count != 1:
-        raise ReleaseError(
-            f"CITATION.cff has no {key} field. "
-            f"Fix: add `{key}: {value}` in the existing unquoted form and retry."
-        )
+    if count == 0:
+        # A missing field cannot be added on main. Insert it on the bump branch
+        # so the publish refusal's "open a new bump" fix can actually run.
+        if text and not text.endswith("\n"):
+            text += "\n"
+        return text + f"{key}: {value}\n"
     if text.endswith("\n") and not rewritten.endswith("\n"):
         rewritten += "\n"
     return rewritten
@@ -569,6 +598,16 @@ def bump(root: Path, part: str) -> None:
     )
 
 
+def _merged_bump_fix() -> str:
+    """Name a new bump. A field-only commit on the tip is not a bump."""
+    return (
+        "Fix: Protect main cannot rewrite the merged bump. Open a new bump "
+        "pull request after this tip so date-released is today's UTC date, "
+        "then run make release-publish on that bump. This command will not "
+        "commit that change."
+    )
+
+
 def _versions_agree(root: Path) -> str:
     version = _project_version((root / "pyproject.toml").read_text())
     if not _SEMVER.fullmatch(version):
@@ -581,8 +620,19 @@ def _versions_agree(root: Path) -> str:
             "day that pull request is opened. Then run make release-publish "
             "on that merge. This command will not commit."
         )
-    citation = _citation_field((root / "CITATION.cff").read_text(), "version")
-    locked = _pathmc_lock_version((root / "uv.lock").read_text())
+    citation_text = (root / "CITATION.cff").read_text()
+    try:
+        citation = _citation_field(citation_text, "version")
+    except ReleaseError as exc:
+        raise ReleaseError(
+            f"CITATION.cff has no version field. {_merged_bump_fix()}"
+        ) from exc
+    try:
+        locked = _pathmc_lock_version((root / "uv.lock").read_text())
+    except ReleaseError as exc:
+        raise ReleaseError(
+            f"uv.lock has no readable pathmc version. {_merged_bump_fix()}"
+        ) from exc
     mismatches = [
         (label, found)
         for label, found in (("CITATION.cff", citation), ("uv.lock", locked))
@@ -612,7 +662,16 @@ def publish(root: Path) -> None:
             "This command will not commit."
         )
     parent_text = _run(root, ["git", "show", "HEAD^:pyproject.toml"]).stdout
-    parent_version = _project_version(parent_text)
+    try:
+        parent_version = _project_version(parent_text)
+    except ReleaseError as exc:
+        raise ReleaseError(
+            "HEAD^:pyproject.toml has no readable [project].version. "
+            "Fix: the parent blob cannot be repaired in place. The tip is "
+            "valid. Open a new bump pull request, then run make "
+            "release-publish on that bump. Do not restore the parent and "
+            "retry. This command will not commit."
+        ) from exc
     if parent_version == version:
         head = _stdout(root, ["git", "rev-parse", "--short", "HEAD"])
         raise ReleaseError(
@@ -630,7 +689,12 @@ def publish(root: Path) -> None:
             "If this version was already released, bump again with make release-patch. "
             "If the tag is a local mistake, delete it and retry."
         )
-    released = _citation_field((root / "CITATION.cff").read_text(), "date-released")
+    try:
+        released = _citation_field((root / "CITATION.cff").read_text(), "date-released")
+    except ReleaseError as exc:
+        raise ReleaseError(
+            f"CITATION.cff has no date-released field. {_merged_bump_fix()}"
+        ) from exc
     today = _today()
     if released != today:
         raise ReleaseError(

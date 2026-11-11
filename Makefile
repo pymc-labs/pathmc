@@ -6,6 +6,10 @@ PACKAGE_NAME = pathmc
 BUILD_CHECK_DIR = .build-check
 VENV_JUPYTER := $(CURDIR)/.venv/share/jupyter
 UV_RUN = uv run --locked --all-extras
+# Release targets must not use --locked. A stale pathmc lock line makes uv
+# exit before the script, and that gate's own fix (`uv lock`) cannot be
+# committed on main. --frozen starts the script so it can name a new bump.
+UV_RUN_RELEASE = uv run --frozen --all-extras
 REMOTE ?= origin
 REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' | sort)
 
@@ -95,16 +99,16 @@ check-build: build ## Build artifacts and smoke-test sdist and wheel installs
 	rm -rf $(BUILD_CHECK_DIR)
 
 release-patch: ## Open a patch-version pull request
-	$(UV_RUN) python scripts/release.py bump patch
+	$(UV_RUN_RELEASE) python scripts/release.py bump patch
 
 release-minor: ## Open a minor-version pull request
-	$(UV_RUN) python scripts/release.py bump minor
+	$(UV_RUN_RELEASE) python scripts/release.py bump minor
 
 release-major: ## Open a major-version pull request
-	$(UV_RUN) python scripts/release.py bump major
+	$(UV_RUN_RELEASE) python scripts/release.py bump major
 
 release-publish: ## Tag the merged bump and push that bare tag
-	$(UV_RUN) python scripts/release.py publish
+	$(UV_RUN_RELEASE) python scripts/release.py publish
 
 #################################################################################
 # Self Documenting Commands                                                     #

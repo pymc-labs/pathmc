@@ -126,7 +126,13 @@ for index, line in enumerate(lines):
         lines[index + 1] = 'version = "' + version + '"\\n'
         break
 else:
-    raise SystemExit("pathmc lock entry missing")
+    if seen and not seen.endswith("\\n"):
+        lines.append("\\n")
+    lines.extend([
+        "[[package]]\\n",
+        'name = "pathmc"\\n',
+        'version = "' + version + '"\\n',
+    ])
 if os.environ.get("PATHMC_UV_EXTRA") == "1":
     lines.append("# unrelated pin changed by uv lock\\n")
 lock.write_text("".join(lines))
@@ -458,6 +464,27 @@ def test_init_keeps_metadata_version_and_workflows_listen_for_the_tag(tmp_path):
     ):
         assert f"{target}:" in makefile
         assert f"scripts/release.py {arg}" in makefile
+    dry = subprocess.run(
+        [
+            "make",
+            "-n",
+            "release-patch",
+            "release-minor",
+            "release-major",
+            "release-publish",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    for arg in ("bump patch", "bump minor", "bump major", "publish"):
+        assert (
+            f"uv run --frozen --all-extras python scripts/release.py {arg}"
+            in dry.stdout
+        )
+    assert "--locked" not in dry.stdout
+    assert "$(UV_RUN) python scripts/release.py" not in makefile
     publish = (ROOT / ".github" / "workflows" / "release.yml").read_text()
     created = (ROOT / ".github" / "workflows" / "github-release.yml").read_text()
     assert "workflow_dispatch" not in publish
@@ -475,3 +502,121 @@ def test_init_keeps_metadata_version_and_workflows_listen_for_the_tag(tmp_path):
     assert "make release-publish" in contributing
     assert "Protect main cannot rewrite the tip" in contributing
     assert "Do not reset or align `main`" in contributing
+
+
+def test_ahead_of_origin_names_a_local_reset(tmp_path):
+    root, remote, binaries, git_log, gh_log, _, _ = _repo(tmp_path)
+    _git(root, "commit", "--allow-empty", "-m", "local only")
+    local = _git(root, "rev-parse", "HEAD")
+    completed = _run(root, binaries, "bump", "patch")
+    assert completed.returncode == 1
+    assert "reset --hard origin/main" in completed.stderr
+    assert "another branch" in completed.stderr
+    assert "Do not push main" in completed.stderr
+    assert "ff-only" not in completed.stderr
+    assert _git(root, "rev-parse", "HEAD") == local
+    assert not gh_log.exists()
+    assert _pushes(git_log) == []
+    assert _git(root, "ls-remote", "--tags", str(remote)) == ""
+
+
+def test_bump_inserts_missing_citation_and_lock_fields(tmp_path):
+    root, _, binaries, _, _, pr_body, _ = _repo(tmp_path)
+    citation = (root / "CITATION.cff").read_text()
+    citation = citation.replace("version: 0.6.0\n", "").replace(
+        "date-released: 2020-01-01\n", ""
+    )
+    (root / "CITATION.cff").write_text(citation)
+    lock = (
+        (root / "uv.lock")
+        .read_text()
+        .replace(
+            '[[package]]\nname = "pathmc"\nversion = "0.6.0"\n'
+            'source = { editable = "." }\n\n',
+            "",
+        )
+    )
+    (root / "uv.lock").write_text(lock)
+    _git(root, "add", ".")
+    _git(root, "commit", "--amend", "--no-edit")
+    _git(root, "push", "--force", "origin", "main")
+    completed = _run(root, binaries, "bump", "patch")
+    assert completed.returncode == 0, completed.stderr
+    written = (root / "CITATION.cff").read_text()
+    assert "version: 0.6.1\n" in written
+    assert f"date-released: {TODAY}\n" in written
+    assert 'name = "pathmc"' in (root / "uv.lock").read_text()
+    assert 'version = "0.6.1"' in (root / "uv.lock").read_text()
+    assert "0.6.0 -> 0.6.1" in pr_body.read_text()
+
+
+def test_publish_missing_fields_name_a_new_bump(tmp_path):
+    root, _, binaries, git_log, _, _, _ = _repo(tmp_path, released=TODAY)
+    _write_versions(root, "0.6.1", TODAY)
+    citation = (root / "CITATION.cff").read_text().replace("version: 0.6.1\n", "")
+    (root / "CITATION.cff").write_text(citation)
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "Bump version to 0.6.1")
+    _git(root, "push", "origin", "main")
+    missing_version = _run(root, binaries, "publish")
+    assert missing_version.returncode == 1
+    assert "no version field" in missing_version.stderr
+    assert "new bump" in missing_version.stderr
+    assert "add `" not in missing_version.stderr
+    assert "and retry" not in missing_version.stderr
+    assert _pushes(git_log) == []
+
+    citation = (root / "CITATION.cff").read_text()
+    citation = citation.replace(f"date-released: {TODAY}\n", "")
+    if "version: 0.6.1\n" not in citation:
+        citation = f"version: 0.6.1\n{citation}"
+    (root / "CITATION.cff").write_text(citation)
+    _git(root, "add", "CITATION.cff")
+    _git(root, "commit", "--amend", "--no-edit")
+    _git(root, "push", "--force", "origin", "main")
+    missing_date = _run(root, binaries, "publish")
+    assert missing_date.returncode == 1
+    assert "no date-released field" in missing_date.stderr
+    assert "new bump" in missing_date.stderr
+    assert "add `" not in missing_date.stderr
+    assert _pushes(git_log) == []
+
+    _write_versions(root, "0.6.1", TODAY)
+    lock = (
+        (root / "uv.lock")
+        .read_text()
+        .replace(
+            '[[package]]\nname = "pathmc"\nversion = "0.6.1"\n'
+            'source = { editable = "." }\n\n',
+            "",
+        )
+    )
+    (root / "uv.lock").write_text(lock)
+    _git(root, "add", ".")
+    _git(root, "commit", "--amend", "--no-edit")
+    _git(root, "push", "--force", "origin", "main")
+    missing_lock = _run(root, binaries, "publish")
+    assert missing_lock.returncode == 1
+    assert "no readable pathmc version" in missing_lock.stderr
+    assert "new bump" in missing_lock.stderr
+    assert "uv lock" not in missing_lock.stderr
+    assert _pushes(git_log) == []
+
+
+def test_publish_unparseable_parent_names_a_new_bump(tmp_path):
+    root, _, binaries, git_log, _, _, _ = _repo(tmp_path, released=TODAY)
+    (root / "pyproject.toml").write_text("[\n")
+    _git(root, "add", "pyproject.toml")
+    _git(root, "commit", "-m", "break parent")
+    _write_versions(root, "0.6.1", TODAY)
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "Bump version to 0.6.1")
+    _git(root, "push", "origin", "main")
+    completed = _run(root, binaries, "publish")
+    assert completed.returncode == 1
+    assert "parent blob cannot be repaired" in completed.stderr
+    assert "new bump" in completed.stderr
+    assert "restore and retry" not in completed.stderr
+    assert "restore a valid" not in completed.stderr
+    assert _pushes(git_log) == []
+    assert _git(root, "tag", "--list") == ""
