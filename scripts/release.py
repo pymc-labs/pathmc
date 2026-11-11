@@ -344,7 +344,7 @@ def _push(root: Path, refspec: str) -> None:
             "Refusing to push main. "
             "Fix: push only the release branch or the bare version tag."
         )
-    command = ["git", "push", _REMOTE, refspec]
+    command = ["git", "push", "--no-follow-tags", _REMOTE, refspec]
     if any(arg in {"--force", "--force-with-lease", "-f"} for arg in command):
         raise ReleaseError(
             "Refusing to force-push. Fix: delete a mistaken tag by hand, or bump again."

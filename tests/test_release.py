@@ -213,6 +213,7 @@ def test_bump_opens_pr_without_pushing_main_or_tagging(tmp_path, part, expected)
     assert len(pushes) == 1
     assert pushes[0]["argv"] == [
         "push",
+        "--no-follow-tags",
         "origin",
         f"HEAD:refs/heads/release/pathmc-{expected}",
     ]
@@ -223,6 +224,16 @@ def test_bump_opens_pr_without_pushing_main_or_tagging(tmp_path, part, expected)
     remote_main = _git(root, "ls-remote", str(remote), "refs/heads/main").split()[0]
     assert remote_main == main_sha
     assert _git(root, "ls-remote", "--tags", str(remote)) == ""
+
+
+def test_bump_does_not_push_reachable_annotated_tags(tmp_path):
+    root, remote, binaries, *_ = _repo(tmp_path)
+    _git(root, "tag", "-a", "0.5.0", "-m", "old")
+    _git(root, "config", "push.followTags", "true")
+    completed = _run(root, binaries, "bump", "patch")
+    assert completed.returncode == 0, completed.stderr
+    assert _git(root, "ls-remote", "--tags", str(remote)) == ""
+    assert _git(root, "rev-parse", "refs/tags/0.5.0")
 
 
 def test_patch_bump_increments_the_numeric_patch(tmp_path):
@@ -304,7 +315,7 @@ def test_publish_tags_only_the_merged_bump(tmp_path):
     pushes = _pushes(git_log)
     assert pushes == [
         {
-            "argv": ["push", "origin", "refs/tags/0.6.1"],
+            "argv": ["push", "--no-follow-tags", "origin", "refs/tags/0.6.1"],
             "github_token": None,
         }
     ]
