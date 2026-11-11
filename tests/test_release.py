@@ -98,6 +98,9 @@ if len(sys.argv) > 1 and sys.argv[1] == "push":
         handle.write(json.dumps({{
             "argv": sys.argv[1:],
             "github_token": os.environ.get("GITHUB_TOKEN"),
+            "gh_token": os.environ.get("GH_TOKEN"),
+            "github_enterprise_token": os.environ.get("GITHUB_ENTERPRISE_TOKEN"),
+            "gh_enterprise_token": os.environ.get("GH_ENTERPRISE_TOKEN"),
         }}) + "\\n")
 raise SystemExit(subprocess.run([{real_git!r}, *sys.argv[1:]]).returncode)
 """,
@@ -134,6 +137,9 @@ from pathlib import Path
 Path({str(gh_log)!r}).write_text(json.dumps({{
     "argv": sys.argv[1:],
     "github_token": os.environ.get("GITHUB_TOKEN"),
+    "gh_token": os.environ.get("GH_TOKEN"),
+    "github_enterprise_token": os.environ.get("GITHUB_ENTERPRISE_TOKEN"),
+    "gh_enterprise_token": os.environ.get("GH_ENTERPRISE_TOKEN"),
 }}))
 if sys.argv[1:3] != ["pr", "create"]:
     print("unexpected gh call", sys.argv, file=sys.stderr)
@@ -153,7 +159,13 @@ print("https://example.invalid/pull/1")
 def _run(root: Path, binaries: Path, *args: str, **env_extra: str):
     env = os.environ.copy()
     env["PATH"] = str(binaries) + os.pathsep + env["PATH"]
-    env["GITHUB_TOKEN"] = "must-not-be-used"
+    for name in (
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "GITHUB_ENTERPRISE_TOKEN",
+        "GH_ENTERPRISE_TOKEN",
+    ):
+        env[name] = "must-not-be-used"
     env.update(env_extra)
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
@@ -218,8 +230,12 @@ def test_bump_opens_pr_without_pushing_main_or_tagging(tmp_path, part, expected)
         f"HEAD:refs/heads/release/pathmc-{expected}",
     ]
     assert pushes[0]["github_token"] is None
+    for key in ("gh_token", "github_enterprise_token", "gh_enterprise_token"):
+        assert pushes[0][key] is None
     gh = json.loads(gh_log.read_text())
     assert gh["github_token"] is None
+    for key in ("gh_token", "github_enterprise_token", "gh_enterprise_token"):
+        assert gh[key] is None
     assert "--base" in gh["argv"] and "main" in gh["argv"]
     remote_main = _git(root, "ls-remote", str(remote), "refs/heads/main").split()[0]
     assert remote_main == main_sha
@@ -317,6 +333,9 @@ def test_publish_tags_only_the_merged_bump(tmp_path):
         {
             "argv": ["push", "--no-follow-tags", "origin", "refs/tags/0.6.1"],
             "github_token": None,
+            "gh_token": None,
+            "github_enterprise_token": None,
+            "gh_enterprise_token": None,
         }
     ]
     assert not gh_log.exists()
@@ -334,6 +353,8 @@ def test_publish_refuses_a_later_commit_existing_tag_and_stale_date(tmp_path):
     later = _run(root, binaries, "publish")
     assert later.returncode == 1
     assert "not the merged bump" in later.stderr
+    assert "must still be the tip" in later.stderr
+    assert "fast-forward" not in later.stderr
     assert "will not move main" in later.stderr
     assert _pushes(git_log) == []
 

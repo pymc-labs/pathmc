@@ -94,9 +94,15 @@ def _stdout(root: Path, args: list[str]) -> str:
 
 
 def _caller_env() -> dict[str, str]:
-    """Drop the Actions token so git and gh use the caller's own credentials."""
+    """Drop Actions tokens so git and gh use the caller's stored credentials."""
     env = os.environ.copy()
-    env.pop("GITHUB_TOKEN", None)
+    for name in (
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "GITHUB_ENTERPRISE_TOKEN",
+        "GH_ENTERPRISE_TOKEN",
+    ):
+        env.pop(name, None)
     env["GIT_TERMINAL_PROMPT"] = "0"
     return env
 
@@ -355,7 +361,7 @@ def _push(root: Path, refspec: str) -> None:
         raise ReleaseError(
             f"git push {_REMOTE} {refspec} failed.\n{detail}\n"
             "Fix: authenticate with your admin credentials and retry. "
-            "Do not set GITHUB_TOKEN for this push, and do not force-push."
+            "Do not set GITHUB_TOKEN or GH_TOKEN for this push, and do not force-push."
         )
 
 
@@ -599,8 +605,10 @@ def publish(root: Path) -> None:
         head = _stdout(root, ["git", "rev-parse", "--short", "HEAD"])
         raise ReleaseError(
             f"main ({head}) is not the merged bump: its parent already has "
-            f"version {version}. Fix: check out the merged bump commit and "
-            "fast-forward main to it before tagging. This command will not move main."
+            f"version {version}. Fix: the bump must still be the tip of main. "
+            "If later commits landed, do not tag this tip. Reset main only to "
+            "drop those commits, or open a new bump after them. "
+            "This command will not move main."
         )
     if _ref_exists(root, f"refs/tags/{version}") or _remote_has(
         root, "tags", f"refs/tags/{version}"
