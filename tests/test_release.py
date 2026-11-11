@@ -220,6 +220,8 @@ def test_bump_opens_pr_without_pushing_main_or_tagging(tmp_path, part, expected)
     body = pr_body.read_text()
     assert "0.6.0 -> " + expected in body
     assert "make release-publish" in body
+    assert "Protect main cannot rewrite the tip" in body
+    assert "before it is the tip" not in body
     assert "No other lockfile changes." in body
     pushes = _pushes(git_log)
     assert len(pushes) == 1
@@ -353,7 +355,9 @@ def test_publish_refuses_a_later_commit_existing_tag_and_stale_date(tmp_path):
     later = _run(root, binaries, "publish")
     assert later.returncode == 1
     assert "not the merged bump" in later.stderr
-    assert "must still be the tip" in later.stderr
+    assert "Protect main" in later.stderr
+    assert "new bump" in later.stderr
+    assert "Reset" not in later.stderr
     assert "fast-forward" not in later.stderr
     assert "will not move main" in later.stderr
     assert _pushes(git_log) == []
@@ -376,6 +380,9 @@ def test_publish_refuses_a_later_commit_existing_tag_and_stale_date(tmp_path):
     stale = _run(root, binaries, "publish")
     assert stale.returncode == 1
     assert "date-released is 2020-01-01" in stale.stderr
+    assert "Protect main" in stale.stderr
+    assert "new bump" in stale.stderr
+    assert "before it is the tip" not in stale.stderr
     assert "will not commit that change" in stale.stderr
     assert _git(root, "tag", "--list") == ""
     assert _pushes(git_log) == []
@@ -443,3 +450,5 @@ def test_init_keeps_metadata_version_and_workflows_listen_for_the_tag(tmp_path):
     contributing = (ROOT / "CONTRIBUTING.md").read_text()
     assert "make release-patch" in contributing
     assert "make release-publish" in contributing
+    assert "Protect main cannot rewrite the tip" in contributing
+    assert "Do not reset `main`" in contributing

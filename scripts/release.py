@@ -404,12 +404,15 @@ def _pr_body(old: str, new: str, released: str, other_diff: str) -> str:
         "make release-publish\n"
         "```\n\n"
         "That tags only the merged bump commit and pushes the bare tag "
-        f"`{new}` with your credentials. It does not push `main`, does not commit, "
-        "and does not use `GITHUB_TOKEN`. It refuses if `main` is not this bump, "
+        f"`{new}` with your stored credentials. It unsets `GITHUB_TOKEN` and "
+        "`GH_TOKEN` for that push. It does not push `main` and does not commit. "
+        "It refuses if `main` is not this bump, "
         f"if `{new}` already exists, if the tag would not equal the package version, "
         "or if `date-released` is not today's UTC date. It will not commit a date "
-        "change. If you tag on a later day, set `date-released` to that UTC date in "
-        "this bump before it is the tip of `main`, then run `make release-publish`.\n\n"
+        "change. Tag on this UTC day. If the day has passed, or later commits "
+        "landed on `main`, Protect main cannot rewrite the tip. Open a new bump "
+        "pull request, then run `make release-publish` on that bump. This version "
+        "cannot be tagged by resetting `main`.\n\n"
         "The tag push creates the GitHub Release with generated notes and starts "
         "the PyPI jobs. Test PyPI runs, then the real upload waits for approval "
         "on the `release` environment.\n\n"
@@ -605,9 +608,9 @@ def publish(root: Path) -> None:
         head = _stdout(root, ["git", "rev-parse", "--short", "HEAD"])
         raise ReleaseError(
             f"main ({head}) is not the merged bump: its parent already has "
-            f"version {version}. Fix: the bump must still be the tip of main. "
-            "If later commits landed, do not tag this tip. Reset main only to "
-            "drop those commits, or open a new bump after them. "
+            f"version {version}. Fix: Protect main cannot drop or rewrite the "
+            "tip, so this version cannot be tagged. Open a new bump pull request "
+            "after the current tip, then run make release-publish on that bump. "
             "This command will not move main."
         )
     if _ref_exists(root, f"refs/tags/{version}") or _remote_has(
@@ -623,8 +626,10 @@ def publish(root: Path) -> None:
     if released != today:
         raise ReleaseError(
             f"CITATION.cff date-released is {released}, not today's UTC date {today}. "
-            f"Fix: set date-released to {today} in the bump commit before it is the "
-            "tip of main. This command will not commit that change."
+            "Fix: Protect main cannot rewrite the merged bump. Open a new bump "
+            "pull request after this tip so date-released is today's UTC date, "
+            "then run make release-publish on that bump. This command will not "
+            "commit that change."
         )
     head = _stdout(root, ["git", "rev-parse", "HEAD"])
     _run(root, ["git", "tag", "--", version, head])
