@@ -20,4 +20,4 @@ If output contradicts an accepted ADR in `docs/adr/`, surface the conflict expli
 
 An ADR is added only when a human closes one of the four questions below. Do not pre-fill records from the architecture principles in `AGENTS.md`.
 
-Stop and label the issue or PR `needs-human` when no accepted ADR covers the question and the change would break the public API, change a numerical tolerance, add a dependency, or reject an alternative a later agent would otherwise re-litigate. Ask. Do not invent the decision. A routine implementation choice is not one of those triggers.
+Stop when no accepted ADR covers the question and the change would break the public API, change a numerical tolerance, add a dependency, or reject an alternative a later agent would otherwise re-litigate. Do not apply `needs-human` unless that stop records the decision, the recommendation and its consequence, the other live option and its cost, the fact that would flip it, what is already settled, and the next owner. Do not invent the decision. A routine implementation choice is not one of those triggers.

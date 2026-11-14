@@ -4,12 +4,14 @@ An ADR records a decision a human has closed, so the next agent does not re-deci
 
 ## When to stop
 
-Stop and label the issue or PR `needs-human` when no accepted ADR covers the question and the change would:
+Stop when no accepted ADR covers the question and the change would:
 
 - break the public API
 - change a numerical tolerance
 - add a dependency
 - reject an alternative
+
+Apply `needs-human` only when that stop records the decision, the recommendation and its consequence, the other live option and its cost, the fact that would flip it, what is already settled, and the next owner. A label without those fields is not a completed stop.
 
 Not every non-obvious line is one of these. Rejecting an alternative means a later agent would otherwise re-litigate that choice. A routine implementation choice continues. Output that contradicts an accepted ADR is surfaced, not silently overridden. See `docs/agents/domain.md`.
 

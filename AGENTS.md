@@ -101,7 +101,7 @@ GitHub Issues (`gh` CLI). See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`. A public API break, a numerical tolerance change, a new dependency, or a rejected alternative stops for `needs-human` unless an accepted ADR already covers it.
+Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`. A public API break, a numerical tolerance change, a new dependency, or a rejected alternative stops unless an accepted ADR already covers it. Apply `needs-human` only when that stop records the decision, the recommendation and its consequence, the other live option and its cost, the fact that would flip it, what is already settled, and the next owner.
 
 ### Autonomous workflows
 
