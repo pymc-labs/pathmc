@@ -14,8 +14,6 @@ For final validation, run `make check-pr PR=<number>` for an existing pull reque
 
 For `simulate()` and scaling, prefer tests that leave the module under test: hand-written NumPy oracles, or round-trips into a different entry point (`model()` on simulated frames, `do(raw)` vs `intercept + beta * raw/factor`). Simulate-and-recover alone is blind to silent DGP bugs because the same code generates and checks the data.
 
-Line-level AI attribution is recorded by [git-ai](https://usegitai.com/docs/get-started) into `refs/notes/ai`. It is optional and installed per machine, never per repo — see the "AI code attribution with git-ai" section of [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the `allow_repositories` gotcha.
-
 ## Scratch space (`.scratch/`)
 
 Put developer-local and ephemeral files in `.scratch/` at the repo root — it is gitignored. Never add scratch files to the tracked tree. Use it for drafts and throwaways that should not be committed, for example:
