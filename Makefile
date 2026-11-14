@@ -6,6 +6,13 @@ PACKAGE_NAME = pathmc
 BUILD_CHECK_DIR = .build-check
 VENV_JUPYTER := $(CURDIR)/.venv/share/jupyter
 UV_RUN = uv run --locked --all-extras
+# Release targets must not discover the project. --locked and --frozen both
+# exit before the script when uv.lock has no pathmc member or pyproject.toml
+# cannot be parsed, and that failure says to run `uv lock`. Protect main
+# cannot commit that lock. --no-project --no-config starts the stdlib script
+# without reading the project, so the script's named fix is what Make prints.
+# The script runs `uv lock` only after it has switched to the release branch.
+UV_RUN_RELEASE = uv run --no-project --no-config
 REMOTE ?= origin
 REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' | sort)
 
@@ -13,7 +20,7 @@ REFREEZE_QMD_PAGES := $(shell find docs/examples docs/user_guide -name '*.qmd' |
 # COMMANDS                                                                      #
 #################################################################################
 
-.PHONY: setup lint check_lint check check-pr check-merge test-fast test test-shard record-test-durations test-nightly jupyter-kernel docs freeze-page refreeze-docs cleandocs build check-build help
+.PHONY: setup lint check_lint check check-pr check-merge test-fast test test-shard record-test-durations test-nightly jupyter-kernel docs freeze-page refreeze-docs cleandocs build check-build release-patch release-minor release-major release-publish help
 
 setup: ## Set up the complete development environment (uv)
 	uv sync --all-extras
@@ -93,6 +100,18 @@ check-build: build ## Build artifacts and smoke-test sdist and wheel installs
 	uv pip install --python $(BUILD_CHECK_DIR)/wheel/bin/python dist/$(PACKAGE_NAME)-*.whl
 	$(BUILD_CHECK_DIR)/wheel/bin/python -c "import $(PACKAGE_NAME); print($(PACKAGE_NAME).__name__)"
 	rm -rf $(BUILD_CHECK_DIR)
+
+release-patch: ## Open a patch-version pull request
+	$(UV_RUN_RELEASE) python scripts/release.py bump patch
+
+release-minor: ## Open a minor-version pull request
+	$(UV_RUN_RELEASE) python scripts/release.py bump minor
+
+release-major: ## Open a major-version pull request
+	$(UV_RUN_RELEASE) python scripts/release.py bump major
+
+release-publish: ## Tag the merged bump and push that bare tag
+	$(UV_RUN_RELEASE) python scripts/release.py publish
 
 #################################################################################
 # Self Documenting Commands                                                     #
