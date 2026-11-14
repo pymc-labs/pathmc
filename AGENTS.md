@@ -47,7 +47,7 @@ pathmc/
   residuals.py    # Residual covariance structures (LKJ Cholesky, pluggable)
   idata.py        # Internal ArviZ InferenceData accessors
   exceptions.py   # CycleError, DuplicateEquationError, etc.
-  model.py        # PathModel class; model() and simulate() entry points
+  _model.py       # PathModel; model() and simulate() defined here, re-exported from __init__.py
 ```
 
 ## Environment
@@ -98,7 +98,3 @@ GitHub Issues (`gh` CLI). See `docs/agents/issue-tracker.md`.
 ### Domain docs
 
 Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
-
-### Autonomous workflows
-
-- **Bugs**: `fix-bug` skill — `fix bug #N`
