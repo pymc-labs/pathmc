@@ -10,6 +10,8 @@ Remember, when running into bugs or complex issues, it is not impossible we are 
 2. Run the relevant gate tests, e.g. `uv run pytest tests/test_<module>.py -x -v`. `make test-fast` skips slow MCMC tests and the nightly job (Tier 5 plus the larger Hypothesis fuzz budget). `make test` runs the per-commit suite, including slow MCMC and the small fuzz budget, and excludes nightly Tier 5. CI runs that same selection on four computers with `make test-shard`; local `make test` stays one run and is not parameterized.
 3. Run `make lint` before considering work done or committing. It runs `prek run --all-files` (ruff, ruff-format, mypy, YAML/TOML, license checks).
 
+A difference from a committed fixture, golden file, or `_freeze/` page is not this change until the same command has been run at the merge base. Edit the fixture only when independent evidence shows it no longer constructs the intended input, and never to weaken an assertion. Refreshing `_freeze/` with `make freeze-page` after a source edit is not that edit.
+
 For final validation, run `make check-pr PR=<number>` for an existing pull request, or `make check-merge BASE=main` before creating one. These check the current target branch merged with the committed candidate in a disposable worktree; checking the feature head alone does not reproduce GitHub's merge checkout. The command records the validated head/base/tree and rejects changes to those inputs during the run. See the validation section in `CONTRIBUTING.md` for pushed heads versus unpublished descendants.
 
 For `simulate()` and scaling, prefer tests that leave the module under test: hand-written NumPy oracles, or round-trips into a different entry point (`model()` on simulated frames, `do(raw)` vs `intercept + beta * raw/factor`). Simulate-and-recover alone is blind to silent DGP bugs because the same code generates and checks the data.
@@ -99,7 +101,7 @@ GitHub Issues (`gh` CLI). See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`. A public API break, a numerical tolerance change, a new dependency, or a rejected alternative stops unless an accepted ADR already covers it. Apply `needs-human` only when that stop records the decision, the recommendation and its consequence, the other live option and its cost, the fact that would flip it, what is already settled, and the next owner.
 
 ### Autonomous workflows
 
