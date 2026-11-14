@@ -23,6 +23,6 @@ jobs:
         with:
           exclude: >-
             good first issue,help wanted,question,duplicate,invalid,wontfix,blocked?,
-            ready-for-agent,agents,stress-test
+            ready-for-agent,agents,stress-test,spam?
           respect_unlabeled: true
           fail_on_error: true
