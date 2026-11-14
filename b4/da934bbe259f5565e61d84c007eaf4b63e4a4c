@@ -1,0 +1,19 @@
+.github/workflows/first-pr-assignment.yml
+  s_a1b5a8eaa8b3e9::t_b004176af9287f 128-130,132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b4da934bbe259f5565e61d84c007eaf4b63e4a4c",
+  "prompts": {},
+  "sessions": {
+    "s_a1b5a8eaa8b3e9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd39db6b-7b22-4426-bb2a-9efb54bc4459",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
