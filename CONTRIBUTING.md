@@ -33,7 +33,15 @@ pathmc itself ships a curated agent skill at `pathmc/skills/pathmc/SKILL.md`, bu
 
 ## Contributing code via pull requests
 
-The preferred workflow is to fork the repository, clone your fork locally, and develop on a feature branch. Keep pull requests focused on one issue or behavior change, include tests and documentation when appropriate, and explain the user-facing reason for the change in the pull request description.
+The preferred workflow is to fork the repository, clone your fork locally, and develop on a feature branch. Keep pull requests focused on one issue or behavior change, include tests and documentation when appropriate, and explain the user-facing reason for the change in the pull request description. A first pull request also needs a maintainer assignment. See [First pull requests](#first-pull-requests).
+
+### First pull requests
+
+This is the policy enforced by [`.github/workflows/first-pr-assignment.yml`](./.github/workflows/first-pr-assignment.yml). A pull request is a review obligation. We accept a first pull request for review when a maintainer has assigned that author to an issue in this repository that the pull request fixes. The check applies when the pull request API reports `author_association` as `FIRST_TIMER`, `FIRST_TIME_CONTRIBUTOR`, or `NONE`. A member token sees the first two values for a new author. The workflow token sees `NONE` for those authors, and it still sees `MEMBER`, `OWNER`, `COLLABORATOR`, or `CONTRIBUTOR` for everyone else. It does not flag those established roles, and it does not flag bot actors.
+
+Commenting "I will take this" is not an assignment. Opening an issue and a pull request together is not an assignment. The pull request must name the issue with a closing keyword, for example `Fixes #123`, in the description or a commit message. A bare `#123` does not close the issue. A link to another repository does not count. The assignee match ignores case.
+
+The automatic check adds a `spam?` label and one policy comment. That label is a triage flag, not a rejection. A maintainer removes it by hand. Re-running the workflow does not post a second comment. The workflow does not close the pull request.
 
 ## Local development steps
 

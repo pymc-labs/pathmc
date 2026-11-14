@@ -33,4 +33,4 @@ jobs:
           pr_message: |
             👋 Welcome to pathmc, @${{ github.actor }}! Thanks for opening your first pull request.
 
-            Please see the [contribution guide](https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md) for development setup and checks. We’ll review your changes soon.
+            Please see the [contribution guide](https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md) for development setup and checks. A first pull request is accepted for review when a maintainer has assigned you to an issue this pull request fixes. See [First pull requests](https://github.com/pymc-labs/pathmc/blob/main/CONTRIBUTING.md#first-pull-requests). If that assignment is missing, the pull request is labeled `spam?` for triage. That label is not a rejection.
