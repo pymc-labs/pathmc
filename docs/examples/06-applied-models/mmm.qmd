@@ -152,14 +152,14 @@ plt.show()
 
 ### Specify and fit the model
 
-The DSL supports transforms directly in the formula.
-Adstock and logistic saturation compose naturally: `logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)`.
+The DSL supports transforms directly in the formula. Write each channel in execution order, and group the chain when a coefficient applies to the finished value. The graph labels the edge with the nested call `logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)`. The equations cell shows that same nesting without the `decay=` and `lam=` names. See [Chaining transforms](/user-guide/transforms.html#sec-chaining-transforms).
+
 `pooling="partial"` adds a random intercept per region and drops the fixed intercept. The formula starts with `0 +` so `equations()` does not print a phantom `1 +` intercept that is not in the design matrix.
 
 ```{python}
 spec = """
-sales ~ 0 + b_tv*logistic_saturation(adstock(tv, decay=theta_tv), lam=lam_tv)
-      + b_dig*logistic_saturation(adstock(digital, decay=theta_dig), lam=lam_dig)
+sales ~ 0 + b_tv*(tv |> adstock(decay=theta_tv) |> logistic_saturation(lam=lam_tv))
+      + b_dig*(digital |> adstock(decay=theta_dig) |> logistic_saturation(lam=lam_dig))
       + trend
 """
 

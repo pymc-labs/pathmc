@@ -553,3 +553,45 @@ def test_simulation_axis_keeps_distinct_draws():
     assert states.dims == ("chain", "draw", "simulation", "unit", "time")
     assert states.sizes["simulation"] == 2
     assert not np.allclose(states.isel(simulation=0), states.isel(simulation=1))
+
+
+@pytest.mark.parametrize("family", ["gaussian", "studentt"])
+def test_observed_carry_scales_supplied_white_noise_once(family):
+    """Independent carry residuals have model units before temporal propagation."""
+    data = pd.DataFrame({
+        "unit": np.repeat(["a", "b"], 3),
+        "time": np.tile(np.arange(3), 2),
+        "y": np.zeros(6),
+        "child": np.zeros(6),
+    }).sample(frac=1, random_state=4)
+    model = pathmc.model(
+        "y ~ 0 + 0.5*lag(y)\nchild ~ 0 + 1*y",
+        data=data,
+        panel={"unit": "unit", "time": "time"},
+        initial={"y": {"a": 1.0, "b": -2.0}},
+        families={"y": family},
+    )
+    white = np.array([[1.0, -1.0], [-2.0, 0.5], [0.25, 2.0]])
+    replacements = {
+        "sigma_y": np.array(2.5),
+        "sigma_child": np.array(0.0),
+        "carry_innovations_y": white,
+        "_use_observed_carry": np.array(0, dtype="int8"),
+    }
+    if family == "studentt":
+        replacements["nu_y"] = np.array(5.0)
+    fixed = pm.do(model._gen_model, replacements)
+    means, child, replay = pm.draw(
+        [fixed["mu_y"], fixed["mu_child"], fixed["carry_innovations_y"]],
+        random_seed=48,
+    )
+    expected_means = np.empty_like(white)
+    expected_state = np.empty_like(white)
+    previous = np.array([1.0, -2.0])
+    for t in range(3):
+        expected_means[t] = 0.5 * previous
+        expected_state[t] = expected_means[t] + 2.5 * white[t]
+        previous = expected_state[t]
+    np.testing.assert_allclose(means, expected_means)
+    np.testing.assert_allclose(child, expected_state)
+    np.testing.assert_array_equal(replay, white)

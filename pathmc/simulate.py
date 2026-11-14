@@ -2198,7 +2198,10 @@ def _execute_gaussian_panel(
     may hold NaN on steps it releases: the scan runs that state's own
     equation there, and the returned state is the realized path. Supplied
     innovations cover all endogenous variables with standard-Normal epsilon
-    arrays of dimensions ``(chain, draw, unit, time)``. When every innovation
+    arrays of dimensions ``(chain, draw, unit, time)``. For a residual block,
+    these are independent white coordinates, stacked in sorted member order
+    and colored once by its Cholesky factor before interventions sever states.
+    Unheld members retain their marginal residual law. When every innovation
     also carries a
     ``simulation`` dimension, posterior draws are repeated along ``draw`` by
     that count and the noise is stacked into the same axis. The returned
@@ -2583,6 +2586,9 @@ def run_do_panel_unified(
                 progressbar=False,
                 backend="c" if discrete_rate else None,
             )
+            # PyMC's deterministic adapter can regenerate default sample labels;
+            # held/released paths must align with the original posterior labels.
+            det = det.assign_coords(chain=posterior_ds.chain, draw=posterior_ds.draw)
 
         ones = _chain_draw_ones(posterior(idata))
         time_idx = (

@@ -54,6 +54,7 @@ m.fit()                            # MCMC happens here
 m.effects_summary()                # labeled coefficients + defined params
 m.ate("Y", "X", values=(0, 1))     # average treatment effect via do()
 m.adjustment_sets("X", "Y")        # valid backdoor adjustment sets
+m.optimal_adjustment_set("X", "Y") # variance-optimal graphical O-set
 ```
 
 The DSL is lavaan-inspired:
@@ -62,7 +63,7 @@ The DSL is lavaan-inspired:
 - `Y ~~ X` — residual covariance
 - `indirect := a*b` — defined parameter
 - `a*X` — labeled coefficient
-- Transforms: `adstock(x, decay=...)`, `logistic_saturation(x, lam=...)`
+- Transforms: `adstock(x, decay=theta)`, `logistic_saturation(x, lam=lam)`; equivalent formula-string pipes such as `x |> adstock(decay=theta) |> logistic_saturation(lam=lam)`. Group a coefficient-prefixed chain: `a*(x |> adstock(decay=theta))`.
 - Categorical predictors: string columns are treatment-coded
   automatically; `C(region, reference='north')` picks the reference and
   `C(store, prior='hierarchical')` pools one coefficient per level (no
@@ -100,6 +101,7 @@ The DSL is lavaan-inspired:
 | Counterfactual / time-forward (panel)             | `m.do(set={...}, simulate_over="time")`                |
 | History-dependent panel treatment policy          | `m.do(policy=TreatmentPolicy(...), simulate_over="time", horizon=n_times)` |
 | Adjustment sets for identification                | `m.adjustment_sets(treatment, outcome)`                |
+| Variance-optimal graphical adjustment set         | `m.optimal_adjustment_set(treatment, outcome)`        |
 | Yes/no identification check                       | `m.is_identifiable(treatment, outcome)`                |
 | Front-door identification                         | `m.frontdoor_identifiable(treatment, mediator, outcome)` |
 | Flag colliders on any path (heuristic; validity is `is_valid_adjustment_set`) | `m.collider_warnings(adjust, treatment, outcome)` |
@@ -144,7 +146,7 @@ The DSL is lavaan-inspired:
    pathmc builds the lagged design internally.
 7. **Data-free models have a partial method surface.**
    When `data=None`, `graph()`, `equations()`, `priors()`,
-   `adjustment_sets()`, `is_identifiable()`, `collider_warnings()`,
+   `adjustment_sets()`, `optimal_adjustment_set()`, `is_identifiable()`, `collider_warnings()`,
    `implied_independences()` all work. `fit()`, `do()`, `ate()`,
    `cate()`, `design()`, `sample_prior_predictive()`,
    `test_implications()`, `falsify()`, `sensitivity()`,
@@ -158,9 +160,7 @@ The DSL is lavaan-inspired:
    Inspect `adj.adjustment_set` and `adj.formula` before calling
    `adj.fit()`. An empty set `{}` is valid when no covariates are
    needed to block backdoors; if no valid set exists, construction
-   raises (effect not identifiable via backdoor). When several minimal
-   sets exist, pass `adjustment_set=` explicitly; pathmc does not pick
-   among them. Pass `data=` when the parent structural model is
+   raises (effect not identifiable via backdoor). When several minimal sets exist, pass an explicit set or opt into `adjustment_set="optimal"`; the default does not pick among minimal sets. The O-set can include precision variables that are unnecessary for identification, and its efficiency guarantee is asymptotic for adjusted OLS in causal linear models, not a general Bayesian GLM posterior-variance guarantee. A required latent O-set member and a query with no directed causal path raise explicitly. Pass `data=` when the parent structural model is
    data-free. Panel models are not supported on the adjustment path.
    A shared prior key is inherited when its shape does not follow the
    predictor set or treatment coding: outcome dispersion (`sigma_Y`,
@@ -197,6 +197,8 @@ The DSL is lavaan-inspired:
     non-Gaussian families, transforms, categoricals, and residual
     covariance are rejected rather than run on a weaker executor.
 
+13. **Residual covariance works with Gaussian panel dynamics.** Complete observed Gaussian panels support `~~` together with `lag()` and geometric `adstock()`, including nested transforms. For example, `online ~ adstock(tv, decay=theta_tv) + lag(online); store ~ adstock(tv, decay=theta_tv) + lag(store); online ~~ store` uses `beta_online=[1, 0.8, 0.4]`, `beta_store=[2, 0.5, 0.2]`, `theta_tv=0.6`, and packed `chol_online_store=[1, 0.6, 0.8]` in `simulate()`. Members sort lexicographically, with row-major lower-triangle packing and positive diagonals. Covariance is global; innovations are independent across unit/time/block before temporal propagation. The template omits member `sigma`s; configure their marginal scale priors through `sigma_{member}`. Descendants consume realized states. One-step predictions condition on observed parents/history, while prior prediction, free-running prediction, and predictive hard `do(set=...)` generate correlated trajectories. Hard holds retain unheld members' marginal noise; NaN releases resume their equations. Mean `do()` uses zero process noise. Scaling converts covariance by `D @ Sigma @ D`. Latent nodes, any non-Gaussian equation, missing fitting outcomes, within-block directed dependencies (including cross-member lags), singleton/exogenous endpoints, and `policy=` are excluded. `~~` alone does not identify causal effects.
+
 ## Capabilities and boundaries
 
 **Agents using pathmc can:**
@@ -215,7 +217,7 @@ The DSL is lavaan-inspired:
 - Run `predictions()` / `comparisons()` / `slopes()` on structural
   `PathModel` or fitted `AdjustmentModel` objects for interpret-style
   queries (check `result.causal` on adjustment models).
-- Check identification (`adjustment_sets`, `is_identifiable`,
+- Check identification (`adjustment_sets`, `optimal_adjustment_set`, `is_identifiable`,
   `frontdoor_identifiable`, `collider_warnings`).
 - Test the DAG's conditional-independence implications against data
   (`test_implications`).
@@ -273,6 +275,7 @@ m = pathmc.model("""
 m.graph()                      # DAG plot
 m.equations()                  # structural equations + priors
 m.adjustment_sets("X", "Y")    # what to adjust for
+m.optimal_adjustment_set("X", "Y")  # efficient O-set when supported
 m.is_identifiable("X", "Y")    # can we estimate the effect at all?
 ```
 
@@ -300,7 +303,7 @@ adj.comparisons(comparison="lift")             # same API as PathModel
 adj.slopes(wrt="X")                            # defaults to designated treatment
 ```
 
-When several minimal adjustment sets exist, pass `adjustment_set=` explicitly.
+When several minimal adjustment sets exist, pass an explicit `adjustment_set={...}` or opt into `adjustment_set="optimal"` after inspecting `m.optimal_adjustment_set(...)`.
 When the structural model has no data, pass `data=` to `adjustment_model()`.
 
 ### Panel model

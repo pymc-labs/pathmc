@@ -19,6 +19,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -188,3 +189,18 @@ def test_timing_record_runs_the_full_selection() -> None:
     assert "--junitxml" in result.stdout
     assert "not nightly" in result.stdout
     assert "--splits" not in result.stdout
+
+
+@pytest.mark.parametrize("ending", ["", "\n", "\n\n"])
+def test_weekly_timing_output_has_one_final_newline(tmp_path, ending) -> None:
+    weekly = (ROOT / ".github/workflows/refresh-test-durations.yml").read_text()
+    script = re.search(r"python - <<'PY'\n(.*?)\n          PY", weekly, re.S)
+    assert script is not None
+    code = "\n".join(line.removeprefix("          ") for line in script[1].splitlines())
+    payload = '{\n  "tests/test_example.py::test_example": 1.25\n}'
+    timing_file = tmp_path / ".test_durations"
+    timing_file.write_text(payload + ending)
+
+    subprocess.run([sys.executable, "-c", code], cwd=tmp_path, check=True)
+
+    assert timing_file.read_bytes() == (payload + "\n").encode()

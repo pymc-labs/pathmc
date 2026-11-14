@@ -75,22 +75,53 @@ chain = pathmc.model(
 chain.adjustment_sets("X", "Y")
 ```
 
-If several **minimal** sets exist, pathmc lists them but does not pick one for you.
-`adjustment_model()` raises until you pass `adjustment_set=` explicitly.
+Minimality answers whether every selected variable is necessary for identification; it does not choose the statistically most efficient regression among valid sets.
+If several minimal sets exist, pathmc lists them but keeps its default policy conservative: `adjustment_model()` raises until you pass an explicit set or opt into the graphical variance-optimal set (the **O-set**).
 
-```python
-# | eval: false
-# Several minimal sets: pass adjustment_set={"Z2"} or {"Z1"}, not both implicitly.
+```{python}
 multi_spec = """
 M1 ~ Z1 + X
 M2 ~ Z2
 Y ~ M1 + M2
 X ~ Z2
 """
-multi = pathmc.model(multi_spec, data=df)
+
+multi_df = pd.DataFrame({
+    name: rng.normal(size=n) for name in ["X", "Y", "Z1", "Z2", "M1", "M2"]
+})
+multi = pathmc.model(multi_spec, data=multi_df)
 multi.adjustment_sets("X", "Y")
-multi.adjustment_model("X -> Y")  # ValueError: pass adjustment_set= explicitly
 ```
+
+The minimal alternatives are `{M2}` and `{Z2}`; `{Z1}` alone is not valid.
+The O-set is `{M2, Z1}` because it includes parents of nodes on the causal paths, excluding the treatment, causal nodes, and their descendants.
+It is deliberately nonminimal.
+
+```{python}
+multi.optimal_adjustment_set("X", "Y")
+```
+
+```{python}
+multi_adjusted = multi.adjustment_model(
+    "X -> Y",
+    adjustment_set="optimal",
+)
+multi_adjusted.adjustment_set, multi_adjusted.formula
+```
+
+The efficiency distinction is clearest with a precision predictor.
+In `X ~ I; Y ~ X + P`, no adjustment is needed for identification, so the only minimal set is empty; nevertheless, conditioning on outcome predictor `P` can reduce the asymptotic variance of the adjusted linear estimate, while treatment-only instrument `I` is excluded from the O-set.
+
+```{python}
+precision_dag = pathmc.model("X ~ I\nY ~ X + P")
+precision_dag.adjustment_sets("X", "Y"), precision_dag.optimal_adjustment_set("X", "Y")
+```
+
+Pass `adjustment_set="optimal"` only when that efficiency target matches the analysis.
+The optimality theorem is asymptotic for adjusted OLS in causal linear models; it is not a general finite-sample posterior-variance guarantee for Bayesian GLMs, ATT/ATU/CATE, informative priors, or a misspecified outcome regression.
+The current interface also requires a directed causal path and an observed O-set, although latent nodes elsewhere are allowed.
+When no observed backdoor set exists, the effect is not identified by observed adjustment and no explicit-set fallback is available.
+When an observed valid set exists but the O-set requires a latent member, the error points you to the available minimal sets and an explicit observed choice.
 
 ## Estimator A: structural SCM and g-computation
 

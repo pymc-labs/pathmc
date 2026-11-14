@@ -455,6 +455,7 @@ PUBLIC_METHOD_CONTRACTS = {
         "predict": "business",
         "latent_trajectory": "internal",
         "adjustment_sets": "structural",
+        "optimal_adjustment_set": "structural",
         "is_identifiable": "dimensionless",
         "adjustment_model": "structural",
         "frontdoor_identifiable": "dimensionless",

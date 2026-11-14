@@ -26,7 +26,7 @@ jobs:
           ref: main
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Install dependencies
         run: uv sync --all-extras --locked
       - name: Record timings from a full run
@@ -59,6 +59,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B chore/refresh-test-durations
           cp fresh.test_durations .test_durations
+          # pytest-split writes JSON without the final newline required by prek.
+          uv run --locked --all-extras python - <<'PY'
+          from pathlib import Path
+
+          path = Path(".test_durations")
+          path.write_text(path.read_text().rstrip("\n") + "\n")
+          PY
+          uv run --locked --all-extras prek run --files .test_durations
           git add .test_durations
           if git diff --cached --quiet; then
             echo "Timings are unchanged. No pull request."

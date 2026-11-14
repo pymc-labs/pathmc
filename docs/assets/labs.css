@@ -1,0 +1,318 @@
+/* Labs identity overlay for the great-docs chrome.
+   Tokens from labs_sphinx_theme (the skin CausalPy and pymc-marketing share).
+   Loaded after great-docs.scss, so equal-specificity rules win. !important is
+   used only where Bootstrap or the theme already forces a value.
+   Extractable: color rules are Labs tokens. The right-aligned navbar matches
+   labs_sphinx_theme navbar_align = right. The logo height is pathmc-only. */
+
+:root {
+  --labs-blue: #154A72;
+  --labs-blue-highlight: #151B72;
+  --labs-blue-dark: #4A9EDE;
+  --labs-green: #81C240;
+  --labs-green-bg: #CDDEBB;
+  --gd-link-color: var(--labs-blue);
+  --gd-active-link: var(--labs-blue);
+  --gd-navbar-bg: #FCFEFF;
+  --gd-navbar-text: var(--labs-blue);
+  --bs-link-color: var(--labs-blue);
+  --bs-link-hover-color: var(--labs-blue-highlight);
+}
+
+body.quarto-dark {
+  --gd-link-color: var(--labs-blue-dark);
+  --gd-active-link: var(--labs-blue-dark);
+  --gd-navbar-bg: #1a1a1a;
+  --gd-navbar-text: var(--labs-blue-dark);
+  --bs-link-color: var(--labs-blue-dark);
+  --bs-link-hover-color: #7cb8e8;
+}
+
+/* Quarto emits data-bs-theme="dark" on the navbar even in light mode, which
+   paints light link text and a dark bar. navbar_style is unset, so the mint
+   gradient class is not added; this still has to beat Bootstrap's variables. */
+body.quarto-light .navbar {
+  background: #FCFEFF !important;
+  background-image: none !important;
+  --bs-navbar-color: var(--labs-blue);
+  --bs-navbar-hover-color: var(--labs-blue-highlight);
+  --bs-navbar-active-color: var(--labs-blue);
+  --bs-navbar-brand-color: var(--labs-blue);
+  --bs-navbar-brand-hover-color: var(--labs-blue-highlight);
+}
+
+body.quarto-light .navbar .nav-link,
+body.quarto-light #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a,
+body.quarto-light .navbar-title {
+  color: var(--labs-blue) !important;
+}
+
+body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a,
+body.quarto-dark .navbar .nav-link {
+  color: var(--labs-blue-dark);
+}
+
+/* Theme hover is a hardcoded orange pill, in both modes. */
+body.quarto-light #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a:hover {
+  background-color: var(--labs-green-bg);
+  color: var(--labs-blue) !important;
+}
+
+body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a:hover {
+  background-color: transparent;
+  color: var(--labs-green);
+}
+
+/* great-docs hardcodes these tabs to font-weight: bold, and the active
+   tab to 500. pydata leaves the bar at the body weight. */
+body.quarto-light #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a,
+body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a,
+body.quarto-light #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a:hover,
+body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a:hover,
+body.quarto-light #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a.active,
+body.quarto-dark #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto > li > a.active {
+  font-weight: 400;
+}
+
+/* labs_sphinx_theme navbar_align = right is ms-auto on the link group, so the
+   tabs sit against the tools. Quarto hardcodes me-auto, which pins them to the
+   logo. Override the margin only; keep the class so great-docs selectors and
+   keyboard-nav.js still match. Below lg the collapse is a full-width menu. */
+@media (min-width: 992px) {
+  #navbarCollapse > ul.navbar-nav.navbar-nav-scroll.me-auto {
+    margin-left: auto !important;
+    margin-right: 0.75rem !important;
+  }
+}
+
+body.quarto-light p a,
+body.quarto-light li a {
+  color: var(--labs-blue);
+}
+
+body.quarto-light p a:hover,
+body.quarto-light li a:hover {
+  color: var(--labs-blue-highlight);
+}
+
+#quarto-margin-sidebar nav ul li a.active {
+  color: var(--labs-blue);
+}
+
+/* Light-mode active sidebar is a literal orange, not --gd-active-link. */
+#quarto-sidebar a.sidebar-item-text.sidebar-link.active {
+  color: var(--labs-blue);
+  text-decoration-color: var(--labs-green);
+}
+
+body.quarto-dark #quarto-sidebar a.sidebar-item-text.sidebar-link.active {
+  color: var(--labs-blue-dark);
+  text-decoration-color: var(--labs-green);
+}
+
+/* Theme hardcodes Open Sans, which is not loaded, so the browser falls
+   through that stack anyway. Name the system stack so the declared family
+   matches Labs (Source Sans is not shipped here). */
+p,
+h1,
+h2,
+h3,
+#toc-title,
+#toc-function-reference,
+.nav-link,
+.table,
+#quarto-sidebar .sidebar-item-text,
+a.sidebar-item-text.sidebar-link.text-start > span,
+.gd-ref-sidebar #quarto-sidebar a.sidebar-item-text[href$="/"],
+table.gd-summary-table td:last-child {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Headings @extend Bootstrap .fw-medium (500 !important). Labs headings are 600. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.h1,
+.h2,
+.h3,
+.h4,
+.h5,
+.h6 {
+  font-weight: 600 !important;
+}
+
+/* Flatly hardcodes the on-this-page marker to #18bc9c !important. */
+.sidebar nav[role="doc-toc"] ul > li > a.active,
+.sidebar nav[role="doc-toc"] ul > li > ul > li > a.active {
+  color: var(--labs-blue) !important;
+  border-color: var(--labs-blue) !important;
+}
+
+body.quarto-dark .sidebar nav[role="doc-toc"] ul > li > a.active,
+body.quarto-dark .sidebar nav[role="doc-toc"] ul > li > ul > li > a.active {
+  color: var(--labs-blue-dark) !important;
+  border-color: var(--labs-blue-dark) !important;
+}
+
+/* pathmc-only. The mark is a 1024² stack, not a horizontal wordmark.
+   4rem would turn the bar into a tall diagram; 40px stays readable. */
+.navbar-logo {
+  height: 40px;
+}
+
+/* Homepage only. The README image is width 75% (~670px at desktop). 45% is
+   about 60% of that, still the lead mark. GitHub and PyPI keep the source
+   width; the navbar mark is unchanged. */
+body.gd-homepage #quarto-document-content img[alt="pathmc logo"] {
+  width: 45%;
+  height: auto;
+}
+
+/* Labs footer is a thin page-colored bar: copyright on the left, icon links
+   on the right, muted text, green hover. great-docs only emits a centered
+   "Developed by" line, so include_in_header rewrites .nav-footer into this
+   structure. The calc padding on .nav-footer insets that line to the content
+   column; a bar wants the page edges. */
+footer.footer .nav-footer {
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  flex-wrap: wrap;
+  margin-top: 0;
+  padding: 0.65rem 1.25rem;
+  background: transparent;
+  border-top: 1px solid #d1d5da;
+}
+
+body.quarto-dark footer.footer .nav-footer {
+  background: transparent;
+  border-top-color: #3d3d3d;
+}
+
+.labs-footer-copy {
+  margin: 0;
+  color: #222832;
+  font-size: 1rem;
+}
+
+body.quarto-dark .labs-footer-copy {
+  color: #e0e0e0;
+}
+
+.labs-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.9rem;
+  /* The fixed back-to-top button sits in the bottom-right corner. Keep the
+     last icon clear of it. */
+  margin: 0 4rem 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.labs-footer-links li {
+  display: flex;
+  align-items: center;
+}
+
+.labs-x-icon {
+  width: 1em;
+  height: 1em;
+  display: block;
+  flex: none;
+}
+
+.labs-footer-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #48566b;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+body.quarto-light footer.footer .labs-footer-links a {
+  color: #48566b;
+}
+
+body.quarto-dark footer.footer .labs-footer-links a {
+  color: #9aa3ad;
+}
+
+body.quarto-light footer.footer .labs-footer-links a:hover,
+body.quarto-dark footer.footer .labs-footer-links a:hover {
+  color: var(--labs-green);
+  text-decoration: none;
+}
+
+@media (max-width: 760px) {
+  .labs-footer-links a {
+    gap: 0;
+  }
+
+  /* display: none drops the only text from the accessibility tree, and the
+     icons are aria-hidden. font-size: 0 hides the label and keeps the name,
+     matching labs_sphinx_theme. The anchor aria-label is the same name. */
+  .labs-footer-links a span {
+    font-size: 0;
+  }
+
+  .labs-footer-links a i {
+    font-size: 1.35rem;
+  }
+
+  .labs-footer-links a .labs-x-icon {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+}
+
+/* Homepage is the README. The H1 and the shield row stay on GitHub;
+   under the docs logo they are noise. Hiding them here leaves README.md
+   alone, since that file is also the repo landing page. */
+body.gd-homepage #quarto-document-content > section.level1 > h1 {
+  display: none;
+}
+
+body.gd-homepage #quarto-document-content > section.level1 > p:has(
+    img[src*="badge.svg"],
+    img[src*="shields.io"]
+  ) {
+  display: none;
+}
+
+/* Generated card titles carry inline color: #0d6efd. !important is required
+   while that style remains. Hover follows the same Labs link tokens. */
+.section-card-title {
+  color: var(--labs-blue) !important;
+}
+
+a.section-card:hover .section-card-title {
+  color: var(--labs-blue-highlight) !important;
+}
+
+body.quarto-dark .section-card-title {
+  color: var(--labs-blue-dark) !important;
+}
+
+body.quarto-dark a.section-card:hover .section-card-title {
+  color: #7cb8e8 !important;
+}
+
+/* The examples index is a card gallery with no TOC, but Quarto still reserves
+   #quarto-margin-sidebar and caps main.content at the article column (~850px).
+   auto-fill minmax(300px) therefore never reaches a third card. Hide that empty
+   rail and let the article span through page-end. A rail that actually has
+   contents (a notebook TOC) is left alone, and the content column only grows
+   when the rail is empty, so the two cannot overlap. */
+#quarto-content:has(.section-cards) > #quarto-margin-sidebar:not(:has(*)) {
+  display: none;
+}
+
+#quarto-content:has(.section-cards):not(:has(#quarto-margin-sidebar *))
+  > main.content {
+  grid-column: body-content-start / page-end;
+}
