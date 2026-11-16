@@ -1,9 +1,9 @@
 AGENTS.md
-  s_84a9caf1112467::t_db04456d6dbb21 57-62
+  s_84a9caf1112467::t_2e30f04d87d446 57-62
 ---
 {
   "schema_version": "authorship/3.0.0",
-  "git_ai_version": "1.6.15",
+  "git_ai_version": "1.7.5",
   "base_commit_sha": "347226103226d995e7e5d1cf4aedd4a6fb1a1b6b",
   "prompts": {},
   "sessions": {
