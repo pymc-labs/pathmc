@@ -52,7 +52,9 @@ pathmc/
 
 ## Environment
 
-A [uv](https://docs.astral.sh/uv/)-managed virtualenv at `.venv/`, pinned by `uv.lock` and `.python-version`. Create or update it with `make setup`, which also installs the `prek` git hooks (a fast pre-commit runner) so the lint checks run automatically on `git commit`. Run everything through `uv run` (e.g. `uv run pytest`, `uv run python -c "..."`) — never the system or conda Python.
+A [uv](https://docs.astral.sh/uv/)-managed virtualenv at `.venv/`, pinned by `uv.lock` and `.python-version`. Create or update it with `make setup`, which also installs the `prek` git hooks (a fast pre-commit runner) so the lint checks run automatically on `git commit`. Run every Python command through `uv run` from the root of the checkout you are working in, including one-line helpers and `scripts/*.py` (e.g. `uv run pytest`, `uv run python -c "..."`). Bare `python3` may be a different interpreter, and a command run from another checkout can import that checkout's `pathmc`. The `make` targets already use `uv run`, so call them as plain `make <target>`, not `uv run make`.
+
+The vendored Great Docs skills in `.agents/skills/` call `great-docs` and `python` bare: prefix those with `uv run`, and use `make setup` instead of their `setup-env.sh`.
 
 This package targets **PyMC ≥ 6.0, ArviZ ≥ 1.1, PyTensor ≥ 3.0, and NumPy ≥ 2.0** — all recent majors with breaking API changes from earlier versions. Do not assume pre-6 PyMC or pre-1.0 ArviZ APIs; verify against the installed versions (`uv run python -c "import pymc, arviz; print(pymc.__version__, arviz.__version__)"`) or the current upstream docs when unsure.
 
