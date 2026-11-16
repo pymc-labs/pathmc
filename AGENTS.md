@@ -54,6 +54,12 @@ pathmc/
 
 A [uv](https://docs.astral.sh/uv/)-managed virtualenv at `.venv/`, pinned by `uv.lock` and `.python-version`. Create or update it with `make setup`, which also installs the `prek` git hooks (a fast pre-commit runner) so the lint checks run automatically on `git commit`. Run everything through `uv run` (e.g. `uv run pytest`, `uv run python -c "..."`) — never the system or conda Python.
 
+Every Python invocation in this repository, including one-line text or JSON inspection helpers and `scripts/*.py`, must go through `uv run` from the root of the checkout being worked on. Bare `python` or `python3` may not be this project's interpreter (on macOS it is often Homebrew Python, not the version in `.python-version`). A command run from the wrong working directory can also use the wrong environment or import the wrong checkout: `uv run` picks the `.venv` of the project it finds from the working directory, and `python -c` and `python -m` put the working directory ahead of the editable install on `sys.path`. In a git worktree, run commands from that worktree's root.
+
+The `make` targets already call `uv run` (most with `--locked`), so run them as plain `make <target>`. Do not wrap them in `uv run make`: the outer `uv run` can quietly re-lock a stale `uv.lock` before the target's `--locked` check runs, which hides lock drift.
+
+The Great Docs skills under `.agents/skills/` are vendored from upstream and pinned in `skills-lock.json`, so do not edit them. Their examples call `great-docs` and `python` directly; in this repo run them as `uv run great-docs ...` and `uv run python ...`. Do not run their `scripts/setup-env.sh` or its `python -m venv .venv` / `pip install` steps: that replaces the uv-managed `.venv`. Use `make setup` instead.
+
 This package targets **PyMC ≥ 6.0, ArviZ ≥ 1.1, PyTensor ≥ 3.0, and NumPy ≥ 2.0** — all recent majors with breaking API changes from earlier versions. Do not assume pre-6 PyMC or pre-1.0 ArviZ APIs; verify against the installed versions (`uv run python -c "import pymc, arviz; print(pymc.__version__, arviz.__version__)"`) or the current upstream docs when unsure.
 
 ## Building the docs
