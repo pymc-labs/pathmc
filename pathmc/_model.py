@@ -2959,14 +2959,26 @@ class PathModel:
     ) -> SensitivityResult:
         """Assess robustness of a causal effect to unmeasured confounding.
 
-        Hypothesizes an unmeasured confounder U with effect γ on the
-        treatment and δ on the outcome. The confounding bias is γ × δ,
-        so the adjusted ATE at each grid point is::
+        Applies a hypothetical fixed bias γ × δ on the reported ATE's
+        intervention-contrast scale. The adjusted ATE at each grid point is::
 
             adjusted ATE = observed ATE − γ × δ
 
-        The result includes a contour plot showing which (γ, δ)
-        combinations would overturn the causal conclusion.
+        For an exact linear coefficient identity, δ is U's outcome
+        coefficient conditional on treatment and observed covariates;
+        γ is the treatment coefficient in the auxiliary regression of U
+        on treatment and those covariates. A forward U → treatment
+        coefficient generally requires variance scaling; unit variance
+        U alone is insufficient. The supplied product must also include
+        the intervention contrast: this method does not rescale bias
+        when ``values`` changes.
+
+        This fixed shift is not an exact Bayesian refit and does not
+        propagate uncertainty in γ or δ. Nonlinear response functions
+        need an appropriate bias model for a causal interpretation.
+        The result includes a contour plot showing which scenarios
+        nullify or reverse the fitted posterior mean. See the sensitivity
+        analysis example for causal assumptions and calibration.
 
         Parameters
         ----------
@@ -2975,9 +2987,11 @@ class PathModel:
         treatment : str
             Treatment variable name.
         gamma_range : tuple[float, float]
-            ``(min, max)`` range for γ (confounder → treatment effect).
+            ``(min, max)`` range for γ sensitivity values; calibrate their
+            product with δ to the reported contrast scale.
         delta_range : tuple[float, float]
-            ``(min, max)`` range for δ (confounder → outcome effect).
+            ``(min, max)`` range for δ sensitivity values, using the same
+            bias calibration as γ.
         n_grid : int
             Number of grid points per dimension (default 20).
         values : tuple[float, float]

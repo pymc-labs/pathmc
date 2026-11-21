@@ -13,15 +13,19 @@
 #   limitations under the License.
 """Sensitivity analysis for unmeasured confounding.
 
-Implements a parametric approach to assess how robust a causal effect
-estimate is to potential unmeasured confounding, following the tradition
-of Rosenbaum (2002) and VanderWeele & Ding (2017).
+Applies hypothetical additive bias shifts γ × δ to fitted ATE draws.
+In a linear omitted-variable-bias identity, δ is the outcome coefficient
+of an unmeasured U conditional on treatment and observed covariates,
+and γ is the treatment coefficient in the auxiliary regression of U
+on treatment and those covariates. γ is not generally U's forward
+causal effect on treatment; unit variance U alone does not equate them.
 
-The core idea: hypothesize an unmeasured confounder U that affects both
-the treatment (with strength γ) and outcome (with strength δ). The
-product γ × δ represents the confounding bias in the estimated ATE.
-Sweeping over a grid of (γ, δ) values reveals how large confounding
-would need to be to overturn the causal conclusion.
+The supplied product must be calibrated to the reported intervention
+contrast. This module neither estimates that calibration nor rescales
+the bias for non-unit contrasts. The linear coefficient identity is exact;
+shifting Bayesian draws is not an exact refit and does not propagate
+uncertainty in the sensitivity parameters. Nonlinear causal effects need
+an appropriate bias model before this shift has a causal interpretation.
 """
 
 from __future__ import annotations
@@ -48,11 +52,11 @@ class SensitivityResult(ResultReprMixin):
     Contains the observed ATE posterior draws and adjusted ATE values
     for a grid of hypothetical confounder strengths (γ, δ).
 
-    The confounding model assumes a latent U with:
-
-    - Effect γ on the treatment variable
-    - Effect δ on the outcome variable
-    - Confounding bias in the ATE = γ × δ
+    γ and δ specify a hypothetical fixed bias product on the ATE's
+    contrast scale. For an exact linear bias interpretation, use the
+    auxiliary-regression calibration described in this module, not an
+    unqualified product of forward causal effects. Shifted draws do not
+    include uncertainty about these sensitivity parameters.
 
     Parameters
     ----------
@@ -63,9 +67,9 @@ class SensitivityResult(ResultReprMixin):
     observed_ate_draws : np.ndarray
         Posterior draws of the unadjusted ATE, shape ``(n_draws,)``.
     gamma_values : np.ndarray
-        1D grid of γ (confounder → treatment) values.
+        1D grid of γ sensitivity values, calibrated to the bias scale.
     delta_values : np.ndarray
-        1D grid of δ (confounder → outcome) values.
+        1D grid of δ sensitivity values, calibrated to the bias scale.
     adjusted_ate_mean : np.ndarray
         Mean bias-adjusted ATE at each grid point,
         shape ``(n_gamma, n_delta)``.
@@ -97,10 +101,10 @@ class SensitivityResult(ResultReprMixin):
     def tipping_point(self) -> float:
         """The γ × δ product that reduces the posterior mean ATE to zero.
 
-        A confounder whose effects on treatment and outcome multiply to
-        this value would exactly nullify the observed average treatment
-        effect. The tipping point equals the observed mean ATE because
-        adjusted ATE = observed ATE − γ × δ.
+        A hypothetical fixed bias equal to this value exactly nullifies
+        the fitted posterior mean under adjusted ATE = observed ATE − γ × δ.
+        This numerical threshold does not identify a confounder or imply
+        that the shifted posterior is an exact adjusted posterior.
         """
         return self.observed_ate
 
@@ -147,8 +151,10 @@ class SensitivityResult(ResultReprMixin):
         """Contour plot of adjusted ATE vs. confounder strength.
 
         Shows how the estimated ATE changes as a function of the
-        hypothetical confounder's effect on treatment (γ) and
-        outcome (δ). A black contour line marks the tipping boundary
+        supplied sensitivity parameters γ and δ. The arrow labels are
+        causal intuition; a linear bias interpretation requires the
+        calibration described in this module. A black contour line marks
+        the tipping boundary
         where the adjusted ATE crosses zero.
 
         Parameters
@@ -252,11 +258,11 @@ def compute_sensitivity(
 
         adjusted ATE = observed ATE − γ × δ
 
-    where γ × δ is the confounding bias from an unmeasured confounder U
-    with effect γ on the treatment and δ on the outcome. This follows
-    the omitted variable bias framework: a latent common cause inflates
-    the observed treatment effect by the product of its effects on
-    treatment and outcome.
+    γ × δ is a user-specified fixed bias on the reported ATE contrast
+    scale. An exact linear coefficient interpretation requires the
+    auxiliary-regression calibration described in this module. No
+    variance normalization or intervention-contrast rescaling is applied,
+    and no uncertainty about γ or δ is propagated.
 
     Parameters
     ----------
