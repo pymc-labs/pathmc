@@ -167,6 +167,20 @@ class TestPathModelIntegration:
         assert len(warnings) > 0
 
 
+@pytest.mark.parametrize(
+    ("spec", "expected", "message"),
+    [
+        ("M ~ X\nY ~ M\nX ~~ Y", True, "Front-door criterion satisfied"),
+        ("X ~ Z\nM ~ X + Z\nY ~ M", False, "Condition 2 fails"),
+        ("M ~ X + Z\nY ~ M + Z", False, "Condition 3 fails"),
+    ],
+)
+def test_frontdoor_identifiable_conditions(spec, expected, message):
+    result, explanation = pathmc.model(spec).frontdoor_identifiable("X", "M", "Y")
+    assert result is expected
+    assert message in explanation
+
+
 class TestTemporalEdgesIdentification:
     """Temporal edges must not change identification results (#16)."""
 

@@ -560,7 +560,7 @@ def frontdoor_identifiable(
                 f"all directed paths to be fully mediated.",
             )
 
-    if not _blocks_all_backdoor_paths(dag, dag, treatment, mediator, set()):
+    if not _blocks_all_backdoor_paths(dag, treatment, mediator, set()):
         return (
             False,
             f"Condition 2 fails: there is an unblocked backdoor path from "
@@ -569,7 +569,7 @@ def frontdoor_identifiable(
             f"unconfounded.",
         )
 
-    if not _blocks_all_backdoor_paths(dag, dag, mediator, outcome, {treatment}):
+    if not _blocks_all_backdoor_paths(dag, mediator, outcome, {treatment}):
         return (
             False,
             f"Condition 3 fails: not all backdoor paths from '{mediator}' "
@@ -1039,7 +1039,6 @@ def test_implications(
 
 def _blocks_all_backdoor_paths(
     original_dag: nx.DiGraph,
-    mutilated_dag: nx.DiGraph,
     treatment: str,
     outcome: str,
     z: set[str],
