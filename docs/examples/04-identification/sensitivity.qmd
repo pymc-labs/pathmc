@@ -86,7 +86,7 @@ Suppose an unobserved variable `U` affects both the treatment and the outcome:
 
 ```{dot}
 //| label: fig-dag-unmeasured
-//| fig-cap: "Hypothetical DAG with unmeasured confounder U (dashed). γ is U's effect on treatment X; δ is its effect on outcome Y. Because U is unobserved, the bias γ × δ is absorbed into the estimated X → Y effect."
+//| fig-cap: "Hypothetical DAG with pre-treatment unmeasured confounder U (dashed). The dashed arrows show the forward effects a and δ; γ in γ × δ is the auxiliary-regression coefficient defined below, not a."
 //| fig-width: 4
 digraph {
   rankdir=LR
@@ -94,33 +94,56 @@ digraph {
   Z -> X
   Z -> Y
   X -> Y
-  U -> X [label="γ", style=dashed]
+  U -> X [label="a", style=dashed]
   U -> Y [label="δ", style=dashed]
 }
 ```
 
-If U has effect γ on treatment and δ on outcome, the estimated ATE absorbs confounding bias equal to **γ × δ**. The bias-corrected ATE is:
+pathmc explores a hypothetical additive bias **γ × δ**. Its sensitivity calculation shifts the fitted ATE by that amount:
 
 $$\text{adjusted ATE} = \text{observed ATE} - \gamma \times \delta$$
 
-Sensitivity analysis sweeps over a grid of (γ, δ) values and finds the **tipping point** — the γ × δ product at which the adjusted ATE crosses zero and the causal conclusion reverses.
+Sensitivity analysis sweeps over a grid of (γ, δ) values and finds the **tipping point** — the γ × δ product at which the adjusted posterior mean crosses zero. The grid specifies scenarios; it does not estimate an unmeasured confounder or establish whether a scenario is plausible.
 
 ::: {.callout-note collapse="true"}
 ## Assumptions of this bias model
 
-The formula adjusted ATE = observed ATE − γ × δ is a first-order approximation based on the omitted variable bias framework. It assumes U has unit variance and acts linearly on both treatment and outcome. This is the simplest parametric sensitivity model, following the tradition of Rosenbaum (2002) and VanderWeele & Ding (2017). More sophisticated approaches based on partial R² or the E-value can be layered on top.
+The product formula is an **exact linear coefficient identity under compatible parameter definitions**, not a universal first-order approximation. Consider the population linear regressions
+
+$$
+Y = \alpha + \beta X + \theta^\top C + \delta U + \varepsilon,
+\qquad
+U = \eta + \gamma X + \lambda^\top C + r.
+$$
+
+Here $C$ contains observed pre-treatment covariates and the second regression is an auxiliary projection: **γ is the coefficient of X when predicting U, not the causal effect of U on X**. Omitting U from the outcome regression changes the X coefficient from $\beta$ to $\beta_{\mathrm{short}} = \beta + \gamma\delta$. This omitted-variable-bias identity holds for population linear projections and ordinary least squares; Gaussian errors are not required. See [Cinelli and Hazlett (2020)](https://doi.org/10.1111/rssb.12348).
+
+For $\beta$ to be the causal effect in this example, assume a constant linear effect with identity link, no mediating paths, pre-treatment U, and a sufficient backdoor adjustment set $C \cup \{U\}$, with outcome error uncorrelated with $(X,C,U)$. U may be correlated with C. Outside this setup, an exact regression identity need not describe the bias of a do()-based total effect.
+
+The U → X arrow is useful causal intuition, but its forward coefficient $a$ is generally different from γ. With X’s own structural error uncorrelated with U and C, and after residualizing X and U on C,
+
+$$
+\gamma = a\,\frac{\operatorname{Var}(U_{\mathrm{res}})}
+                       {\operatorname{Var}(X_{\mathrm{res}})}.
+$$
+
+Unit variance for U alone is insufficient. For example, let $X=0.5U+\varepsilon_X$ and $Y=2X+U+\varepsilon_Y$, with independent centered errors and $\operatorname{Var}(U)=\operatorname{Var}(\varepsilon_X)=1$. The omitted-U slope is $2+0.5/1.25=2.4$, so its bias is 0.4, not the forward-coefficient product 0.5. If instead $\operatorname{Var}(\varepsilon_X)=0.75$, both U and X have unit variance and that product is exact.
+
+For an intervention contrast $h=\mathrm{hi}-\mathrm{lo}$, the linear ATE bias is $h\gamma\delta$. The default `values=(0, 1)` has $h=1$. pathmc always subtracts the supplied γ × δ product: it does **not** standardize variables or multiply the bias by h. Calibrate the supplied product to the reported contrast scale, including h for non-unit contrasts, before interpreting it as causal bias.
+
+Finally, this method applies a fixed shift to Bayesian posterior draws. It does not propagate uncertainty in γ or δ, and the shifted draws are not an exact refitted posterior, particularly under informative priors. With nonlinear response functions, non-identity links, interactions, or additional confounded pathways, treat the grid as hypothetical additive shifts unless an appropriate bias relationship has been established.
 :::
 
 ## Running the sensitivity analysis
 
-pathmc's `sensitivity()` method computes this over a grid of confounder strengths:
+pathmc's `sensitivity()` method computes this over a grid of sensitivity parameters:
 
 ```{python}
 result = model.sensitivity("Y", "X")
 result
 ```
 
-The **tipping point** is the γ × δ product that would exactly nullify the observed effect. The symmetric example (γ ≈ δ ≈ √tipping_point) shows what equal effects on treatment and outcome would look like.
+The **tipping point** is the γ × δ product that exactly nullifies the fitted posterior mean under this fixed-shift calculation. For a positive mean, the symmetric example (γ ≈ δ ≈ √tipping_point) gives equal numerical sensitivity parameters, not necessarily equal causal effects along the two arrows.
 
 ## Visualizing robustness
 
@@ -128,7 +151,7 @@ The `.plot()` method maps the adjusted ATE across the full (γ, δ) grid:
 
 ```{python}
 # | label: fig-sensitivity-robust
-# | fig-cap: "Sensitivity contour for a robust causal effect (true ATE = 0.5). Blue indicates the adjusted effect remains positive. The black tipping line (ATE = 0) separates the region where the conclusion holds (lower-left) from the region where confounding would reverse it (upper-right)."
+# | fig-cap: "Sensitivity contour for a robust causal effect (true ATE = 0.5). Red indicates the adjusted mean remains positive; blue indicates reversal. The black tipping line (ATE = 0) separates the region where the conclusion holds (lower-left) from the region where confounding would reverse it (upper-right)."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -137,29 +160,33 @@ plt.tight_layout()
 plt.show()
 ```
 
-The x-axis is γ (how strongly U affects treatment), the y-axis is δ (how strongly U affects the outcome), and the color is the adjusted ATE. The black contour marks where the adjusted ATE equals zero — the **tipping boundary**.
+The x-axis is γ as defined by the auxiliary regression, not the forward U → X coefficient a; the y-axis shows δ, and the color is the shifted posterior mean ATE. Use the coefficient and contrast calibration above for an exact linear bias interpretation. The black contour marks where the adjusted mean equals zero — the **tipping boundary**.
 
-Points below and to the left of the tipping line preserve a positive causal effect. Points above and to the right would reverse it. The further the tipping line sits from the origin, the more robust the effect is to unmeasured confounding.
+Points below and to the left of the tipping line keep the adjusted mean positive. Points above and to the right make it negative. The further the tipping line sits from the origin, the more robust the effect is to unmeasured confounding.
 
 ## Calibrating against observed effects
 
-The (γ, δ) values become interpretable when compared to the effects of variables already in the model:
+The tipping point becomes interpretable when compared with bias benchmarks built from variables already in the model:
 
 ```{python}
 effects = model.effects_summary()
 print(effects[["mean"]].round(3))
 ```
 
-The coefficient `a` is the effect of Z on X; `c` is the direct effect of Z on Y. If an unmeasured confounder were as strong as `Z`, it would contribute bias of approximately `a × c` — comparable to the tipping point. Overturning this result would require a confounder nearly as influential as the strongest observed variable in the model.
+The coefficient `a` is the effect of Z on X; `c` is the direct effect of Z on Y. Their forward product `a × c` is **not** generally the bias from omitting Z. A benchmark needs the auxiliary-regression coefficient of X when predicting Z, multiplied by `c` and the intervention contrast. With other adjustment variables, use the corresponding residualized variances and coefficients.
+
+For this example's population data-generating process, $a=0.6$, $c=0.8$, $\operatorname{Var}(Z)=1$ and $\operatorname{Var}(X)=0.6^2+0.5^2=0.61$. If Z were omitted, the bias for a unit contrast would therefore be $0.8\times0.6/0.61\approx0.79$, not $a\times c=0.48$. These are known simulation quantities, not estimates of an additional unmeasured confounder. A hypothetical U in the fitted model that already adjusts for Z needs its own conditional calibration; the omitted-Z benchmark cannot establish that U is weaker or stronger.
 
 ::: {.callout-tip}
 ## Calibration heuristic
 
-Compare the tipping point to the effects of observed variables:
+Compare the tipping point with a plausible **bias benchmark on the same contrast scale**, not with raw path coefficients:
 
-- **Tipping point ≫ observed effects**: Robust. An unmeasured confounder would need to be far stronger than anything already measured.
-- **Tipping point ≈ observed effects**: Borderline. A confounder comparable to known variables could explain the effect.
-- **Tipping point ≪ observed effects**: Fragile. Even a weak unmeasured confounder could overturn the conclusion.
+- **Tipping point ≫ benchmark bias**: That benchmark is insufficient to nullify the mean.
+- **Tipping point ≈ benchmark bias**: A similarly calibrated scenario could nullify the mean.
+- **Tipping point ≪ benchmark bias**: A smaller bias than that benchmark could nullify the mean.
+
+These comparisons describe the chosen scenarios; plausibility requires substantive knowledge and compatible adjustment sets.
 :::
 
 ## A fragile effect for comparison
@@ -194,18 +221,18 @@ print(f"True effect: {true_effect_weak}")
 ate2
 ```
 
-The ATE is positive and the credible interval just barely excludes zero — it looks "significant." But the sensitivity analysis reveals how fragile this conclusion is:
+Compare the fitted ATE and its interval with the stronger-effect example, then inspect how much fixed bias would nullify its posterior mean:
 
 ```{python}
 result2 = model2.sensitivity("Y", "X")
 result2
 ```
 
-The tipping point is far smaller than in the robust case. A confounder with symmetric effects of only ~0.3 on treatment and outcome would overturn the conclusion — much weaker than the observed confounder Z.
+Compare `result2.tipping_point` with `result.tipping_point` above. For a positive tipping point, its square root gives equal numerical γ and δ parameters that nullify the fitted mean. This is a sensitivity scenario, not evidence that an unmeasured U has smaller causal effects than Z.
 
 ```{python}
 # | label: fig-sensitivity-fragile
-# | fig-cap: "Sensitivity contour for a fragile causal effect (true ATE ≈ 0.1). The tipping line sits much closer to the origin than in @fig-sensitivity-robust, meaning even modest confounding would reverse the conclusion."
+# | fig-cap: "Sensitivity contour for a fragile causal effect (true ATE = 0.15). The tipping line sits much closer to the origin than in @fig-sensitivity-robust, meaning even modest confounding would reverse the conclusion."
 # | code-fold: true
 
 fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT))
@@ -214,7 +241,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The contrast with @fig-sensitivity-robust is striking. The tipping line now sits much closer to the origin, meaning a wide range of plausible confounder strengths would overturn this effect. If unmeasured variables with even moderate effects on both X and Y are plausible in your domain, this causal claim should be treated with caution.
+Compare the tipping line with @fig-sensitivity-robust: a line closer to the origin means a smaller fixed bias nullifies the fitted mean. If a confounder whose calibrated bias reaches that size is plausible in your domain, treat this causal claim with caution.
 
 ::: {.callout-warning}
 ## When sensitivity analysis flags fragility
@@ -229,10 +256,10 @@ A small tipping point does not mean the effect is zero — it means the causal c
 ## Summary
 
 - **Sensitivity analysis** converts the untestable "no unmeasured confounders" assumption into a quantitative question: how strong would confounding need to be to change the conclusion?
-- The **confounding bias model** assumes a latent U with effect γ on treatment and δ on outcome. The bias is **γ × δ**, and the adjusted ATE = observed ATE − γ × δ.
-- The **tipping point** is the γ × δ product that reduces the ATE to zero. Larger tipping points mean more robust effects.
+- The **fixed-shift model** computes adjusted ATE = observed ATE − γ × δ. The product has an exact linear bias interpretation only under the stated coefficient definitions, causal assumptions, and contrast calibration; unit variance U alone is insufficient.
+- The **tipping point** is the γ × δ product that reduces the posterior mean ATE to zero. A larger magnitude requires a larger fixed bias to nullify that mean.
 - The **contour plot** visualizes robustness across the full (γ, δ) grid. The tipping line separates the region where the causal conclusion holds from the region where it reverses.
-- **Calibrate** the tipping point against effects of observed variables. If overturning the result requires confounders stronger than anything already measured, the effect is likely robust.
+- **Calibrate** the tipping point against plausible bias products on the same contrast scale and adjustment set. Raw forward path coefficients are not a sufficient benchmark.
 - A **fragile result** (small tipping point) is not necessarily wrong — it signals that the causal claim deserves additional scrutiny, ideally through complementary identification strategies.
 
 ::: {.callout-note}
