@@ -760,6 +760,7 @@ In pathmc, the front-door criterion is implemented naturally as mediation analys
 - **`.is_identifiable()`** tells you whether any valid backdoor adjustment set exists before you run a single MCMC sample.
 - **Collider bias** is *created* by analysis choices, not present in the raw data. The **birth-weight paradox** (@sec-birth-weight) demonstrates how conditioning on a collider can reverse a harmful effect, making smoking appear protective among low-birth-weight babies.
 - **Unmeasured confounding** blocks the backdoor criterion, but the **front-door criterion** (@sec-front-door) can still identify the effect when all causal paths flow through a measured mediator. `.frontdoor_identifiable()` checks the three required conditions.
+- **`.iv_identifiable()`** reports observed graphical instruments when backdoor adjustment fails. It does not estimate the instrumental-variable effect, and `model()` still refuses a directed edge inside a `~~` block.
 - **The DAG encodes your assumptions.** pathmc's identification helpers check the logical consequences of those assumptions, but the DAG itself must come from domain knowledge.
 
 ::: {.callout-note}

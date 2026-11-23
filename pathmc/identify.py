@@ -488,7 +488,9 @@ def iv_identifiable(
 
     This does not change :func:`is_identifiable`, which stays the backdoor
     criterion. A confounded effect can be IV-identifiable and still not
-    backdoor-identifiable.
+    backdoor-identifiable. :meth:`pathmc.PathModel.iv_identifiable` is the
+    same check. ``model()`` still refuses a directed edge inside a ``~~``
+    block; call this function on a ``GraphInfo`` for that declaration.
 
     An observed node ``Z`` is an instrument when:
 

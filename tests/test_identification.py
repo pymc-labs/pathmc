@@ -480,3 +480,19 @@ class TestInstrumentIdentification:
     def test_equal_endpoints_are_not_an_iv_query(self):
         g = _graph("Y ~ X\nX ~ Z")
         assert iv_identifiable(g, "Y", "Y") == (False, set())
+
+    def test_model_method_reports_latent_confounder_instrument(self):
+        """The PathModel method is the user-facing check on a compilable spec."""
+        model = pathmc.model(
+            "U ~ W\nT ~ Z + U\nY ~ T + U",
+            latent=["U"],
+        )
+        assert model.iv_identifiable("T", "Y") == (True, {"Z"})
+        assert model.is_identifiable("T", "Y") is False
+
+    def test_within_block_spec_uses_graph_helper(self):
+        """model() refuses the usual ~~ instrument spec; the graph helper does not."""
+        spec = "T ~ Z\nY ~ T\nT ~~ Y"
+        with pytest.raises(NotImplementedError, match="within-block"):
+            pathmc.model(spec)
+        assert iv_identifiable(_graph(spec), "T", "Y") == (True, {"Z"})

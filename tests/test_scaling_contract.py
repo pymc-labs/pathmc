@@ -457,6 +457,7 @@ PUBLIC_METHOD_CONTRACTS = {
         "adjustment_sets": "structural",
         "optimal_adjustment_set": "structural",
         "is_identifiable": "dimensionless",
+        "iv_identifiable": "dimensionless",
         "adjustment_model": "structural",
         "frontdoor_identifiable": "dimensionless",
         "collider_warnings": "structural",
