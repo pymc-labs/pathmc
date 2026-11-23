@@ -295,6 +295,9 @@ class TestSensitivityResult:
 
         fig = result.plot()
         assert isinstance(fig, matplotlib.figure.Figure)
+        xlabel = fig.axes[0].get_xlabel()
+        assert "U ~ treatment" in xlabel
+        assert "confounder → treatment" not in xlabel
 
     def test_plot_with_existing_axes(self):
         import matplotlib.pyplot as plt

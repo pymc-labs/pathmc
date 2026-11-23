@@ -50,7 +50,7 @@ class SensitivityResult(ResultReprMixin):
     """Result of unmeasured confounding sensitivity analysis.
 
     Contains the observed ATE posterior draws and adjusted ATE values
-    for a grid of hypothetical confounder strengths (γ, δ).
+    for a grid of sensitivity parameters (γ, δ).
 
     γ and δ specify a hypothetical fixed bias product on the ATE's
     contrast scale. For an exact linear bias interpretation, use the
@@ -148,14 +148,13 @@ class SensitivityResult(ResultReprMixin):
         cmap: str = "RdBu_r",
         n_levels: int = 20,
     ) -> matplotlib.figure.Figure:
-        """Contour plot of adjusted ATE vs. confounder strength.
+        """Contour plot of adjusted ATE vs. sensitivity parameters.
 
         Shows how the estimated ATE changes as a function of the
-        supplied sensitivity parameters γ and δ. The arrow labels are
-        causal intuition; a linear bias interpretation requires the
-        calibration described in this module. A black contour line marks
-        the tipping boundary
-        where the adjusted ATE crosses zero.
+        supplied sensitivity parameters γ and δ. The x-axis uses γ's
+        auxiliary-regression definition; a linear bias interpretation
+        requires the calibration described in this module. A black contour
+        line marks the tipping boundary where the adjusted ATE crosses zero.
 
         Parameters
         ----------
@@ -218,7 +217,7 @@ class SensitivityResult(ResultReprMixin):
             )
             ax.legend(loc="best")
 
-        ax.set_xlabel("γ (confounder → treatment)")
+        ax.set_xlabel("γ (treatment coef. in U ~ treatment + covariates)")
         ax.set_ylabel("δ (confounder → outcome)")
         ax.set_title(
             f"Sensitivity: {self.treatment} → {self.outcome}\n"
@@ -252,7 +251,7 @@ def compute_sensitivity(
     delta_range: tuple[float, float],
     n_grid: int,
 ) -> SensitivityResult:
-    """Compute sensitivity analysis over a grid of confounder strengths.
+    """Compute sensitivity analysis over a grid of sensitivity parameters.
 
     For each (γ, δ) pair on the grid, the adjusted ATE is::
 

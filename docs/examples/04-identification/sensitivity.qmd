@@ -86,7 +86,7 @@ Suppose an unobserved variable `U` affects both the treatment and the outcome:
 
 ```{dot}
 //| label: fig-dag-unmeasured
-//| fig-cap: "Hypothetical DAG with pre-treatment unmeasured confounder U (dashed). The arrow labels illustrate the two confounding relationships; their strengths must be calibrated to the bias scale described below before interpreting γ × δ as bias."
+//| fig-cap: "Hypothetical DAG with pre-treatment unmeasured confounder U (dashed). The dashed arrows show the forward effects a and δ; γ in γ × δ is the auxiliary-regression coefficient defined below, not a."
 //| fig-width: 4
 digraph {
   rankdir=LR
@@ -94,7 +94,7 @@ digraph {
   Z -> X
   Z -> Y
   X -> Y
-  U -> X [label="γ", style=dashed]
+  U -> X [label="a", style=dashed]
   U -> Y [label="δ", style=dashed]
 }
 ```
@@ -136,7 +136,7 @@ Finally, this method applies a fixed shift to Bayesian posterior draws. It does 
 
 ## Running the sensitivity analysis
 
-pathmc's `sensitivity()` method computes this over a grid of confounder strengths:
+pathmc's `sensitivity()` method computes this over a grid of sensitivity parameters:
 
 ```{python}
 result = model.sensitivity("Y", "X")
@@ -160,7 +160,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The x-axis and y-axis show the supplied γ and δ sensitivity parameters, and the color is the shifted posterior mean ATE. The arrow labels are causal intuition; use the coefficient and contrast calibration above for an exact linear bias interpretation. The black contour marks where the adjusted mean equals zero — the **tipping boundary**.
+The x-axis is γ as defined by the auxiliary regression, not the forward U → X coefficient a; the y-axis shows δ, and the color is the shifted posterior mean ATE. Use the coefficient and contrast calibration above for an exact linear bias interpretation. The black contour marks where the adjusted mean equals zero — the **tipping boundary**.
 
 Points below and to the left of the tipping line keep the adjusted mean positive. Points above and to the right make it negative. The further the tipping line sits from the origin, the more robust the effect is to unmeasured confounding.
 
