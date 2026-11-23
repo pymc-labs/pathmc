@@ -26,6 +26,7 @@ from pathmc.identify import (
     implied_independences,
     is_identifiable,
     is_valid_adjustment_set,
+    iv_identifiable,
     test_implications as score_implications,
 )
 from pathmc.parse import parse_spec
@@ -409,3 +410,73 @@ def test_issue_594_latent_statement_does_not_drop_observable_violation():
     assert len(direct_table) == 1
     assert direct_table.iloc[0]["significant"]
     assert {direct_table.iloc[0]["x"], direct_table.iloc[0]["y"]} == {"A", "Y"}
+
+
+class TestInstrumentIdentification:
+    """Graphical instruments are a separate verdict from the backdoor criterion.
+
+    The oracle is the handwritten DAG. These tests do not simulate data.
+    """
+
+    def test_confounded_effect_returns_valid_instrument(self):
+        """Z -> T -> Y with T ~~ Y: Z is an instrument; backdoor still fails."""
+        g = _graph("T ~ Z\nY ~ T\nT ~~ Y")
+        assert iv_identifiable(g, "T", "Y") == (True, {"Z"})
+        assert is_identifiable(g, "T", "Y") is False
+
+    def test_direct_edge_to_outcome_is_not_iv_identified(self):
+        g = _graph("T ~ Z\nY ~ T + Z")
+        assert iv_identifiable(g, "T", "Y") == (False, set())
+
+    def test_outcome_confounder_is_not_iv_identified(self):
+        """C -> Z and C -> Y leave an open Z-Y backdoor after T is removed."""
+        g = _graph("Z ~ C\nT ~ Z\nY ~ T + C")
+        assert iv_identifiable(g, "T", "Y") == (False, set())
+
+    def test_no_instrument_is_not_iv_identified(self):
+        """A and W are d-separated from Y once T is removed, but neither causes T."""
+        g = _graph("W ~ A\nY ~ T\nT ~~ Y")
+        assert iv_identifiable(g, "T", "Y") == (False, set())
+
+    def test_residual_edge_to_outcome_violates_exclusion(self):
+        g = _graph("T ~ Z\nY ~ T\nZ ~~ Y")
+        assert iv_identifiable(g, "T", "Y") == (False, set())
+
+    def test_residual_edge_to_treatment_is_not_relevance(self):
+        g = _graph("Y ~ T\nW ~ Z\nZ ~~ T")
+        assert iv_identifiable(g, "T", "Y") == (False, set())
+
+    def test_mediated_directed_path_is_relevance(self):
+        g = _graph("M ~ Z\nT ~ M\nY ~ T\nT ~~ Y")
+        assert iv_identifiable(g, "T", "Y") == (True, {"Z", "M"})
+
+    def test_collider_path_does_not_violate_exclusion(self):
+        g = _graph("T ~ Z\nY ~ T\nC ~ Z + Y\nT ~~ Y")
+        assert iv_identifiable(g, "T", "Y") == (True, {"Z"})
+
+    def test_sibling_exclusion_violation_keeps_other_instrument(self):
+        g = _graph("T ~ Z + W\nY ~ T + W\nT ~~ Y")
+        assert iv_identifiable(g, "T", "Y") == (True, {"Z"})
+
+    def test_declared_latent_is_not_an_instrument(self):
+        g = build_graph(
+            parse_spec("U ~ A\nZ ~ U\nT ~ Z\nY ~ T\nT ~~ Y"),
+            latent={"U"},
+        )
+        assert iv_identifiable(g, "T", "Y") == (True, {"A", "Z"})
+
+    def test_synthetic_residual_confounder_is_not_an_instrument(self):
+        g = _graph("T ~ Z\nW ~ M\nY ~ T\nZ ~~ M")
+        identified, instruments = iv_identifiable(g, "T", "Y")
+        assert identified is True
+        assert instruments == {"Z"}
+        assert not any(name.startswith("_u_resid_") for name in instruments)
+
+    def test_unknown_query_node_raises(self):
+        g = _graph("T ~ Z\nY ~ T")
+        with pytest.raises(ValueError, match="Treatment 'NOPE' not in DAG"):
+            iv_identifiable(g, "NOPE", "Y")
+
+    def test_equal_endpoints_are_not_an_iv_query(self):
+        g = _graph("Y ~ X\nX ~ Z")
+        assert iv_identifiable(g, "Y", "Y") == (False, set())

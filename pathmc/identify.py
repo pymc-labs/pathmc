@@ -14,8 +14,9 @@
 """Causal identification helpers for pathmc structural models.
 
 Provides backdoor adjustment set computation, front-door criterion checks,
-collider warnings, identifiability checks, and implied conditional
-independence enumeration and testing using the DAG stored in GraphInfo.
+instrument detection, collider warnings, identifiability checks, and implied
+conditional independence enumeration and testing using the DAG stored in
+GraphInfo.
 """
 
 from __future__ import annotations
@@ -476,6 +477,68 @@ def is_identifiable(
     # The full observed-ancestor set is valid iff any adjustment set exists.
     canonical = _minimal_adjustment_candidates(dag, treatment, outcome, latent)
     return _backdoor_separated(dag, treatment, outcome, canonical)
+
+
+def iv_identifiable(
+    graph_info: GraphInfo,
+    treatment: str,
+    outcome: str,
+) -> tuple[bool, set[str]]:
+    """Return whether an instrument identifies *treatment*'s effect on *outcome*.
+
+    This does not change :func:`is_identifiable`, which stays the backdoor
+    criterion. A confounded effect can be IV-identifiable and still not
+    backdoor-identifiable.
+
+    An observed node ``Z`` is an instrument when:
+
+    1. there is a directed path ``Z -> ... -> treatment``;
+    2. every path from ``Z`` to *outcome* is blocked once *treatment* is
+       removed: no direct ``Z -> outcome``, and no ``Z``-*outcome* backdoor.
+       ``Z`` affects *outcome* only through *treatment*.
+
+    ``~~`` blocks and declared latents are expanded the same way as the
+    backdoor criterion. ``Z ~~ outcome`` violates exclusion. ``Z ~~ treatment``
+    is not a directed path, so it does not make ``Z`` an instrument. Latent
+    nodes and synthetic residual confounders are never returned.
+
+    The check uses only the DAG declared in the specification. It cannot
+    detect omitted variables or other misspecification.
+
+    Parameters
+    ----------
+    graph_info : GraphInfo
+        DAG from the structural model.
+    treatment : str
+        Treatment variable name.
+    outcome : str
+        Outcome variable name.
+
+    Returns
+    -------
+    tuple[bool, set[str]]
+        ``(True, instruments)`` when at least one instrument exists,
+        otherwise ``(False, set())``.
+
+    Raises
+    ------
+    ValueError
+        If *treatment* or *outcome* is not in the DAG.
+    """
+    _require_nodes(graph_info.contemporaneous_dag, treatment=treatment, outcome=outcome)
+    if treatment == outcome:
+        return False, set()
+
+    dag, latent = _with_residual_confounders(graph_info)
+    reduced = dag.copy()
+    reduced.remove_node(treatment)
+    upstream = nx.ancestors(dag, treatment)
+    instruments = {
+        node
+        for node in set(dag.nodes) - latent - {treatment, outcome}
+        if node in upstream and nx.is_d_separator(reduced, {node}, {outcome}, set())
+    }
+    return bool(instruments), instruments
 
 
 def frontdoor_identifiable(
