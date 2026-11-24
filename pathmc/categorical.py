@@ -78,7 +78,7 @@ def _validate_level_labels(name: str, levels: tuple[Any, ...]) -> None:
 
 
 def _fit_levels(series: pd.Series) -> tuple[Any, ...]:
-    """Return deterministic levels, preserving declared categorical order."""
+    """Return deterministic levels with numeric or declared categorical order."""
     if series.isna().any():
         raise ValueError(
             f"Categorical predictor '{series.name}' contains missing values. "
@@ -91,7 +91,12 @@ def _fit_levels(series: pd.Series) -> tuple[Any, ...]:
         )
     else:
         values = series.unique().tolist()
-        levels = tuple(sorted(values, key=lambda value: str(value)))
+        numeric = all(
+            isinstance(value, int | float | np.integer | np.floating)
+            and not isinstance(value, bool | np.bool_)
+            for value in values
+        )
+        levels = tuple(sorted(values) if numeric else sorted(values, key=str))
     _validate_level_labels(str(series.name), levels)
     if len(levels) < 2:
         raise ValueError(
