@@ -11,6 +11,17 @@
 #   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
+
+"""Write the PyTensor compile-cache version key for GitHub Actions caching.
+
+The key records the installed versions of the packages that determine
+compiled artifacts, plus the portable-target pins. It records the
+interpreter version: the numba cache suffixes cache files with the
+interpreter version and the C compiledir embeds it, so artifacts from
+different interpreter versions can never be reused, and mixing them in
+one pool only wastes restore bandwidth.
+
+Requires PYTENSOR_FLAGS and NUMBA_CPU_NAME in the environment (set at the
 job level) so that the portable-target pins are part of the version hash:
 the pins change compile flags and cache keys, so leaving them out would
 let a cache publish entries that later runs cannot use.

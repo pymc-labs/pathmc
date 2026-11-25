@@ -19,6 +19,10 @@ concurrency:
 
 jobs:
   refresh:
+    # The publisher runs only on main: gh cache list/delete are not
+    # ref-filtered by default, so a feature-branch dispatch would delete
+    # main's snapshot and re-save it where other PRs cannot see it.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -37,15 +41,14 @@ jobs:
       UV_PYTHON: ${{ matrix.python-version }}
       # Portable-target pins, matching ci.yml's test-shard job so the
       # published snapshot's cache keys match what shards restore.
+      # gcc__cxxflags, not cxxflags: pytensor 3.3.6 rejects the latter.
       PYTENSOR_FLAGS: >-
-        cxxflags=-march=x86-64,compiledir_format=compiledir-%(python_version)s-%(python_bitwidth)s
+        gcc__cxxflags=-march=x86-64,compiledir_format=compiledir-%(python_version)s-%(python_bitwidth)s
       NUMBA_CPU_NAME: generic
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Scheduled runs time main; a manual dispatch (the cache-seeding
-          # path) runs the dispatched ref so the branch's action is present.
-          ref: ${{ github.event_name == 'schedule' && 'main' || github.ref }}
+          ref: main
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -63,7 +66,7 @@ jobs:
         run: |
           KEY=$(cat /tmp/pytensor-snapshot-key)
           echo "refreshing snapshot key: $KEY"
-          gh cache list --key "$KEY" --json id --jq '.[].id' | xargs -r gh cache delete
+          gh cache list --key "$KEY" --ref refs/heads/main --json id --jq '.[].id' | xargs -r gh cache delete
       - name: Save PyTensor cache snapshot
         env:
           KEY_FILE: /tmp/pytensor-snapshot-key

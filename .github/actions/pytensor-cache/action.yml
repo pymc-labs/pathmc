@@ -3,10 +3,15 @@ description: >-
   Compute the PyTensor compile-cache version key and restore compiled
   artifacts (C compiledir and numba file cache) for the current
   environment. The job must set the portable-target pins
-  (PYTENSOR_FLAGS=cxxflags=-march=x86-64,compiledir_format=... and
+  (PYTENSOR_FLAGS=gcc__cxxflags=-march=x86-64,compiledir_format=... and
   NUMBA_CPU_NAME=generic) so cache keys do not embed the runner's CPU:
   numba keys include the host CPU name and pytensor's C compiledir name
   embeds platform details, and GitHub's runner fleet is heterogeneous.
+
+outputs:
+  cache-matched-key:
+    description: The key the restore actually matched (empty on a total miss).
+    value: ${{ steps.restore.outputs.cache-matched-key }}
 
 runs:
   using: composite
@@ -24,6 +29,7 @@ runs:
       run: echo "pytensor-${{ hashFiles('.pytensor-cache-key') }}-snapshot" > /tmp/pytensor-snapshot-key
 
     - name: Restore PyTensor compile caches
+      id: restore
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ~/.pytensor
