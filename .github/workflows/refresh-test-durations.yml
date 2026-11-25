@@ -3,9 +3,13 @@ name: refresh test durations
 on:
   workflow_dispatch:
   schedule:
-    # Sunday 06:00 UTC. The nightly Tier 5 job is 03:00 UTC every day and
-    # runs a different selection. This job times the per-commit suite.
+    # Sunday and Wednesday 06:00 UTC. Twice weekly: the repo's cache
+    # retention is 7 days, so a single failed run must not strand the
+    # compile-cache pool until the next week. This job is also the sole
+    # PyTensor compile-cache publisher: it runs the full suite, so its
+    # snapshot is a superset of every test-shard group.
     - cron: "0 6 * * 0"
+    - cron: "0 6 * * 3"
 
 permissions: {}
 
@@ -20,17 +24,47 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # gh cache delete in the snapshot refresh step
+      actions: write
+    env:
+      # Portable-target pins, matching ci.yml's test-shard job so the
+      # published snapshot's cache keys match what shards restore.
+      PYTENSOR_FLAGS: >-
+        cxxflags=-march=x86-64,compiledir_format=compiledir-%(python_version)s-%(python_bitwidth)s
+      NUMBA_CPU_NAME: generic
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          # Scheduled runs time main; a manual dispatch (the cache-seeding
+          # path) runs the dispatched ref so the branch's action is present.
+          ref: ${{ github.event_name == 'schedule' && 'main' || github.ref }}
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Install dependencies
         run: uv sync --all-extras --locked
+      - name: PyTensor compile cache
+        uses: ./.github/actions/pytensor-cache
       - name: Record timings from a full run
         run: make record-test-durations
+      - name: Delete previous PyTensor cache snapshot
+        # actions/cache never overwrites, so the sole updater deletes the
+        # canonical snapshot key first, then re-saves it below.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          KEY=$(cat /tmp/pytensor-snapshot-key)
+          echo "refreshing snapshot key: $KEY"
+          gh cache list --key "$KEY" --json id --jq '.[].id' | xargs -r gh cache delete
+      - name: Save PyTensor cache snapshot
+        env:
+          KEY_FILE: /tmp/pytensor-snapshot-key
+        id: snapshot
+        run: echo "key=$(cat "$KEY_FILE")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pytensor
+          key: ${{ steps.snapshot.outputs.key }}
       - name: Decide whether the split moved
         id: drift
         run: |

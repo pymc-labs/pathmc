@@ -61,6 +61,14 @@ jobs:
       contents: read
     env:
       UV_PYTHON: ${{ matrix.python-version }}
+      # Pin both compile caches to a portable target so cache keys do not
+      # embed the runner's CPU. GitHub's runner fleet is heterogeneous: with
+      # native CPU targeting, numba's cache key includes the host CPU name
+      # and pytensor's C key includes auto-detected march flags, so warm
+      # restores only hit on runners of the same CPU generation.
+      PYTENSOR_FLAGS: >-
+        cxxflags=-march=x86-64,compiledir_format=compiledir-%(python_version)s-%(python_bitwidth)s
+      NUMBA_CPU_NAME: generic
     strategy:
       fail-fast: false
       matrix:
@@ -76,6 +84,8 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
       - name: Install dependencies
         run: uv sync --all-extras --locked --python ${{ matrix.python-version }}
+      - name: PyTensor compile cache
+        uses: ./.github/actions/pytensor-cache
       - name: Run tests
         env:
           COVERAGE_FILE: coverage-data/.coverage.shard-${{ matrix.group }}

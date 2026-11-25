@@ -45,3 +45,5 @@ _freeze/**/libs/
 # Local Cursor agent tooling (subagents, skills, commands). Developer-local;
 # not part of the package.
 .cursor/
+.pytensor-cache-key
+worktrees/
