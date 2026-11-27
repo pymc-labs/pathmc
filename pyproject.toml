@@ -57,6 +57,7 @@ dev = [
     "build",
     "hypothesis>=6.170.14",
     "ipykernel",
+    "marimo",
     "mypy",
     "pandas-stubs==3.0.3.260530",
     "polars",
