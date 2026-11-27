@@ -439,9 +439,9 @@ model_prior.priors()
 ```
 
 ::: {.callout-warning}
-## Integer codes sort as strings
+## Numeric codes sort numerically
 
-When levels come from `C()` on an integer column, coordinate order is the *string* sort of the codes: twelve stores coded `1..12` are ordered `1, 10, 11, 12, 2, 3, ...`. Always read the order from `model.pymc_model.coords` before writing a per-level vector prior, or declare the column as a pandas `Categorical` with the order you want.
+When levels come from `C()` on a real numeric column, coordinate order follows the numeric values: twelve stores coded `1..12` are ordered `1, 2, 3, ..., 12`. Numeric-looking strings still sort lexically. Always read the order from `model.pymc_model.coords` before writing a per-level vector prior, or declare the column as a pandas `Categorical` with the order you want.
 :::
 
 ### Hierarchical shrinkage

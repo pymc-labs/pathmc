@@ -124,14 +124,20 @@ A hierarchical term also keeps one coefficient per level. The term that supplies
 |---|---|---|
 | strings / `StringDtype` / `object` | sorted by string value | first sorted level |
 | pandas `Categorical` | declared category order, restricted to observed categories | first observed category in that order |
-| integers via `C()` | sorted by string rendering of the value | first in that order |
+| real numeric values via `C()` | sorted by numeric value | smallest observed value |
 
 Distinct values that render to the same string (the integer `1` and the string `"1"`) are rejected, because their coefficients would collide. Missing values are rejected: drop or impute before fitting.
 
 ::: {.callout-warning}
-## Integer codes sort as strings
+## Numeric codes sort numerically
 
-Because `C()` on an integer column sorts by the string rendering, codes `1..12` are ordered `1, 10, 11, 12, 2, 3, ..., 9` and the reference is `1`. This is harmless for fitting but matters whenever you write a per-level vector (priors, `simulate()` parameters): read the order from `model.pymc_model.coords` or declare the column as a pandas `Categorical` with the order you want.
+`C()` sorts real numeric codes by numeric value, including negative and non-integral values, while preserving the original labels and precision. Booleans keep string sorting. Numeric-looking strings remain strings and sort lexically. A pandas `Categorical` keeps its declared category order, restricted to observed categories.
+:::
+
+::: {.callout-note}
+## Migration: numeric level order changed
+
+For codes `[2, 10, 20]`, the old string sort made `10` the default reference; the numeric sort now makes `2` the reference. To preserve the old full order, use `pd.Categorical(values, categories=[10, 2, 20])`; to preserve only the old reference, pass `reference=10`. Reorder per-level prior and `simulate()` vectors written in the old positional order, reading the fitted order from `model.pymc_model.coords` or `simulate_params_template()`.
 :::
 
 ## Parameter names and coordinates

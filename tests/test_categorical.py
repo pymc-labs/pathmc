@@ -99,6 +99,105 @@ def test_pandas_category_order_excludes_unused_levels():
             pass
 
 
+@pytest.mark.parametrize(
+    ("values", "expected_levels"),
+    [
+        (
+            pd.Series(
+                [
+                    np.float64(2.25),
+                    np.int64(-1),
+                    np.int64(-2),
+                    np.float64(10.5),
+                ],
+                dtype=object,
+            ),
+            (
+                np.int64(-2),
+                np.int64(-1),
+                np.float64(2.25),
+                np.float64(10.5),
+            ),
+        ),
+        (pd.Series([True, 2, 10], dtype=object), (10, 2, True)),
+        (pd.Series(["20", "10", "2"]), ("10", "2", "20")),
+        (
+            pd.Series(pd.Categorical([10, 20, 2], categories=[20, 2, 10])),
+            (20, 2, 10),
+        ),
+    ],
+)
+def test_categorical_level_order(values, expected_levels):
+    data = pd.DataFrame({
+        "y": np.arange(1, len(values) + 1, dtype=float),
+        "code": values,
+    })
+    model = pathmc.model("y ~ C(code)", data=data)
+    call = model._categorical_terms[0][1]
+
+    assert call.levels == expected_levels
+    assert tuple(map(type, call.levels)) == tuple(map(type, expected_levels))
+    assert call.reference == expected_levels[0]
+
+
+def test_numeric_level_order_drives_design_coordinates_and_simulate():
+    data = pd.DataFrame({
+        "y": [1.0, 2.0, 3.0],
+        "code": [10, 2, 20],
+    })
+    model = pathmc.model("y ~ C(code)", data=data)
+    call = model._categorical_terms[0][1]
+
+    assert call.levels == (2, 10, 20)
+    assert call.reference == 2
+    assert list(model.pymc_model.coords["y_code_levels"]) == ["10", "20"]
+    design = model.design("y")
+    assert list(design.columns) == ["Intercept", "code[T.10]", "code[T.20]"]
+    np.testing.assert_array_equal(
+        design.to_numpy(),
+        [[1.0, 1.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0]],
+    )
+
+    simulated = pathmc.simulate(
+        "y ~ C(code)",
+        data=pd.DataFrame({"code": [20, 2, 10]}),
+        params={
+            "beta_y": [1.0],
+            "beta_y_code": [3.0, 8.0],
+            "sigma_y": 1e-6,
+        },
+        random_seed=6,
+    )
+    np.testing.assert_allclose(simulated["y"], [9.0, 1.0, 4.0], atol=1e-4)
+
+
+def test_numeric_reference_preserves_label_type():
+    data = pd.DataFrame({
+        "y": [1.0, 2.0, 3.0],
+        "code": [10, 2, 20],
+    })
+    model = pathmc.model("y ~ C(code, reference=10)", data=data)
+    call = model._categorical_terms[0][1]
+
+    assert call.reference == 10
+    assert list(model.design("y").columns) == [
+        "Intercept",
+        "code[T.2]",
+        "code[T.20]",
+    ]
+    assert list(model.pymc_model.coords["y_code_levels"]) == ["2", "20"]
+
+    with pytest.raises(ValueError, match="Reference level '10'.*not observed"):
+        pathmc.model("y ~ C(code, reference='10')", data=data)
+
+
+def test_numeric_categorical_rejects_missing_values():
+    data = pd.DataFrame({"y": [1.0, 2.0, 3.0], "code": [10.0, np.nan, 2.0]})
+
+    with pytest.raises(ValueError, match="code.*missing values"):
+        pathmc.model("y ~ C(code)", data=data)
+
+
 def test_explicit_reference_controls_design(categorical_data):
     model = pathmc.model("y ~ C(region, reference='south')", data=categorical_data)
     assert list(model.design("y").columns) == [
