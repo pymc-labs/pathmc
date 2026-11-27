@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any, Literal
 
 import graphviz
@@ -835,11 +836,17 @@ class AdjustmentModel:
         self,
         outcome: str | None = None,
         treatment: str | None = None,
-        values: tuple[float, float] = (0.0, 1.0),
-        treated_value: float = 1.0,
+        values: Iterable[Any] | None = None,
+        treated_value: Any | None = None,
         kind: str = "mean",
     ) -> EstimandResult:
-        """Average treatment effect on the treated."""
+        """Average treatment effect on the treated.
+
+        ``values`` is a pair of endpoints given as any non-string iterable of
+        two values, such as a tuple, list, NumPy array, or pandas Index.
+        Numeric treatments default to ``(0.0, 1.0)``. Endpoint and
+        treated-subgroup defaults otherwise follow :meth:`PathModel.att`.
+        """
         outcome_name, treatment_name = self._resolve_query(outcome, treatment)
         result = self._outcome_model.att(
             outcome_name,
@@ -856,11 +863,17 @@ class AdjustmentModel:
         self,
         outcome: str | None = None,
         treatment: str | None = None,
-        values: tuple[float, float] = (0.0, 1.0),
-        untreated_value: float = 0.0,
+        values: Iterable[Any] | None = None,
+        untreated_value: Any | None = None,
         kind: str = "mean",
     ) -> EstimandResult:
-        """Average treatment effect on the untreated."""
+        """Average treatment effect on the untreated.
+
+        ``values`` is a pair of endpoints given as any non-string iterable of
+        two values, such as a tuple, list, NumPy array, or pandas Index.
+        Numeric treatments default to ``(0.0, 1.0)``. Endpoint and
+        untreated-subgroup defaults otherwise follow :meth:`PathModel.atu`.
+        """
         outcome_name, treatment_name = self._resolve_query(outcome, treatment)
         result = self._outcome_model.atu(
             outcome_name,
