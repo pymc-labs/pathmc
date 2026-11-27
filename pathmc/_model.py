@@ -18,7 +18,7 @@ from __future__ import annotations
 import ast
 import sys
 import warnings
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, Literal, TYPE_CHECKING, overload
 
@@ -1962,9 +1962,10 @@ class PathModel:
         method_name: str,
         outcome: str,
         treatment: str,
-        values: tuple[float, float],
-        subgroup_value: float,
+        values: Iterable[Any] | None,
+        subgroup_value: Any | None,
         value_param: str,
+        default_subgroup_endpoint: Literal[0, 1],
         kind: str,
     ) -> EstimandResult:
         """Shared implementation of ``att`` and ``atu``.
@@ -1982,29 +1983,117 @@ class PathModel:
                 "Use do() with manual subgroup selection instead."
             )
 
-        subgroup_values: float | np.ndarray = subgroup_value
-        if self._scaling_factors is not None:
-            subgroup_values = np.asarray(
-                self._scaling_factors.to_internal(
-                    np.full(len(self._data), subgroup_value, dtype=float),
-                    kind="regressor",
-                    dims=ScaleContext(term=treatment, data=self._data),
-                )
-            )
-        mask = np.isclose(
-            np.asarray(self._data[treatment].to_numpy(), dtype=float),
-            subgroup_values,
+        categorical_levels = next(
+            (
+                call.levels
+                for _, call in self._categorical_terms
+                if call.variable == treatment
+            ),
+            None,
         )
+        if categorical_levels is not None:
+            if values is None:
+                raise ValueError(
+                    f"Categorical treatment '{treatment}' requires an explicit "
+                    f"endpoint pair. Fitted levels are {list(categorical_levels)!r}. "
+                    "Pass values=(lo_label, hi_label)."
+                )
+            invalid_values = isinstance(values, (str, bytes)) or (
+                isinstance(values, np.ndarray) and values.ndim == 0
+            )
+            try:
+                endpoint_values = () if invalid_values else tuple(values)
+            except TypeError:
+                endpoint_values = ()
+            if len(endpoint_values) != 2:
+                raise ValueError(
+                    f"Categorical treatment '{treatment}' requires values to be a "
+                    f"non-string iterable of exactly two labels; got {values!r}. "
+                    "Fitted levels "
+                    f"are {list(categorical_levels)!r}. Pass "
+                    "values=(lo_label, hi_label)."
+                )
+            values = endpoint_values
+            if subgroup_value is None:
+                subgroup_value = values[default_subgroup_endpoint]
+            bool_types = (bool, np.bool_)
+
+            def fitted_level(label: Any, parameter: str) -> Any:
+                for level in categorical_levels:
+                    if isinstance(label, bool_types) != isinstance(level, bool_types):
+                        continue
+                    try:
+                        if bool(label == level):
+                            return level
+                    except (TypeError, ValueError):
+                        continue
+                fix = (
+                    "Pass values=(lo_label, hi_label) using fitted level labels."
+                    if parameter == "values endpoint"
+                    else f"Pass {parameter}=<fitted_label> using one of the fitted "
+                    "level labels."
+                )
+                raise ValueError(
+                    f"Categorical treatment '{treatment}' has unknown {parameter} "
+                    f"label {label!r}. Fitted levels are "
+                    f"{list(categorical_levels)!r}. {fix}"
+                )
+
+            lo = fitted_level(values[0], "values endpoint")
+            hi = fitted_level(values[1], "values endpoint")
+            subgroup_level = fitted_level(subgroup_value, value_param)
+            observed = self._data[treatment].to_numpy()
+
+            def observed_matches(value: Any) -> bool:
+                if isinstance(value, bool_types) != isinstance(
+                    subgroup_level, bool_types
+                ):
+                    return False
+                try:
+                    return bool(value == subgroup_level)
+                except (TypeError, ValueError):
+                    return False
+
+            mask = np.fromiter(
+                (observed_matches(value) for value in observed),
+                dtype=bool,
+                count=len(observed),
+            )
+        else:
+            if values is None:
+                values = (0.0, 1.0)
+            if subgroup_value is None:
+                subgroup_value = (0.0, 1.0)[default_subgroup_endpoint]
+            subgroup_values: float | np.ndarray = subgroup_value
+            if self._scaling_factors is not None:
+                subgroup_values = np.asarray(
+                    self._scaling_factors.to_internal(
+                        np.full(len(self._data), subgroup_value, dtype=float),
+                        kind="regressor",
+                        dims=ScaleContext(term=treatment, data=self._data),
+                    )
+                )
+            mask = np.isclose(
+                np.asarray(self._data[treatment].to_numpy(), dtype=float),
+                subgroup_values,
+            )
+            lo, hi = values
         subgroup_idx = np.where(mask)[0]
         if len(subgroup_idx) == 0:
+            relation = "≈" if categorical_levels is None else "equal to"
             raise ValueError(
-                f"No observations with {treatment} ≈ {subgroup_value}. "
+                f"No observations with {treatment} {relation} {subgroup_value}. "
                 f"Check the {value_param} parameter or data values."
             )
 
-        lo, hi = values
-        r_lo = self._run_do({treatment: lo}, kind, subgroup_indices=subgroup_idx)
-        r_hi = self._run_do({treatment: hi}, kind, subgroup_indices=subgroup_idx)
+        if categorical_levels is not None:
+            with self._categorical_intervention({treatment: lo}):
+                r_lo = self._run_do(None, kind, subgroup_indices=subgroup_idx)
+            with self._categorical_intervention({treatment: hi}):
+                r_hi = self._run_do(None, kind, subgroup_indices=subgroup_idx)
+        else:
+            r_lo = self._run_do({treatment: lo}, kind, subgroup_indices=subgroup_idx)
+            r_hi = self._run_do({treatment: hi}, kind, subgroup_indices=subgroup_idx)
         return EstimandResult.from_contrast(
             r_hi - r_lo,
             outcome=outcome,
@@ -2813,8 +2902,8 @@ class PathModel:
         self,
         outcome: str,
         treatment: str,
-        values: tuple[float, float] = (0.0, 1.0),
-        treated_value: float = 1.0,
+        values: Iterable[Any] | None = None,
+        treated_value: Any | None = None,
         kind: str = "mean",
     ) -> EstimandResult:
         """Compute the average treatment effect on the treated (ATT).
@@ -2836,11 +2925,16 @@ class PathModel:
             is computed over all endogenous variables).
         treatment : str
             Treatment variable to intervene on.
-        values : tuple[float, float]
-            ``(lo, hi)`` intervention values. Default ``(0.0, 1.0)``.
-        treated_value : float
-            Value of the treatment variable identifying the treated
-            subgroup (default ``1.0``).
+        values : Iterable[Any] | None
+            Pair of ``(lo, hi)`` intervention endpoints given as any non-string
+            iterable of two values, such as a tuple, list, NumPy array, or
+            pandas Index. Numeric treatments default to ``(0.0, 1.0)``;
+            categorical treatments require an explicit pair of fitted level
+            labels.
+        treated_value : Any | None
+            Value identifying the treated subgroup. Defaults to ``1.0`` for
+            numeric treatments, regardless of *values*, and to the high
+            endpoint for categorical treatments.
         kind : str
             ``"mean"`` for deterministic propagation, ``"predictive"``
             to include residual noise.
@@ -2859,7 +2953,9 @@ class PathModel:
         NotImplementedError
             If the model is a panel model (not yet supported).
         ValueError
-            If no observations match *treated_value*.
+            If a categorical endpoint or subgroup is not a fitted level, if a
+            categorical endpoint pair is omitted, or if no observations match
+            *treated_value*.
 
         Examples
         --------
@@ -2867,6 +2963,8 @@ class PathModel:
         >>> model.fit(draws=1000, tune=1000)
         >>> att = model.att("Y", "T")
         >>> att.mean()  # E[Y(1) - Y(0) | T=1]
+        >>> regional = model.att("Y", "region", values=("north", "south"))
+        >>> regional.mean()  # E[Y(south) - Y(north) | region=south]
         """
         return self._subgroup_effect(
             "att",
@@ -2875,6 +2973,7 @@ class PathModel:
             values,
             subgroup_value=treated_value,
             value_param="treated_value",
+            default_subgroup_endpoint=1,
             kind=kind,
         )
 
@@ -2882,8 +2981,8 @@ class PathModel:
         self,
         outcome: str,
         treatment: str,
-        values: tuple[float, float] = (0.0, 1.0),
-        untreated_value: float = 0.0,
+        values: Iterable[Any] | None = None,
+        untreated_value: Any | None = None,
         kind: str = "mean",
     ) -> EstimandResult:
         """Compute the average treatment effect on the untreated (ATU).
@@ -2905,11 +3004,16 @@ class PathModel:
             is computed over all endogenous variables).
         treatment : str
             Treatment variable to intervene on.
-        values : tuple[float, float]
-            ``(lo, hi)`` intervention values. Default ``(0.0, 1.0)``.
-        untreated_value : float
-            Value of the treatment variable identifying the untreated
-            subgroup (default ``0.0``).
+        values : Iterable[Any] | None
+            Pair of ``(lo, hi)`` intervention endpoints given as any non-string
+            iterable of two values, such as a tuple, list, NumPy array, or
+            pandas Index. Numeric treatments default to ``(0.0, 1.0)``;
+            categorical treatments require an explicit pair of fitted level
+            labels.
+        untreated_value : Any | None
+            Value identifying the untreated subgroup. Defaults to ``0.0`` for
+            numeric treatments, regardless of *values*, and to the low
+            endpoint for categorical treatments.
         kind : str
             ``"mean"`` for deterministic propagation, ``"predictive"``
             to include residual noise.
@@ -2928,7 +3032,9 @@ class PathModel:
         NotImplementedError
             If the model is a panel model (not yet supported).
         ValueError
-            If no observations match *untreated_value*.
+            If a categorical endpoint or subgroup is not a fitted level, if a
+            categorical endpoint pair is omitted, or if no observations match
+            *untreated_value*.
 
         Examples
         --------
@@ -2936,6 +3042,8 @@ class PathModel:
         >>> model.fit(draws=1000, tune=1000)
         >>> atu = model.atu("Y", "T")
         >>> atu.mean()  # E[Y(1) - Y(0) | T=0]
+        >>> regional = model.atu("Y", "region", values=("north", "south"))
+        >>> regional.mean()  # E[Y(south) - Y(north) | region=north]
         """
         return self._subgroup_effect(
             "atu",
@@ -2944,6 +3052,7 @@ class PathModel:
             values,
             subgroup_value=untreated_value,
             value_param="untreated_value",
+            default_subgroup_endpoint=0,
             kind=kind,
         )
 
