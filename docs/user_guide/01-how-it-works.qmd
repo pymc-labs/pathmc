@@ -168,7 +168,7 @@ After `m = pathmc.model(spec, data=df)`, the `PathModel` object provides methods
 
 **Causal queries** — `do()` implements g-computation via `pm.do()`, and convenience wrappers `ate()`, `att()`, `atu()`, `cate()`, and `prob()` handle common causal estimands. Panel models with `lag()` terms or adstock transforms support time-forward simulation via `simulate_over="time"`.
 
-**Identification** — `adjustment_sets()`, `is_identifiable()`, `frontdoor_identifiable()`, and `collider_warnings()` reason about identifiability from the DAG structure alone. `test_implications()` checks the DAG's conditional independence claims against the data. `sensitivity()` quantifies robustness to unmeasured confounding.
+**Identification** — `adjustment_sets()`, `is_identifiable()`, `iv_identifiable()`, `frontdoor_identifiable()`, and `collider_warnings()` reason about identifiability from the DAG structure alone. `iv_identifiable()` detects instruments; it does not estimate the effect. `test_implications()` checks the DAG's conditional independence claims against the data. `sensitivity()` quantifies robustness to unmeasured confounding.
 
 
 ## Scope

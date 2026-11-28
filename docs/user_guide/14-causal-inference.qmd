@@ -307,6 +307,36 @@ The three conditions are: (1) `M` intercepts all directed paths from `X` to `Y`,
 This check uses the DAG derived from the model spec. If the estimation spec includes adjustment variables that add edges absent from the true causal structure (e.g. including `X` in the `Y` equation to block a backdoor), build a `GraphInfo` from the causal DAG separately for an accurate check.
 :::
 
+### Instrumental variables
+
+`.iv_identifiable()` is a separate verdict from `.is_identifiable()`. It returns the observed instruments, or `(False, set())` when none exist. A confounded effect can be IV-identifiable and still not backdoor-identifiable. The check does not estimate the effect, and a positive result does not make `do()` valid under unmeasured confounding.
+
+An observed node `Z` is an instrument for treatment `T` on outcome `Y` when there is a directed path from `Z` to `T`, and every path from `Z` to `Y` is blocked once `T` is removed. `Z` must affect `Y` only through `T`. A `Z ~~ Y` declaration violates that exclusion restriction. A `Z ~~ T` declaration is not a directed path, so it does not make `Z` an instrument. Latent nodes, and the synthetic confounder created from a `~~` block, are never returned.
+
+```python
+model = pathmc.model(
+    """
+    U ~ W
+    T ~ Z + U
+    Y ~ T + U
+    """,
+    latent=["U"],
+)
+model.is_identifiable("T", "Y")  # False: U is unobserved
+model.iv_identifiable("T", "Y")  # (True, {"Z"})
+```
+
+`model()` still refuses a directed edge inside a `~~` block, including `T ~ Z`, `Y ~ T`, `T ~~ Y`. That graph has the same instrument structure. Build it without compiling and call the helper directly:
+
+```python
+from pathmc.graph import build_graph
+from pathmc.identify import iv_identifiable
+from pathmc.parse import parse_spec
+
+g = build_graph(parse_spec("T ~ Z\nY ~ T\nT ~~ Y"))
+iv_identifiable(g, "T", "Y")  # (True, {"Z"})
+```
+
 ### Collider warnings
 
 `.collider_warnings()` flags variables in a proposed adjustment set that are colliders, conditioning on which would open spurious paths:
@@ -352,7 +382,7 @@ The validity of any causal claim depends on assumptions that pathmc cannot verif
 1. **Correct DAG structure.** The user must specify the right causal graph. A misspecified DAG (e.g., omitting a confounder) produces biased effect estimates regardless of the statistical method.
 
 2. **No unmeasured confounders.** The do-operator assumes that all common causes of the treatment and outcome are observed and included in the model.
-If there are unobserved confounders, the `do()` results are biased. (When unmeasured confounding exists but a clean mediator is available, the [front-door criterion](../docs/examples/identification/causal_identification.qmd#sec-front-door) may still permit identification.)
+If there are unobserved confounders, the `do()` results are biased. (When unmeasured confounding exists but a clean mediator is available, the [front-door criterion](../docs/examples/identification/causal_identification.qmd#sec-front-door) may still permit identification. `.iv_identifiable()` can report a graphical instrument in that case, but pathmc does not estimate the instrumental-variable effect, so `do()` stays biased.)
 
 3. **Consistency (well-defined interventions).** If a unit actually receives treatment value $x$, their observed outcome equals the potential outcome $Y(x)$.
 This rules out "multiple versions of treatment" — e.g., if `do(X = 1)` could mean different real-world interventions with different effects, the causal quantity is ill-defined.
@@ -365,7 +395,7 @@ pathmc's structural equations assume each observation is generated independently
 
 6. **Positivity.** Interventional queries at values far outside the observed data range are extrapolations and should be interpreted with caution.
 
-pathmc provides identification helpers (backdoor adjustment sets, front-door criterion, collider warnings) to assist with checking causal identifiability, but the analyst is ultimately responsible for specifying the correct DAG and defending the causal assumptions.
+pathmc provides identification helpers (backdoor adjustment sets, front-door criterion, instrument detection, collider warnings) to assist with checking causal identifiability, but the analyst is ultimately responsible for specifying the correct DAG and defending the causal assumptions.
 
 ::: {.callout-important}
 ## pathmc computes; you identify

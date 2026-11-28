@@ -64,6 +64,7 @@ from pathmc.identify import (
     frontdoor_identifiable as _frontdoor_identifiable,
     implied_independences as _implied_independences,
     is_identifiable as _is_identifiable,
+    iv_identifiable as _iv_identifiable,
     optimal_adjustment_set as _optimal_adjustment_set,
     test_implications as _test_implications,
 )
@@ -1579,6 +1580,57 @@ class PathModel:
             True if at least one valid adjustment set exists.
         """
         return _is_identifiable(self._graph_info, treatment, outcome)
+
+    def iv_identifiable(self, treatment: str, outcome: str) -> tuple[bool, set[str]]:
+        """Return observed instruments for *treatment*'s effect on *outcome*.
+
+        This does not change :meth:`is_identifiable`, which stays the
+        backdoor criterion, and it does not estimate the effect. A
+        confounded effect can be IV-identifiable and still not
+        backdoor-identifiable. ``do()`` on that model remains biased.
+
+        An observed node ``Z`` is an instrument when:
+
+        1. there is a directed path ``Z -> ... -> treatment``;
+        2. every path from ``Z`` to *outcome* is blocked once *treatment*
+           is removed. ``Z`` affects *outcome* only through *treatment*.
+
+        ``~~`` blocks and declared latents are expanded the same way as
+        the backdoor criterion. ``Z ~~ outcome`` violates exclusion.
+        ``Z ~~ treatment`` is not a directed path. Latent nodes and
+        synthetic residual confounders are never returned.
+
+        ``model()`` still refuses a directed edge inside a ``~~`` block.
+        For that declaration, build a ``GraphInfo`` and call
+        :func:`pathmc.identify.iv_identifiable`.
+
+        .. note::
+
+            This function reasons about the DAG structure declared in the
+            model specification. It cannot detect omitted variables,
+            missing edges, or other forms of misspecification. Use
+            ``test_implications()`` to check whether the DAG's structural
+            assumptions are consistent with observed data.
+
+        Parameters
+        ----------
+        treatment : str
+            Treatment variable name.
+        outcome : str
+            Outcome variable name.
+
+        Returns
+        -------
+        tuple[bool, set[str]]
+            ``(True, instruments)`` when at least one instrument exists,
+            otherwise ``(False, set())``.
+
+        Raises
+        ------
+        ValueError
+            If *treatment* or *outcome* is not in the DAG.
+        """
+        return _iv_identifiable(self._graph_info, treatment, outcome)
 
     def adjustment_model(
         self,

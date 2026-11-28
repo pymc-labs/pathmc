@@ -204,7 +204,7 @@ pathmc is a DAG-aware Bayesian causal modeling package with two first-class esti
 1. **Structural modeling** via `pathmc.model()`: specify the complete system of equations, fit jointly, and query via `do()` (structural g-computation).
 2. **Native regression adjustment** via `adjustment_model()`: derive a backdoor adjustment set from the same DAG, fit a single outcome equation, and estimate via outcome-regression standardization.
 
-Both estimators share the same identification layer: [`adjustment_sets()`](causal-inference.qmd), [`is_identifiable()`](causal-inference.qmd), and [`collider_warnings()`](causal-inference.qmd) work on the structural DAG regardless of which estimator you choose downstream.
+Both estimators share the same identification layer: [`adjustment_sets()`](causal-inference.qmd), [`is_identifiable()`](causal-inference.qmd), [`iv_identifiable()`](causal-inference.qmd), and [`collider_warnings()`](causal-inference.qmd) work on the structural DAG regardless of which estimator you choose downstream. `iv_identifiable()` only detects instruments; neither estimator is an instrumental-variable estimator.
 
 For a worked side-by-side comparison of structural `ate()` and native `adjustment_model().ate()` on the confounder-mediator DAG above, see [SCM vs Regression Adjustment](scm-vs-adjustment.qmd).
 

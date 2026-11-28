@@ -103,6 +103,7 @@ The DSL is lavaan-inspired:
 | Adjustment sets for identification                | `m.adjustment_sets(treatment, outcome)`                |
 | Variance-optimal graphical adjustment set         | `m.optimal_adjustment_set(treatment, outcome)`        |
 | Yes/no identification check                       | `m.is_identifiable(treatment, outcome)`                |
+| Instrument detection (not estimation)             | `m.iv_identifiable(treatment, outcome)`                |
 | Front-door identification                         | `m.frontdoor_identifiable(treatment, mediator, outcome)` |
 | Flag colliders on any path (heuristic; validity is `is_valid_adjustment_set`) | `m.collider_warnings(adjust, treatment, outcome)` |
 | Enumerate implied conditional independences       | `m.implied_independences()`                            |
@@ -146,8 +147,8 @@ The DSL is lavaan-inspired:
    pathmc builds the lagged design internally.
 7. **Data-free models have a partial method surface.**
    When `data=None`, `graph()`, `equations()`, `priors()`,
-   `adjustment_sets()`, `optimal_adjustment_set()`, `is_identifiable()`, `collider_warnings()`,
-   `implied_independences()` all work. `fit()`, `do()`, `ate()`,
+   `adjustment_sets()`, `optimal_adjustment_set()`, `is_identifiable()`, `iv_identifiable()`, `collider_warnings()`,
+   `implied_independences()` all work. `iv_identifiable()` detects instruments; it does not estimate them. `fit()`, `do()`, `ate()`,
    `cate()`, `design()`, `sample_prior_predictive()`,
    `test_implications()`, `falsify()`, `sensitivity()`,
    `refute_placebo()` raise `RuntimeError` until the model is rebuilt
@@ -216,7 +217,7 @@ The DSL is lavaan-inspired:
   `PathModel` or fitted `AdjustmentModel` objects for interpret-style
   queries (check `result.causal` on adjustment models).
 - Check identification (`adjustment_sets`, `optimal_adjustment_set`, `is_identifiable`,
-  `frontdoor_identifiable`, `collider_warnings`).
+  `iv_identifiable`, `frontdoor_identifiable`, `collider_warnings`). `iv_identifiable` detects instruments and does not estimate the effect.
 - Test the DAG's conditional-independence implications against data
   (`test_implications`).
 - Falsify the whole DAG with a permutation-based test (`falsify`),
